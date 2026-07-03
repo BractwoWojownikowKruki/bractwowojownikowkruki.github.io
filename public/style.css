@@ -273,6 +273,33 @@ main { padding: 1.25rem 1.5rem 3rem; }
   font-size: 14px;
 }
 
+/* ── Desktop: 33% larger tiles ── */
+
+@media (min-width: 601px) {
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(246px, 1fr));
+    gap: 1.33rem;
+  }
+
+  .card { border-radius: 11px; }
+
+  .card-body { padding: 13px 16px; }
+
+  .card-title { font-size: 16px; }
+
+  .date-badge,
+  .no-date-badge {
+    border-radius: 5px;
+    padding: 4px 9px;
+    font-size: 15px;
+  }
+
+  .btn-count svg { width: 15px; height: 15px; }
+  .btn-count span { font-size: 13px; }
+
+  .btn-copy svg { width: 17px; height: 17px; }
+}
+
 /* ── Mobile ── */
 
 @media (max-width: 600px) {
