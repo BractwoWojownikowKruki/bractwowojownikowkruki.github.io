@@ -15,9 +15,14 @@
 #
 # Data jest wykrywana automatycznie z nazwy (format YYYY-MM-DD, YYYY.MM.DD, YYYY/MM itp.)
 # i służy do sortowania albumów.
-#test 123456789
+#
+# KOMENTARZ (po podwójnej pionowej kresce "||"):
+#   https://photos.app.goo.gl/XYZ | 2024-08-03 Wolin || nieaktualny, poprosić o nowy link
+#
+# Wszystko po "||" jest ignorowane przy synchronizacji - przydaje się do notatek
+# w rodzaju "czeka na potwierdzenie" czy "duplikat, do usunięcia".
 
-https://photos.app.goo.gl/3ijM45kSrfkoUfBL7  # Noc Kupały Szczecin 12-14.06.2026
+https://photos.app.goo.gl/3ijM45kSrfkoUfBL7 || Noc Kupały Szczecin 12-14.06.2026
 https://photos.app.goo.gl/DEly8fzq6MZWSw2a2
 https://photos.app.goo.gl/5JV2tW5nr0Z3bn1G2
 https://photos.app.goo.gl/tfgOL7g0IlY5OW3p1
