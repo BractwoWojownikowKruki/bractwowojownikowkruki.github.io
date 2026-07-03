@@ -17,7 +17,7 @@
 # i służy do sortowania albumów.
 #test 123456789
 
-https://photos.app.goo.gl/3ijM45kSrfkoUfBL7 | Noc Kupały Szczecin 12-14_06_2026
+https://photos.app.goo.gl/3ijM45kSrfkoUfBL7  # Noc Kupały Szczecin 12-14.06.2026
 https://photos.app.goo.gl/DEly8fzq6MZWSw2a2
 https://photos.app.goo.gl/5JV2tW5nr0Z3bn1G2
 https://photos.app.goo.gl/tfgOL7g0IlY5OW3p1
