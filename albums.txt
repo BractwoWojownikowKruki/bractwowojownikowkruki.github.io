@@ -16,7 +16,7 @@
 # Data jest wykrywana automatycznie z nazwy (format YYYY-MM-DD, YYYY.MM.DD, YYYY/MM itp.)
 # i służy do sortowania albumów.
 
-https://photos.app.goo.gl/DEly8fzq6MZWSw2a2
+https://photos.app.goo.gl/DEly8fzq6MZWSw2a2 | 2026_06_12-14 Noc Kupały Szczecin
 https://photos.app.goo.gl/5JV2tW5nr0Z3bn1G2
 https://photos.app.goo.gl/tfgOL7g0IlY5OW3p1
 https://photos.app.goo.gl/svmZNFbF079zgel32
