@@ -47,6 +47,17 @@ function filter(list, query) {
   return list.filter(a => a.searchText.includes(query));
 }
 
+// Groups already-sorted albums by year, preserving order; undated albums land in "Bez daty".
+function groupByYear(albums) {
+  const groups = new Map();
+  for (const album of albums) {
+    const key = album.date ? album.date.slice(0, 4) : 'Bez daty';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(album);
+  }
+  return groups;
+}
+
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -108,6 +119,15 @@ function renderCard(album) {
     </article>`;
 }
 
+function renderYearGroup(label, albums) {
+  const heading = label ? `<h2 class="year-label">${escapeHtml(label)}</h2>` : '';
+  return `
+    <section class="year-group">
+      ${heading}
+      <div class="year-grid" role="list">${albums.map(renderCard).join('')}</div>
+    </section>`;
+}
+
 function update() {
   const query = document.getElementById('search').value.trim().toLowerCase();
   const albums = sort(filter(allAlbums, query));
@@ -126,7 +146,15 @@ function update() {
   }
 
   empty.hidden = true;
-  grid.innerHTML = albums.map(renderCard).join('');
+
+  if (sortMode === 'alpha') {
+    grid.innerHTML = renderYearGroup(null, albums);
+  } else {
+    const groups = groupByYear(albums);
+    grid.innerHTML = [...groups.entries()]
+      .map(([year, list]) => renderYearGroup(year, list))
+      .join('');
+  }
 }
 
 document.getElementById('grid').addEventListener('click', e => {

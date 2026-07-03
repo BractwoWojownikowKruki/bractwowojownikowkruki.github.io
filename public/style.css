@@ -117,7 +117,22 @@ select:focus { border-color: var(--accent); }
 
 main { padding: 1.25rem 1.5rem 3rem; }
 
-.grid {
+#grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.year-label {
+  font-family: 'Cinzel', serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gold);
+  letter-spacing: 0.5px;
+  margin-bottom: 0.6rem;
+}
+
+.year-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
   gap: 1rem;
@@ -276,10 +291,12 @@ main { padding: 1.25rem 1.5rem 3rem; }
 /* ── Desktop: 33% larger tiles ── */
 
 @media (min-width: 601px) {
-  .grid {
+  .year-grid {
     grid-template-columns: repeat(auto-fill, minmax(246px, 1fr));
     gap: 1.33rem;
   }
+
+  .year-label { font-size: 18px; }
 
   .card { border-radius: 11px; }
 
@@ -340,7 +357,7 @@ main { padding: 1.25rem 1.5rem 3rem; }
 
   main { padding: 1rem 1rem 2.5rem; }
 
-  .grid {
+  .year-grid {
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: 0.75rem;
   }
