@@ -42,6 +42,16 @@ Przydatne gdy:
 - tytuł albumu w Google Photos jest nieczytelny lub pusty
 - album obejmuje kilka dni: `2024-08-03-05 Wolin` (sortuje po 3 sie, wyświetla „Wolin")
 
+#### Komentarz (opcjonalnie)
+
+Aby dodać notatkę do linku, która nie trafi na stronę, dopisz ją po podwójnej pionowej kresce `||`:
+
+```
+https://photos.app.goo.gl/XYZ | 2024-08-03 Wolin || nieaktualny, poprosić o nowy link
+```
+
+Wszystko po `||` jest ignorowane. Pojedyncza kreska `|` nadal służy tylko do własnej nazwy.
+
 ### Krok 4 — Wyślij propozycję zmiany
 
 Kliknij zielony przycisk **„Propose changes"**, a następnie **„Create pull request"**.
@@ -63,6 +73,7 @@ Data jest wykrywana automatycznie i służy do sortowania. Obsługiwane formaty:
 | `YYYY.MM` | `Radzim 2025.05` |
 | Data na końcu tytułu | `Wolin 2024-08-03` |
 | Zakres dni | `2024-08-03-05 Wolin` |
+| Zakres dni `DD-DD.MM.YYYY` | `12-14.06.2026` |
 
 ---
 

@@ -52,6 +52,14 @@ describe('parseDate', () => {
     assert.equal(parseDate('2021-01-23-25'), '2021-01-23');
   });
 
+  // --- day ranges DD-DD.MM.YYYY ---
+  it('parses start date from a DD-DD.MM.YYYY day-range suffix', () => {
+    assert.equal(parseDate('Noc Kupały Szczecin 12-14.06.2026'), '2026-06-12');
+  });
+  it('parses start date from a DD-DD.MM.YYYY day-range with no surrounding text', () => {
+    assert.equal(parseDate('12-14.06.2026'), '2026-06-12');
+  });
+
   // --- full date preferred over month-only ---
   it('prefers full date over month-only when both could match', () => {
     assert.equal(parseDate('2024-08-03 Wolin'), '2024-08-03');
@@ -125,6 +133,10 @@ describe('displayTitle', () => {
     assert.equal(displayTitle('2019.08.02-04 Wolin'), 'Wolin');
   });
 
+  it('strips DD-DD.MM.YYYY day-range suffix', () => {
+    assert.equal(displayTitle('Noc Kupały Szczecin 12-14.06.2026'), 'Noc Kupały Szczecin');
+  });
+
   it('strips leading non-letter orphan fragments after date removal', () => {
     assert.equal(displayTitle('2019.08.02-04'), '2019.08.02-04'); // no name → return original
   });
@@ -171,6 +183,26 @@ describe('parseAlbumsTxt', () => {
 
   it('trims whitespace around url and name', () => {
     const result = parseAlbumsTxt('  https://photos.app.goo.gl/abc  |  2024-08-03 Wolin  ');
+    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
+  });
+
+  it('ignores a comment after "||" with no name override', () => {
+    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc || not synced, ask Jan');
+    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: undefined }]);
+  });
+
+  it('ignores a comment after "||" following a name override', () => {
+    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc | 2024-08-03 Wolin || not synced yet');
+    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
+  });
+
+  it('ignores comment content even if it contains a single pipe', () => {
+    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc | 2024-08-03 Wolin || rejected | needs a re-share');
+    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
+  });
+
+  it('a single pipe still separates url and name (not treated as a comment)', () => {
+    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc | 2024-08-03 Wolin');
     assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
   });
 });
