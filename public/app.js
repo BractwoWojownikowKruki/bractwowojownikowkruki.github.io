@@ -66,6 +66,55 @@ function escapeAttr(str) {
   return str.replace(/"/g, '&quot;');
 }
 
+const DIACRITICS = { ą: 'a', ć: 'c', ę: 'e', ł: 'l', ń: 'n', ó: 'o', ś: 's', ź: 'z', ż: 'z' };
+
+function normalizeDiacritics(str) {
+  return str.replace(/[ąćęłńóśźż]/g, ch => DIACRITICS[ch]);
+}
+
+// Friendly URL slug for an album, derived from its date-stripped title.
+// e.g. "Trening Zbiorczy Poznań" -> "trening-zbiorczy-poznan"
+function slugify(title) {
+  const base = normalizeDiacritics(title.toLowerCase());
+  return base.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+// Words (3+ letters) from an album's date-stripped title, for related-gallery matching.
+function tokenize(title) {
+  const base = normalizeDiacritics(displayTitle(title).toLowerCase());
+  return base.split(/[^a-z0-9]+/).filter(w => w.length >= 3);
+}
+
+// Scores every other album by shared title words with `album`, descending by score
+// then by date (newest first), capped at 12. Returns [] if nothing scores >= 1.
+function findRelated(album, albums) {
+  const words = new Set(tokenize(album.title));
+  if (words.size === 0) return [];
+
+  const scored = albums
+    .filter(a => a !== album)
+    .map(a => {
+      const otherWords = new Set(tokenize(a.title));
+      let score = 0;
+      for (const w of words) if (otherWords.has(w)) score++;
+      return { album: a, score };
+    })
+    .filter(s => s.score >= 1);
+
+  scored.sort((x, y) => {
+    if (y.score !== x.score) return y.score - x.score;
+    const dx = sortKey(x.album.date), dy = sortKey(y.album.date);
+    if (dx !== dy) {
+      if (!dx) return 1;
+      if (!dy) return -1;
+      return dy.localeCompare(dx);
+    }
+    return displayTitle(x.album.title).localeCompare(displayTitle(y.album.title), 'pl');
+  });
+
+  return scored.slice(0, 12).map(s => s.album);
+}
+
 let toastTimer = null;
 function showToast(msg) {
   let el = document.getElementById('toast');
@@ -82,7 +131,7 @@ function showToast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('visible'), 3500);
 }
 
-function renderCard(album) {
+function renderCard(album, mode = 'external') {
   const badge = album.date
     ? `<span class="date-badge">${album.date}</span>`
     : `<span class="no-date-badge">bez daty</span>`;
@@ -91,10 +140,14 @@ function renderCard(album) {
     ? `<button class="btn-count" aria-label="Informacja o liczbie zdjęć"><span>${album.photoCount >= 300 ? '300+' : album.photoCount}</span>${ICON_PHOTO}</button>`
     : '';
 
+  const isFocusLink = mode === 'focus';
+  const coverHref = isFocusLink ? `#${slugify(album.title)}` : album.url;
+  const coverExtraAttrs = isFocusLink ? '' : ' target="_blank" rel="noopener noreferrer"';
+
   return `
     <article class="card" role="listitem">
       <div class="card-cover">
-        <a href="${escapeAttr(album.url)}" target="_blank" rel="noopener noreferrer" aria-label="Otwórz album">
+        <a href="${escapeAttr(coverHref)}"${coverExtraAttrs} aria-label="Otwórz album">
           <img
             src="${escapeAttr(album.cover)}"
             alt="${escapeAttr(album.title)}"
@@ -119,13 +172,27 @@ function renderCard(album) {
     </article>`;
 }
 
-function renderYearGroup(label, albums) {
+function renderYearGroup(label, albums, mode = 'external') {
   const heading = label ? `<h2 class="year-label">${escapeHtml(label)}</h2>` : '';
   return `
     <section class="year-group">
       ${heading}
-      <div class="year-grid" role="list">${albums.map(renderCard).join('')}</div>
+      <div class="year-grid" role="list">${albums.map(a => renderCard(a, mode)).join('')}</div>
     </section>`;
+}
+
+function renderFocusedView(album, albums) {
+  const related = findRelated(album, albums);
+  const relatedHtml = related.length
+    ? `
+      <h2 class="related-label">Powiązane</h2>
+      <div class="year-grid" role="list">${related.map(a => renderCard(a, 'focus')).join('')}</div>`
+    : '';
+
+  return `
+    <a href="#" class="back-link">&larr; Wszystkie galerie</a>
+    <div class="focused-card">${renderCard(album, 'external')}</div>
+    ${relatedHtml}`;
 }
 
 function update() {
@@ -157,7 +224,30 @@ function update() {
   }
 }
 
-document.getElementById('grid').addEventListener('click', e => {
+function route() {
+  const hash = location.hash.slice(1);
+  const viewGrid = document.getElementById('view-grid');
+  const viewFocused = document.getElementById('view-focused');
+  const toolbar = document.getElementById('toolbar');
+
+  const album = hash ? allAlbums.find(a => slugify(a.title) === hash) : null;
+
+  if (album) {
+    viewFocused.innerHTML = renderFocusedView(album, allAlbums);
+    viewFocused.hidden = false;
+    viewGrid.hidden = true;
+    toolbar.hidden = true;
+  } else {
+    viewFocused.hidden = true;
+    viewFocused.innerHTML = '';
+    viewGrid.hidden = false;
+    toolbar.hidden = false;
+  }
+}
+
+window.addEventListener('hashchange', route);
+
+document.addEventListener('click', e => {
   if (e.target.closest('.btn-count')) {
     showToast('Liczba zdjęć orientacyjna, z chwili importu ostatniego albumu');
     return;
@@ -181,6 +271,7 @@ fetch('data/albums.generated.json')
   .then(data => {
     allAlbums = data;
     update();
+    route();
   })
   .catch(() => {
     document.getElementById('count').textContent = 'Błąd ładowania danych';
