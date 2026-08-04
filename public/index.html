@@ -18,7 +18,7 @@
         <img src="logo-desktop.png" alt="Krucze Galery" class="logo" onerror="this.style.display='none'" />
       </picture>
     </a>
-    <div class="toolbar">
+    <div class="toolbar" id="toolbar">
       <div class="search-wrap">
         <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
@@ -37,8 +37,11 @@
   </header>
 
   <main>
-    <div id="grid"></div>
-    <p class="empty" id="empty" hidden>Nie znaleziono albumów. Spróbuj innego wyszukiwania.</p>
+    <div id="view-grid">
+      <div id="grid"></div>
+      <p class="empty" id="empty" hidden>Nie znaleziono albumów. Spróbuj innego wyszukiwania.</p>
+    </div>
+    <div id="view-focused" hidden></div>
   </main>
 
   <footer class="footer">
