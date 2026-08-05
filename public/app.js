@@ -13,6 +13,13 @@ const ICON_CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke
   <path d="M20 6 9 17l-5-5"/>
 </svg>`;
 
+const ICON_GOOGLE_PHOTOS = `<svg viewBox="0 0 59 59" aria-hidden="true">
+  <path d="M14.75 13.41c8.146 0 14.75 6.603 14.75 14.75v1.34H1.34C.6 29.5 0 28.9 0 28.16c0-8.147 6.604-14.75 14.75-14.75z" fill="#FBBC04"/>
+  <path d="M45.59 14.75c0 8.146-6.603 14.75-14.75 14.75H29.5V1.34C29.5.6 30.1 0 30.84 0c8.147 0 14.75 6.604 14.75 14.75z" fill="#EA4335"/>
+  <path d="M44.25 45.59c-8.146 0-14.75-6.603-14.75-14.75V29.5h28.16c.74 0 1.34.6 1.34 1.34 0 8.147-6.604 14.75-14.75 14.75z" fill="#4285F4"/>
+  <path d="M13.41 44.25c0-8.146 6.603-14.75 14.75-14.75h1.34v28.16c0 .74-.6 1.34-1.34 1.34-8.147 0-14.75-6.604-14.75-14.75z" fill="#34A853"/>
+</svg>`;
+
 let allAlbums = [];
 let sortMode = 'newest';
 
@@ -131,7 +138,7 @@ function showToast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('visible'), 3500);
 }
 
-function renderCard(album, mode = 'external') {
+function renderCard(album, mode = 'focus') {
   const badge = album.date
     ? `<span class="date-badge">${album.date}</span>`
     : `<span class="no-date-badge">bez daty</span>`;
@@ -161,6 +168,14 @@ function renderCard(album, mode = 'external') {
         <div class="title-row">
           <p class="card-title">${escapeHtml(displayTitle(album.title))}</p>
           ${countBadge}
+          <a
+            class="btn-open-photos"
+            href="${escapeAttr(album.url)}"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Otwórz w Google Photos"
+            aria-label="Otwórz w Google Photos"
+          >${ICON_GOOGLE_PHOTOS}</a>
           <button
             class="btn-copy"
             data-url="${escapeAttr(`https://www.kruki.org/galerie/#${slugify(album.title)}`)}"
@@ -172,7 +187,7 @@ function renderCard(album, mode = 'external') {
     </article>`;
 }
 
-function renderYearGroup(label, albums, mode = 'external') {
+function renderYearGroup(label, albums, mode = 'focus') {
   const heading = label ? `<h2 class="year-label">${escapeHtml(label)}</h2>` : '';
   return `
     <section class="year-group">

@@ -229,6 +229,17 @@ main { padding: 1.25rem 1.5rem 3rem; }
 .btn-count svg { width: 11px; height: 11px; pointer-events: none; flex-shrink: 0; }
 .btn-count span { font-size: 10px; font-variant-numeric: tabular-nums; line-height: 1; }
 
+.btn-open-photos {
+  display: inline-flex;
+  padding: 0 2px;
+  flex-shrink: 0;
+  line-height: 0;
+  opacity: 0.85;
+  transition: opacity 0.15s;
+}
+.btn-open-photos:hover { opacity: 1; }
+.btn-open-photos svg { width: 13px; height: 13px; pointer-events: none; }
+
 .btn-copy {
   background: transparent;
   border: none;
@@ -314,6 +325,8 @@ main { padding: 1.25rem 1.5rem 3rem; }
 
   .btn-count svg { width: 15px; height: 15px; }
   .btn-count span { font-size: 13px; }
+
+  .btn-open-photos svg { width: 17px; height: 17px; }
 
   .btn-copy svg { width: 17px; height: 17px; }
 }
