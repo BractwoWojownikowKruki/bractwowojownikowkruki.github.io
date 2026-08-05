@@ -163,7 +163,7 @@ function renderCard(album, mode = 'external') {
           ${countBadge}
           <button
             class="btn-copy"
-            data-url="${escapeAttr(album.url)}"
+            data-url="${escapeAttr(`https://www.kruki.org/galerie/#${slugify(album.title)}`)}"
             title="Kopiuj link"
             aria-label="Kopiuj link do albumu"
           >${ICON_LINK}</button>
