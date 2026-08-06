@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "sync-albums": "tsx scripts/sync-albums.ts",
-    "test": "tsx --test scripts/sync-albums.test.ts",
+    "test": "tsx --test scripts/*.test.ts",
     "build": "mkdir -p dist && cp -r public/* dist/",
     "dev": "npx serve public"
   },

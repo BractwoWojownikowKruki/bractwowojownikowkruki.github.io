@@ -1,0 +1,64 @@
+name: Album submission
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.labels.*.name, 'album-submission')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Process submission
+        id: process
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: npx tsx scripts/process-album-issue.ts
+
+      - name: Comment (invalid)
+        if: steps.process.outputs.status == 'invalid'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_MESSAGE: ${{ steps.process.outputs.message }}
+        run: gh issue comment "$ISSUE_NUMBER" --body "$COMMENT_MESSAGE"
+
+      - name: Open PR (valid)
+        if: steps.process.outputs.status == 'valid'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PR_TITLE: ${{ steps.process.outputs.title }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BRANCH="add-album-issue-${ISSUE_NUMBER}"
+          git checkout -b "$BRANCH"
+          git add albums.txt
+          git commit -m "Dodaj album z issue #${ISSUE_NUMBER}"
+          git push origin "$BRANCH"
+          PR_URL=$(gh pr create --title "Dodaj album: $PR_TITLE" \
+            --body "Zgłoszone przez #${ISSUE_NUMBER}. Zamyka #${ISSUE_NUMBER} po zmergowaniu." \
+            --base main --head "$BRANCH")
+          gh issue comment "$ISSUE_NUMBER" --body "Dzięki! Utworzyłem PR do przeglądu: $PR_URL"
+
+      - name: Comment (unexpected failure)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: gh issue comment "$ISSUE_NUMBER" --body "Coś poszło nie tak podczas przetwarzania zgłoszenia. Administrator sprawdzi to ręcznie."
