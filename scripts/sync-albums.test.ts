@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDate, extractTitle, makeSearchText, displayTitle, parseAlbumsTxt, extractPhotoCount } from './utils.ts';
+import { parseDate, extractTitle, makeSearchText, displayTitle, parseAlbumsTxt, extractPhotoCount, extractThumbUrls } from './utils.ts';
 
 describe('parseDate', () => {
   // --- prefix, hyphens ---
@@ -50,6 +50,14 @@ describe('parseDate', () => {
   });
   it('parses start date from a day-range with no trailing text', () => {
     assert.equal(parseDate('2021-01-23-25'), '2021-01-23');
+  });
+
+  // --- day ranges DD-DD.MM.YYYY ---
+  it('parses start date from a DD-DD.MM.YYYY day-range suffix', () => {
+    assert.equal(parseDate('Noc Kupały Szczecin 12-14.06.2026'), '2026-06-12');
+  });
+  it('parses start date from a DD-DD.MM.YYYY day-range with no surrounding text', () => {
+    assert.equal(parseDate('12-14.06.2026'), '2026-06-12');
   });
 
   // --- full date preferred over month-only ---
@@ -125,6 +133,10 @@ describe('displayTitle', () => {
     assert.equal(displayTitle('2019.08.02-04 Wolin'), 'Wolin');
   });
 
+  it('strips DD-DD.MM.YYYY day-range suffix', () => {
+    assert.equal(displayTitle('Noc Kupały Szczecin 12-14.06.2026'), 'Noc Kupały Szczecin');
+  });
+
   it('strips leading non-letter orphan fragments after date removal', () => {
     assert.equal(displayTitle('2019.08.02-04'), '2019.08.02-04'); // no name → return original
   });
@@ -173,6 +185,26 @@ describe('parseAlbumsTxt', () => {
     const result = parseAlbumsTxt('  https://photos.app.goo.gl/abc  |  2024-08-03 Wolin  ');
     assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
   });
+
+  it('ignores a comment after "||" with no name override', () => {
+    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc || not synced, ask Jan');
+    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: undefined }]);
+  });
+
+  it('ignores a comment after "||" following a name override', () => {
+    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc | 2024-08-03 Wolin || not synced yet');
+    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
+  });
+
+  it('ignores comment content even if it contains a single pipe', () => {
+    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc | 2024-08-03 Wolin || rejected | needs a re-share');
+    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
+  });
+
+  it('a single pipe still separates url and name (not treated as a comment)', () => {
+    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc | 2024-08-03 Wolin');
+    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
+  });
 });
 
 describe('extractPhotoCount', () => {
@@ -195,6 +227,45 @@ describe('extractPhotoCount', () => {
 
   it('returns null when no photo IDs are present', () => {
     assert.equal(extractPhotoCount('<html><head></head><body></body></html>'), null);
+  });
+});
+
+describe('extractThumbUrls', () => {
+  it('returns URLs with the size suffix appended, in page order', () => {
+    const html = [
+      '["AF1Qip111",["https://lh3.googleusercontent.com/a",1024,680]]',
+      '["AF1Qip222",["https://lh3.googleusercontent.com/b",1024,680]]',
+    ].join('\n');
+    assert.deepEqual(extractThumbUrls(html), [
+      'https://lh3.googleusercontent.com/a=w220-h220-c',
+      'https://lh3.googleusercontent.com/b=w220-h220-c',
+    ]);
+  });
+
+  it('deduplicates the same photo ID appearing twice', () => {
+    const html = [
+      '["AF1Qip111",["https://lh3.googleusercontent.com/a",1024,680]]',
+      '["AF1Qip111",["https://lh3.googleusercontent.com/a",1024,680]]',
+    ].join('\n');
+    assert.deepEqual(extractThumbUrls(html), ['https://lh3.googleusercontent.com/a=w220-h220-c']);
+  });
+
+  it('caps results at the given limit', () => {
+    const html = Array.from({ length: 20 }, (_, i) =>
+      `["AF1Qip${i}",["https://lh3.googleusercontent.com/${i}",1024,680]]`
+    ).join('\n');
+    assert.equal(extractThumbUrls(html, 5).length, 5);
+  });
+
+  it('defaults to a limit of 24', () => {
+    const html = Array.from({ length: 30 }, (_, i) =>
+      `["AF1Qip${i}",["https://lh3.googleusercontent.com/${i}",1024,680]]`
+    ).join('\n');
+    assert.equal(extractThumbUrls(html).length, 24);
+  });
+
+  it('returns an empty array when no photo IDs are present', () => {
+    assert.deepEqual(extractThumbUrls('<html><head></head><body></body></html>'), []);
   });
 });
 

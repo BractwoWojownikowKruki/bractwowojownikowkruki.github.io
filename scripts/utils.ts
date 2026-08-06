@@ -37,7 +37,11 @@ export function extractCoverUrl(html: string): string | null {
 
 // Finds a date anywhere in the title. Supports separators - . /
 // Returns YYYY-MM-DD for full dates, YYYY-MM for month-only.
+// Also recognizes the DD-DD.MM.YYYY day-range form (e.g. "12-14.06.2026"), returning its start date.
 export function parseDate(title: string): string | null {
+  // Day range: DD-DD.MM.YYYY anywhere in title (e.g. "12-14.06.2026")
+  const dayRange = title.match(/(\d{2})-\d{2}\.(\d{2})\.(\d{4})/);
+  if (dayRange) return `${dayRange[3]}-${dayRange[2]}-${dayRange[1]}`;
   // Full date: YYYY[-./]MM[-./]DD anywhere in title
   const full = title.match(/(\d{4})[-./](\d{2})[-./](\d{2})/);
   if (full) return `${full[1]}-${full[2]}-${full[3]}`;
@@ -48,13 +52,16 @@ export function parseDate(title: string): string | null {
 }
 
 // Strips a date from anywhere in the title (prefix, suffix, or inline).
-// Handles YYYY-MM-DD-DD ranges and separators - . /
+// Handles YYYY-MM-DD-DD ranges, the DD-DD.MM.YYYY range form, and separators - . /
 // After stripping, trims leading non-letter characters (orphan fragments like "-04").
 export function displayTitle(title: string): string {
   const clean = (s: string) =>
     s.replace(/^[^\p{L}]+/u, '').replace(/[\s,\-–—]+$/g, '').trim();
+  // Day range DD-DD.MM.YYYY (e.g. "12-14.06.2026")
+  let s = title.replace(/\d{2}-\d{2}\.\d{2}\.\d{4}/, '');
+  if (s !== title) return clean(s) || title;
   // Full date with optional range end-day
-  let s = title.replace(/\d{4}[-./]\d{2}[-./]\d{2}(?:-\d{2})?/, '');
+  s = title.replace(/\d{4}[-./]\d{2}[-./]\d{2}(?:-\d{2})?/, '');
   if (s !== title) return clean(s) || title;
   // Month-only
   s = title.replace(/\d{4}[-./]\d{2}(?=[^-./\d]|$)/, '');
@@ -62,10 +69,27 @@ export function displayTitle(title: string): string {
   return title;
 }
 
+interface PhotoEntry {
+  id: string;
+  url: string;
+}
+
+function extractPhotoEntries(html: string): PhotoEntry[] {
+  const matches = [...html.matchAll(/"(AF1Qip[^"]+)",\["(https:\/\/lh3[^"]+)"/g)];
+  const seen = new Map<string, string>();
+  for (const m of matches) if (!seen.has(m[1])) seen.set(m[1], m[2]);
+  return [...seen.entries()].map(([id, url]) => ({ id, url }));
+}
+
 export function extractPhotoCount(html: string): number | null {
-  const matches = [...html.matchAll(/"(AF1Qip[^"]+)",\["https:\/\/lh3/g)];
-  const ids = new Set(matches.map(m => m[1]));
-  return ids.size > 0 ? ids.size : null;
+  const n = extractPhotoEntries(html).length;
+  return n > 0 ? n : null;
+}
+
+export function extractThumbUrls(html: string, limit = 24): string[] {
+  return extractPhotoEntries(html)
+    .slice(0, limit)
+    .map(e => `${e.url}=w220-h220-c`);
 }
 
 export function makeSearchText(title: string): string {
@@ -83,7 +107,9 @@ export function parseAlbumsTxt(content: string): AlbumEntry[] {
   for (const line of content.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
-    const [rawUrl, rawName] = trimmed.split('|').map(s => s.trim());
+    // "||" starts a comment that runs to the end of the line; "|" still separates url and name.
+    const withoutComment = trimmed.split('||')[0].trim();
+    const [rawUrl, rawName] = withoutComment.split('|').map(s => s.trim());
     if (!rawUrl) continue;
     if (seen.has(rawUrl)) {
       console.warn(`[warn] Duplikat pominięty: ${rawUrl}`);

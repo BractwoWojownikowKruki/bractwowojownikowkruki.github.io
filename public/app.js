@@ -13,6 +13,13 @@ const ICON_CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke
   <path d="M20 6 9 17l-5-5"/>
 </svg>`;
 
+const ICON_GOOGLE_PHOTOS = `<svg viewBox="0 0 59 59" aria-hidden="true">
+  <path d="M14.75 13.41c8.146 0 14.75 6.603 14.75 14.75v1.34H1.34C.6 29.5 0 28.9 0 28.16c0-8.147 6.604-14.75 14.75-14.75z" fill="#FBBC04"/>
+  <path d="M45.59 14.75c0 8.146-6.603 14.75-14.75 14.75H29.5V1.34C29.5.6 30.1 0 30.84 0c8.147 0 14.75 6.604 14.75 14.75z" fill="#EA4335"/>
+  <path d="M44.25 45.59c-8.146 0-14.75-6.603-14.75-14.75V29.5h28.16c.74 0 1.34.6 1.34 1.34 0 8.147-6.604 14.75-14.75 14.75z" fill="#4285F4"/>
+  <path d="M13.41 44.25c0-8.146 6.603-14.75 14.75-14.75h1.34v28.16c0 .74-.6 1.34-1.34 1.34-8.147 0-14.75-6.604-14.75-14.75z" fill="#34A853"/>
+</svg>`;
+
 let allAlbums = [];
 let sortMode = 'newest';
 
@@ -47,12 +54,72 @@ function filter(list, query) {
   return list.filter(a => a.searchText.includes(query));
 }
 
+// Groups already-sorted albums by year, preserving order; undated albums land in "Bez daty".
+function groupByYear(albums) {
+  const groups = new Map();
+  for (const album of albums) {
+    const key = album.date ? album.date.slice(0, 4) : 'Bez daty';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(album);
+  }
+  return groups;
+}
+
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function escapeAttr(str) {
   return str.replace(/"/g, '&quot;');
+}
+
+const DIACRITICS = { ą: 'a', ć: 'c', ę: 'e', ł: 'l', ń: 'n', ó: 'o', ś: 's', ź: 'z', ż: 'z' };
+
+function normalizeDiacritics(str) {
+  return str.replace(/[ąćęłńóśźż]/g, ch => DIACRITICS[ch]);
+}
+
+// Friendly URL slug for an album, derived from its date-stripped title.
+// e.g. "Trening Zbiorczy Poznań" -> "trening-zbiorczy-poznan"
+function slugify(title) {
+  const base = normalizeDiacritics(title.toLowerCase());
+  return base.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+// Words (3+ letters) from an album's date-stripped title, for related-gallery matching.
+function tokenize(title) {
+  const base = normalizeDiacritics(displayTitle(title).toLowerCase());
+  return base.split(/[^a-z0-9]+/).filter(w => w.length >= 3);
+}
+
+// Scores every other album by shared title words with `album`, descending by score
+// then by date (newest first), capped at 12. Returns [] if nothing scores >= 1.
+function findRelated(album, albums) {
+  const words = new Set(tokenize(album.title));
+  if (words.size === 0) return [];
+
+  const scored = albums
+    .filter(a => a !== album)
+    .map(a => {
+      const otherWords = new Set(tokenize(a.title));
+      let score = 0;
+      for (const w of words) if (otherWords.has(w)) score++;
+      return { album: a, score };
+    })
+    .filter(s => s.score >= 1);
+
+  scored.sort((x, y) => {
+    if (y.score !== x.score) return y.score - x.score;
+    const dx = sortKey(x.album.date), dy = sortKey(y.album.date);
+    if (dx !== dy) {
+      if (!dx) return 1;
+      if (!dy) return -1;
+      return dy.localeCompare(dx);
+    }
+    return displayTitle(x.album.title).localeCompare(displayTitle(y.album.title), 'pl');
+  });
+
+  return scored.slice(0, 12).map(s => s.album);
 }
 
 let toastTimer = null;
@@ -71,7 +138,7 @@ function showToast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('visible'), 3500);
 }
 
-function renderCard(album) {
+function renderCard(album, mode = 'focus') {
   const badge = album.date
     ? `<span class="date-badge">${album.date}</span>`
     : `<span class="no-date-badge">bez daty</span>`;
@@ -80,10 +147,14 @@ function renderCard(album) {
     ? `<button class="btn-count" aria-label="Informacja o liczbie zdjęć"><span>${album.photoCount >= 300 ? '300+' : album.photoCount}</span>${ICON_PHOTO}</button>`
     : '';
 
+  const isFocusLink = mode === 'focus';
+  const coverHref = isFocusLink ? `#${slugify(album.title)}` : album.url;
+  const coverExtraAttrs = isFocusLink ? '' : ' target="_blank" rel="noopener noreferrer"';
+
   return `
     <article class="card" role="listitem">
       <div class="card-cover">
-        <a href="${escapeAttr(album.url)}" target="_blank" rel="noopener noreferrer" aria-label="Otwórz album">
+        <a href="${escapeAttr(coverHref)}"${coverExtraAttrs} aria-label="Otwórz album">
           <img
             src="${escapeAttr(album.cover)}"
             alt="${escapeAttr(album.title)}"
@@ -97,15 +168,62 @@ function renderCard(album) {
         <div class="title-row">
           <p class="card-title">${escapeHtml(displayTitle(album.title))}</p>
           ${countBadge}
+          <a
+            class="btn-open-photos"
+            href="${escapeAttr(album.url)}"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Otwórz w Google Photos"
+            aria-label="Otwórz w Google Photos"
+          >${ICON_GOOGLE_PHOTOS}</a>
           <button
             class="btn-copy"
-            data-url="${escapeAttr(album.url)}"
+            data-url="${escapeAttr(`https://www.kruki.org/galerie/#${slugify(album.title)}`)}"
             title="Kopiuj link"
             aria-label="Kopiuj link do albumu"
           >${ICON_LINK}</button>
         </div>
       </div>
     </article>`;
+}
+
+function renderYearGroup(label, albums, mode = 'focus') {
+  const heading = label ? `<h2 class="year-label">${escapeHtml(label)}</h2>` : '';
+  return `
+    <section class="year-group">
+      ${heading}
+      <div class="year-grid" role="list">${albums.map(a => renderCard(a, mode)).join('')}</div>
+    </section>`;
+}
+
+function renderThumbCol(album, urls) {
+  if (!urls.length) return '<div class="thumb-col"></div>';
+  return `<div class="thumb-col">${urls.map(u => `
+    <a class="thumb" href="${escapeAttr(album.url)}" target="_blank" rel="noopener noreferrer" aria-label="Otwórz album">
+      <img src="${escapeAttr(u)}" alt="" loading="lazy" />
+    </a>`).join('')}</div>`;
+}
+
+function renderFocusedView(album, albums) {
+  const related = findRelated(album, albums);
+  const relatedHtml = related.length
+    ? `
+      <h2 class="related-label">Powiązane</h2>
+      <div class="year-grid" role="list">${related.map(a => renderCard(a, 'focus')).join('')}</div>`
+    : '';
+
+  const thumbs = album.thumbs ?? [];
+  const leftThumbs = thumbs.slice(0, 12);
+  const rightThumbs = thumbs.slice(12, 24);
+
+  return `
+    <a href="#" class="back-link">&larr; Wszystkie galerie</a>
+    <div class="focused-layout">
+      ${renderThumbCol(album, leftThumbs)}
+      <div class="focused-card">${renderCard(album, 'external')}</div>
+      ${renderThumbCol(album, rightThumbs)}
+    </div>
+    ${relatedHtml}`;
 }
 
 function update() {
@@ -126,10 +244,41 @@ function update() {
   }
 
   empty.hidden = true;
-  grid.innerHTML = albums.map(renderCard).join('');
+
+  if (sortMode === 'alpha') {
+    grid.innerHTML = renderYearGroup(null, albums);
+  } else {
+    const groups = groupByYear(albums);
+    grid.innerHTML = [...groups.entries()]
+      .map(([year, list]) => renderYearGroup(year, list))
+      .join('');
+  }
 }
 
-document.getElementById('grid').addEventListener('click', e => {
+function route() {
+  const hash = location.hash.slice(1);
+  const viewGrid = document.getElementById('view-grid');
+  const viewFocused = document.getElementById('view-focused');
+  const toolbar = document.getElementById('toolbar');
+
+  const album = hash ? allAlbums.find(a => slugify(a.title) === hash) : null;
+
+  if (album) {
+    viewFocused.innerHTML = renderFocusedView(album, allAlbums);
+    viewFocused.hidden = false;
+    viewGrid.hidden = true;
+    toolbar.hidden = true;
+  } else {
+    viewFocused.hidden = true;
+    viewFocused.innerHTML = '';
+    viewGrid.hidden = false;
+    toolbar.hidden = false;
+  }
+}
+
+window.addEventListener('hashchange', route);
+
+document.addEventListener('click', e => {
   if (e.target.closest('.btn-count')) {
     showToast('Liczba zdjęć orientacyjna, z chwili importu ostatniego albumu');
     return;
@@ -153,6 +302,7 @@ fetch('data/albums.generated.json')
   .then(data => {
     allAlbums = data;
     update();
+    route();
   })
   .catch(() => {
     document.getElementById('count').textContent = 'Błąd ładowania danych';
