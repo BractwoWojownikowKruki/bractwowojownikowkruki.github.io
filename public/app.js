@@ -196,6 +196,14 @@ function renderYearGroup(label, albums, mode = 'focus') {
     </section>`;
 }
 
+function renderThumbCol(album, urls) {
+  if (!urls.length) return '<div class="thumb-col"></div>';
+  return `<div class="thumb-col">${urls.map(u => `
+    <a class="thumb" href="${escapeAttr(album.url)}" target="_blank" rel="noopener noreferrer" aria-label="Otwórz album">
+      <img src="${escapeAttr(u)}" alt="" loading="lazy" />
+    </a>`).join('')}</div>`;
+}
+
 function renderFocusedView(album, albums) {
   const related = findRelated(album, albums);
   const relatedHtml = related.length
@@ -204,9 +212,17 @@ function renderFocusedView(album, albums) {
       <div class="year-grid" role="list">${related.map(a => renderCard(a, 'focus')).join('')}</div>`
     : '';
 
+  const thumbs = album.thumbs ?? [];
+  const leftThumbs = thumbs.slice(0, 6);
+  const rightThumbs = thumbs.slice(6, 12);
+
   return `
     <a href="#" class="back-link">&larr; Wszystkie galerie</a>
-    <div class="focused-card">${renderCard(album, 'external')}</div>
+    <div class="focused-layout">
+      ${renderThumbCol(album, leftThumbs)}
+      <div class="focused-card">${renderCard(album, 'external')}</div>
+      ${renderThumbCol(album, rightThumbs)}
+    </div>
     ${relatedHtml}`;
 }
 

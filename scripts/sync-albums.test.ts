@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDate, extractTitle, makeSearchText, displayTitle, parseAlbumsTxt, extractPhotoCount } from './utils.ts';
+import { parseDate, extractTitle, makeSearchText, displayTitle, parseAlbumsTxt, extractPhotoCount, extractThumbUrls } from './utils.ts';
 
 describe('parseDate', () => {
   // --- prefix, hyphens ---
@@ -227,6 +227,45 @@ describe('extractPhotoCount', () => {
 
   it('returns null when no photo IDs are present', () => {
     assert.equal(extractPhotoCount('<html><head></head><body></body></html>'), null);
+  });
+});
+
+describe('extractThumbUrls', () => {
+  it('returns URLs with the size suffix appended, in page order', () => {
+    const html = [
+      '["AF1Qip111",["https://lh3.googleusercontent.com/a",1024,680]]',
+      '["AF1Qip222",["https://lh3.googleusercontent.com/b",1024,680]]',
+    ].join('\n');
+    assert.deepEqual(extractThumbUrls(html), [
+      'https://lh3.googleusercontent.com/a=w220-h220-c',
+      'https://lh3.googleusercontent.com/b=w220-h220-c',
+    ]);
+  });
+
+  it('deduplicates the same photo ID appearing twice', () => {
+    const html = [
+      '["AF1Qip111",["https://lh3.googleusercontent.com/a",1024,680]]',
+      '["AF1Qip111",["https://lh3.googleusercontent.com/a",1024,680]]',
+    ].join('\n');
+    assert.deepEqual(extractThumbUrls(html), ['https://lh3.googleusercontent.com/a=w220-h220-c']);
+  });
+
+  it('caps results at the given limit', () => {
+    const html = Array.from({ length: 20 }, (_, i) =>
+      `["AF1Qip${i}",["https://lh3.googleusercontent.com/${i}",1024,680]]`
+    ).join('\n');
+    assert.equal(extractThumbUrls(html, 5).length, 5);
+  });
+
+  it('defaults to a limit of 12', () => {
+    const html = Array.from({ length: 20 }, (_, i) =>
+      `["AF1Qip${i}",["https://lh3.googleusercontent.com/${i}",1024,680]]`
+    ).join('\n');
+    assert.equal(extractThumbUrls(html).length, 12);
+  });
+
+  it('returns an empty array when no photo IDs are present', () => {
+    assert.deepEqual(extractThumbUrls('<html><head></head><body></body></html>'), []);
   });
 });
 

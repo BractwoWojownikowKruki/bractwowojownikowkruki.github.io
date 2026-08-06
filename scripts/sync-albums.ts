@@ -2,12 +2,13 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import https from 'https';
 import { join } from 'path';
-import { AlbumEntry, extractCoverUrl, extractPhotoCount, extractTitle, makeSearchText, parseAlbumsTxt, parseDate } from './utils.ts';
+import { AlbumEntry, extractCoverUrl, extractPhotoCount, extractThumbUrls, extractTitle, makeSearchText, parseAlbumsTxt, parseDate } from './utils.ts';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const ALBUMS_TXT = join(ROOT, 'albums.txt');
 const GENERATED_JSON = join(ROOT, 'public/data/albums.generated.json');
 const COVERS_DIR = join(ROOT, 'public/covers');
+const THUMBS_DIR = join(ROOT, 'public/thumbs');
 
 interface AlbumRecord {
   url: string;
@@ -15,6 +16,7 @@ interface AlbumRecord {
   date: string | null;
   cover: string;
   photoCount: number | null;
+  thumbs: string[];
   searchText: string;
   lastSyncedAt: string;
   syncStatus: 'ok' | 'failed';
@@ -48,8 +50,8 @@ async function fetchHtml(url: string): Promise<string> {
   return res.text();
 }
 
-async function downloadCover(coverUrl: string, destPath: string): Promise<void> {
-  const res = await fetch(coverUrl, {
+async function downloadImage(imageUrl: string, destPath: string): Promise<void> {
+  const res = await fetch(imageUrl, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (compatible; KruczeGalery/1.0)',
     },
@@ -76,7 +78,7 @@ async function syncAlbum({ url, nameOverride }: AlbumEntry, cached: AlbumRecord 
 
     if (coverUrl) {
       try {
-        await downloadCover(coverUrl, coverPath);
+        await downloadImage(coverUrl, coverPath);
       } catch (e) {
         console.warn(`[warn] Nie udało się pobrać okładki: ${(e as Error).message}`);
       }
@@ -86,12 +88,25 @@ async function syncAlbum({ url, nameOverride }: AlbumEntry, cached: AlbumRecord 
       ? coverPublic
       : (cached?.cover ?? 'covers/placeholder.jpg');
 
+    const thumbUrls = extractThumbUrls(html);
+    const thumbs: string[] = [];
+    for (let i = 0; i < thumbUrls.length; i++) {
+      const thumbFile = `${hash}-${i}.jpg`;
+      try {
+        await downloadImage(thumbUrls[i], join(THUMBS_DIR, thumbFile));
+        thumbs.push(`thumbs/${thumbFile}`);
+      } catch (e) {
+        console.warn(`[warn] Nie udało się pobrać miniaturki ${i}: ${(e as Error).message}`);
+      }
+    }
+
     return {
       url,
       title,
       date: parseDate(title),
       cover,
       photoCount: photoCount ?? cached?.photoCount ?? null,
+      thumbs: thumbs.length > 0 ? thumbs : (cached?.thumbs ?? []),
       searchText: makeSearchText(title),
       lastSyncedAt: now,
       syncStatus: 'ok',
@@ -104,6 +119,7 @@ async function syncAlbum({ url, nameOverride }: AlbumEntry, cached: AlbumRecord 
       date: cached?.date ?? null,
       cover: cached?.cover ?? 'covers/placeholder.jpg',
       photoCount: cached?.photoCount ?? null,
+      thumbs: cached?.thumbs ?? [],
       searchText: cached?.searchText ?? '',
       lastSyncedAt: now,
       syncStatus: 'failed',
@@ -113,6 +129,7 @@ async function syncAlbum({ url, nameOverride }: AlbumEntry, cached: AlbumRecord 
 
 async function main(): Promise<void> {
   mkdirSync(COVERS_DIR, { recursive: true });
+  mkdirSync(THUMBS_DIR, { recursive: true });
 
   const entries = parseAlbumsTxt(readFileSync(ALBUMS_TXT, 'utf8'));
   console.log(`[sync] Znaleziono ${entries.length} album(ów) w albums.txt`);

@@ -69,10 +69,27 @@ export function displayTitle(title: string): string {
   return title;
 }
 
+interface PhotoEntry {
+  id: string;
+  url: string;
+}
+
+function extractPhotoEntries(html: string): PhotoEntry[] {
+  const matches = [...html.matchAll(/"(AF1Qip[^"]+)",\["(https:\/\/lh3[^"]+)"/g)];
+  const seen = new Map<string, string>();
+  for (const m of matches) if (!seen.has(m[1])) seen.set(m[1], m[2]);
+  return [...seen.entries()].map(([id, url]) => ({ id, url }));
+}
+
 export function extractPhotoCount(html: string): number | null {
-  const matches = [...html.matchAll(/"(AF1Qip[^"]+)",\["https:\/\/lh3/g)];
-  const ids = new Set(matches.map(m => m[1]));
-  return ids.size > 0 ? ids.size : null;
+  const n = extractPhotoEntries(html).length;
+  return n > 0 ? n : null;
+}
+
+export function extractThumbUrls(html: string, limit = 12): string[] {
+  return extractPhotoEntries(html)
+    .slice(0, limit)
+    .map(e => `${e.url}=w220-h220-c`);
 }
 
 export function makeSearchText(title: string): string {
