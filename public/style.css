@@ -357,9 +357,9 @@ main { padding: 1.25rem 1.5rem 3rem; }
 
 .thumb-col {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  width: 210px;
+  width: 316px;
   flex-shrink: 0;
 }
 
