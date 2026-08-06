@@ -213,8 +213,8 @@ function renderFocusedView(album, albums) {
     : '';
 
   const thumbs = album.thumbs ?? [];
-  const leftThumbs = thumbs.slice(0, 6);
-  const rightThumbs = thumbs.slice(6, 12);
+  const leftThumbs = thumbs.slice(0, 12);
+  const rightThumbs = thumbs.slice(12, 24);
 
   return `
     <a href="#" class="back-link">&larr; Wszystkie galerie</a>

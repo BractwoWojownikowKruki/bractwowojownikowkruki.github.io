@@ -86,7 +86,7 @@ export function extractPhotoCount(html: string): number | null {
   return n > 0 ? n : null;
 }
 
-export function extractThumbUrls(html: string, limit = 12): string[] {
+export function extractThumbUrls(html: string, limit = 24): string[] {
   return extractPhotoEntries(html)
     .slice(0, limit)
     .map(e => `${e.url}=w220-h220-c`);

@@ -257,11 +257,11 @@ describe('extractThumbUrls', () => {
     assert.equal(extractThumbUrls(html, 5).length, 5);
   });
 
-  it('defaults to a limit of 12', () => {
-    const html = Array.from({ length: 20 }, (_, i) =>
+  it('defaults to a limit of 24', () => {
+    const html = Array.from({ length: 30 }, (_, i) =>
       `["AF1Qip${i}",["https://lh3.googleusercontent.com/${i}",1024,680]]`
     ).join('\n');
-    assert.equal(extractThumbUrls(html).length, 12);
+    assert.equal(extractThumbUrls(html).length, 24);
   });
 
   it('returns an empty array when no photo IDs are present', () => {
