@@ -1,9 +1,10 @@
 import { appendFileSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { isDuplicate, parseIssueForm, validateAlbumName, validateAlbumUrl } from './album-issue-utils.ts';
+import { isDuplicate, parseIssueForm, validateAlbumDate, validateAlbumUrl } from './album-issue-utils.ts';
+import { AlbumEntry } from './utils.ts';
 
 const ROOT = new URL('..', import.meta.url).pathname;
-const ALBUMS_TXT = join(ROOT, 'albums.txt');
+const ALBUMS_JSON = join(ROOT, 'albums.json');
 
 function writeOutput(name: string, value: string): void {
   const outputFile = process.env.GITHUB_OUTPUT;
@@ -18,7 +19,7 @@ function writeOutput(name: string, value: string): void {
 
 function main(): void {
   const body = process.env.ISSUE_BODY ?? '';
-  const { url, name } = parseIssueForm(body);
+  const { url, name, date } = parseIssueForm(body);
 
   const urlError = validateAlbumUrl(url);
   if (urlError) {
@@ -27,23 +28,27 @@ function main(): void {
     return;
   }
 
-  const nameError = validateAlbumName(name);
-  if (nameError) {
+  const dateError = validateAlbumDate(date);
+  if (dateError) {
     writeOutput('status', 'invalid');
-    writeOutput('message', nameError);
+    writeOutput('message', dateError);
     return;
   }
 
-  const albumsTxtContent = readFileSync(ALBUMS_TXT, 'utf8');
-  if (isDuplicate(url!, albumsTxtContent)) {
+  const albumsJsonContent = readFileSync(ALBUMS_JSON, 'utf8');
+  if (isDuplicate(url!, albumsJsonContent)) {
     writeOutput('status', 'invalid');
     writeOutput('message', `Ten album jest już na liście: ${url}`);
     return;
   }
 
-  const line = name ? `${url} | ${name}` : url!;
-  const separator = albumsTxtContent.endsWith('\n') ? '' : '\n';
-  writeFileSync(ALBUMS_TXT, `${albumsTxtContent}${separator}${line}\n`);
+  const entries: AlbumEntry[] = JSON.parse(albumsJsonContent);
+  entries.push({
+    url: url!,
+    ...(name ? { nameOverride: name } : {}),
+    dateOverride: date!,
+  });
+  writeFileSync(ALBUMS_JSON, JSON.stringify(entries, null, 2) + '\n');
 
   writeOutput('status', 'valid');
   writeOutput('title', name ?? 'nowy album');

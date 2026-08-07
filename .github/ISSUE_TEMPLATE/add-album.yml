@@ -16,6 +16,14 @@ body:
     attributes:
       label: Własna nazwa (opcjonalnie)
       description: Podaj, jeśli tytuł albumu w Google Photos jest nieczytelny lub pusty
-      placeholder: 2024-08-03 Wolin
+      placeholder: Wolin
     validations:
       required: false
+  - type: input
+    id: date
+    attributes:
+      label: Data
+      description: Data albumu w formacie RRRR-MM-DD
+      placeholder: "2024-08-03"
+    validations:
+      required: true

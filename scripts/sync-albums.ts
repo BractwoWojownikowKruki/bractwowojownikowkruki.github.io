@@ -2,10 +2,10 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import https from 'https';
 import { join } from 'path';
-import { AlbumEntry, extractCoverUrl, extractPhotoCount, extractThumbUrls, extractTitle, makeSearchText, parseAlbumsTxt, parseDate } from './utils.ts';
+import { AlbumEntry, extractCoverUrl, extractPhotoCount, extractThumbUrls, extractTitle, makeSearchText, parseAlbumsJson, parseDate } from './utils.ts';
 
 const ROOT = new URL('..', import.meta.url).pathname;
-const ALBUMS_TXT = join(ROOT, 'albums.txt');
+const ALBUMS_JSON = join(ROOT, 'albums.json');
 const GENERATED_JSON = join(ROOT, 'public/data/albums.generated.json');
 const COVERS_DIR = join(ROOT, 'public/covers');
 const THUMBS_DIR = join(ROOT, 'public/thumbs');
@@ -61,7 +61,7 @@ async function downloadImage(imageUrl: string, destPath: string): Promise<void> 
   writeFileSync(destPath, Buffer.from(buf));
 }
 
-async function syncAlbum({ url, nameOverride }: AlbumEntry, cached: AlbumRecord | undefined): Promise<AlbumRecord> {
+async function syncAlbum({ url, nameOverride, dateOverride }: AlbumEntry, cached: AlbumRecord | undefined): Promise<AlbumRecord> {
   const hash = coverHash(url);
   const coverFile = `${hash}.jpg`;
   const coverPath = join(COVERS_DIR, coverFile);
@@ -73,6 +73,7 @@ async function syncAlbum({ url, nameOverride }: AlbumEntry, cached: AlbumRecord 
     const html = await fetchHtml(url);
 
     const title = nameOverride ?? extractTitle(html) ?? cached?.title ?? 'Album bez tytułu';
+    const date = dateOverride ?? parseDate(title);
     const coverUrl = extractCoverUrl(html);
     const photoCount = extractPhotoCount(html);
 
@@ -103,7 +104,7 @@ async function syncAlbum({ url, nameOverride }: AlbumEntry, cached: AlbumRecord 
     return {
       url,
       title,
-      date: parseDate(title),
+      date,
       cover,
       photoCount: photoCount ?? cached?.photoCount ?? null,
       thumbs: thumbs.length > 0 ? thumbs : (cached?.thumbs ?? []),
@@ -131,8 +132,8 @@ async function main(): Promise<void> {
   mkdirSync(COVERS_DIR, { recursive: true });
   mkdirSync(THUMBS_DIR, { recursive: true });
 
-  const entries = parseAlbumsTxt(readFileSync(ALBUMS_TXT, 'utf8'));
-  console.log(`[sync] Znaleziono ${entries.length} album(ów) w albums.txt`);
+  const entries = parseAlbumsJson(readFileSync(ALBUMS_JSON, 'utf8'));
+  console.log(`[sync] Znaleziono ${entries.length} album(ów) w albums.json`);
 
   const existing: AlbumRecord[] = existsSync(GENERATED_JSON)
     ? JSON.parse(readFileSync(GENERATED_JSON, 'utf8'))

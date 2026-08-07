@@ -99,24 +99,41 @@ export function makeSearchText(title: string): string {
 export interface AlbumEntry {
   url: string;
   nameOverride?: string;
+  dateOverride?: string;
+  hiddenComment?: string;
 }
 
-export function parseAlbumsTxt(content: string): AlbumEntry[] {
+export function parseAlbumsJson(content: string): AlbumEntry[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (e) {
+    throw new Error(`Nie udało się sparsować albums.json: ${(e as Error).message}`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error('albums.json musi być tablicą.');
+  }
+
   const seen = new Set<string>();
   const entries: AlbumEntry[] = [];
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    // "||" starts a comment that runs to the end of the line; "|" still separates url and name.
-    const withoutComment = trimmed.split('||')[0].trim();
-    const [rawUrl, rawName] = withoutComment.split('|').map(s => s.trim());
-    if (!rawUrl) continue;
-    if (seen.has(rawUrl)) {
-      console.warn(`[warn] Duplikat pominięty: ${rawUrl}`);
+  for (const item of parsed) {
+    const url = (item as { url?: unknown })?.url;
+    if (typeof url !== 'string' || !url) {
+      console.warn('[warn] Pominięto wpis bez poprawnego "url":', item);
       continue;
     }
-    seen.add(rawUrl);
-    entries.push({ url: rawUrl, nameOverride: rawName || undefined });
+    if (seen.has(url)) {
+      console.warn(`[warn] Duplikat pominięty: ${url}`);
+      continue;
+    }
+    seen.add(url);
+    const entry = item as AlbumEntry;
+    entries.push({
+      url,
+      nameOverride: entry.nameOverride,
+      dateOverride: entry.dateOverride,
+      hiddenComment: entry.hiddenComment,
+    });
   }
   return entries;
 }

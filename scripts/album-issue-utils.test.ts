@@ -1,9 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseIssueForm, validateAlbumUrl, validateAlbumName, isDuplicate } from './album-issue-utils.ts';
+import { parseIssueForm, validateAlbumUrl, validateAlbumDate, isDuplicate } from './album-issue-utils.ts';
 
 describe('parseIssueForm', () => {
-  it('extracts url and name when both are given', () => {
+  it('extracts url, name, and date when all are given', () => {
     const body = [
       '### Link do albumu Google Photos',
       '',
@@ -11,10 +11,14 @@ describe('parseIssueForm', () => {
       '',
       '### Własna nazwa (opcjonalnie)',
       '',
-      '2024-08-03 Wolin',
+      'Wolin',
+      '',
+      '### Data',
+      '',
+      '2024-08-03',
       '',
     ].join('\n');
-    assert.deepEqual(parseIssueForm(body), { url: 'https://photos.app.goo.gl/XYZ', name: '2024-08-03 Wolin' });
+    assert.deepEqual(parseIssueForm(body), { url: 'https://photos.app.goo.gl/XYZ', name: 'Wolin', date: '2024-08-03' });
   });
 
   it('returns null name when the optional field is unanswered', () => {
@@ -27,12 +31,16 @@ describe('parseIssueForm', () => {
       '',
       '_No response_',
       '',
+      '### Data',
+      '',
+      '2024-08-03',
+      '',
     ].join('\n');
-    assert.deepEqual(parseIssueForm(body), { url: 'https://photos.app.goo.gl/XYZ', name: null });
+    assert.deepEqual(parseIssueForm(body), { url: 'https://photos.app.goo.gl/XYZ', name: null, date: '2024-08-03' });
   });
 
-  it('returns null url when the body has no matching section', () => {
-    assert.deepEqual(parseIssueForm('random text'), { url: null, name: null });
+  it('returns all null when the body has no matching sections', () => {
+    assert.deepEqual(parseIssueForm('random text'), { url: null, name: null, date: null });
   });
 
   it('trims surrounding whitespace from extracted values', () => {
@@ -45,8 +53,14 @@ describe('parseIssueForm', () => {
       '',
       '_No response_',
       '',
+      '### Data',
+      '',
+      '  2024-08-03  ',
+      '',
     ].join('\n');
-    assert.equal(parseIssueForm(body).url, 'https://photos.app.goo.gl/XYZ');
+    const result = parseIssueForm(body);
+    assert.equal(result.url, 'https://photos.app.goo.gl/XYZ');
+    assert.equal(result.date, '2024-08-03');
   });
 });
 
@@ -68,32 +82,36 @@ describe('validateAlbumUrl', () => {
   });
 });
 
-describe('validateAlbumName', () => {
-  it('accepts a null name (optional field)', () => {
-    assert.equal(validateAlbumName(null), null);
+describe('validateAlbumDate', () => {
+  it('accepts a well-formed date', () => {
+    assert.equal(validateAlbumDate('2024-08-03'), null);
   });
 
-  it('rejects a name starting with "#"', () => {
-    assert.match(validateAlbumName('#hashtag album')!, /nie może zaczynać się od "#"/);
+  it('rejects a null date', () => {
+    assert.match(validateAlbumDate(null)!, /nie podano daty/i);
   });
 
-  it('rejects a name containing "|"', () => {
-    assert.match(validateAlbumName('2024-08-03 | Wolin')!, /nie może zawierać znaku "\|"/);
+  it('rejects a date with the wrong separator', () => {
+    assert.match(validateAlbumDate('2024.08.03')!, /RRRR-MM-DD/);
   });
 
-  it('accepts a normal name', () => {
-    assert.equal(validateAlbumName('2024-08-03 Wolin'), null);
+  it('rejects an impossible month', () => {
+    assert.match(validateAlbumDate('2024-13-01')!, /RRRR-MM-DD/);
+  });
+
+  it('rejects an impossible day', () => {
+    assert.match(validateAlbumDate('2024-02-30')!, /RRRR-MM-DD/);
   });
 });
 
 describe('isDuplicate', () => {
   it('detects an existing url', () => {
-    const albumsTxt = 'https://photos.app.goo.gl/XYZ | 2024-08-03 Wolin\n';
-    assert.equal(isDuplicate('https://photos.app.goo.gl/XYZ', albumsTxt), true);
+    const albumsJson = '[{"url":"https://photos.app.goo.gl/XYZ","nameOverride":"Wolin"}]';
+    assert.equal(isDuplicate('https://photos.app.goo.gl/XYZ', albumsJson), true);
   });
 
   it('returns false for a new url', () => {
-    const albumsTxt = 'https://photos.app.goo.gl/XYZ | 2024-08-03 Wolin\n';
-    assert.equal(isDuplicate('https://photos.app.goo.gl/ABC', albumsTxt), false);
+    const albumsJson = '[{"url":"https://photos.app.goo.gl/XYZ","nameOverride":"Wolin"}]';
+    assert.equal(isDuplicate('https://photos.app.goo.gl/ABC', albumsJson), false);
   });
 });

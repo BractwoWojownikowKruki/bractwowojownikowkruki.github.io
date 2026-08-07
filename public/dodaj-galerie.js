@@ -33,12 +33,11 @@ document.getElementById('add-album-form').addEventListener('submit', e => {
     return;
   }
 
-  const combinedName = name ? `${date} ${name}` : date;
-
   const params = new URLSearchParams({
     template: 'add-album.yml',
     url,
-    name: combinedName,
+    name,
+    date,
   });
 
   window.location.href = `${REPO_URL}/issues/new?${params.toString()}`;

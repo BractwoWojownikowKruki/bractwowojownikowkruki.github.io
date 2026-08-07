@@ -7,56 +7,20 @@ Strona dostępna pod adresem: **https://bractwowojownikowkruki.github.io/krucze-
 
 ## Jak dodać album
 
-Nie trzeba instalować niczego. Potrzebne jest tylko **konto na GitHubie** (rejestracja bezpłatna na https://github.com).
+Wypełnij formularz: **https://bractwowojownikowkruki.github.io/krucze-galery/dodaj-galerie.html**
 
-### Krok 1 — Otwórz plik `albums.txt`
+Podaj link do udostępnionego albumu Google Photos, opcjonalnie własną nazwę, i datę. Po
+kliknięciu „Prześlij" zostaniesz przeniesiony na GitHuba, gdzie potwierdzasz zgłoszenie
+(wymagane jest konto na GitHubie — rejestracja bezpłatna na https://github.com). Administrator
+przejrzy zgłoszenie i zatwierdzi je; album pojawi się na stronie automatycznie po zatwierdzeniu
+(synchronizacja trwa ok. 1–2 minut).
 
-Przejdź do:  
-**https://github.com/BractwoWojownikowKruki/krucze-galery/blob/main/albums.txt**
+### Edycja ręczna (dla osób technicznych)
 
-### Krok 2 — Kliknij ikonę ołówka ✏️
-
-W prawym górnym rogu widoku pliku kliknij ikonę ołówka („Edit this file").
-
-GitHub wyświetli komunikat: *„You're editing a file in a project you don't have write access to"* — to normalne. GitHub automatycznie utworzy kopię repozytorium na Twoim koncie (tzw. fork).
-
-### Krok 3 — Dodaj URL albumu
-
-Na końcu pliku dopisz link do udostępnionego albumu Google Photos:
-
-```
-https://photos.app.goo.gl/XYZ
-```
-
-Nazwa i data zostaną pobrane automatycznie z tytułu albumu w Google Photos.
-
-#### Własna nazwa (opcjonalnie)
-
-Jeśli chcesz nadać albumowi inną nazwę niż w Google Photos, dopisz ją po pionowej kresce `|`:
-
-```
-https://photos.app.goo.gl/XYZ | 2024-08-03 Wolin
-```
-
-Przydatne gdy:
-- tytuł albumu w Google Photos jest nieczytelny lub pusty
-- album obejmuje kilka dni: `2024-08-03-05 Wolin` (sortuje po 3 sie, wyświetla „Wolin")
-
-#### Komentarz (opcjonalnie)
-
-Aby dodać notatkę do linku, która nie trafi na stronę, dopisz ją po podwójnej pionowej kresce `||`:
-
-```
-https://photos.app.goo.gl/XYZ | 2024-08-03 Wolin || nieaktualny, poprosić o nowy link
-```
-
-Wszystko po `||` jest ignorowane. Pojedyncza kreska `|` nadal służy tylko do własnej nazwy.
-
-### Krok 4 — Wyślij propozycję zmiany
-
-Kliknij zielony przycisk **„Propose changes"**, a następnie **„Create pull request"**.
-
-Właściciel galerii otrzyma powiadomienie, przejrzy zmianę i zatwierdzi ją. Po zatwierdzeniu album pojawi się na stronie automatycznie (synchronizacja trwa ok. 1–2 minut).
+Albumy są przechowywane w [`albums.json`](https://github.com/BractwoWojownikowKruki/krucze-galery/blob/main/albums.json)
+— tablicy obiektów `{ "url": "...", "nameOverride": "...", "dateOverride": "YYYY-MM-DD", "hiddenComment": "..." }`
+(wszystkie pola poza `url` opcjonalne). Można edytować bezpośrednio przez GitHub (fork + PR),
+podobnie jak każdy inny plik w repozytorium.
 
 ---
 

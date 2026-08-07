@@ -48,7 +48,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           BRANCH="add-album-issue-${ISSUE_NUMBER}"
           git checkout -b "$BRANCH"
-          git add albums.txt
+          git add albums.json
           git commit -m "Dodaj album z issue #${ISSUE_NUMBER}"
           git push origin "$BRANCH"
           PR_URL=$(gh pr create --title "Dodaj album: $PR_TITLE" \

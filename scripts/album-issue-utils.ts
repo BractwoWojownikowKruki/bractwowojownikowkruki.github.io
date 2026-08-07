@@ -1,4 +1,4 @@
-import { parseAlbumsTxt } from './utils.ts';
+import { parseAlbumsJson } from './utils.ts';
 
 // GitHub Issue Forms render each field as "### <Label>\n\n<value>\n\n" (or "_No response_" if left blank).
 function extractField(body: string, label: string): string | null {
@@ -10,10 +10,11 @@ function extractField(body: string, label: string): string | null {
   return value && value !== '_No response_' ? value : null;
 }
 
-export function parseIssueForm(body: string): { url: string | null; name: string | null } {
+export function parseIssueForm(body: string): { url: string | null; name: string | null; date: string | null } {
   return {
     url: extractField(body, 'Link do albumu Google Photos'),
     name: extractField(body, 'Własna nazwa (opcjonalnie)'),
+    date: extractField(body, 'Data'),
   };
 }
 
@@ -27,17 +28,23 @@ export function validateAlbumUrl(url: string | null): string | null {
   return null;
 }
 
-export function validateAlbumName(name: string | null): string | null {
-  if (!name) return null;
-  if (name.startsWith('#')) {
-    return `Nazwa "${name}" nie może zaczynać się od "#" (ten znak jest zarezerwowany w pliku albums.txt).`;
+export function validateAlbumDate(date: string | null): string | null {
+  if (!date) return 'Nie podano daty albumu.';
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return `Data "${date}" ma zły format. Oczekiwany format: RRRR-MM-DD (np. 2024-08-03).`;
   }
-  if (name.includes('|')) {
-    return `Nazwa "${name}" nie może zawierać znaku "|" (ten znak jest zarezerwowany w pliku albums.txt).`;
+  const [, y, m, d] = match;
+  const parsed = new Date(`${y}-${m}-${d}T00:00:00Z`);
+  const roundTrips = parsed.getUTCFullYear() === Number(y)
+    && parsed.getUTCMonth() + 1 === Number(m)
+    && parsed.getUTCDate() === Number(d);
+  if (!roundTrips) {
+    return `Data "${date}" nie istnieje. Oczekiwany format: RRRR-MM-DD (np. 2024-08-03).`;
   }
   return null;
 }
 
-export function isDuplicate(url: string, albumsTxtContent: string): boolean {
-  return parseAlbumsTxt(albumsTxtContent).some(e => e.url === url);
+export function isDuplicate(url: string, albumsJsonContent: string): boolean {
+  return parseAlbumsJson(albumsJsonContent).some(e => e.url === url);
 }

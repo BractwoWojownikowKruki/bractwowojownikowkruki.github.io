@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDate, extractTitle, makeSearchText, displayTitle, parseAlbumsTxt, extractPhotoCount, extractThumbUrls } from './utils.ts';
+import { parseDate, extractTitle, makeSearchText, displayTitle, parseAlbumsJson, extractPhotoCount, extractThumbUrls } from './utils.ts';
 
 describe('parseDate', () => {
   // --- prefix, hyphens ---
@@ -155,55 +155,39 @@ describe('displayTitle', () => {
   });
 });
 
-describe('parseAlbumsTxt', () => {
-  it('parses a plain URL line', () => {
-    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc');
-    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: undefined }]);
+describe('parseAlbumsJson', () => {
+  it('parses a plain entry', () => {
+    const result = parseAlbumsJson('[{"url":"https://photos.app.goo.gl/abc"}]');
+    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: undefined, dateOverride: undefined, hiddenComment: undefined }]);
   });
 
-  it('parses a URL with name override', () => {
-    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc | 2024-08-03 Wolin');
-    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
+  it('preserves nameOverride, dateOverride, and hiddenComment', () => {
+    const result = parseAlbumsJson('[{"url":"https://photos.app.goo.gl/abc","nameOverride":"Wolin","dateOverride":"2024-08-03","hiddenComment":"note"}]');
+    assert.deepEqual(result, [{
+      url: 'https://photos.app.goo.gl/abc',
+      nameOverride: 'Wolin',
+      dateOverride: '2024-08-03',
+      hiddenComment: 'note',
+    }]);
   });
 
-  it('skips comment lines', () => {
-    const result = parseAlbumsTxt('# comment\nhttps://photos.app.goo.gl/abc');
+  it('drops an entry with no url', () => {
+    const result = parseAlbumsJson('[{"nameOverride":"Wolin"}]');
+    assert.equal(result.length, 0);
+  });
+
+  it('deduplicates by url, keeping the first occurrence', () => {
+    const result = parseAlbumsJson('[{"url":"https://photos.app.goo.gl/abc","nameOverride":"First"},{"url":"https://photos.app.goo.gl/abc","nameOverride":"Second"}]');
     assert.equal(result.length, 1);
+    assert.equal(result[0].nameOverride, 'First');
   });
 
-  it('skips blank lines', () => {
-    const result = parseAlbumsTxt('\nhttps://photos.app.goo.gl/abc\n\n');
-    assert.equal(result.length, 1);
+  it('throws for invalid JSON syntax', () => {
+    assert.throws(() => parseAlbumsJson('not json'));
   });
 
-  it('deduplicates URLs', () => {
-    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc\nhttps://photos.app.goo.gl/abc');
-    assert.equal(result.length, 1);
-  });
-
-  it('trims whitespace around url and name', () => {
-    const result = parseAlbumsTxt('  https://photos.app.goo.gl/abc  |  2024-08-03 Wolin  ');
-    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
-  });
-
-  it('ignores a comment after "||" with no name override', () => {
-    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc || not synced, ask Jan');
-    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: undefined }]);
-  });
-
-  it('ignores a comment after "||" following a name override', () => {
-    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc | 2024-08-03 Wolin || not synced yet');
-    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
-  });
-
-  it('ignores comment content even if it contains a single pipe', () => {
-    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc | 2024-08-03 Wolin || rejected | needs a re-share');
-    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
-  });
-
-  it('a single pipe still separates url and name (not treated as a comment)', () => {
-    const result = parseAlbumsTxt('https://photos.app.goo.gl/abc | 2024-08-03 Wolin');
-    assert.deepEqual(result, [{ url: 'https://photos.app.goo.gl/abc', nameOverride: '2024-08-03 Wolin' }]);
+  it('throws when the top level is not an array', () => {
+    assert.throws(() => parseAlbumsJson('{"url":"https://photos.app.goo.gl/abc"}'));
   });
 });
 
