@@ -51,8 +51,8 @@ jobs:
           git add albums.json
           git commit -m "Dodaj album z issue #${ISSUE_NUMBER}"
           git push origin "$BRANCH"
-          PR_URL=$(gh pr create --title "Dodaj album: $PR_TITLE" \
-            --body "Zgłoszone przez #${ISSUE_NUMBER}. Zamyka #${ISSUE_NUMBER} po zmergowaniu." \
+          PR_URL=$(gh pr create --title "Nowy album: $PR_TITLE" \
+            --body "Zgłoszone przez #${ISSUE_NUMBER}. Closes #${ISSUE_NUMBER}" \
             --base main --head "$BRANCH")
           gh issue comment "$ISSUE_NUMBER" --body "Dzięki! Utworzyłem PR do przeglądu: $PR_URL"
 

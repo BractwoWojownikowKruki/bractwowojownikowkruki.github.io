@@ -51,7 +51,7 @@ function main(): void {
   writeFileSync(ALBUMS_JSON, JSON.stringify(entries, null, 2) + '\n');
 
   writeOutput('status', 'valid');
-  writeOutput('title', name ?? 'nowy album');
+  writeOutput('title', name ?? date!);
   writeOutput('message', 'Dzięki! Album trafi na stronę po zatwierdzeniu PR-a przez administratora.');
 }
 
