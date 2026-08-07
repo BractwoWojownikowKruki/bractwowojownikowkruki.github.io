@@ -22,8 +22,7 @@
 # Wszystko po "||" jest ignorowane przy synchronizacji - przydaje się do notatek
 # w rodzaju "czeka na potwierdzenie" czy "duplikat, do usunięcia".
 
-https://photos.app.goo.gl/xnjHFLSn9a2b5MAw5  || Ogrodzieniec 2026.7.4-5
-https://photos.app.goo.gl/jE79XdXdShcXtUuUA  || Ląd nad Wartą 2026.06.6-7
+
 https://photos.app.goo.gl/PuMdDBKTqJyjrk7Z9  || Radzim 2025.05.23-24
 https://photos.app.goo.gl/24nhABxVQNXN45bm7  || Obiszów Palinocka w krainie Dziadoszan 2026.06.24-26
 https://photos.app.goo.gl/E3C4BbP3SSRRFwMWA  || Teleborg 2026.07
@@ -83,4 +82,4 @@ https://photos.app.goo.gl/hQC26FGu7fiAyxDF8
 https://photos.app.goo.gl/CwPt42TcfPVCJB9fA
 https://photos.app.goo.gl/4uSRMACzUMfLmmR78
 https://photos.app.goo.gl/6nfMiJDeAZx5g4mBA
-https://photos.app.goo.gl/NAcQVidJ4apcvbFy6
+
