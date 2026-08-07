@@ -35,6 +35,7 @@ document.getElementById('add-album-form').addEventListener('submit', e => {
 
   const params = new URLSearchParams({
     template: 'add-album.yml',
+    title: `Nowy album: ${name || date}`,
     url,
     name,
     date,
