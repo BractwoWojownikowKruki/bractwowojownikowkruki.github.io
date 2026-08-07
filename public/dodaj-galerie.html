@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dodaj galerię — Krucze Galery</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="apple-touch-icon" href="favicon.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a href="index.html" class="logo-link" aria-label="Krucze Galery — strona główna">
+      <picture>
+        <source media="(max-width: 600px)" srcset="logo.png" />
+        <img src="logo-desktop.png" alt="Krucze Galery" class="logo" onerror="this.style.display='none'" />
+      </picture>
+    </a>
+  </header>
+
+  <main class="add-album-main">
+    <div class="add-album-card">
+      <h1 class="add-album-title">Dodaj galerię</h1>
+      <p class="add-album-intro">
+        Aby dodać album wypełnij formularz poniżej. Zostaniesz przeniesiony na stronę GitHub,
+        gdzie będziesz musiał zatwierdzić utworzenie prośby o dodanie albumu. Potem administrator
+        zatwierdzi dodanie albumu.
+      </p>
+
+      <form id="add-album-form" novalidate>
+        <div class="field">
+          <label for="url">Link do galerii Google Photos</label>
+          <input
+            type="url"
+            id="url"
+            name="url"
+            placeholder="np. https://photos.app.goo.gl/NAcQVidJ4apcvbFy6"
+            required
+          />
+        </div>
+
+        <div class="field">
+          <label for="name">Nazwa albumu (opcjonalnie)</label>
+          <input type="text" id="name" name="name" placeholder="np. Wolin" />
+        </div>
+
+        <div class="field">
+          <label for="date">Data</label>
+          <input type="date" id="date" name="date" required />
+        </div>
+
+        <p class="add-album-error" id="error" hidden></p>
+
+        <button type="submit" class="add-album-submit">Prześlij</button>
+      </form>
+    </div>
+  </main>
+
+  <footer class="footer">
+    Created by <a href="https://www.cardiocanwait.com" target="_blank" rel="noopener noreferrer">CardioCanWait</a>
+    for <a href="https://www.kruki.org" target="_blank" rel="noopener noreferrer">Bractwo Wojowników Kruki</a>,
+    hosted on <a href="https://github.com/BractwoWojownikowKruki/krucze-galery" target="_blank" rel="noopener noreferrer">GitHub</a>.
+  </footer>
+
+  <script src="dodaj-galerie.js"></script>
+</body>
+</html>
