@@ -24,6 +24,12 @@ const ICON_FOLDER = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
   <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
 </svg>`;
 
+const ICON_DOWNLOAD = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+  <path d="M12 3v12"/>
+  <path d="m7 10 5 5 5-5"/>
+  <path d="M5 21h14"/>
+</svg>`;
+
 let allAlbums = [];
 let sortMode = 'newest';
 
@@ -252,8 +258,12 @@ function driveThumbUrl(thumbnailLink, size) {
   return thumbnailLink.replace(/=s\d+$/, `=s${size}`);
 }
 
+function driveDownloadUrl(fileId) {
+  return `https://drive.google.com/uc?export=download&id=${fileId}`;
+}
+
 let driveGalleryFiles = [];
-let lightboxIndex = -1;
+let currentIndex = -1;
 
 function renderDriveGalleryView(album) {
   const badge = album.date ? `<span class="date-badge">${album.date}</span>` : '';
@@ -262,20 +272,38 @@ function renderDriveGalleryView(album) {
     <div class="drive-gallery-header">
       <h1 class="drive-gallery-title">${escapeHtml(displayTitle(album.title))}</h1>
       ${badge}
+      <div class="drive-gallery-actions">
+        <a class="btn-drive-action" href="${escapeAttr(album.url)}" target="_blank" rel="noopener noreferrer">${ICON_FOLDER} Otwórz w Google Drive</a>
+        <button class="btn-drive-action" id="drive-download-album" type="button">${ICON_DOWNLOAD} Pobierz album</button>
+      </div>
     </div>
     <p class="drive-gallery-status" id="drive-gallery-status">Ładowanie…</p>
+    <div class="drive-hero" id="drive-hero" hidden>
+      <button class="drive-hero-prev" id="drive-hero-prev" aria-label="Poprzednie">&larr;</button>
+      <div class="drive-hero-image-wrap">
+        <img id="drive-hero-img" alt="" />
+        <a class="btn-download-image" id="drive-hero-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
+      </div>
+      <button class="drive-hero-next" id="drive-hero-next" aria-label="Następne">&rarr;</button>
+    </div>
     <div class="drive-gallery-grid" id="drive-gallery-grid"></div>
     <div class="lightbox" id="lightbox" hidden>
       <button class="lightbox-close" id="lightbox-close" aria-label="Zamknij">&times;</button>
       <button class="lightbox-prev" id="lightbox-prev" aria-label="Poprzednie">&larr;</button>
-      <img id="lightbox-img" alt="" />
+      <div class="lightbox-image-wrap">
+        <img id="lightbox-img" alt="" />
+        <a class="btn-download-image" id="lightbox-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
+      </div>
       <button class="lightbox-next" id="lightbox-next" aria-label="Następne">&rarr;</button>
+      <div class="lightbox-filmstrip" id="lightbox-filmstrip"></div>
     </div>`;
 }
 
 async function loadDriveGallery(album) {
   const status = document.getElementById('drive-gallery-status');
   const grid = document.getElementById('drive-gallery-grid');
+  driveGalleryFiles = [];
+  currentIndex = -1;
   try {
     driveGalleryFiles = await fetchDriveFiles(album.driveFolderId);
     if (!status || !grid) return; // user navigated away before this resolved
@@ -284,32 +312,80 @@ async function loadDriveGallery(album) {
       return;
     }
     status.hidden = true;
+
     grid.innerHTML = driveGalleryFiles.map((f, i) => `
       <button class="drive-gallery-thumb" data-index="${i}" aria-label="Otwórz zdjęcie ${i + 1}">
         <img src="${escapeAttr(driveThumbUrl(f.thumbnailLink, 300))}" alt="" loading="lazy" />
       </button>`).join('');
+
+    const filmstrip = document.getElementById('lightbox-filmstrip');
+    if (filmstrip) {
+      filmstrip.innerHTML = driveGalleryFiles.map((f, i) => `
+        <button class="lightbox-filmstrip-thumb" data-index="${i}" aria-label="Otwórz zdjęcie ${i + 1}">
+          <img src="${escapeAttr(driveThumbUrl(f.thumbnailLink, 150))}" alt="" loading="lazy" />
+        </button>`).join('');
+    }
+
+    const hero = document.getElementById('drive-hero');
+    if (hero) hero.hidden = false;
+    setCurrentIndex(0);
   } catch (e) {
     if (status) status.textContent = 'Nie udało się załadować zdjęć z Google Drive. Spróbuj odświeżyć stronę.';
   }
 }
 
-function openLightbox(index) {
-  lightboxIndex = index;
+function setCurrentIndex(index) {
+  if (driveGalleryFiles.length === 0) return;
+  currentIndex = index;
   const file = driveGalleryFiles[index];
-  document.getElementById('lightbox-img').src = driveThumbUrl(file.thumbnailLink, 1600);
-  document.getElementById('lightbox').hidden = false;
+  const largeSrc = driveThumbUrl(file.thumbnailLink, 1600);
+  const downloadHref = driveDownloadUrl(file.id);
+
+  const heroImg = document.getElementById('drive-hero-img');
+  if (heroImg) heroImg.src = largeSrc;
+  const heroDownload = document.getElementById('drive-hero-download');
+  if (heroDownload) heroDownload.href = downloadHref;
+
+  const lightboxImg = document.getElementById('lightbox-img');
+  if (lightboxImg) lightboxImg.src = largeSrc;
+  const lightboxDownload = document.getElementById('lightbox-download');
+  if (lightboxDownload) lightboxDownload.href = downloadHref;
+
+  document.querySelectorAll('.drive-gallery-thumb, .lightbox-filmstrip-thumb').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.index) === index);
+  });
+}
+
+function stepCurrent(delta) {
+  if (currentIndex === -1 || driveGalleryFiles.length === 0) return;
+  const next = (currentIndex + delta + driveGalleryFiles.length) % driveGalleryFiles.length;
+  setCurrentIndex(next);
+}
+
+function openLightbox(index) {
+  setCurrentIndex(index);
+  const box = document.getElementById('lightbox');
+  if (box) box.hidden = false;
 }
 
 function closeLightbox() {
   const box = document.getElementById('lightbox');
   if (box) box.hidden = true;
-  lightboxIndex = -1;
 }
 
-function stepLightbox(delta) {
-  if (lightboxIndex === -1 || driveGalleryFiles.length === 0) return;
-  const next = (lightboxIndex + delta + driveGalleryFiles.length) % driveGalleryFiles.length;
-  openLightbox(next);
+function downloadAlbum() {
+  driveGalleryFiles.forEach((f, i) => {
+    setTimeout(() => {
+      const a = document.createElement('a');
+      a.href = driveDownloadUrl(f.id);
+      a.download = '';
+      a.target = '_blank';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }, i * 400);
+  });
 }
 
 function update() {
@@ -370,21 +446,42 @@ function route() {
 window.addEventListener('hashchange', route);
 
 document.addEventListener('click', e => {
+  if (e.target.closest('#drive-download-album')) {
+    downloadAlbum();
+    return;
+  }
   if (e.target.id === 'lightbox' || e.target.closest('#lightbox-close')) {
     closeLightbox();
     return;
   }
   if (e.target.closest('#lightbox-prev')) {
-    stepLightbox(-1);
+    stepCurrent(-1);
     return;
   }
   if (e.target.closest('#lightbox-next')) {
-    stepLightbox(1);
+    stepCurrent(1);
     return;
   }
-  const thumb = e.target.closest('.drive-gallery-thumb');
-  if (thumb) {
-    openLightbox(Number(thumb.dataset.index));
+  if (e.target.closest('#drive-hero-prev')) {
+    stepCurrent(-1);
+    return;
+  }
+  if (e.target.closest('#drive-hero-next')) {
+    stepCurrent(1);
+    return;
+  }
+  const filmThumb = e.target.closest('.lightbox-filmstrip-thumb');
+  if (filmThumb) {
+    setCurrentIndex(Number(filmThumb.dataset.index));
+    return;
+  }
+  if (e.target.closest('#drive-hero-img')) {
+    openLightbox(currentIndex);
+    return;
+  }
+  const gridThumb = e.target.closest('.drive-gallery-thumb');
+  if (gridThumb) {
+    setCurrentIndex(Number(gridThumb.dataset.index));
     return;
   }
   if (e.target.closest('.btn-count')) {

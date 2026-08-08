@@ -470,6 +470,11 @@ main { padding: 1.25rem 1.5rem 3rem; }
   }
   .thumb-col { display: contents; }
   .focused-card { grid-column: 1 / -1; order: -1; max-width: 320px; margin: 0 auto 1rem; }
+
+  .drive-hero { gap: 0.5rem; }
+  .drive-hero-prev, .drive-hero-next { width: 36px; height: 36px; font-size: 16px; }
+  .drive-gallery-actions { width: 100%; }
+  .btn-drive-action { flex: 1 1 auto; justify-content: center; }
 }
 
 /* ── Add-album page ── */
@@ -557,9 +562,35 @@ main { padding: 1.25rem 1.5rem 3rem; }
 .drive-gallery-header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.75rem;
   margin-bottom: 1.5rem;
 }
+
+.drive-gallery-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.btn-drive-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.btn-drive-action:hover { border-color: var(--accent); color: var(--gold); }
+.btn-drive-action svg { width: 14px; height: 14px; flex-shrink: 0; pointer-events: none; }
 
 .drive-gallery-title {
   font-family: 'Cinzel', serif;
@@ -573,6 +604,73 @@ main { padding: 1.25rem 1.5rem 3rem; }
   font-size: 14px;
   margin-bottom: 1rem;
 }
+
+.drive-hero[hidden] {
+  display: none;
+}
+
+.drive-hero {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.drive-hero-image-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.drive-hero-image-wrap img {
+  max-width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  border-radius: 8px;
+  cursor: pointer;
+  display: block;
+}
+
+.drive-hero-prev,
+.drive-hero-next {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, color 0.15s;
+}
+.drive-hero-prev:hover,
+.drive-hero-next:hover { border-color: var(--accent); color: var(--gold); }
+
+.btn-download-image {
+  position: absolute;
+  bottom: 0.75rem;
+  right: 0.75rem;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(30, 24, 19, 0.85);
+  border: 1px solid var(--border);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.btn-download-image:hover { border-color: var(--accent); color: var(--gold); }
+.btn-download-image svg { width: 17px; height: 17px; pointer-events: none; }
 
 .drive-gallery-grid {
   display: grid;
@@ -592,6 +690,7 @@ main { padding: 1.25rem 1.5rem 3rem; }
   transition: border-color 0.15s;
 }
 .drive-gallery-thumb:hover { border-color: var(--accent); }
+.drive-gallery-thumb.active { border-color: var(--accent); }
 
 .drive-gallery-thumb img {
   width: 100%;
@@ -609,16 +708,60 @@ main { padding: 1.25rem 1.5rem 3rem; }
   inset: 0;
   background: rgba(8, 6, 4, 0.92);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1rem;
+  padding: 1rem 0;
   z-index: 200;
 }
 
-.lightbox img {
+.lightbox-image-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   max-width: 90vw;
-  max-height: 85vh;
+  max-height: 75vh;
+}
+
+.lightbox-image-wrap img {
+  max-width: 90vw;
+  max-height: 75vh;
   object-fit: contain;
   border-radius: 6px;
+  display: block;
+}
+
+.lightbox-filmstrip {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  max-width: 90vw;
+  padding: 0.25rem;
+}
+
+.lightbox-filmstrip-thumb {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-deep);
+  border: 2px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+.lightbox-filmstrip-thumb:hover { opacity: 1; }
+.lightbox-filmstrip-thumb.active { opacity: 1; border-color: var(--accent); }
+
+.lightbox-filmstrip-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .lightbox-close,
