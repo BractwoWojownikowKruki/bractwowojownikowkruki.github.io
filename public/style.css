@@ -600,6 +600,10 @@ main { padding: 1.25rem 1.5rem 3rem; }
   display: block;
 }
 
+.lightbox[hidden] {
+  display: none;
+}
+
 .lightbox {
   position: fixed;
   inset: 0;
