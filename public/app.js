@@ -20,6 +20,10 @@ const ICON_GOOGLE_PHOTOS = `<svg viewBox="0 0 59 59" aria-hidden="true">
   <path d="M13.41 44.25c0-8.146 6.603-14.75 14.75-14.75h1.34v28.16c0 .74-.6 1.34-1.34 1.34-8.147 0-14.75-6.604-14.75-14.75z" fill="#34A853"/>
 </svg>`;
 
+const ICON_FOLDER = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+  <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+</svg>`;
+
 let allAlbums = [];
 let sortMode = 'newest';
 
@@ -173,9 +177,9 @@ function renderCard(album, mode = 'focus') {
             href="${escapeAttr(album.url)}"
             target="_blank"
             rel="noopener noreferrer"
-            title="Otwórz w Google Photos"
-            aria-label="Otwórz w Google Photos"
-          >${ICON_GOOGLE_PHOTOS}</a>
+            title="${album.source === 'drive' ? 'Otwórz folder' : 'Otwórz w Google Photos'}"
+            aria-label="${album.source === 'drive' ? 'Otwórz folder' : 'Otwórz w Google Photos'}"
+          >${album.source === 'drive' ? ICON_FOLDER : ICON_GOOGLE_PHOTOS}</a>
           <button
             class="btn-copy"
             data-url="${escapeAttr(`https://www.kruki.org/galerie/#${slugify(album.title)}`)}"
@@ -226,6 +230,88 @@ function renderFocusedView(album, albums) {
     ${relatedHtml}`;
 }
 
+const DRIVE_API_KEY_PUBLIC = 'AIzaSyCNnBUsUnpNyfyCeJqPghBraIRjg-YHyPQ';
+
+async function fetchDriveFiles(folderId) {
+  let files = [];
+  let pageToken;
+  do {
+    const q = encodeURIComponent(`'${folderId}' in parents and mimeType contains 'image/'`);
+    let url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,thumbnailLink)&pageSize=1000`;
+    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+    const res = await fetch(url, { headers: { 'X-Goog-Api-Key': DRIVE_API_KEY_PUBLIC } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    files = files.concat(data.files ?? []);
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return files;
+}
+
+function driveThumbUrl(thumbnailLink, size) {
+  return thumbnailLink.replace(/=s\d+$/, `=s${size}`);
+}
+
+let driveGalleryFiles = [];
+let lightboxIndex = -1;
+
+function renderDriveGalleryView(album) {
+  const badge = album.date ? `<span class="date-badge">${album.date}</span>` : '';
+  return `
+    <a href="#" class="back-link">&larr; Wszystkie galerie</a>
+    <div class="drive-gallery-header">
+      <h1 class="drive-gallery-title">${escapeHtml(displayTitle(album.title))}</h1>
+      ${badge}
+    </div>
+    <p class="drive-gallery-status" id="drive-gallery-status">Ładowanie…</p>
+    <div class="drive-gallery-grid" id="drive-gallery-grid"></div>
+    <div class="lightbox" id="lightbox" hidden>
+      <button class="lightbox-close" id="lightbox-close" aria-label="Zamknij">&times;</button>
+      <button class="lightbox-prev" id="lightbox-prev" aria-label="Poprzednie">&larr;</button>
+      <img id="lightbox-img" alt="" />
+      <button class="lightbox-next" id="lightbox-next" aria-label="Następne">&rarr;</button>
+    </div>`;
+}
+
+async function loadDriveGallery(album) {
+  const status = document.getElementById('drive-gallery-status');
+  const grid = document.getElementById('drive-gallery-grid');
+  try {
+    driveGalleryFiles = await fetchDriveFiles(album.driveFolderId);
+    if (!status || !grid) return; // user navigated away before this resolved
+    if (driveGalleryFiles.length === 0) {
+      status.textContent = 'Brak zdjęć w tym folderze.';
+      return;
+    }
+    status.hidden = true;
+    grid.innerHTML = driveGalleryFiles.map((f, i) => `
+      <button class="drive-gallery-thumb" data-index="${i}" aria-label="Otwórz zdjęcie ${i + 1}">
+        <img src="${escapeAttr(driveThumbUrl(f.thumbnailLink, 300))}" alt="" loading="lazy" />
+      </button>`).join('');
+  } catch (e) {
+    if (status) status.textContent = 'Nie udało się załadować zdjęć z Google Drive. Spróbuj odświeżyć stronę.';
+  }
+}
+
+function openLightbox(index) {
+  lightboxIndex = index;
+  const file = driveGalleryFiles[index];
+  document.getElementById('lightbox-img').src = driveThumbUrl(file.thumbnailLink, 1600);
+  document.getElementById('lightbox').hidden = false;
+}
+
+function closeLightbox() {
+  const box = document.getElementById('lightbox');
+  if (box) box.hidden = true;
+  lightboxIndex = -1;
+}
+
+function stepLightbox(delta) {
+  if (lightboxIndex === -1 || driveGalleryFiles.length === 0) return;
+  const next = (lightboxIndex + delta + driveGalleryFiles.length) % driveGalleryFiles.length;
+  openLightbox(next);
+}
+
 function update() {
   const query = document.getElementById('search').value.trim().toLowerCase();
   const albums = sort(filter(allAlbums, query));
@@ -264,7 +350,12 @@ function route() {
   const album = hash ? allAlbums.find(a => slugify(a.title) === hash) : null;
 
   if (album) {
-    viewFocused.innerHTML = renderFocusedView(album, allAlbums);
+    if (album.source === 'drive') {
+      viewFocused.innerHTML = renderDriveGalleryView(album);
+      loadDriveGallery(album);
+    } else {
+      viewFocused.innerHTML = renderFocusedView(album, allAlbums);
+    }
     viewFocused.hidden = false;
     viewGrid.hidden = true;
     toolbar.hidden = true;
@@ -279,6 +370,23 @@ function route() {
 window.addEventListener('hashchange', route);
 
 document.addEventListener('click', e => {
+  if (e.target.id === 'lightbox' || e.target.closest('#lightbox-close')) {
+    closeLightbox();
+    return;
+  }
+  if (e.target.closest('#lightbox-prev')) {
+    stepLightbox(-1);
+    return;
+  }
+  if (e.target.closest('#lightbox-next')) {
+    stepLightbox(1);
+    return;
+  }
+  const thumb = e.target.closest('.drive-gallery-thumb');
+  if (thumb) {
+    openLightbox(Number(thumb.dataset.index));
+    return;
+  }
   if (e.target.closest('.btn-count')) {
     showToast('Liczba zdjęć orientacyjna, z chwili importu ostatniego albumu');
     return;
