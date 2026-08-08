@@ -1,8 +1,8 @@
 import { createHash } from 'crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import https from 'https';
 import { join } from 'path';
-import { AlbumEntry, extractCoverUrl, extractPhotoCount, extractThumbUrls, extractTitle, makeSearchText, parseAlbumsJson, parseDate } from './utils.ts';
+import { AlbumEntry, extractCoverUrl, extractPhotoCount, extractThumbEntries, extractTitle, makeSearchText, parseAlbumsJson, parseDate } from './utils.ts';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const ALBUMS_JSON = join(ROOT, 'albums.json');
@@ -91,17 +91,37 @@ async function syncAlbum({ url, nameOverride, dateOverride }: AlbumEntry, cached
       ? coverPublic
       : (cached?.cover ?? 'covers/placeholder.jpg');
 
-    const thumbUrls = extractThumbUrls(html);
+    const thumbEntries = extractThumbEntries(html);
     const thumbs: string[] = [];
-    for (let i = 0; i < thumbUrls.length; i++) {
-      const thumbFile = `${hash}-${i}.jpg`;
-      try {
-        await downloadImage(thumbUrls[i], join(THUMBS_DIR, thumbFile));
+    const keepFiles = new Set<string>();
+    let downloaded = 0;
+    let reused = 0;
+    for (const entry of thumbEntries) {
+      const thumbFile = `${hash}-${coverHash(entry.id)}.jpg`;
+      const thumbPath = join(THUMBS_DIR, thumbFile);
+      keepFiles.add(thumbFile);
+      if (existsSync(thumbPath)) {
         thumbs.push(`thumbs/${thumbFile}`);
+        reused++;
+        continue;
+      }
+      try {
+        await downloadImage(entry.url, thumbPath);
+        thumbs.push(`thumbs/${thumbFile}`);
+        downloaded++;
       } catch (e) {
-        console.warn(`[warn] Nie udało się pobrać miniaturki ${i}: ${(e as Error).message}`);
+        console.warn(`[warn] Nie udało się pobrać miniaturki ${entry.id}: ${(e as Error).message}`);
       }
     }
+
+    let removed = 0;
+    for (const file of readdirSync(THUMBS_DIR)) {
+      if (file.startsWith(`${hash}-`) && !keepFiles.has(file)) {
+        unlinkSync(join(THUMBS_DIR, file));
+        removed++;
+      }
+    }
+    console.log(`[sync]   miniatury: ${downloaded} pobrano, ${reused} z cache, ${removed} usunięto`);
 
     return {
       url,
