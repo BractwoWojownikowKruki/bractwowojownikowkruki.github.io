@@ -30,6 +30,14 @@ const ICON_DOWNLOAD = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor
   <path d="M5 21h14"/>
 </svg>`;
 
+const ICON_CHEVRON_LEFT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <polyline points="15 18 9 12 15 6"/>
+</svg>`;
+
+const ICON_CHEVRON_RIGHT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <polyline points="9 18 15 12 9 6"/>
+</svg>`;
+
 let allAlbums = [];
 let sortMode = 'newest';
 
@@ -280,23 +288,23 @@ function renderDriveGalleryView(album) {
     <p class="drive-gallery-status" id="drive-gallery-status">Ładowanie…</p>
     <div class="drive-gallery-browser">
       <div class="drive-hero" id="drive-hero" hidden>
-        <button class="drive-hero-prev" id="drive-hero-prev" aria-label="Poprzednie">&larr;</button>
+        <button class="drive-hero-prev" id="drive-hero-prev" aria-label="Poprzednie">${ICON_CHEVRON_LEFT}</button>
         <div class="drive-hero-image-wrap">
           <img id="drive-hero-img" alt="" />
           <a class="btn-download-image" id="drive-hero-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
         </div>
-        <button class="drive-hero-next" id="drive-hero-next" aria-label="Następne">&rarr;</button>
+        <button class="drive-hero-next" id="drive-hero-next" aria-label="Następne">${ICON_CHEVRON_RIGHT}</button>
       </div>
       <div class="drive-gallery-grid" id="drive-gallery-grid"></div>
     </div>
     <div class="lightbox" id="lightbox" hidden>
       <button class="lightbox-close" id="lightbox-close" aria-label="Zamknij">&times;</button>
-      <button class="lightbox-prev" id="lightbox-prev" aria-label="Poprzednie">&larr;</button>
+      <button class="lightbox-prev" id="lightbox-prev" aria-label="Poprzednie">${ICON_CHEVRON_LEFT}</button>
       <div class="lightbox-image-wrap">
         <img id="lightbox-img" alt="" />
         <a class="btn-download-image" id="lightbox-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
       </div>
-      <button class="lightbox-next" id="lightbox-next" aria-label="Następne">&rarr;</button>
+      <button class="lightbox-next" id="lightbox-next" aria-label="Następne">${ICON_CHEVRON_RIGHT}</button>
       <div class="lightbox-filmstrip" id="lightbox-filmstrip"></div>
     </div>`;
 }
@@ -315,10 +323,17 @@ async function loadDriveGallery(album) {
     }
     status.hidden = true;
 
-    grid.innerHTML = driveGalleryFiles.map((f, i) => `
-      <button class="drive-gallery-thumb" data-index="${i}" aria-label="Otwórz zdjęcie ${i + 1}">
-        <img src="${escapeAttr(driveThumbUrl(f.thumbnailLink, 300))}" alt="" loading="lazy" />
-      </button>`).join('');
+    const columnCount = window.matchMedia('(min-width: 900px)').matches ? 3 : 2;
+    const columns = Array.from({ length: columnCount }, () => []);
+    driveGalleryFiles.forEach((f, i) => {
+      columns[i % columnCount].push(`
+        <button class="drive-gallery-thumb" data-index="${i}" aria-label="Otwórz zdjęcie ${i + 1}">
+          <img src="${escapeAttr(driveThumbUrl(f.thumbnailLink, 300))}" alt="" loading="lazy" />
+        </button>`);
+    });
+    grid.innerHTML = columns
+      .map(col => `<div class="drive-gallery-col">${col.join('')}</div>`)
+      .join('');
 
     const filmstrip = document.getElementById('lightbox-filmstrip');
     if (filmstrip) {
