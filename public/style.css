@@ -616,6 +616,35 @@ main { padding: 1.25rem 1.5rem 3rem; }
   margin-bottom: 1.5rem;
 }
 
+@media (min-width: 900px) {
+  .drive-gallery-browser {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.5rem;
+  }
+
+  .drive-hero {
+    flex: 1 1 50%;
+    max-width: 50%;
+    margin-bottom: 0;
+    position: sticky;
+    top: 220px;
+  }
+
+  .drive-hero-image-wrap img {
+    max-height: calc(100vh - 260px);
+  }
+
+  .drive-gallery-grid {
+    flex: 1 1 50%;
+    max-width: 50%;
+    max-height: calc(100vh - 260px);
+    overflow-y: auto;
+    align-content: start;
+    padding-right: 0.5rem;
+  }
+}
+
 .drive-hero-image-wrap {
   position: relative;
   flex: 1;

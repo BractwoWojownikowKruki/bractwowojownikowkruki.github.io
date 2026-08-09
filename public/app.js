@@ -278,15 +278,17 @@ function renderDriveGalleryView(album) {
       </div>
     </div>
     <p class="drive-gallery-status" id="drive-gallery-status">Ładowanie…</p>
-    <div class="drive-hero" id="drive-hero" hidden>
-      <button class="drive-hero-prev" id="drive-hero-prev" aria-label="Poprzednie">&larr;</button>
-      <div class="drive-hero-image-wrap">
-        <img id="drive-hero-img" alt="" />
-        <a class="btn-download-image" id="drive-hero-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
+    <div class="drive-gallery-browser">
+      <div class="drive-hero" id="drive-hero" hidden>
+        <button class="drive-hero-prev" id="drive-hero-prev" aria-label="Poprzednie">&larr;</button>
+        <div class="drive-hero-image-wrap">
+          <img id="drive-hero-img" alt="" />
+          <a class="btn-download-image" id="drive-hero-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
+        </div>
+        <button class="drive-hero-next" id="drive-hero-next" aria-label="Następne">&rarr;</button>
       </div>
-      <button class="drive-hero-next" id="drive-hero-next" aria-label="Następne">&rarr;</button>
+      <div class="drive-gallery-grid" id="drive-gallery-grid"></div>
     </div>
-    <div class="drive-gallery-grid" id="drive-gallery-grid"></div>
     <div class="lightbox" id="lightbox" hidden>
       <button class="lightbox-close" id="lightbox-close" aria-label="Zamknij">&times;</button>
       <button class="lightbox-prev" id="lightbox-prev" aria-label="Poprzednie">&larr;</button>
