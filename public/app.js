@@ -309,6 +309,58 @@ function renderDriveGalleryView(album) {
     </div>`;
 }
 
+function isMobileGrid() {
+  return !window.matchMedia('(min-width: 900px)').matches;
+}
+
+// Sizes a masonry cell's grid-row span from its image's own rendered height
+// (measured after load, post any CSS max-height clamp) so cells pack without
+// gaps or overlap. CSS multi-column and flex-column layouts both failed at
+// this (KRKG-0020): multicol overflows in the wrong axis and silently clips
+// content, and flex items shrink to fit by default instead of overflowing.
+function applyRowSpan(img) {
+  const cell = img.closest('.drive-gallery-thumb');
+  if (!cell) return;
+  const compute = () => {
+    const height = img.getBoundingClientRect().height;
+    if (!height) return;
+    const rowUnit = 1;
+    const gap = 8;
+    const span = Math.max(1, Math.ceil((height + gap) / (rowUnit + gap)));
+    cell.style.gridRowEnd = `span ${span}`;
+  };
+  if (img.complete && img.naturalWidth) {
+    requestAnimationFrame(compute);
+  } else {
+    img.addEventListener('load', () => requestAnimationFrame(compute), { once: true });
+  }
+}
+
+function renderGalleryCell(f, i) {
+  if (i === currentIndex && isMobileGrid()) {
+    return `
+      <div class="drive-gallery-thumb drive-gallery-expanded" data-index="${i}">
+        <button class="drive-hero-prev" aria-label="Poprzednie">${ICON_CHEVRON_LEFT}</button>
+        <div class="drive-hero-image-wrap">
+          <img src="${escapeAttr(driveThumbUrl(f.thumbnailLink, 1200))}" alt="" />
+          <a class="btn-download-image" download target="_blank" rel="noopener" href="${escapeAttr(driveDownloadUrl(f.id))}" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
+        </div>
+        <button class="drive-hero-next" aria-label="Następne">${ICON_CHEVRON_RIGHT}</button>
+      </div>`;
+  }
+  return `
+    <button class="drive-gallery-thumb${i === currentIndex ? ' active' : ''}" data-index="${i}" aria-label="Otwórz zdjęcie ${i + 1}">
+      <img src="${escapeAttr(driveThumbUrl(f.thumbnailLink, 300))}" alt="" loading="lazy" />
+    </button>`;
+}
+
+function renderGalleryGrid() {
+  const grid = document.getElementById('drive-gallery-grid');
+  if (!grid) return;
+  grid.innerHTML = driveGalleryFiles.map((f, i) => renderGalleryCell(f, i)).join('');
+  grid.querySelectorAll('.drive-gallery-thumb img').forEach(applyRowSpan);
+}
+
 async function loadDriveGallery(album) {
   const status = document.getElementById('drive-gallery-status');
   const grid = document.getElementById('drive-gallery-grid');
@@ -323,17 +375,7 @@ async function loadDriveGallery(album) {
     }
     status.hidden = true;
 
-    const columnCount = window.matchMedia('(min-width: 900px)').matches ? 3 : 2;
-    const columns = Array.from({ length: columnCount }, () => []);
-    driveGalleryFiles.forEach((f, i) => {
-      columns[i % columnCount].push(`
-        <button class="drive-gallery-thumb" data-index="${i}" aria-label="Otwórz zdjęcie ${i + 1}">
-          <img src="${escapeAttr(driveThumbUrl(f.thumbnailLink, 300))}" alt="" loading="lazy" />
-        </button>`);
-    });
-    grid.innerHTML = columns
-      .map(col => `<div class="drive-gallery-col">${col.join('')}</div>`)
-      .join('');
+    renderGalleryGrid();
 
     const filmstrip = document.getElementById('lightbox-filmstrip');
     if (filmstrip) {
@@ -344,7 +386,7 @@ async function loadDriveGallery(album) {
     }
 
     const hero = document.getElementById('drive-hero');
-    if (hero) hero.hidden = false;
+    if (hero) hero.hidden = isMobileGrid();
     setCurrentIndex(0);
   } catch (e) {
     if (status) status.textContent = 'Nie udało się załadować zdjęć z Google Drive. Spróbuj odświeżyć stronę.';
@@ -353,6 +395,7 @@ async function loadDriveGallery(album) {
 
 function setCurrentIndex(index) {
   if (driveGalleryFiles.length === 0) return;
+  const prevIndex = currentIndex;
   currentIndex = index;
   const file = driveGalleryFiles[index];
   const largeSrc = driveThumbUrl(file.thumbnailLink, 1600);
@@ -368,9 +411,17 @@ function setCurrentIndex(index) {
   const lightboxDownload = document.getElementById('lightbox-download');
   if (lightboxDownload) lightboxDownload.href = downloadHref;
 
-  document.querySelectorAll('.drive-gallery-thumb, .lightbox-filmstrip-thumb').forEach(btn => {
+  document.querySelectorAll('.lightbox-filmstrip-thumb').forEach(btn => {
     btn.classList.toggle('active', Number(btn.dataset.index) === index);
   });
+
+  if (isMobileGrid()) {
+    if (prevIndex !== index) renderGalleryGrid();
+  } else {
+    document.querySelectorAll('.drive-gallery-thumb').forEach(btn => {
+      btn.classList.toggle('active', Number(btn.dataset.index) === index);
+    });
+  }
 }
 
 function stepCurrent(delta) {
@@ -479,11 +530,11 @@ document.addEventListener('click', e => {
     stepCurrent(1);
     return;
   }
-  if (e.target.closest('#drive-hero-prev')) {
+  if (e.target.closest('.drive-hero-prev')) {
     stepCurrent(-1);
     return;
   }
-  if (e.target.closest('#drive-hero-next')) {
+  if (e.target.closest('.drive-hero-next')) {
     stepCurrent(1);
     return;
   }
@@ -492,11 +543,11 @@ document.addEventListener('click', e => {
     setCurrentIndex(Number(filmThumb.dataset.index));
     return;
   }
-  if (e.target.closest('#drive-hero-img')) {
+  if (e.target.closest('#drive-hero-img') || e.target.closest('.drive-gallery-expanded img')) {
     openLightbox(currentIndex);
     return;
   }
-  const gridThumb = e.target.closest('.drive-gallery-thumb');
+  const gridThumb = e.target.closest('.drive-gallery-thumb:not(.drive-gallery-expanded)');
   if (gridThumb) {
     setCurrentIndex(Number(gridThumb.dataset.index));
     return;
