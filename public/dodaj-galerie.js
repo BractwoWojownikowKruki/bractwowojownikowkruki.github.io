@@ -2,7 +2,8 @@ const REPO_URL = 'https://github.com/BractwoWojownikowKruki/krucze-galery';
 
 function isValidAlbumUrl(url) {
   return /^https:\/\/photos\.app\.goo\.gl\/\S+$/.test(url)
-    || /^https:\/\/photos\.google\.com\/share\/\S+$/.test(url);
+    || /^https:\/\/photos\.google\.com\/share\/\S+$/.test(url)
+    || /^https:\/\/drive\.google\.com\/drive\/folders\/[a-zA-Z0-9_-]+/.test(url);
 }
 
 function showError(msg) {
@@ -24,7 +25,7 @@ document.getElementById('add-album-form').addEventListener('submit', e => {
   const date = document.getElementById('date').value;
 
   if (!isValidAlbumUrl(url)) {
-    showError('Link nie wygląda na udostępniony album Google Photos. Oczekiwany format: https://photos.app.goo.gl/XYZ (lub https://photos.google.com/share/...).');
+    showError('Link nie wygląda na udostępniony album Google Photos ani folder Google Drive. Oczekiwany format: https://photos.app.goo.gl/XYZ, https://photos.google.com/share/... lub https://drive.google.com/drive/folders/XYZ.');
     return;
   }
 

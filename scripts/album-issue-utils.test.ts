@@ -5,7 +5,7 @@ import { parseIssueForm, validateAlbumUrl, validateAlbumDate, isDuplicate } from
 describe('parseIssueForm', () => {
   it('extracts url, name, and date when all are given', () => {
     const body = [
-      '### Link do albumu Google Photos',
+      '### Link do albumu (Google Photos lub Google Drive)',
       '',
       'https://photos.app.goo.gl/XYZ',
       '',
@@ -23,7 +23,7 @@ describe('parseIssueForm', () => {
 
   it('returns null name when the optional field is unanswered', () => {
     const body = [
-      '### Link do albumu Google Photos',
+      '### Link do albumu (Google Photos lub Google Drive)',
       '',
       'https://photos.app.goo.gl/XYZ',
       '',
@@ -45,7 +45,7 @@ describe('parseIssueForm', () => {
 
   it('trims surrounding whitespace from extracted values', () => {
     const body = [
-      '### Link do albumu Google Photos',
+      '### Link do albumu (Google Photos lub Google Drive)',
       '',
       '  https://photos.app.goo.gl/XYZ  ',
       '',
@@ -71,6 +71,10 @@ describe('validateAlbumUrl', () => {
 
   it('accepts a photos.google.com/share link', () => {
     assert.equal(validateAlbumUrl('https://photos.google.com/share/AF1QipXYZ?key=abc'), null);
+  });
+
+  it('accepts a Google Drive folder link', () => {
+    assert.equal(validateAlbumUrl('https://drive.google.com/drive/folders/1kZewclHqNiTA7Tf47cVRzMm8ZN99kGmY?usp=sharing'), null);
   });
 
   it('rejects a null url', () => {

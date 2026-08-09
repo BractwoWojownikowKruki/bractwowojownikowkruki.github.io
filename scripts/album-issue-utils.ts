@@ -1,4 +1,4 @@
-import { parseAlbumsJson } from './utils.ts';
+import { extractDriveFolderId, parseAlbumsJson } from './utils.ts';
 
 // GitHub Issue Forms render each field as "### <Label>\n\n<value>\n\n" (or "_No response_" if left blank).
 function extractField(body: string, label: string): string | null {
@@ -12,7 +12,7 @@ function extractField(body: string, label: string): string | null {
 
 export function parseIssueForm(body: string): { url: string | null; name: string | null; date: string | null } {
   return {
-    url: extractField(body, 'Link do albumu Google Photos'),
+    url: extractField(body, 'Link do albumu (Google Photos lub Google Drive)'),
     name: extractField(body, 'Własna nazwa (opcjonalnie)'),
     date: extractField(body, 'Data'),
   };
@@ -21,9 +21,10 @@ export function parseIssueForm(body: string): { url: string | null; name: string
 export function validateAlbumUrl(url: string | null): string | null {
   if (!url) return 'Nie podano linku do albumu.';
   const valid = /^https:\/\/photos\.app\.goo\.gl\/\S+$/.test(url)
-    || /^https:\/\/photos\.google\.com\/share\/\S+$/.test(url);
+    || /^https:\/\/photos\.google\.com\/share\/\S+$/.test(url)
+    || extractDriveFolderId(url) !== null;
   if (!valid) {
-    return `Link "${url}" nie wygląda na udostępniony album Google Photos. Oczekiwany format: https://photos.app.goo.gl/XYZ (lub https://photos.google.com/share/...).`;
+    return `Link "${url}" nie wygląda na udostępniony album Google Photos ani folder Google Drive. Oczekiwany format: https://photos.app.goo.gl/XYZ, https://photos.google.com/share/... lub https://drive.google.com/drive/folders/XYZ.`;
   }
   return null;
 }

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDate, extractTitle, makeSearchText, displayTitle, parseAlbumsJson, extractPhotoCount, extractThumbEntries } from './utils.ts';
+import { parseDate, extractTitle, makeSearchText, displayTitle, parseAlbumsJson, extractPhotoCount, extractThumbEntries, extractDriveFolderId } from './utils.ts';
 
 describe('parseDate', () => {
   // --- prefix, hyphens ---
@@ -252,6 +252,24 @@ describe('extractThumbEntries', () => {
 
   it('returns an empty array when no photo IDs are present', () => {
     assert.deepEqual(extractThumbEntries('<html><head></head><body></body></html>'), []);
+  });
+});
+
+describe('extractDriveFolderId', () => {
+  it('extracts the folder id from a plain folder link', () => {
+    assert.equal(extractDriveFolderId('https://drive.google.com/drive/folders/1kZewclHqNiTA7Tf47cVRzMm8ZN99kGmY'), '1kZewclHqNiTA7Tf47cVRzMm8ZN99kGmY');
+  });
+
+  it('extracts the folder id when the link has a query string', () => {
+    assert.equal(extractDriveFolderId('https://drive.google.com/drive/folders/1kZewclHqNiTA7Tf47cVRzMm8ZN99kGmY?usp=sharing'), '1kZewclHqNiTA7Tf47cVRzMm8ZN99kGmY');
+  });
+
+  it('returns null for a Google Photos link', () => {
+    assert.equal(extractDriveFolderId('https://photos.app.goo.gl/XYZ'), null);
+  });
+
+  it('returns null for an unrelated url', () => {
+    assert.equal(extractDriveFolderId('https://example.com/foo'), null);
   });
 });
 

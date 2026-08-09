@@ -2,7 +2,7 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import https from 'https';
 import { join } from 'path';
-import { AlbumEntry, extractCoverUrl, extractPhotoCount, extractThumbEntries, extractTitle, makeSearchText, parseAlbumsJson, parseDate } from './utils.ts';
+import { AlbumEntry, extractCoverUrl, extractDriveFolderId, extractPhotoCount, extractThumbEntries, extractTitle, makeSearchText, parseAlbumsJson, parseDate } from './utils.ts';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const ALBUMS_JSON = join(ROOT, 'albums.json');
@@ -150,36 +150,51 @@ async function syncAlbum({ url, nameOverride, dateOverride }: AlbumEntry, cached
   }
 }
 
-const DRIVE_POC_FOLDER_ID = '1kZewclHqNiTA7Tf47cVRzMm8ZN99kGmY';
-const DRIVE_POC_URL = `https://drive.google.com/drive/folders/${DRIVE_POC_FOLDER_ID}`;
-
 async function driveApiFetch(path: string, apiKey: string): Promise<Response> {
   return fetch(`https://www.googleapis.com${path}`, {
     headers: { 'X-Goog-Api-Key': apiKey },
   });
 }
 
-async function syncDrivePoc(cached: AlbumRecord | undefined): Promise<AlbumRecord | null> {
-  const apiKey = process.env.DRIVE_API_KEY_SYNC;
-  if (!apiKey) {
-    console.warn('[warn] DRIVE_API_KEY_SYNC nie ustawiony — pomijam galerię z Drive (PoC)');
-    return cached ?? null;
-  }
-
-  const hash = coverHash(DRIVE_POC_URL);
+async function syncDriveAlbum(
+  { url, nameOverride, dateOverride }: AlbumEntry,
+  driveFolderId: string,
+  cached: AlbumRecord | undefined,
+): Promise<AlbumRecord> {
+  const hash = coverHash(url);
   const coverFile = `${hash}.jpg`;
   const coverPath = join(COVERS_DIR, coverFile);
   const coverPublic = `covers/${coverFile}`;
   const now = new Date().toISOString();
 
-  try {
-    console.log(`[sync] Drive PoC: ${DRIVE_POC_URL}`);
+  const failedRecord = (): AlbumRecord => ({
+    url,
+    title: cached?.title ?? nameOverride ?? 'Album bez tytułu',
+    date: cached?.date ?? dateOverride ?? null,
+    cover: cached?.cover ?? 'covers/placeholder.jpg',
+    photoCount: cached?.photoCount ?? null,
+    thumbs: [],
+    searchText: cached?.searchText ?? makeSearchText(nameOverride ?? ''),
+    lastSyncedAt: now,
+    syncStatus: 'failed',
+    source: 'drive',
+    driveFolderId,
+  });
 
-    const folderRes = await driveApiFetch(`/drive/v3/files/${DRIVE_POC_FOLDER_ID}?fields=name`, apiKey);
+  const apiKey = process.env.DRIVE_API_KEY_SYNC;
+  if (!apiKey) {
+    console.warn(`[warn] DRIVE_API_KEY_SYNC nie ustawiony — pomijam ${url}`);
+    return cached ?? failedRecord();
+  }
+
+  try {
+    console.log(`[sync] Drive: ${url}`);
+
+    const folderRes = await driveApiFetch(`/drive/v3/files/${driveFolderId}?fields=name`, apiKey);
     if (!folderRes.ok) throw new Error(`HTTP ${folderRes.status} (folder metadata)`);
     const folder = (await folderRes.json()) as { name: string };
 
-    const q = encodeURIComponent(`'${DRIVE_POC_FOLDER_ID}' in parents and mimeType contains 'image/'`);
+    const q = encodeURIComponent(`'${driveFolderId}' in parents and mimeType contains 'image/'`);
     const listRes = await driveApiFetch(`/drive/v3/files?q=${q}&fields=files(id,thumbnailLink)&pageSize=1000`, apiKey);
     if (!listRes.ok) throw new Error(`HTTP ${listRes.status} (file list)`);
     const list = (await listRes.json()) as { files: { id: string; thumbnailLink?: string }[] };
@@ -195,12 +210,13 @@ async function syncDrivePoc(cached: AlbumRecord | undefined): Promise<AlbumRecor
     }
 
     const cover = existsSync(coverPath) ? coverPublic : (cached?.cover ?? 'covers/placeholder.jpg');
-    const title = folder.name;
+    const title = nameOverride ?? folder.name;
+    const date = dateOverride ?? parseDate(title);
 
     return {
-      url: DRIVE_POC_URL,
+      url,
       title,
-      date: parseDate(title),
+      date,
       cover,
       photoCount,
       thumbs: [],
@@ -208,11 +224,11 @@ async function syncDrivePoc(cached: AlbumRecord | undefined): Promise<AlbumRecor
       lastSyncedAt: now,
       syncStatus: 'ok',
       source: 'drive',
-      driveFolderId: DRIVE_POC_FOLDER_ID,
+      driveFolderId,
     };
   } catch (e) {
-    console.error(`[error] Drive PoC folder: ${(e as Error).message}`);
-    return cached ?? null;
+    console.error(`[error] Drive folder ${url}: ${(e as Error).message}`);
+    return cached ?? failedRecord();
   }
 }
 
@@ -231,11 +247,13 @@ async function main(): Promise<void> {
 
   const results: AlbumRecord[] = [];
   for (const entry of entries) {
-    results.push(await syncAlbum(entry, cache.get(entry.url)));
+    const driveFolderId = extractDriveFolderId(entry.url);
+    if (driveFolderId) {
+      results.push(await syncDriveAlbum(entry, driveFolderId, cache.get(entry.url)));
+    } else {
+      results.push(await syncAlbum(entry, cache.get(entry.url)));
+    }
   }
-
-  const driveRecord = await syncDrivePoc(cache.get(DRIVE_POC_URL));
-  if (driveRecord) results.push(driveRecord);
 
   writeFileSync(GENERATED_JSON, JSON.stringify(results, null, 2) + '\n');
   console.log(`[sync] Zapisano ${results.length} rekord(ów) do albums.generated.json`);

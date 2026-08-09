@@ -1,6 +1,6 @@
 # Krucze Galery
 
-Galeria albumów Google Photos dla Bractwa Wojowników Kruki.  
+Galeria albumów Google Photos i Google Drive dla Bractwa Wojowników Kruki.  
 Strona dostępna pod adresem: **https://bractwowojownikowkruki.github.io/krucze-galery/**
 
 ---
@@ -9,7 +9,8 @@ Strona dostępna pod adresem: **https://bractwowojownikowkruki.github.io/krucze-
 
 Wypełnij formularz: **https://bractwowojownikowkruki.github.io/krucze-galery/dodaj-galerie.html**
 
-Podaj link do udostępnionego albumu Google Photos, opcjonalnie własną nazwę, i datę. Po
+Podaj link do udostępnionego albumu Google Photos lub folderu Google Drive, opcjonalnie własną
+nazwę (jeśli pominięta, użyty zostanie tytuł albumu/folderu), i datę. Po
 kliknięciu „Prześlij" zostaniesz przeniesiony na GitHuba, gdzie potwierdzasz zgłoszenie
 (wymagane jest konto na GitHubie — rejestracja bezpłatna na https://github.com). Administrator
 przejrzy zgłoszenie i zatwierdzi je; album pojawi się na stronie automatycznie po zatwierdzeniu

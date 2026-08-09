@@ -1,13 +1,13 @@
 name: Dodaj galerię
-description: Zgłoś nowy album Google Photos do dodania na stronę
+description: Zgłoś nowy album Google Photos lub folder Google Drive do dodania na stronę
 title: "Nowy album: "
 labels: ["album-submission"]
 body:
   - type: input
     id: url
     attributes:
-      label: Link do albumu Google Photos
-      description: Udostępniony link, np. https://photos.app.goo.gl/XYZ
+      label: Link do albumu (Google Photos lub Google Drive)
+      description: Udostępniony link, np. https://photos.app.goo.gl/XYZ lub https://drive.google.com/drive/folders/XYZ
       placeholder: https://photos.app.goo.gl/XYZ
     validations:
       required: true
@@ -15,7 +15,7 @@ body:
     id: name
     attributes:
       label: Własna nazwa (opcjonalnie)
-      description: Podaj, jeśli tytuł albumu w Google Photos jest nieczytelny lub pusty
+      description: Podaj, jeśli tytuł albumu jest nieczytelny lub pusty
       placeholder: Wolin
     validations:
       required: false

@@ -97,6 +97,11 @@ export function extractThumbEntries(html: string, limit = 24): ThumbEntry[] {
     .map(e => ({ id: e.id, url: `${e.url}=w220-h220-c` }));
 }
 
+export function extractDriveFolderId(url: string): string | null {
+  const m = url.match(/^https:\/\/drive\.google\.com\/drive\/folders\/([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+
 export function makeSearchText(title: string): string {
   return title.toLowerCase().replace(/[–—]/g, '-');
 }
