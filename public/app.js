@@ -266,7 +266,7 @@ let driveGalleryFiles = [];
 let currentIndex = -1;
 
 function renderDriveGalleryView(album) {
-  const badge = album.date ? `<span class="date-badge">${album.date}</span>` : '';
+  const badge = album.date ? `<span class="drive-gallery-date">${album.date}</span>` : '';
   return `
     <a href="#" class="back-link">&larr; Wszystkie galerie</a>
     <div class="drive-gallery-header">
