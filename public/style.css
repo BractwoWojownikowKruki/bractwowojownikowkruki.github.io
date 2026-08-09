@@ -616,9 +616,18 @@ main { padding: 1.25rem 1.5rem 3rem; }
 }
 
 .drive-gallery-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   color: var(--text-muted);
   font-size: 14px;
   margin-bottom: 1rem;
+}
+
+.drive-gallery-status .spinner {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
 }
 
 .drive-hero[hidden] {
@@ -829,6 +838,7 @@ main { padding: 1.25rem 1.5rem 3rem; }
 .lightbox-prev,
 .lightbox-next {
   position: absolute;
+  z-index: 2;
   background: rgba(30, 24, 19, 0.8);
   border: 1px solid var(--border);
   color: var(--text);
@@ -850,3 +860,37 @@ main { padding: 1.25rem 1.5rem 3rem; }
 .lightbox-next { right: 1rem; top: 50%; transform: translateY(-50%); }
 .lightbox-prev svg,
 .lightbox-next svg { width: 22px; height: 22px; pointer-events: none; }
+
+/* ── Loading spinner ── */
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.spinner {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(245, 230, 200, 0.2);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.page-spinner {
+  display: flex;
+  justify-content: center;
+  padding: 4rem 0;
+}
+
+.drive-hero-image-wrap .spinner,
+.lightbox-image-wrap .spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: -16px 0 0 -16px;
+  z-index: 1;
+}
+
+.drive-hero-image-wrap.loaded .spinner,
+.lightbox-image-wrap.loaded .spinner {
+  display: none;
+}

@@ -285,12 +285,13 @@ function renderDriveGalleryView(album) {
         <button class="btn-drive-action" id="drive-download-album" type="button">${ICON_DOWNLOAD} Pobierz album</button>
       </div>
     </div>
-    <p class="drive-gallery-status" id="drive-gallery-status">Ładowanie…</p>
+    <p class="drive-gallery-status" id="drive-gallery-status"><span class="spinner"></span> Ładowanie…</p>
     <div class="drive-gallery-browser">
       <div class="drive-hero" id="drive-hero" hidden>
         <button class="drive-hero-prev" id="drive-hero-prev" aria-label="Poprzednie">${ICON_CHEVRON_LEFT}</button>
         <div class="drive-hero-image-wrap">
           <img id="drive-hero-img" alt="" />
+          <span class="spinner"></span>
           <a class="btn-download-image" id="drive-hero-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
         </div>
         <button class="drive-hero-next" id="drive-hero-next" aria-label="Następne">${ICON_CHEVRON_RIGHT}</button>
@@ -302,6 +303,7 @@ function renderDriveGalleryView(album) {
       <button class="lightbox-prev" id="lightbox-prev" aria-label="Poprzednie">${ICON_CHEVRON_LEFT}</button>
       <div class="lightbox-image-wrap">
         <img id="lightbox-img" alt="" />
+        <span class="spinner"></span>
         <a class="btn-download-image" id="lightbox-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
       </div>
       <button class="lightbox-next" id="lightbox-next" aria-label="Następne">${ICON_CHEVRON_RIGHT}</button>
@@ -343,6 +345,7 @@ function renderGalleryCell(f, i) {
         <button class="drive-hero-prev" aria-label="Poprzednie">${ICON_CHEVRON_LEFT}</button>
         <div class="drive-hero-image-wrap">
           <img src="${escapeAttr(driveThumbUrl(f.thumbnailLink, 1200))}" alt="" />
+          <span class="spinner"></span>
           <a class="btn-download-image" download target="_blank" rel="noopener" href="${escapeAttr(driveDownloadUrl(f.id))}" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
         </div>
         <button class="drive-hero-next" aria-label="Następne">${ICON_CHEVRON_RIGHT}</button>
@@ -354,11 +357,26 @@ function renderGalleryCell(f, i) {
     </button>`;
 }
 
+// Shows a spinner over an image's wrap until it finishes loading (or fails).
+function watchImageLoad(img) {
+  const wrap = img.closest('.drive-hero-image-wrap, .lightbox-image-wrap');
+  if (!wrap) return;
+  wrap.classList.remove('loaded');
+  if (img.complete && img.naturalWidth) {
+    wrap.classList.add('loaded');
+  } else {
+    img.addEventListener('load', () => wrap.classList.add('loaded'), { once: true });
+    img.addEventListener('error', () => wrap.classList.add('loaded'), { once: true });
+  }
+}
+
 function renderGalleryGrid() {
   const grid = document.getElementById('drive-gallery-grid');
   if (!grid) return;
   grid.innerHTML = driveGalleryFiles.map((f, i) => renderGalleryCell(f, i)).join('');
   grid.querySelectorAll('.drive-gallery-thumb img').forEach(applyRowSpan);
+  const expandedImg = grid.querySelector('.drive-gallery-expanded img');
+  if (expandedImg) watchImageLoad(expandedImg);
 }
 
 async function loadDriveGallery(album) {
@@ -402,12 +420,18 @@ function setCurrentIndex(index) {
   const downloadHref = driveDownloadUrl(file.id);
 
   const heroImg = document.getElementById('drive-hero-img');
-  if (heroImg) heroImg.src = largeSrc;
+  if (heroImg) {
+    heroImg.src = largeSrc;
+    watchImageLoad(heroImg);
+  }
   const heroDownload = document.getElementById('drive-hero-download');
   if (heroDownload) heroDownload.href = downloadHref;
 
   const lightboxImg = document.getElementById('lightbox-img');
-  if (lightboxImg) lightboxImg.src = largeSrc;
+  if (lightboxImg) {
+    lightboxImg.src = largeSrc;
+    watchImageLoad(lightboxImg);
+  }
   const lightboxDownload = document.getElementById('lightbox-download');
   if (lightboxDownload) lightboxDownload.href = downloadHref;
 
@@ -579,4 +603,8 @@ fetch('data/albums.generated.json')
   })
   .catch(() => {
     document.getElementById('count').textContent = 'Błąd ładowania danych';
+  })
+  .finally(() => {
+    const gridLoading = document.getElementById('grid-loading');
+    if (gridLoading) gridLoading.hidden = true;
   });
