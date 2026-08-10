@@ -9,6 +9,7 @@
   <link rel="icon" type="image/png" href="favicon.png" />
   <link rel="apple-touch-icon" href="favicon.png" />
   <link rel="stylesheet" href="style.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <header class="site-header">
@@ -29,16 +30,39 @@
         zatwierdzi dodanie albumu.
       </p>
 
+      <div class="upload-signin" id="upload-signin">
+        <div id="google-signin-button"></div>
+      </div>
+      <p class="upload-signed-in" id="upload-signed-in" hidden>
+        Zalogowano jako <strong id="upload-signed-in-email"></strong>.
+        <button type="button" class="upload-mode-toggle" id="upload-mode-toggle">Prześlij pliki zamiast linku</button>
+      </p>
+      <p class="upload-forbidden" id="upload-forbidden" hidden>
+        To konto Google nie ma uprawnień do przesyłania zdjęć. Możesz nadal dodać album przez link poniżej.
+      </p>
+      <div class="upload-reauth" id="upload-reauth" hidden>
+        <p>Twoja sesja logowania wygasła. Zaloguj się ponownie, aby kontynuować — dotychczasowy postęp przesyłania zostanie zachowany.</p>
+        <div id="google-reauth-button"></div>
+      </div>
+      <div class="upload-success" id="upload-success" hidden>
+        <p>Zgłoszenie przyjęte! Album pojawi się na stronie za kilka minut, gdy zakończy się automatyczna publikacja.</p>
+        <a href="index.html">Wróć do galerii</a>
+      </div>
+
       <form id="add-album-form" novalidate>
-        <div class="field">
+        <div class="field" id="url-field">
           <label for="url">Link do galerii (Google Photos lub Google Drive)</label>
           <input
             type="url"
             id="url"
             name="url"
             placeholder="np. https://photos.app.goo.gl/NAcQVidJ4apcvbFy6"
-            required
           />
+        </div>
+
+        <div class="field" id="files-field" hidden>
+          <label for="files">Zdjęcia</label>
+          <input type="file" id="files" name="files" accept="image/*" multiple />
         </div>
 
         <div class="field">
@@ -53,7 +77,12 @@
 
         <p class="add-album-error" id="error" hidden></p>
 
-        <button type="submit" class="add-album-submit">Prześlij</button>
+        <div class="upload-progress" id="upload-progress" hidden>
+          <p id="upload-progress-text"></p>
+          <ul class="upload-failed-list" id="upload-failed-list" hidden></ul>
+        </div>
+
+        <button type="submit" class="add-album-submit" id="submit-button">Prześlij</button>
       </form>
     </div>
   </main>
