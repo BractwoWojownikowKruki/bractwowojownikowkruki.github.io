@@ -16,6 +16,13 @@ kliknięciu „Prześlij" zostaniesz przeniesiony na GitHuba, gdzie potwierdzasz
 przejrzy zgłoszenie i zatwierdzi je; album pojawi się na stronie automatycznie po zatwierdzeniu
 (synchronizacja trwa ok. 1–2 minut).
 
+### Przesyłanie zdjęć bezpośrednio (dla wybranych osób)
+
+Jeśli Twoje konto Google jest na liście uprawnionych, po zalogowaniu się przyciskiem Google na
+stronie „Dodaj galerię" pojawi się opcja „Prześlij pliki zamiast linku". Wybierz zdjęcia, podaj
+nazwę i datę — album zostanie utworzony i opublikowany automatycznie, bez zatwierdzania przez
+administratora.
+
 ### Edycja ręczna (dla osób technicznych)
 
 Albumy są przechowywane w [`albums.json`](https://github.com/BractwoWojownikowKruki/krucze-galery/blob/main/albums.json)
