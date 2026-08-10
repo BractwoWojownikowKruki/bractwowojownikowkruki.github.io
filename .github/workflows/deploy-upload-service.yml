@@ -1,0 +1,90 @@
+name: Deploy upload service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'upload-service/**'
+      - '.github/workflows/deploy-upload-service.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: upload-service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: upload-service/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Run tests
+        run: npm test
+      - name: Build-and-start smoke test
+        run: |
+          docker build -t upload-service-smoke .
+          docker run -d --name smoke -p 8080:8080 \
+            -e ALLOWED_EMAILS=test@example.com \
+            -e GOOGLE_OAUTH_CLIENT_ID=dummy \
+            -e DRIVE_REFRESH_TOKEN=dummy \
+            -e DRIVE_CLIENT_ID=dummy \
+            -e DRIVE_CLIENT_SECRET=dummy \
+            -e DRIVE_PARENT_FOLDER_ID=dummy \
+            -e GITHUB_TOKEN=dummy \
+            -e SUBMISSION_TOKEN_SECRET=dummy \
+            upload-service-smoke
+          sleep 2
+          RESPONSE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/whoami)
+          docker logs smoke
+          docker rm -f smoke
+          if [ "$RESPONSE" != "401" ]; then
+            echo "Expected 401 from /whoami with no Authorization header, got $RESPONSE"
+            exit 1
+          fi
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA }}
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: krucze-galery-upload
+          region: europe-central2
+          project_id: krucze-galery-upload
+          source: ./upload-service
+          flags: --max-instances=1 --concurrency=10 --timeout=300 --memory=512Mi --allow-unauthenticated
+          env_vars: |
+            ALLOWED_EMAILS=${{ secrets.UPLOAD_ALLOWED_EMAILS }}
+            GOOGLE_OAUTH_CLIENT_ID=${{ secrets.UPLOAD_OAUTH_CLIENT_ID }}
+            DRIVE_PARENT_FOLDER_ID=${{ secrets.UPLOAD_DRIVE_PARENT_FOLDER_ID }}
+            GITHUB_REPO=BractwoWojownikowKruki/krucze-galery
+          secrets: |
+            DRIVE_REFRESH_TOKEN=drive-refresh-token:latest
+            DRIVE_CLIENT_ID=drive-oauth-client-id:latest
+            DRIVE_CLIENT_SECRET=drive-oauth-client-secret:latest
+            GITHUB_TOKEN=github-pat:latest
+            SUBMISSION_TOKEN_SECRET=submission-token-secret:latest
