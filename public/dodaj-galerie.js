@@ -1,6 +1,6 @@
 const REPO_URL = 'https://github.com/BractwoWojownikowKruki/krucze-galery';
 const UPLOAD_SERVICE_URL = 'https://YOUR-CLOUD-RUN-URL';
-const GOOGLE_OAUTH_CLIENT_ID = 'YOUR-OAUTH-CLIENT-ID.apps.googleusercontent.com';
+const GOOGLE_OAUTH_CLIENT_ID = '895090213384-cqac9v2tvmjhkkertjjj5q4h8qf41g3d.apps.googleusercontent.com';
 const MAX_CONCURRENT_UPLOADS = 4;
 const MAX_RETRIES_PER_FILE = 2;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
