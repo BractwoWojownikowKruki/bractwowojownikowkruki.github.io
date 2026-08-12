@@ -279,4 +279,18 @@ document.getElementById('add-album-form').addEventListener('submit', async e => 
   window.location.href = `${REPO_URL}/issues/new?${params.toString()}`;
 });
 
-initGoogleSignIn();
+// The GSI <script> tag loads with `async`, so it can finish (and even fire its own onload)
+// either before or after this script has run - there's no reliable single event to hang this
+// on in either direction. Polling briefly from here works regardless of which one wins the
+// race: it doesn't depend on GSI calling back into us, and it doesn't require GSI's own load
+// event to fire after this file has already been parsed and defined initGoogleSignIn.
+function waitForGoogleIdentityServices(callback, attemptsRemaining = 100) {
+  if (window.google?.accounts?.id) {
+    callback();
+    return;
+  }
+  if (attemptsRemaining <= 0) return;
+  setTimeout(() => waitForGoogleIdentityServices(callback, attemptsRemaining - 1), 50);
+}
+
+waitForGoogleIdentityServices(initGoogleSignIn);
