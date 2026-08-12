@@ -615,6 +615,10 @@ main { padding: 1.25rem 1.5rem 3rem; }
   color: var(--gold);
 }
 
+.drive-gallery-status[hidden] {
+  display: none;
+}
+
 .drive-gallery-status {
   display: flex;
   align-items: center;
