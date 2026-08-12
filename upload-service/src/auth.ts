@@ -1,5 +1,6 @@
 import { createPublicKey, verify as cryptoVerify } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
+import type { SheetAllowlist } from './allowlist.ts';
 
 export class AuthError extends Error {
   status: number;
@@ -126,7 +127,7 @@ export async function verifyGoogleIdToken(
 export async function verifyUploader(
   req: IncomingMessage,
   expectedAudience: string,
-  allowedEmails: string[],
+  allowlist: SheetAllowlist,
   jwksProvider: JwksProvider = fetchGoogleJwks,
 ): Promise<VerifiedIdentity> {
   const token = extractBearerToken(req.headers.authorization);
@@ -134,5 +135,6 @@ export async function verifyUploader(
     throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
   }
   const identity = await verifyGoogleIdToken(token, expectedAudience, jwksProvider);
+  const allowedEmails = await allowlist.getEmails();
   return checkAllowlist(identity, allowedEmails);
 }

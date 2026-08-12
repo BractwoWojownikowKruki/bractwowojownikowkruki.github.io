@@ -4,16 +4,12 @@ function requireEnv(name: string): string {
   return value;
 }
 
-function parseAllowedEmails(raw: string): string[] {
-  return raw
-    .split(',')
-    .map(e => e.trim().toLowerCase())
-    .filter(Boolean);
-}
-
 export const config = {
   port: Number(process.env.PORT ?? 8080),
-  allowedEmails: parseAllowedEmails(requireEnv('ALLOWED_EMAILS')),
+  // Published CSV export of the allowlist Sheet Bartosz manages directly (Viewer access via
+  // link, editable only by him). See KRKG-0024 design.md - no env var/secret needed, this is
+  // a public read-only URL by design.
+  allowlistSheetUrl: 'https://docs.google.com/spreadsheets/d/1QH_OElOz3-_YbK71D_0gjX4P5OYJMjuS0zv0J5lL3dY/export?format=csv',
   googleOAuthClientId: requireEnv('GOOGLE_OAUTH_CLIENT_ID'),
   driveRefreshToken: requireEnv('DRIVE_REFRESH_TOKEN'),
   driveClientId: requireEnv('DRIVE_CLIENT_ID'),

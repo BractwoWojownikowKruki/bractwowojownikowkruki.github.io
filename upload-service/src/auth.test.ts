@@ -9,6 +9,7 @@ import {
   extractBearerToken,
   verifyGoogleIdToken,
   verifyJwtSignature,
+  verifyUploader,
 } from './auth.ts';
 
 function base64Url(buf: Buffer): string {
@@ -90,6 +91,54 @@ test('checkAllowlist rejects a non-allowlisted email', () => {
     () => checkAllowlist({ sub: 's', email: 'mallory@gmail.com' }, ['alice@gmail.com']),
     (err: unknown) => err instanceof AuthError && err.status === 403,
   );
+});
+
+test('verifyUploader accepts a token whose email the injected allowlist returns', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const token = makeSignedToken(
+    { iss: 'https://accounts.google.com', aud: 'client-123', exp: now + 60, email_verified: true, email: 'alice@gmail.com', sub: 'sub-1' },
+    privateKey,
+    'test-kid',
+  );
+  const identity = await verifyUploader(
+    { headers: { authorization: `Bearer ${token}` } } as never,
+    'client-123',
+    { getEmails: async () => ['alice@gmail.com'] },
+    async () => [testJwk],
+  );
+  assert.deepEqual(identity, { sub: 'sub-1', email: 'alice@gmail.com' });
+});
+
+test('verifyUploader rejects a token whose email the injected allowlist does not return', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const token = makeSignedToken(
+    { iss: 'https://accounts.google.com', aud: 'client-123', exp: now + 60, email_verified: true, email: 'mallory@gmail.com', sub: 'sub-1' },
+    privateKey,
+    'test-kid',
+  );
+  await assert.rejects(
+    verifyUploader(
+      { headers: { authorization: `Bearer ${token}` } } as never,
+      'client-123',
+      { getEmails: async () => ['alice@gmail.com'] },
+      async () => [testJwk],
+    ),
+    (err: unknown) => err instanceof AuthError && err.status === 403,
+  );
+});
+
+test('verifyUploader rejects a request with no Authorization header before checking the allowlist', async () => {
+  let called = false;
+  await assert.rejects(
+    verifyUploader(
+      { headers: {} } as never,
+      'client-123',
+      { getEmails: async () => { called = true; return ['alice@gmail.com']; } },
+      async () => [testJwk],
+    ),
+    (err: unknown) => err instanceof AuthError && err.status === 401,
+  );
+  assert.equal(called, false);
 });
 
 test('verifyJwtSignature accepts a token signed with the matching private key', () => {

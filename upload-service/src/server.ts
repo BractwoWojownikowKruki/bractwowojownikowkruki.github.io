@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { AuthError, verifyUploader, type VerifiedIdentity } from './auth.ts';
+import { createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
 import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, type GithubClient } from './github.ts';
@@ -357,10 +358,11 @@ async function startProductionServer(): Promise<void> {
     clientSecret: config.driveClientSecret,
     refreshToken: config.driveRefreshToken,
   };
+  const allowlist = createSheetAllowlist({ url: config.allowlistSheetUrl });
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
-    authenticate: req => verifyUploader(req, config.googleOAuthClientId, config.allowedEmails),
+    authenticate: req => verifyUploader(req, config.googleOAuthClientId, allowlist),
     submissionTokenSecret: config.submissionTokenSecret,
     driveParentFolderId: config.driveParentFolderId,
     allowedOrigin: config.allowedOrigin,
