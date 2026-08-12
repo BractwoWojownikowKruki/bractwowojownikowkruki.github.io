@@ -879,6 +879,10 @@ main { padding: 1.25rem 1.5rem 3rem; }
   animation: spin 0.7s linear infinite;
 }
 
+.page-spinner[hidden] {
+  display: none;
+}
+
 .page-spinner {
   display: flex;
   justify-content: center;
