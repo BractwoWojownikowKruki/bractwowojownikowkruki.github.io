@@ -245,6 +245,7 @@ function renderFocusedView(album, albums) {
 }
 
 const DRIVE_API_KEY_PUBLIC = 'AIzaSyCNnBUsUnpNyfyCeJqPghBraIRjg-YHyPQ';
+const UPLOAD_SERVICE_URL = 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
 
 async function fetchDriveFiles(folderId) {
   let files = [];
@@ -594,17 +595,43 @@ document.getElementById('sort').addEventListener('change', e => {
   update();
 });
 
-fetch('data/albums.generated.json')
-  .then(r => r.json())
-  .then(data => {
-    allAlbums = data;
-    update();
-    route();
-  })
-  .catch(() => {
+function makeSearchText(title) {
+  return title.toLowerCase().replace(/[–—]/g, '-');
+}
+
+// Maps a discovered Drive folder (see GET /galleries in upload-service) into the same album
+// shape renderCard/route/filter/sort already expect - so a dynamically discovered gallery is
+// indistinguishable from a pipeline-generated one everywhere else in this file.
+function mapDiscoveredGallery(gallery) {
+  const title = gallery.name;
+  return {
+    title,
+    date: gallery.date ? gallery.date.slice(0, 10) : null,
+    photoCount: null,
+    cover: gallery.coverThumbnailLink ? driveThumbUrl(gallery.coverThumbnailLink, 480) : null,
+    url: `https://drive.google.com/drive/folders/${gallery.id}`,
+    source: 'drive',
+    driveFolderId: gallery.id,
+    searchText: makeSearchText(title),
+  };
+}
+
+Promise.allSettled([
+  fetch('data/albums.generated.json').then(r => r.json()),
+  fetch(`${UPLOAD_SERVICE_URL}/galleries`).then(r => r.json()),
+]).then(([generatedResult, discoveredResult]) => {
+  const generated = generatedResult.status === 'fulfilled' ? generatedResult.value : null;
+  const discovered = discoveredResult.status === 'fulfilled' ? discoveredResult.value.galleries : null;
+
+  if (!generated && !discovered) {
     document.getElementById('count').textContent = 'Błąd ładowania danych';
-  })
-  .finally(() => {
-    const gridLoading = document.getElementById('grid-loading');
-    if (gridLoading) gridLoading.hidden = true;
-  });
+    return;
+  }
+
+  allAlbums = [...(generated ?? []), ...(discovered ?? []).map(mapDiscoveredGallery)];
+  update();
+  route();
+}).finally(() => {
+  const gridLoading = document.getElementById('grid-loading');
+  if (gridLoading) gridLoading.hidden = true;
+});
