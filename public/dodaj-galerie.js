@@ -1,4 +1,3 @@
-const REPO_URL = 'https://github.com/BractwoWojownikowKruki/krucze-galery';
 const UPLOAD_SERVICE_URL = 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
 const GOOGLE_OAUTH_CLIENT_ID = '895090213384-cqac9v2tvmjhkkertjjj5q4h8qf41g3d.apps.googleusercontent.com';
 const MAX_CONCURRENT_UPLOADS = 4;
@@ -268,15 +267,24 @@ document.getElementById('add-album-form').addEventListener('submit', async e => 
     return;
   }
 
-  const params = new URLSearchParams({
-    template: 'add-album.yml',
-    title: `Nowy album: ${name || date}`,
-    url,
-    name,
-    date,
-  });
-
-  window.location.href = `${REPO_URL}/issues/new?${params.toString()}`;
+  const submitButton = document.getElementById('submit-button');
+  submitButton.disabled = true;
+  try {
+    // Registers an existing gallery directly - requires being signed in with an allowlisted
+    // account (see /register in upload-service), which apiFetch's ensureFreshIdToken prompts
+    // for if the user hasn't signed in yet.
+    await apiFetch('/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, name, date }),
+    });
+    document.getElementById('add-album-form').hidden = true;
+    document.getElementById('upload-success').hidden = false;
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    submitButton.disabled = false;
+  }
 });
 
 // The GSI <script> tag loads with `async`, so it can finish (and even fire its own onload)
