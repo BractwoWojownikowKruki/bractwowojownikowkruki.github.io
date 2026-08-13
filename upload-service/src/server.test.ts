@@ -35,6 +35,9 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     setFolderPublic: async () => {},
     revokeFolderPublic: async () => {},
     writeManifest: async () => {},
+    readManifest: async () => null,
+    listGalleryFolders: async () => [],
+    getCoverThumbnail: async () => null,
     ...overrides,
   };
 }
@@ -58,6 +61,9 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     maxFilesPerSubmission: 800,
     allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'],
     maxJsonBodyBytes: 8192,
+    // 0 by default so /galleries' module-level cache never leaks a stale result between tests;
+    // the dedicated caching test below overrides this to a real TTL to exercise the cache itself.
+    galleriesCacheTtlMs: 0,
     // No delay in tests - production uses real backoff (see productionDeps in server.ts).
     revokeRetryDelaysMs: [],
     alertStuckFolder: () => {},
@@ -87,6 +93,74 @@ test('OPTIONS returns 204 with CORS headers', async () => {
     assert.equal(res.status, 204);
     assert.equal(res.headers.get('access-control-allow-origin'), 'https://example.test');
   });
+});
+
+test('/galleries merges each discovered folder with its manifest, unauthenticated', async () => {
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listGalleryFolders: async rootFolderId => {
+        assert.equal(rootFolderId, 'parent-1');
+        return [{ id: 'g1', name: 'Raw Folder Name', modifiedTime: '2026-01-01T00:00:00.000Z' }];
+      },
+      readManifest: async folderId => {
+        assert.equal(folderId, 'g1');
+        return { name: 'Zlot Wolin', date: '2026-08-09', contributors: ['alice@gmail.com'] };
+      },
+      getCoverThumbnail: async () => 'https://drive.example/thumb.jpg',
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/galleries`);
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { galleries: unknown[] };
+    assert.deepEqual(body.galleries, [
+      {
+        id: 'g1',
+        name: 'Zlot Wolin',
+        date: '2026-08-09',
+        contributors: ['alice@gmail.com'],
+        coverThumbnailLink: 'https://drive.example/thumb.jpg',
+      },
+    ]);
+  });
+});
+
+test('/galleries falls back to the folder name and modified time when no manifest exists', async () => {
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listGalleryFolders: async () => [{ id: 'g1', name: 'Legacy Folder', modifiedTime: '2026-01-01T00:00:00.000Z' }],
+      readManifest: async () => null,
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/galleries`);
+    const body = (await res.json()) as { galleries: { name: string; date: string; contributors: string[] }[] };
+    assert.deepEqual(body.galleries[0], {
+      id: 'g1',
+      name: 'Legacy Folder',
+      date: '2026-01-01T00:00:00.000Z',
+      contributors: [],
+      coverThumbnailLink: null,
+    });
+  });
+});
+
+test('/galleries serves the cached listing without calling Drive again within the TTL', async () => {
+  let listCalls = 0;
+  const deps = makeDeps({
+    galleriesCacheTtlMs: 60_000,
+    drive: makeFakeDrive({
+      listGalleryFolders: async () => {
+        listCalls++;
+        return [{ id: 'g1', name: 'Folder', modifiedTime: '2026-01-01T00:00:00.000Z' }];
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    await fetch(`${baseUrl}/galleries`);
+    await fetch(`${baseUrl}/galleries`);
+  });
+  assert.equal(listCalls, 1);
 });
 
 test('/start rejects an unauthenticated caller before touching Drive', async () => {

@@ -25,6 +25,11 @@ export interface ServerDeps {
   maxFilesPerSubmission: number;
   allowedMimeTypes: string[];
   maxJsonBodyBytes: number;
+  // How long a /galleries response is served from the in-process cache before the next
+  // request triggers a fresh Drive listing. Bounds Drive API call volume to roughly
+  // (site traffic / this TTL) regardless of how many visitors load the gallery list, instead
+  // of one live Drive call per page view.
+  galleriesCacheTtlMs: number;
   // Delay before each revoke retry in /finalize's failure-compensation path. Empty in tests
   // for speed; production uses real backoff (see productionDeps below).
   revokeRetryDelaysMs: number[];
@@ -198,6 +203,49 @@ async function handleWhoami(req: IncomingMessage, res: ServerResponse, deps: Ser
   sendJson(res, 200, { email: identity.email });
 }
 
+export interface GalleryListItem {
+  id: string;
+  name: string;
+  date: string;
+  contributors: string[];
+  coverThumbnailLink: string | null;
+}
+
+// Single in-process cache shared by every request, same reasoning as activeSubmissionCounts
+// above: Cloud Run runs a single instance for this service, so this is authoritative rather
+// than an approximation that would go stale across replicas.
+let galleriesCache: { expiresAt: number; data: GalleryListItem[] } | null = null;
+
+async function buildGalleryList(deps: ServerDeps): Promise<GalleryListItem[]> {
+  const folders = await deps.drive.listGalleryFolders(deps.driveParentFolderId);
+  return Promise.all(
+    folders.map(async folder => {
+      const [manifest, coverThumbnailLink] = await Promise.all([
+        deps.drive.readManifest(folder.id),
+        deps.drive.getCoverThumbnail(folder.id),
+      ]);
+      return {
+        id: folder.id,
+        name: manifest?.name ?? folder.name,
+        date: manifest?.date ?? folder.modifiedTime,
+        contributors: manifest?.contributors ?? [],
+        coverThumbnailLink,
+      };
+    }),
+  );
+}
+
+// Public and unauthenticated, like the static albums.generated.json it's replacing for Drive
+// galleries - the cache above is what keeps this from becoming a live-Drive-call-per-page-view.
+async function handleGalleries(res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const now = Date.now();
+  if (!galleriesCache || galleriesCache.expiresAt <= now) {
+    const data = await buildGalleryList(deps);
+    galleriesCache = { expiresAt: now + deps.galleriesCacheTtlMs, data };
+  }
+  sendJson(res, 200, { galleries: galleriesCache.data });
+}
+
 async function handleStart(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req);
   const { name, date } = await readJsonBody<{ name?: string; date: string }>(req, deps.maxJsonBodyBytes);
@@ -319,6 +367,8 @@ export function createRequestListener(deps: ServerDeps) {
     try {
       if (req.method === 'GET' && url.pathname === '/whoami') {
         await handleWhoami(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/galleries') {
+        await handleGalleries(res, deps);
       } else if (req.method === 'POST' && url.pathname === '/start') {
         await handleStart(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/upload') {
@@ -378,6 +428,7 @@ async function startProductionServer(): Promise<void> {
     maxFilesPerSubmission: config.maxFilesPerSubmission,
     allowedMimeTypes: config.allowedMimeTypes,
     maxJsonBodyBytes: config.maxJsonBodyBytes,
+    galleriesCacheTtlMs: config.galleriesCacheTtlMs,
     revokeRetryDelaysMs: [500, 1500, 3000],
     alertStuckFolder,
   };

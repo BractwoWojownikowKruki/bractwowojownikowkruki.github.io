@@ -15,6 +15,9 @@ export const config = {
   driveClientId: requireEnv('DRIVE_CLIENT_ID'),
   driveClientSecret: requireEnv('DRIVE_CLIENT_SECRET'),
   driveParentFolderId: requireEnv('DRIVE_PARENT_FOLDER_ID'),
+  // How long GET /galleries serves its cached Drive listing before refreshing - see the
+  // comment on ServerDeps.galleriesCacheTtlMs in server.ts for why this exists.
+  galleriesCacheTtlMs: Number(process.env.GALLERIES_CACHE_TTL_MS ?? 10 * 60 * 1000),
   githubToken: requireEnv('GITHUB_TOKEN'),
   githubRepo: process.env.GITHUB_REPO ?? 'BractwoWojownikowKruki/krucze-galery',
   allowedOrigin: process.env.ALLOWED_ORIGIN ?? 'https://bractwowojownikowkruki.github.io',

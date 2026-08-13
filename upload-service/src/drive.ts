@@ -221,6 +221,67 @@ export async function writeManifest(deps: DriveDeps, folderId: string, manifest:
   }
 }
 
+export async function readManifest(deps: DriveDeps, folderId: string): Promise<GalleryManifest | null> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const fileId = await findManifestFileId(accessToken, folderId);
+  if (!fileId) return null;
+  const res = await fetch(`${DRIVE_API}/drive/v3/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Nie udało się odczytać manifestu galerii z Drive: HTTP ${res.status}`);
+  }
+  try {
+    return JSON.parse(await res.text()) as GalleryManifest;
+  } catch {
+    // A manifest that fails to parse is treated the same as a missing one - the discovery
+    // endpoint falls back to the folder's own name/modified time rather than erroring out.
+    return null;
+  }
+}
+
+export interface DriveFolderInfo {
+  id: string;
+  name: string;
+  modifiedTime: string;
+}
+
+// Lists the immediate subfolders of a root folder - each one is a gallery for discovery
+// purposes, regardless of whether it has a manifest yet (see readManifest's fallback).
+export async function listGalleryFolders(deps: DriveDeps, rootFolderId: string): Promise<DriveFolderInfo[]> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const folders: DriveFolderInfo[] = [];
+  let pageToken: string | undefined;
+  do {
+    const q = encodeURIComponent(`'${rootFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed = false`);
+    let path = `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,modifiedTime)&pageSize=1000`;
+    if (pageToken) path += `&pageToken=${encodeURIComponent(pageToken)}`;
+    const res = await fetch(path, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) {
+      throw new Error(`Nie udało się pobrać listy galerii z Drive: HTTP ${res.status}`);
+    }
+    const data = (await res.json()) as { files: DriveFolderInfo[]; nextPageToken?: string };
+    folders.push(...data.files);
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return folders;
+}
+
+// First image in the folder (by name) used as the gallery's cover, mirroring how the frontend
+// already renders Drive-gallery covers from a live thumbnailLink rather than a cached file.
+export async function getCoverThumbnail(deps: DriveDeps, folderId: string): Promise<string | null> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const q = encodeURIComponent(`'${folderId}' in parents and mimeType contains 'image/' and trashed = false`);
+  const res = await fetch(`${DRIVE_API}/drive/v3/files?q=${q}&fields=files(thumbnailLink)&pageSize=1&orderBy=name`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Nie udało się pobrać miniatury okładki galerii z Drive: HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { files: { thumbnailLink?: string }[] };
+  return data.files[0]?.thumbnailLink ?? null;
+}
+
 export interface DriveClient {
   createAlbumFolder(parentFolderId: string, folderName: string): Promise<string>;
   uploadFileStream(folderId: string, fileName: string, mimeType: string, bodyStream: AsyncIterable<Buffer>): Promise<void>;
@@ -228,6 +289,9 @@ export interface DriveClient {
   setFolderPublic(folderId: string): Promise<void>;
   revokeFolderPublic(folderId: string): Promise<void>;
   writeManifest(folderId: string, manifest: GalleryManifest): Promise<void>;
+  readManifest(folderId: string): Promise<GalleryManifest | null>;
+  listGalleryFolders(rootFolderId: string): Promise<DriveFolderInfo[]>;
+  getCoverThumbnail(folderId: string): Promise<string | null>;
 }
 
 // Binds the module's functions to one set of Drive credentials, giving server.ts a small
@@ -241,5 +305,8 @@ export function createDriveClient(deps: DriveDeps): DriveClient {
     setFolderPublic: folderId => setFolderPublic(deps, folderId),
     revokeFolderPublic: folderId => revokeFolderPublic(deps, folderId),
     writeManifest: (folderId, manifest) => writeManifest(deps, folderId, manifest),
+    readManifest: folderId => readManifest(deps, folderId),
+    listGalleryFolders: rootFolderId => listGalleryFolders(deps, rootFolderId),
+    getCoverThumbnail: folderId => getCoverThumbnail(deps, folderId),
   };
 }
