@@ -163,6 +163,105 @@ test('/galleries serves the cached listing without calling Drive again within th
   assert.equal(listCalls, 1);
 });
 
+test('/register rejects an unauthenticated caller before touching Drive or GitHub', async () => {
+  let driveCalled = false;
+  let githubCalled = false;
+  const deps = makeDeps({
+    authenticate: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+    drive: makeFakeDrive({ writeManifest: async () => { driveCalled = true; } }),
+    github: makeFakeGithub({ appendAlbumToMain: async () => { githubCalled = true; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://drive.google.com/drive/folders/abc', date: '2026-08-09' }),
+    });
+    assert.equal(res.status, 401);
+    assert.equal(driveCalled, false);
+    assert.equal(githubCalled, false);
+  });
+});
+
+test('/register rejects a body missing the URL or the date', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: '2026-08-09' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('/register rejects a malformed URL', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'not-a-url', date: '2026-08-09' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('/register writes a manifest for a Drive folder URL and does not touch GitHub', async () => {
+  let writtenFolderId: string | null = null;
+  let writtenManifest: unknown = null;
+  let githubCalled = false;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      writeManifest: async (folderId, manifest) => {
+        writtenFolderId = folderId;
+        writtenManifest = manifest;
+      },
+    }),
+    github: makeFakeGithub({ appendAlbumToMain: async () => { githubCalled = true; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://drive.google.com/drive/folders/abc123', name: 'Zlot Wolin', date: '2026-08-09' }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { ok: boolean; type: string; folderId: string };
+    assert.deepEqual(body, { ok: true, type: 'drive', folderId: 'abc123' });
+    assert.equal(writtenFolderId, 'abc123');
+    assert.deepEqual(writtenManifest, { name: 'Zlot Wolin', date: '2026-08-09', contributors: ['alice@gmail.com'] });
+    assert.equal(githubCalled, false);
+  });
+});
+
+test('/register commits a non-Drive (Google Photos) URL straight to albums.json and does not touch Drive', async () => {
+  let appendedEntry: unknown = null;
+  let driveCalled = false;
+  const deps = makeDeps({
+    drive: makeFakeDrive({ writeManifest: async () => { driveCalled = true; } }),
+    github: makeFakeGithub({ appendAlbumToMain: async entry => { appendedEntry = entry; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://photos.app.goo.gl/AbCdEf', name: 'Zlot Wolin', date: '2026-08-09' }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { ok: boolean; type: string };
+    assert.deepEqual(body, { ok: true, type: 'photos' });
+    assert.deepEqual(appendedEntry, {
+      url: 'https://photos.app.goo.gl/AbCdEf',
+      nameOverride: 'Zlot Wolin',
+      dateOverride: '2026-08-09',
+    });
+    assert.equal(driveCalled, false);
+  });
+});
+
 test('/start rejects an unauthenticated caller before touching Drive', async () => {
   let driveCalled = false;
   const deps = makeDeps({

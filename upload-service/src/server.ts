@@ -6,6 +6,7 @@ import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken }
 import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
+import { extractDriveFolderId } from './urls.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -355,6 +356,41 @@ async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: S
   sendJson(res, 200, { ok: true });
 }
 
+// Lets an already-authenticated, allowlisted user register a gallery that already exists,
+// instead of uploading files - replaces the old GitHub Issue/PR submission path with something
+// tied to a real authenticated identity rather than self-reported issue-form data.
+async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req);
+  const { url, name, date } = await readJsonBody<{ url?: string; name?: string; date: string }>(req, deps.maxJsonBodyBytes);
+  if (!url || !date) throw new AuthError('Brak adresu URL galerii lub daty.', 400);
+  try {
+    new URL(url);
+  } catch {
+    throw new AuthError('Nieprawidłowy adres URL galerii.', 400);
+  }
+
+  const driveFolderId = extractDriveFolderId(url);
+  if (driveFolderId) {
+    // Requires the folder to already be shared with edit access to this service's Drive
+    // credentials - if it isn't, writeManifest's Drive error propagates as a 500 like any
+    // other Drive failure elsewhere in this service.
+    await deps.drive.writeManifest(driveFolderId, {
+      ...(name ? { name } : {}),
+      date,
+      contributors: [identity.email],
+    });
+    sendJson(res, 200, { ok: true, type: 'drive', folderId: driveFolderId });
+    return;
+  }
+
+  await deps.github.appendAlbumToMain({
+    url,
+    ...(name ? { nameOverride: name } : {}),
+    dateOverride: date,
+  });
+  sendJson(res, 200, { ok: true, type: 'photos' });
+}
+
 export function createRequestListener(deps: ServerDeps) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     setCors(res, deps.allowedOrigin);
@@ -371,6 +407,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleGalleries(res, deps);
       } else if (req.method === 'POST' && url.pathname === '/start') {
         await handleStart(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/register') {
+        await handleRegister(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/upload') {
         await handleUpload(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/status') {
