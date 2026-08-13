@@ -34,6 +34,7 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     listFiles: async () => [],
     setFolderPublic: async () => {},
     revokeFolderPublic: async () => {},
+    writeManifest: async () => {},
     ...overrides,
   };
 }
@@ -245,6 +246,56 @@ test('/finalize revokes public access when the GitHub publish fails after sharin
     assert.equal(res.status, 500);
     assert.equal(madePublic, true);
     assert.equal(revoked, true);
+  });
+});
+
+test('/finalize writes a gallery manifest with name, date, and the uploader as contributor before publishing', async () => {
+  let writtenFolderId: string | null = null;
+  let writtenManifest: { name?: string; date: string; contributors: string[] } | null = null;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listFiles: async () => [{ name: 'a.jpg', size: 10 }],
+      writeManifest: async (folderId, manifest) => {
+        writtenFolderId = folderId;
+        writtenManifest = manifest;
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Submission-Token': token },
+      body: JSON.stringify({ folderId, name: 'Zlot Wolin', date: '2026-08-09' }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(writtenFolderId, folderId);
+    assert.deepEqual(writtenManifest, { name: 'Zlot Wolin', date: '2026-08-09', contributors: ['alice@gmail.com'] });
+  });
+});
+
+test('/finalize fails before granting public access when writing the manifest fails', async () => {
+  let madePublic = false;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listFiles: async () => [{ name: 'a.jpg', size: 10 }],
+      writeManifest: async () => {
+        throw new Error('Drive is down');
+      },
+      setFolderPublic: async () => { madePublic = true; },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Submission-Token': token },
+      body: JSON.stringify({ folderId, date: '2026-08-09' }),
+    });
+    assert.equal(res.status, 500);
+    assert.equal(madePublic, false);
   });
 });
 

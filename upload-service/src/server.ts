@@ -275,6 +275,14 @@ async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: S
     );
   }
 
+  // Written while the folder is still private, before anything public-facing happens - a
+  // failure here simply fails /finalize with no compensating action needed.
+  await deps.drive.writeManifest(folderId, {
+    ...(name ? { name } : {}),
+    date,
+    contributors: [identity.email],
+  });
+
   // Folder stays private until this point. If the GitHub commit fails after this, the just-
   // granted public permission is revoked below (with retry) - a half-finalized submission
   // is never left publicly link-accessible with no compensating action or recovery path.

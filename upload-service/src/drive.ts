@@ -171,12 +171,63 @@ export async function listFiles(deps: DriveDeps, folderId: string): Promise<Driv
   return files;
 }
 
+export const MANIFEST_FILE_NAME = '.gallery.json';
+
+export interface GalleryManifest {
+  name?: string;
+  date: string;
+  contributors: string[];
+}
+
+async function findManifestFileId(accessToken: string, folderId: string): Promise<string | null> {
+  const q = encodeURIComponent(`'${folderId}' in parents and name='${MANIFEST_FILE_NAME}' and trashed = false`);
+  const res = await fetch(`${DRIVE_API}/drive/v3/files?q=${q}&fields=files(id)&pageSize=1`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Nie udało się wyszukać pliku manifestu galerii w Drive: HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { files: { id: string }[] };
+  return data.files[0]?.id ?? null;
+}
+
+// Idempotent: updates the folder's existing manifest file if one is already present (e.g. a
+// retried /finalize call, or a future "add more photos" flow revising contributors/date),
+// otherwise creates it - so a gallery folder always has at most one manifest for the discovery
+// endpoint to read.
+export async function writeManifest(deps: DriveDeps, folderId: string, manifest: GalleryManifest): Promise<void> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const content = JSON.stringify(manifest, null, 2);
+  const existingId = await findManifestFileId(accessToken, folderId);
+  if (existingId) {
+    const res = await fetch(`${DRIVE_UPLOAD_API}/drive/v3/files/${existingId}?uploadType=media`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: content,
+    });
+    if (!res.ok) {
+      throw new Error(`Nie udało się zaktualizować manifestu galerii w Drive: HTTP ${res.status}`);
+    }
+    return;
+  }
+  const { prefix, suffix, boundary } = buildMultipartParts({ name: MANIFEST_FILE_NAME, parents: [folderId] }, 'application/json');
+  const res = await fetch(`${DRIVE_UPLOAD_API}/drive/v3/files?uploadType=multipart&fields=id`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+    body: Buffer.concat([prefix, Buffer.from(content), suffix]),
+  });
+  if (!res.ok) {
+    throw new Error(`Nie udało się utworzyć manifestu galerii w Drive: HTTP ${res.status}`);
+  }
+}
+
 export interface DriveClient {
   createAlbumFolder(parentFolderId: string, folderName: string): Promise<string>;
   uploadFileStream(folderId: string, fileName: string, mimeType: string, bodyStream: AsyncIterable<Buffer>): Promise<void>;
   listFiles(folderId: string): Promise<DriveFileInfo[]>;
   setFolderPublic(folderId: string): Promise<void>;
   revokeFolderPublic(folderId: string): Promise<void>;
+  writeManifest(folderId: string, manifest: GalleryManifest): Promise<void>;
 }
 
 // Binds the module's functions to one set of Drive credentials, giving server.ts a small
@@ -189,5 +240,6 @@ export function createDriveClient(deps: DriveDeps): DriveClient {
     listFiles: folderId => listFiles(deps, folderId),
     setFolderPublic: folderId => setFolderPublic(deps, folderId),
     revokeFolderPublic: folderId => revokeFolderPublic(deps, folderId),
+    writeManifest: (folderId, manifest) => writeManifest(deps, folderId, manifest),
   };
 }
