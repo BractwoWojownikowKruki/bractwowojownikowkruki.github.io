@@ -86,3 +86,4 @@ jobs:
             DRIVE_CLIENT_SECRET=drive-oauth-client-secret:latest
             GITHUB_TOKEN=github-pat:latest
             SUBMISSION_TOKEN_SECRET=submission-token-secret:latest
+            FACEBOOK_PAGE_ACCESS_TOKEN=facebook-page-access-token:latest
