@@ -16,6 +16,24 @@ initGoogleSignIn({
   },
 });
 
+// Uploads every file in fileList to folderId, sequentially (simplicity over throughput - this
+// codebase's other upload flow, dodaj-galerie.js, uses bounded concurrency for large albums,
+// but a person's photo set here is small enough that sequential is fine). onProgress(n), if
+// given, is called after each file with the count uploaded so far.
+async function uploadPhotos(folderId, fileList, onProgress) {
+  let uploaded = 0;
+  for (const file of fileList) {
+    await apiFetch(
+      `/admin/people/photo?folderId=${encodeURIComponent(folderId)}&fileName=${encodeURIComponent(file.name)}&mimeType=${encodeURIComponent(file.type || 'application/octet-stream')}`,
+      { method: 'POST', body: file },
+      showReauth,
+      hideReauth,
+    );
+    uploaded++;
+    onProgress?.(uploaded);
+  }
+}
+
 document.getElementById('add-person-form').addEventListener('submit', async e => {
   e.preventDefault();
   const status = document.getElementById('add-person-status');
@@ -25,9 +43,10 @@ document.getElementById('add-person-form').addEventListener('submit', async e =>
   const orderRaw = document.getElementById('person-order').value;
   const order = orderRaw === '' ? null : Number(orderRaw);
   const description = document.getElementById('person-description').value.trim();
+  const photoFiles = document.getElementById('person-photos').files;
 
   try {
-    await apiFetch(
+    const { folderId } = await apiFetch(
       '/admin/people',
       {
         method: 'POST',
@@ -37,6 +56,12 @@ document.getElementById('add-person-form').addEventListener('submit', async e =>
       showReauth,
       hideReauth,
     );
+    if (photoFiles.length) {
+      status.textContent = `Dodano osobę, przesyłanie zdjęć (0/${photoFiles.length})...`;
+      await uploadPhotos(folderId, photoFiles, uploaded => {
+        status.textContent = `Dodano osobę, przesyłanie zdjęć (${uploaded}/${photoFiles.length})...`;
+      });
+    }
     status.textContent = 'Dodano osobę.';
     document.getElementById('add-person-form').reset();
     loadManageList();
@@ -110,15 +135,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
 document.getElementById('manage-people-list').addEventListener('change', async e => {
   const input = e.target.closest('.upload-photo');
   if (!input || !input.files.length) return;
-  const folderId = input.dataset.folderId;
-  for (const file of input.files) {
-    await apiFetch(
-      `/admin/people/photo?folderId=${encodeURIComponent(folderId)}&fileName=${encodeURIComponent(file.name)}&mimeType=${encodeURIComponent(file.type || 'application/octet-stream')}`,
-      { method: 'POST', body: file },
-      showReauth,
-      hideReauth,
-    );
-  }
+  await uploadPhotos(input.dataset.folderId, input.files);
   input.value = '';
   loadManageList();
 });
