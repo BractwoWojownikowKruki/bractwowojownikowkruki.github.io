@@ -7,6 +7,12 @@ import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
 import { fetchInstagramPosts, fetchFacebookPosts } from './social-media.ts';
+import {
+  bootstrapAboutUsStructure,
+  fetchCategoryPeople,
+  isAboutUsCategory,
+  type AboutUsCategory,
+} from './about-us.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -226,6 +232,20 @@ async function handleGalleries(res: ServerResponse, deps: ServerDeps): Promise<v
   sendJson(res, 200, { galleries: galleriesCache.data });
 }
 
+function parseAboutUsCategory(value: string | null): AboutUsCategory {
+  if (!value || !isAboutUsCategory(value)) {
+    throw new AuthError('Nieprawidłowa kategoria.', 400);
+  }
+  return value;
+}
+
+async function handleAboutUs(res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const category = parseAboutUsCategory(url.searchParams.get('category'));
+  const folders = await bootstrapAboutUsStructure(deps.drive);
+  const people = await fetchCategoryPeople(deps.drive, folders.categories[category]);
+  sendJson(res, 200, { people });
+}
+
 // Only for galleries this service itself created (drive.file scope can't touch anything else -
 // see KRKG-0025's design.md) - a folder registered by URL instead goes through /unregister.
 async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -419,6 +439,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/galleries') {
         await handleGalleries(res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/about-us') {
+        await handleAboutUs(res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
         await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {

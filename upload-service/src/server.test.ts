@@ -6,6 +6,7 @@ import { AuthError } from './auth.ts';
 import { createRequestListener, type ServerDeps } from './server.ts';
 import type { DriveClient, DriveFileInfo } from './drive.ts';
 import type { GithubClient } from './github.ts';
+import { resetAboutUsBootstrapForTests } from './about-us.ts';
 
 const VALID_JPEG_BYTES = Buffer.concat([
   Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01]),
@@ -165,6 +166,42 @@ test('/galleries serves the cached listing without calling Drive again within th
     await fetch(`${baseUrl}/galleries`);
   });
   assert.equal(listCalls, 1);
+});
+
+test('GET /about-us returns people for a valid category, sorted by folder-name order', async () => {
+  resetAboutUsBootstrapForTests();
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `folder-${name}`,
+      listGalleryFolders: async parentId => {
+        if (parentId !== 'folder-Wojownicy') return [];
+        return [
+          { id: 'p2', name: '2. Piotr', modifiedTime: '2024-01-01T00:00:00Z' },
+          { id: 'p1', name: '1. Ragnar', modifiedTime: '2024-01-01T00:00:00Z' },
+        ];
+      },
+      readTextFile: async () => 'Krótki opis.',
+      listImageFiles: async folderId => [{ id: `${folderId}-img1`, name: 'a.jpg', thumbnailLink: `https://example.test/${folderId}=s220` }],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/about-us?category=Wojownicy`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.people.length, 2);
+    assert.equal(body.people[0].name, 'Ragnar');
+    assert.equal(body.people[1].name, 'Piotr');
+    assert.equal(body.people[0].mainPhoto.url, 'https://example.test/p1=s800');
+  });
+});
+
+test('GET /about-us rejects an unknown category', async () => {
+  resetAboutUsBootstrapForTests();
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/about-us?category=NieIstnieje`);
+    assert.equal(res.status, 400);
+  });
 });
 
 test('/register rejects an unauthenticated caller before touching Drive or GitHub', async () => {
