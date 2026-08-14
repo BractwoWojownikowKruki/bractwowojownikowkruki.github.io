@@ -81,21 +81,6 @@ export async function setFolderPublic(deps: DriveDeps, folderId: string): Promis
   }
 }
 
-// Compensating action for a /finalize that made a folder public but then failed to publish -
-// removes the "anyone can read" permission this service granted. A no-op if already private.
-export async function revokeFolderPublic(deps: DriveDeps, folderId: string): Promise<void> {
-  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
-  const existing = await findPublicPermissionId(deps, accessToken, folderId);
-  if (!existing) return;
-  const res = await fetch(`${DRIVE_API}/drive/v3/files/${folderId}/permissions/${existing}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) {
-    throw new Error(`Nie udało się cofnąć publicznego dostępu do folderu w Drive: HTTP ${res.status}`);
-  }
-}
-
 export function buildMultipartParts(
   metadata: Record<string, unknown>,
   mimeType: string,
@@ -287,7 +272,6 @@ export interface DriveClient {
   uploadFileStream(folderId: string, fileName: string, mimeType: string, bodyStream: AsyncIterable<Buffer>): Promise<void>;
   listFiles(folderId: string): Promise<DriveFileInfo[]>;
   setFolderPublic(folderId: string): Promise<void>;
-  revokeFolderPublic(folderId: string): Promise<void>;
   writeManifest(folderId: string, manifest: GalleryManifest): Promise<void>;
   readManifest(folderId: string): Promise<GalleryManifest | null>;
   listGalleryFolders(rootFolderId: string): Promise<DriveFolderInfo[]>;
@@ -303,7 +287,6 @@ export function createDriveClient(deps: DriveDeps): DriveClient {
       uploadFileStream(deps, folderId, fileName, mimeType, bodyStream),
     listFiles: folderId => listFiles(deps, folderId),
     setFolderPublic: folderId => setFolderPublic(deps, folderId),
-    revokeFolderPublic: folderId => revokeFolderPublic(deps, folderId),
     writeManifest: (folderId, manifest) => writeManifest(deps, folderId, manifest),
     readManifest: folderId => readManifest(deps, folderId),
     listGalleryFolders: rootFolderId => listGalleryFolders(deps, rootFolderId),

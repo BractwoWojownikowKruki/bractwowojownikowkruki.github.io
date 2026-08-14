@@ -33,7 +33,6 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     },
     listFiles: async () => [],
     setFolderPublic: async () => {},
-    revokeFolderPublic: async () => {},
     writeManifest: async () => {},
     readManifest: async () => null,
     listGalleryFolders: async () => [],
@@ -64,9 +63,6 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     // 0 by default so /galleries' module-level cache never leaks a stale result between tests;
     // the dedicated caching test below overrides this to a real TTL to exercise the cache itself.
     galleriesCacheTtlMs: 0,
-    // No delay in tests - production uses real backoff (see productionDeps in server.ts).
-    revokeRetryDelaysMs: [],
-    alertStuckFolder: () => {},
     ...overrides,
   };
 }
@@ -209,35 +205,7 @@ test('/register rejects a malformed URL', async () => {
   });
 });
 
-test('/register writes a manifest for a Drive folder URL and does not touch GitHub', async () => {
-  let writtenFolderId: string | null = null;
-  let writtenManifest: unknown = null;
-  let githubCalled = false;
-  const deps = makeDeps({
-    drive: makeFakeDrive({
-      writeManifest: async (folderId, manifest) => {
-        writtenFolderId = folderId;
-        writtenManifest = manifest;
-      },
-    }),
-    github: makeFakeGithub({ appendAlbumToMain: async () => { githubCalled = true; } }),
-  });
-  await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: 'https://drive.google.com/drive/folders/abc123', name: 'Zlot Wolin', date: '2026-08-09' }),
-    });
-    assert.equal(res.status, 200);
-    const body = (await res.json()) as { ok: boolean; type: string; folderId: string };
-    assert.deepEqual(body, { ok: true, type: 'drive', folderId: 'abc123' });
-    assert.equal(writtenFolderId, 'abc123');
-    assert.deepEqual(writtenManifest, { name: 'Zlot Wolin', date: '2026-08-09', contributors: ['alice@gmail.com'] });
-    assert.equal(githubCalled, false);
-  });
-});
-
-test('/register commits a non-Drive (Google Photos) URL straight to albums.json and does not touch Drive', async () => {
+test('/register commits a Drive folder URL to albums.json and does not touch Drive itself', async () => {
   let appendedEntry: unknown = null;
   let driveCalled = false;
   const deps = makeDeps({
@@ -248,17 +216,42 @@ test('/register commits a non-Drive (Google Photos) URL straight to albums.json 
     const res = await fetch(`${baseUrl}/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://drive.google.com/drive/folders/abc123', name: 'Zlot Wolin', date: '2026-08-09' }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { ok: boolean };
+    assert.deepEqual(body, { ok: true });
+    assert.deepEqual(appendedEntry, {
+      url: 'https://drive.google.com/drive/folders/abc123',
+      nameOverride: 'Zlot Wolin',
+      dateOverride: '2026-08-09',
+    });
+    // upload-service's Drive OAuth credentials only have drive.file scope, so it can never
+    // write into a folder it didn't create itself - registering a Drive URL must go through
+    // the same albums.json + CI pipeline as a Photos URL, not a direct Drive write.
+    assert.equal(driveCalled, false);
+  });
+});
+
+test('/register commits a Google Photos URL to albums.json identically', async () => {
+  let appendedEntry: unknown = null;
+  const deps = makeDeps({
+    github: makeFakeGithub({ appendAlbumToMain: async entry => { appendedEntry = entry; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: 'https://photos.app.goo.gl/AbCdEf', name: 'Zlot Wolin', date: '2026-08-09' }),
     });
     assert.equal(res.status, 200);
-    const body = (await res.json()) as { ok: boolean; type: string };
-    assert.deepEqual(body, { ok: true, type: 'photos' });
+    const body = (await res.json()) as { ok: boolean };
+    assert.deepEqual(body, { ok: true });
     assert.deepEqual(appendedEntry, {
       url: 'https://photos.app.goo.gl/AbCdEf',
       nameOverride: 'Zlot Wolin',
       dateOverride: '2026-08-09',
     });
-    assert.equal(driveCalled, false);
   });
 });
 
@@ -393,35 +386,6 @@ test('/finalize rejects a folder with no uploaded files', async () => {
   });
 });
 
-test('/finalize revokes public access when the GitHub publish fails after sharing is granted', async () => {
-  let madePublic = false;
-  let revoked = false;
-  const deps = makeDeps({
-    drive: makeFakeDrive({
-      listFiles: async () => [{ name: 'a.jpg', size: 10 }],
-      setFolderPublic: async () => { madePublic = true; },
-      revokeFolderPublic: async () => { revoked = true; },
-    }),
-    github: makeFakeGithub({
-      appendAlbumToMain: async () => {
-        throw new Error('GitHub is down');
-      },
-    }),
-  });
-  const folderId = uniqueFolderId();
-  await withServer(deps, async baseUrl => {
-    const token = await issueTestSubmissionToken(deps, folderId);
-    const res = await fetch(`${baseUrl}/finalize`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Submission-Token': token },
-      body: JSON.stringify({ folderId, date: '2026-08-09' }),
-    });
-    assert.equal(res.status, 500);
-    assert.equal(madePublic, true);
-    assert.equal(revoked, true);
-  });
-});
-
 test('/finalize writes a gallery manifest with name, date, and the uploader as contributor before publishing', async () => {
   let writtenFolderId: string | null = null;
   let writtenManifest: { name?: string; date: string; contributors: string[] } | null = null;
@@ -472,13 +436,15 @@ test('/finalize fails before granting public access when writing the manifest fa
   });
 });
 
-test('/finalize succeeds and does not revoke when GitHub publishing succeeds', async () => {
-  let revoked = false;
+test('/finalize succeeds, publishes the folder, and does not touch GitHub', async () => {
+  let madePublic = false;
+  let githubCalled = false;
   const deps = makeDeps({
     drive: makeFakeDrive({
       listFiles: async () => [{ name: 'a.jpg', size: 10 }],
-      revokeFolderPublic: async () => { revoked = true; },
+      setFolderPublic: async () => { madePublic = true; },
     }),
+    github: makeFakeGithub({ appendAlbumToMain: async () => { githubCalled = true; } }),
   });
   const folderId = uniqueFolderId();
   await withServer(deps, async baseUrl => {
@@ -489,74 +455,10 @@ test('/finalize succeeds and does not revoke when GitHub publishing succeeds', a
       body: JSON.stringify({ folderId, date: '2026-08-09' }),
     });
     assert.equal(res.status, 200);
-    assert.equal(revoked, false);
-  });
-});
-
-test('/finalize retries a failing revoke and calls alertStuckFolder only once every retry is exhausted', async () => {
-  let revokeAttempts = 0;
-  let alertedFolderId: string | null = null;
-  const deps = makeDeps({
-    revokeRetryDelaysMs: [0, 0],
-    drive: makeFakeDrive({
-      listFiles: async () => [{ name: 'a.jpg', size: 10 }],
-      revokeFolderPublic: async () => {
-        revokeAttempts++;
-        throw new Error('Drive is unavailable');
-      },
-    }),
-    github: makeFakeGithub({
-      appendAlbumToMain: async () => {
-        throw new Error('GitHub is down');
-      },
-    }),
-    alertStuckFolder: (folderId: string) => { alertedFolderId = folderId; },
-  });
-  const folderId = uniqueFolderId();
-  await withServer(deps, async baseUrl => {
-    const token = await issueTestSubmissionToken(deps, folderId);
-    const res = await fetch(`${baseUrl}/finalize`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Submission-Token': token },
-      body: JSON.stringify({ folderId, date: '2026-08-09' }),
-    });
-    assert.equal(res.status, 500);
-    // One initial attempt plus one retry per configured delay entry.
-    assert.equal(revokeAttempts, 3);
-    assert.equal(alertedFolderId, folderId);
-  });
-});
-
-test('/finalize does not alert when a retried revoke eventually succeeds', async () => {
-  let revokeAttempts = 0;
-  let alerted = false;
-  const deps = makeDeps({
-    revokeRetryDelaysMs: [0, 0],
-    drive: makeFakeDrive({
-      listFiles: async () => [{ name: 'a.jpg', size: 10 }],
-      revokeFolderPublic: async () => {
-        revokeAttempts++;
-        if (revokeAttempts < 2) throw new Error('transient Drive error');
-      },
-    }),
-    github: makeFakeGithub({
-      appendAlbumToMain: async () => {
-        throw new Error('GitHub is down');
-      },
-    }),
-    alertStuckFolder: () => { alerted = true; },
-  });
-  const folderId = uniqueFolderId();
-  await withServer(deps, async baseUrl => {
-    const token = await issueTestSubmissionToken(deps, folderId);
-    const res = await fetch(`${baseUrl}/finalize`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Submission-Token': token },
-      body: JSON.stringify({ folderId, date: '2026-08-09' }),
-    });
-    assert.equal(res.status, 500);
-    assert.equal(revokeAttempts, 2);
-    assert.equal(alerted, false);
+    assert.equal(madePublic, true);
+    // The app owns this folder (it created it), so GET /galleries already discovers it live -
+    // no albums.json/CI commit needed, unlike /register's path for externally-created folders.
+    assert.equal(githubCalled, false);
   });
 });
 

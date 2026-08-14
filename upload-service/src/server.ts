@@ -6,7 +6,6 @@ import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken }
 import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
-import { extractDriveFolderId } from './urls.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -31,13 +30,6 @@ export interface ServerDeps {
   // (site traffic / this TTL) regardless of how many visitors load the gallery list, instead
   // of one live Drive call per page view.
   galleriesCacheTtlMs: number;
-  // Delay before each revoke retry in /finalize's failure-compensation path. Empty in tests
-  // for speed; production uses real backoff (see productionDeps below).
-  revokeRetryDelaysMs: number[];
-  // Called when /finalize fails to publish AND every revoke retry also fails, so the folder
-  // may still be publicly readable with no automatic fix. Production logs a structured line
-  // a Cloud Logging alert policy is wired to match (Task 0 Step 12); tests substitute a spy.
-  alertStuckFolder: (folderId: string, driveUrl: string, reason: string) => void;
 }
 
 // Per-folder exact file-count reservation, in-process. This is what actually enforces
@@ -119,24 +111,6 @@ async function readJsonBody<T>(req: IncomingMessage, maxBytes: number): Promise<
     chunks.push(chunk as Buffer);
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T;
-}
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// Retries revokeFolderPublic with the configured backoff before giving up - a transient Drive
-// error on the compensating revoke shouldn't immediately strand a folder in the public state.
-async function revokeWithRetry(drive: DriveClient, folderId: string, delaysMs: number[]): Promise<boolean> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await drive.revokeFolderPublic(folderId);
-      return true;
-    } catch {
-      if (attempt >= delaysMs.length) return false;
-      await sleep(delaysMs[attempt]);
-    }
-  }
 }
 
 function requireSubmissionToken(req: IncomingMessage): string {
@@ -332,35 +306,24 @@ async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: S
     contributors: [identity.email],
   });
 
-  // Folder stays private until this point. If the GitHub commit fails after this, the just-
-  // granted public permission is revoked below (with retry) - a half-finalized submission
-  // is never left publicly link-accessible with no compensating action or recovery path.
+  // No albums.json/GitHub commit needed here - the app owns this folder (it created it), so
+  // GET /galleries already discovers it live via the manifest just written above. Registering
+  // a folder the app did NOT create (an existing external gallery) goes through /register
+  // instead, which commits to albums.json for the pipeline-based sync to pick up.
   await deps.drive.setFolderPublic(folderId);
-  try {
-    await deps.github.appendAlbumToMain({
-      url: `https://drive.google.com/drive/folders/${folderId}`,
-      ...(name ? { nameOverride: name } : {}),
-      dateOverride: date,
-    });
-  } catch (err) {
-    const revoked = await revokeWithRetry(deps.drive, folderId, deps.revokeRetryDelaysMs);
-    if (!revoked) {
-      deps.alertStuckFolder(
-        folderId,
-        `https://drive.google.com/drive/folders/${folderId}`,
-        err instanceof Error ? err.message : String(err),
-      );
-    }
-    throw err;
-  }
   sendJson(res, 200, { ok: true });
 }
 
-// Lets an already-authenticated, allowlisted user register a gallery that already exists,
-// instead of uploading files - replaces the old GitHub Issue/PR submission path with something
-// tied to a real authenticated identity rather than self-reported issue-form data.
+// Lets an already-authenticated, allowlisted user register a gallery that already exists
+// (a Google Photos album, or a Drive folder the app itself did NOT create) instead of
+// uploading files - replaces the old GitHub Issue/PR submission path with something tied to a
+// real authenticated identity rather than self-reported issue-form data. Both URL shapes are
+// handled identically, exactly like the pipeline-based sync (sync-albums.ts) already branches
+// on URL shape itself - upload-service's Drive OAuth credentials only ever have drive.file
+// scope (see KRKG-0025's design.md), which can never write into a folder it didn't create, so
+// there is no faster path for Drive URLs than the same albums.json + CI pipeline Photos uses.
 async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticate(req);
+  await deps.authenticate(req);
   const { url, name, date } = await readJsonBody<{ url?: string; name?: string; date: string }>(req, deps.maxJsonBodyBytes);
   if (!url || !date) throw new AuthError('Brak adresu URL galerii lub daty.', 400);
   try {
@@ -369,26 +332,12 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: S
     throw new AuthError('Nieprawidłowy adres URL galerii.', 400);
   }
 
-  const driveFolderId = extractDriveFolderId(url);
-  if (driveFolderId) {
-    // Requires the folder to already be shared with edit access to this service's Drive
-    // credentials - if it isn't, writeManifest's Drive error propagates as a 500 like any
-    // other Drive failure elsewhere in this service.
-    await deps.drive.writeManifest(driveFolderId, {
-      ...(name ? { name } : {}),
-      date,
-      contributors: [identity.email],
-    });
-    sendJson(res, 200, { ok: true, type: 'drive', folderId: driveFolderId });
-    return;
-  }
-
   await deps.github.appendAlbumToMain({
     url,
     ...(name ? { nameOverride: name } : {}),
     dateOverride: date,
   });
-  sendJson(res, 200, { ok: true, type: 'photos' });
+  sendJson(res, 200, { ok: true });
 }
 
 export function createRequestListener(deps: ServerDeps) {
@@ -429,21 +378,6 @@ export function createRequestListener(deps: ServerDeps) {
   };
 }
 
-// Structured so a Cloud Logging alert policy (Task 0 Step 12) can match on
-// jsonPayload.alert === "stuck-public-drive-folder" and notify an administrator.
-function alertStuckFolder(folderId: string, driveUrl: string, reason: string): void {
-  console.error(
-    JSON.stringify({
-      alert: 'stuck-public-drive-folder',
-      folderId,
-      driveUrl,
-      reason,
-      message:
-        'Publishing failed and revoking public Drive access also failed after retries - this folder may still be publicly readable and needs manual review.',
-    }),
-  );
-}
-
 // config.ts validates required env vars at import time, so it's only imported here, inside the
 // entry-point guard below - importing server.ts as a module (as server.test.ts does) must not
 // require every production env var to be set, nor start a real listening server as a side effect.
@@ -467,8 +401,6 @@ async function startProductionServer(): Promise<void> {
     allowedMimeTypes: config.allowedMimeTypes,
     maxJsonBodyBytes: config.maxJsonBodyBytes,
     galleriesCacheTtlMs: config.galleriesCacheTtlMs,
-    revokeRetryDelaysMs: [500, 1500, 3000],
-    alertStuckFolder,
   };
   const server = createServer(createRequestListener(productionDeps));
   server.listen(config.port, () => {
