@@ -10,6 +10,10 @@ export const config = {
   // link, editable only by him). See KRKG-0024 design.md - no env var/secret needed, this is
   // a public read-only URL by design.
   allowlistSheetUrl: 'https://docs.google.com/spreadsheets/d/1QH_OElOz3-_YbK71D_0gjX4P5OYJMjuS0zv0J5lL3dY/export?format=csv',
+  // Published CSV export of a second Sheet, listing emails allowed into /admin. Same pattern
+  // and same phone-manageable editing story as allowlistSheetUrl above (KRKG-0024) - just a
+  // different Sheet.
+  adminAllowlistSheetUrl: 'https://docs.google.com/spreadsheets/d/1StUp5mdTmbbuadc1XCOA_c2PILmYSAJ0Z5t1K7xjn78/export?format=csv',
   googleOAuthClientId: requireEnv('GOOGLE_OAUTH_CLIENT_ID'),
   driveRefreshToken: requireEnv('DRIVE_REFRESH_TOKEN'),
   driveClientId: requireEnv('DRIVE_CLIENT_ID'),
