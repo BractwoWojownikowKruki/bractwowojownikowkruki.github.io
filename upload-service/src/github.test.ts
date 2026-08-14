@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendAlbumToMain, buildUpdatedAlbumsJson } from './github.ts';
+import { appendAlbumToMain, buildAlbumsJsonWithout, buildUpdatedAlbumsJson, removeAlbumFromMain } from './github.ts';
 
 function jsonResponse(status: number, body: unknown): Response {
   return { ok: status >= 200 && status < 300, status, json: async () => body } as Response;
@@ -35,6 +35,54 @@ test('buildUpdatedAlbumsJson omits nameOverride when not provided', () => {
   const result = buildUpdatedAlbumsJson('[]', { url: 'https://drive.google.com/drive/folders/abc', dateOverride: '2026-08-09' });
   const [entry] = JSON.parse(result);
   assert.equal('nameOverride' in entry, false);
+});
+
+test('buildAlbumsJsonWithout removes the matching entry and keeps the rest untouched', () => {
+  const current = JSON.stringify([
+    { url: 'https://x/1', dateOverride: '2026-08-09' },
+    { url: 'https://x/2', dateOverride: '2026-08-10' },
+  ], null, 2) + '\n';
+  const result = buildAlbumsJsonWithout(current, 'https://x/1');
+  const parsed = JSON.parse(result);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].url, 'https://x/2');
+});
+
+test('buildAlbumsJsonWithout is a no-op when the URL is not present (idempotent retry)', () => {
+  const current = JSON.stringify([{ url: 'https://x/1', dateOverride: '2026-08-09' }], null, 2) + '\n';
+  const result = buildAlbumsJsonWithout(current, 'https://x/does-not-exist');
+  assert.equal(result, current);
+});
+
+test('removeAlbumFromMain succeeds on the first attempt when nothing else has written concurrently', async () => {
+  const calls: string[] = [];
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    calls.push(`${init?.method ?? 'GET'} ${url}`);
+    if (!init?.method || init.method === 'GET') {
+      return jsonResponse(200, { content: Buffer.from(JSON.stringify([{ url: 'https://x/1', dateOverride: '2026-08-09' }])).toString('base64'), sha: 'sha-1' });
+    }
+    return jsonResponse(200, {});
+  }) as typeof fetch;
+
+  await removeAlbumFromMain({ token: 't', repo: 'r/r' }, 'https://x/1', fetchImpl);
+  assert.equal(calls.length, 2);
+});
+
+test('removeAlbumFromMain retries on a 409 conflict by re-fetching sha and writing again', async () => {
+  let putAttempts = 0;
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (!init?.method || init.method === 'GET') {
+      return jsonResponse(200, { content: Buffer.from(JSON.stringify([{ url: 'https://x/1', dateOverride: '2026-08-09' }])).toString('base64'), sha: `sha-${putAttempts}` });
+    }
+    putAttempts++;
+    if (putAttempts === 1) {
+      return jsonResponse(409, { message: 'conflict' });
+    }
+    return jsonResponse(200, {});
+  }) as typeof fetch;
+
+  await removeAlbumFromMain({ token: 't', repo: 'r/r' }, 'https://x/1', fetchImpl);
+  assert.equal(putAttempts, 2);
 });
 
 test('appendAlbumToMain succeeds on the first attempt when nothing else has written concurrently', async () => {

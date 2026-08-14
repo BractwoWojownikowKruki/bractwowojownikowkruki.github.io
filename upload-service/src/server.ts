@@ -353,6 +353,17 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: S
   sendJson(res, 200, { ok: true });
 }
 
+// Deletes a gallery registered by URL (Photos or Drive-by-URL - both live only as an
+// albums.json entry, see handleRegister above) by removing that entry, same auth gate as
+// everything else. An app-owned Drive folder is deleted via /delete-drive-gallery instead.
+async function handleUnregister(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticate(req);
+  const { url } = await readJsonBody<{ url?: string }>(req, deps.maxJsonBodyBytes);
+  if (!url) throw new AuthError('Brak adresu URL galerii.', 400);
+  await deps.github.removeAlbumFromMain(url);
+  sendJson(res, 200, { ok: true });
+}
+
 export function createRequestListener(deps: ServerDeps) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     setCors(res, deps.allowedOrigin);
@@ -373,6 +384,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleStart(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/register') {
         await handleRegister(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/unregister') {
+        await handleUnregister(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/upload') {
         await handleUpload(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/status') {

@@ -45,6 +45,7 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
 function makeFakeGithub(overrides: Partial<GithubClient> = {}): GithubClient {
   return {
     appendAlbumToMain: async () => {},
+    removeAlbumFromMain: async () => {},
     ...overrides,
   };
 }
@@ -253,6 +254,55 @@ test('/register commits a Google Photos URL to albums.json identically', async (
       nameOverride: 'Zlot Wolin',
       dateOverride: '2026-08-09',
     });
+  });
+});
+
+test('/unregister rejects an unauthenticated caller before touching GitHub', async () => {
+  let githubCalled = false;
+  const deps = makeDeps({
+    authenticate: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+    github: makeFakeGithub({ removeAlbumFromMain: async () => { githubCalled = true; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/unregister`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://photos.app.goo.gl/AbCdEf' }),
+    });
+    assert.equal(res.status, 401);
+    assert.equal(githubCalled, false);
+  });
+});
+
+test('/unregister rejects a body missing url', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/unregister`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('/unregister removes the matching albums.json entry, for a Drive-by-URL or a Photos URL alike', async () => {
+  let removedUrl: string | null = null;
+  const deps = makeDeps({
+    github: makeFakeGithub({ removeAlbumFromMain: async url => { removedUrl = url; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/unregister`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://drive.google.com/drive/folders/abc123' }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { ok: boolean };
+    assert.deepEqual(body, { ok: true });
+    assert.equal(removedUrl, 'https://drive.google.com/drive/folders/abc123');
   });
 });
 
