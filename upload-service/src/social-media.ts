@@ -103,10 +103,15 @@ async function fetchInstagramPosts(userId: string = 'kruki.brotherhood'): Promis
 
 /**
  * Fetch posts from Facebook Graph API (from page)
- * Requires: FACEBOOK_PAGE_ACCESS_TOKEN env var
+ * Requires: FACEBOOK_PAGE_ACCESS_TOKEN env var - a Page Access Token, not a user token.
+ * Uses the 'me' alias rather than a hardcoded page id/username: for a Page Access Token,
+ * Facebook resolves 'me' to the page the token was issued for, so this needs no
+ * configuration and can't drift out of sync with the actual page (an earlier version
+ * hardcoded 'kruki.brotherhood', which is this club's Instagram handle, not its Facebook
+ * page - https://www.facebook.com/bractwo.kruki/ - and so would have 404'd).
  */
-async function fetchFacebookPosts(pageId: string = 'kruki.brotherhood'): Promise<SocialMediaPosts> {
-  const cacheKey = `facebook:${pageId}`;
+async function fetchFacebookPosts(): Promise<SocialMediaPosts> {
+  const cacheKey = 'facebook:me';
   const cached = getCachedPosts(cacheKey);
   if (cached) return cached;
 
@@ -117,7 +122,7 @@ async function fetchFacebookPosts(pageId: string = 'kruki.brotherhood'): Promise
 
   try {
     const feedResponse = await fetch(
-      `https://graph.facebook.com/v18.0/${pageId}/posts?fields=id,message,created_time,picture,link,type,story&access_token=${token}`
+      `https://graph.facebook.com/v18.0/me/posts?fields=id,message,created_time,picture,link,type,story&access_token=${token}`
     );
 
     if (!feedResponse.ok) {
