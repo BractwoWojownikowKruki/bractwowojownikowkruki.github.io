@@ -126,7 +126,8 @@ async function fetchFacebookPosts(): Promise<SocialMediaPosts> {
     );
 
     if (!feedResponse.ok) {
-      throw new Error(`Facebook API error: ${feedResponse.status}`);
+      const errorBody = await feedResponse.text();
+      throw new Error(`Facebook API error: ${feedResponse.status} - ${errorBody}`);
     }
 
     const feedData = await feedResponse.json();

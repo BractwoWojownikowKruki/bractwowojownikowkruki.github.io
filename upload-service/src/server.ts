@@ -499,6 +499,7 @@ async function handleFacebookPosts(res: ServerResponse): Promise<void> {
     console.error('Facebook posts fetch error:', error);
     sendJson(res, 500, {
       error: 'Nie udało się pobrać postów z Facebooka.',
+      details: error instanceof Error ? error.message : String(error),
       posts: [],
       source: 'facebook',
       lastUpdated: new Date().toISOString()
