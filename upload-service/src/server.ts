@@ -6,6 +6,7 @@ import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken }
 import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
+import { fetchInstagramPosts, fetchFacebookPosts } from './social-media.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -364,6 +365,42 @@ async function handleUnregister(req: IncomingMessage, res: ServerResponse, deps:
   sendJson(res, 200, { ok: true });
 }
 
+async function handleInstagramPosts(res: ServerResponse): Promise<void> {
+  try {
+    const posts = await fetchInstagramPosts();
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=21600'); // 6 hours
+    res.writeHead(200);
+    res.end(JSON.stringify(posts));
+  } catch (error) {
+    console.error('Instagram posts fetch error:', error);
+    sendJson(res, 500, {
+      error: 'Nie udało się pobrać postów z Instagrama.',
+      posts: [],
+      source: 'instagram',
+      lastUpdated: new Date().toISOString()
+    });
+  }
+}
+
+async function handleFacebookPosts(res: ServerResponse): Promise<void> {
+  try {
+    const posts = await fetchFacebookPosts();
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=21600'); // 6 hours
+    res.writeHead(200);
+    res.end(JSON.stringify(posts));
+  } catch (error) {
+    console.error('Facebook posts fetch error:', error);
+    sendJson(res, 500, {
+      error: 'Nie udało się pobrać postów z Facebooka.',
+      posts: [],
+      source: 'facebook',
+      lastUpdated: new Date().toISOString()
+    });
+  }
+}
+
 export function createRequestListener(deps: ServerDeps) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     setCors(res, deps.allowedOrigin);
@@ -378,6 +415,10 @@ export function createRequestListener(deps: ServerDeps) {
         await handleWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/galleries') {
         await handleGalleries(res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
+        await handleInstagramPosts(res);
+      } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {
+        await handleFacebookPosts(res);
       } else if (req.method === 'POST' && url.pathname === '/delete-drive-gallery') {
         await handleDeleteDriveGallery(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/start') {
