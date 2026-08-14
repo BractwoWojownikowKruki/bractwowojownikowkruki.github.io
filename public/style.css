@@ -121,12 +121,11 @@ select:focus { border-color: var(--accent); }
 .btn-add-album:hover { background: var(--accent-dark); }
 
 .logo-link {
-  grid-column: 1;
   display: flex;
   align-items: center;
   padding-left: 4px;
 }
-.logo { height: 179px; width: auto; display: block; }
+.logo { height: 60px; width: auto; display: block; }
 
 /* ── Grid ── */
 
