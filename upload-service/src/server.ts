@@ -104,7 +104,7 @@ function releaseUploadSlot(folderId: string): void {
 
 function setCors(res: ServerResponse, allowedOrigin: string): void {
   res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Submission-Token');
 }
 

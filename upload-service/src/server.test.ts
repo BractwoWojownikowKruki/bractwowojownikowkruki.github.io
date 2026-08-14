@@ -100,6 +100,18 @@ test('OPTIONS returns 204 with CORS headers', async () => {
   });
 });
 
+// Regression test: PUT and DELETE were added for admin routes (edit description, delete
+// person/photo) without updating this header, so the browser's CORS preflight silently
+// rejected every one of those requests before they ever reached the server.
+test('OPTIONS advertises PUT and DELETE alongside GET/POST for admin routes', async () => {
+  await withServer(makeDeps(), async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/description`, { method: 'OPTIONS' });
+    const allowed = res.headers.get('access-control-allow-methods') ?? '';
+    assert.ok(allowed.includes('PUT'), `expected PUT in "${allowed}"`);
+    assert.ok(allowed.includes('DELETE'), `expected DELETE in "${allowed}"`);
+  });
+});
+
 test('/galleries merges each discovered folder with its manifest, unauthenticated', async () => {
   const deps = makeDeps({
     drive: makeFakeDrive({

@@ -1,8 +1,12 @@
-function showReauth() {}
-function hideReauth() {}
+function showReauth() {
+  document.getElementById('admin-reauth').hidden = false;
+}
+function hideReauth() {
+  document.getElementById('admin-reauth').hidden = true;
+}
 
 initGoogleSignIn({
-  buttonIds: ['google-signin-button'],
+  buttonIds: ['google-signin-button', 'google-reauth-button'],
   whoamiPath: '/admin/whoami',
   onSignedIn: payload => {
     document.getElementById('admin-signin').hidden = true;
