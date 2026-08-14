@@ -10,7 +10,6 @@ const ID_TOKEN_EXPIRY_SAFETY_MARGIN_SECONDS = 30;
 let idToken = null;
 let idTokenExp = 0;
 let pendingReauth = null;
-let uploadMode = false;
 
 function isValidAlbumUrl(url) {
   return /^https:\/\/photos\.app\.goo\.gl\/\S+$/.test(url)
@@ -18,14 +17,14 @@ function isValidAlbumUrl(url) {
     || /^https:\/\/drive\.google\.com\/drive\/folders\/[a-zA-Z0-9_-]+/.test(url);
 }
 
-function showError(msg) {
-  const el = document.getElementById('error');
+function showError(errorElId, msg) {
+  const el = document.getElementById(errorElId);
   el.textContent = msg;
   el.hidden = false;
 }
 
-function hideError() {
-  document.getElementById('error').hidden = true;
+function hideError(errorElId) {
+  document.getElementById(errorElId).hidden = true;
 }
 
 function decodeJwtPayload(token) {
@@ -99,17 +98,6 @@ function initGoogleSignIn() {
     text: 'signin_with',
     locale: 'pl',
   });
-}
-
-function setUploadMode(enabled) {
-  uploadMode = enabled;
-  document.getElementById('url-field').hidden = enabled;
-  document.getElementById('url').required = !enabled;
-  document.getElementById('files-field').hidden = !enabled;
-  document.getElementById('files').required = enabled;
-  document.getElementById('upload-mode-toggle').textContent = enabled
-    ? 'Wróć do wklejania linku'
-    : 'Prześlij pliki zamiast linku';
 }
 
 function storageKeyFor(date, name) {
@@ -223,65 +211,71 @@ async function submitViaUpload(name, date, files) {
   clearUploadState(key);
 }
 
-document.getElementById('upload-mode-toggle')?.addEventListener('click', () => setUploadMode(!uploadMode));
-
-document.getElementById('add-album-form').addEventListener('submit', async e => {
+document.getElementById('upload-form').addEventListener('submit', async e => {
   e.preventDefault();
-  hideError();
+  hideError('upload-error');
 
-  const name = document.getElementById('name').value.trim();
-  const date = document.getElementById('date').value;
-
+  const name = document.getElementById('upload-name').value.trim();
+  const date = document.getElementById('upload-date').value;
   if (!date) {
-    showError('Podaj datę albumu.');
+    showError('upload-error', 'Podaj datę albumu.');
     return;
   }
 
-  if (uploadMode) {
-    const files = Array.from(document.getElementById('files').files);
-    if (!files.length) {
-      showError('Wybierz co najmniej jedno zdjęcie.');
-      return;
-    }
-    const submitButton = document.getElementById('submit-button');
-    submitButton.disabled = true;
-    try {
-      await submitViaUpload(name, date, files);
-      // /finalize succeeding only means the GitHub commit was accepted, not that pages.yml
-      // has finished testing/building/deploying - so this shows an "accepted" message and a
-      // manual link back, rather than redirecting in a way that implies the gallery is
-      // already live.
-      document.getElementById('add-album-form').hidden = true;
-      document.getElementById('upload-success').hidden = false;
-    } catch (err) {
-      showError(err.message);
-    } finally {
-      submitButton.disabled = false;
-    }
+  const files = Array.from(document.getElementById('upload-files').files);
+  if (!files.length) {
+    showError('upload-error', 'Wybierz co najmniej jedno zdjęcie.');
     return;
   }
 
-  const url = document.getElementById('url').value.trim();
+  const submitButton = document.getElementById('upload-submit-button');
+  submitButton.disabled = true;
+  try {
+    await submitViaUpload(name, date, files);
+    // /finalize succeeding means the gallery is already owned and published by
+    // upload-service and picked up by GET /galleries - near-instant, no pipeline involved.
+    document.getElementById('upload-form').hidden = true;
+    document.getElementById('upload-success').hidden = false;
+  } catch (err) {
+    showError('upload-error', err.message);
+  } finally {
+    submitButton.disabled = false;
+  }
+});
+
+document.getElementById('register-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  hideError('register-error');
+
+  const name = document.getElementById('register-name').value.trim();
+  const date = document.getElementById('register-date').value;
+  if (!date) {
+    showError('register-error', 'Podaj datę albumu.');
+    return;
+  }
+
+  const url = document.getElementById('register-url').value.trim();
   if (!isValidAlbumUrl(url)) {
-    showError('Link nie wygląda na udostępniony album Google Photos ani folder Google Drive. Oczekiwany format: https://photos.app.goo.gl/XYZ, https://photos.google.com/share/... lub https://drive.google.com/drive/folders/XYZ.');
+    showError('register-error', 'Link nie wygląda na udostępniony album Google Photos ani folder Google Drive. Oczekiwany format: https://photos.app.goo.gl/XYZ, https://photos.google.com/share/... lub https://drive.google.com/drive/folders/XYZ.');
     return;
   }
 
-  const submitButton = document.getElementById('submit-button');
+  const submitButton = document.getElementById('register-submit-button');
   submitButton.disabled = true;
   try {
     // Registers an existing gallery directly - requires being signed in with an allowlisted
     // account (see /register in upload-service), which apiFetch's ensureFreshIdToken prompts
-    // for if the user hasn't signed in yet.
+    // for if the user hasn't signed in yet. Committed to albums.json and picked up by the CI
+    // pipeline, same as before - not instant.
     await apiFetch('/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, name, date }),
     });
-    document.getElementById('add-album-form').hidden = true;
-    document.getElementById('upload-success').hidden = false;
+    document.getElementById('register-form').hidden = true;
+    document.getElementById('register-success').hidden = false;
   } catch (err) {
-    showError(err.message);
+    showError('register-error', err.message);
   } finally {
     submitButton.disabled = false;
   }
