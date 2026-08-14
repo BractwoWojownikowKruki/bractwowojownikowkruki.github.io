@@ -16,6 +16,18 @@ initGoogleSignIn({
   },
 });
 
+document.getElementById('refresh-social-cache').addEventListener('click', async () => {
+  const status = document.getElementById('refresh-social-cache-status');
+  status.textContent = 'Odświeżanie...';
+  try {
+    await apiFetch('/admin/social-media/refresh', { method: 'POST' }, showReauth, hideReauth);
+    status.textContent =
+      'Cache serwera wyczyszczony - kolejne wczytanie strony głównej pobierze świeże posty (przeglądarka, która ma już zapisaną stronę we własnej pamięci podręcznej, może wymagać twardego odświeżenia).';
+  } catch (err) {
+    status.textContent = `Błąd: ${err.message}`;
+  }
+});
+
 // Uploads every file in fileList to folderId, sequentially (simplicity over throughput - this
 // codebase's other upload flow, dodaj-galerie.js, uses bounded concurrency for large albums,
 // but a person's photo set here is small enough that sequential is fine). onProgress(n), if

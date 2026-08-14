@@ -213,6 +213,34 @@ test('GET /admin/whoami returns the admin email when authenticateAdmin succeeds'
   });
 });
 
+test('POST /admin/social-media/refresh requires admin auth and returns ok', async () => {
+  let authenticatedAsAdmin = false;
+  const deps = makeDeps({
+    authenticateAdmin: async () => {
+      authenticatedAsAdmin = true;
+      return { sub: 'a1', email: 'admin@gmail.com' };
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/social-media/refresh`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true });
+  });
+  assert.equal(authenticatedAsAdmin, true);
+});
+
+test('POST /admin/social-media/refresh rejects when authenticateAdmin fails', async () => {
+  const deps = makeDeps({
+    authenticateAdmin: async () => {
+      throw new AuthError('Brak uprawnień.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/social-media/refresh`, { method: 'POST' });
+    assert.equal(res.status, 403);
+  });
+});
+
 test('POST /admin/people creates a numbered folder and writes the description', async () => {
   resetAboutUsBootstrapForTests();
   let createdFolderName: string | undefined;

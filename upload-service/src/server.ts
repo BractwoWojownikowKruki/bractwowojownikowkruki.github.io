@@ -6,7 +6,7 @@ import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken }
 import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
-import { fetchInstagramPosts, fetchFacebookPosts } from './social-media.ts';
+import { fetchInstagramPosts, fetchFacebookPosts, clearSocialMediaCache } from './social-media.ts';
 import {
   bootstrapAboutUsStructure,
   buildPersonFolderName,
@@ -251,6 +251,14 @@ async function handleAboutUs(res: ServerResponse, url: URL, deps: ServerDeps): P
 async function handleAdminWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdmin(req);
   sendJson(res, 200, { email: identity.email });
+}
+
+// Not scoped to About Us specifically - clears the Instagram/Facebook posts cache so the
+// homepage's Aktualności feed picks up new posts immediately, instead of waiting out the 6h TTL.
+async function handleAdminRefreshSocialCache(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  clearSocialMediaCache();
+  sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminCreatePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -525,6 +533,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAboutUs(res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/whoami') {
         await handleAdminWhoami(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/admin/social-media/refresh') {
+        await handleAdminRefreshSocialCache(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/people') {
         await handleAdminCreatePerson(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/description') {

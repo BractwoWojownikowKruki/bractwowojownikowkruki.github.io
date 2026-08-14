@@ -161,4 +161,10 @@ async function fetchFacebookPosts(): Promise<SocialMediaPosts> {
   }
 }
 
-export { fetchInstagramPosts, fetchFacebookPosts, SocialMediaPosts };
+// Drops every cached Instagram/Facebook response so the next request for either refetches
+// live from the source API, instead of waiting out the 6h TTL.
+function clearSocialMediaCache(): void {
+  cache.clear();
+}
+
+export { fetchInstagramPosts, fetchFacebookPosts, clearSocialMediaCache, SocialMediaPosts };

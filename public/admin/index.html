@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin - O nas</title>
+  <title>Admin</title>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="stylesheet" href="../style.css" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <main style="max-width: 700px; margin: 2rem auto; padding: 0 1.25rem;">
-    <h1 style="font-family:'Cinzel',serif; color: var(--text); margin-bottom: 1.5rem;">Panel administracyjny — O nas</h1>
+    <h1 style="font-family:'Cinzel',serif; color: var(--text); margin-bottom: 1.5rem;">Panel administracyjny</h1>
 
     <div id="admin-signin">
       <div id="google-signin-button"></div>
@@ -24,7 +24,18 @@
       <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Zalogowano jako <span id="admin-email"></span></p>
 
       <section style="margin-bottom: 2rem;">
-        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Dodaj osobę</h2>
+        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Cache</h2>
+        <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
+          Posty z Facebooka/Instagrama na stronie głównej są cache'owane na 6 godzin. Kliknij, żeby wymusić odświeżenie od razu.
+        </p>
+        <button id="refresh-social-cache" class="btn-add-album">Odśwież cache (Facebook/Instagram)</button>
+        <p id="refresh-social-cache-status" style="margin-top:0.5rem;"></p>
+      </section>
+
+      <h2 style="font-family:'Cinzel',serif; color: var(--text); margin-bottom: 1rem;">O nas</h2>
+
+      <section style="margin-bottom: 2rem;">
+        <h3 style="color: var(--gold); margin-bottom: 0.75rem;">Dodaj osobę</h3>
         <form id="add-person-form">
           <label style="display:block; margin-bottom:0.5rem;">
             Kategoria
@@ -57,7 +68,7 @@
       </section>
 
       <section>
-        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Zarządzaj osobami</h2>
+        <h3 style="color: var(--gold); margin-bottom: 0.75rem;">Zarządzaj osobami</h3>
         <label style="display:block; margin-bottom:1rem;">
           Kategoria
           <select id="manage-category" style="display:block; width:100%; margin-top:4px;">
