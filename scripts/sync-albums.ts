@@ -6,9 +6,9 @@ import { AlbumEntry, extractCoverUrl, extractDriveFolderId, extractPhotoCount, e
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const ALBUMS_JSON = join(ROOT, 'albums.json');
-const GENERATED_JSON = join(ROOT, 'public/galerie/data/albums.generated.json');
-const COVERS_DIR = join(ROOT, 'public/galerie/covers');
-const THUMBS_DIR = join(ROOT, 'public/galerie/thumbs');
+const GENERATED_JSON = join(ROOT, 'public/krucze-galery/data/albums.generated.json');
+const COVERS_DIR = join(ROOT, 'public/krucze-galery/covers');
+const THUMBS_DIR = join(ROOT, 'public/krucze-galery/thumbs');
 
 interface AlbumRecord {
   url: string;

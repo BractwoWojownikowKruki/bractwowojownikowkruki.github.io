@@ -187,7 +187,7 @@ function renderCard(album, mode = 'focus') {
             src="${escapeAttr(album.cover)}"
             alt="${escapeAttr(album.title)}"
             loading="lazy"
-            onerror="this.src='covers/placeholder.jpg'"
+            onerror="this.src='../covers/placeholder.jpg'"
           />
         </a>
         ${badge}
@@ -206,7 +206,7 @@ function renderCard(album, mode = 'focus') {
           >${album.source === 'drive' ? ICON_GOOGLE_DRIVE : ICON_GOOGLE_PHOTOS}</a>
           <button
             class="btn-copy"
-            data-url="${escapeAttr(`https://www.kruki.org/galerie/#${slugify(album.title)}`)}"
+            data-url="${escapeAttr(`https://bractwowojownikowkruki.github.io/krucze-galery/#${slugify(album.title)}`)}"
             title="Kopiuj link"
             aria-label="Kopiuj link do albumu"
           >${ICON_LINK}</button>
@@ -687,7 +687,7 @@ function mapDiscoveredGallery(gallery) {
 }
 
 Promise.allSettled([
-  fetch('data/albums.generated.json').then(r => r.json()),
+  fetch('../data/albums.generated.json').then(r => r.json()),
   fetch(`${UPLOAD_SERVICE_URL}/galleries`).then(r => r.json()),
 ]).then(([generatedResult, discoveredResult]) => {
   const generated = generatedResult.status === 'fulfilled' ? generatedResult.value : null;

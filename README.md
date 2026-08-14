@@ -1,7 +1,9 @@
-# Krucze Galery
+# Bractwo Wojowników Kruki — strona główna
 
-Galeria albumów Google Photos i Google Drive dla Bractwa Wojowników Kruki.  
-Strona dostępna pod adresem: **https://bractwowojownikowkruki.github.io/krucze-galery/**
+Główna strona Bractwa Wojowników Kruki, wraz z sekcją galerii albumów (Google Photos i Google
+Drive) oraz panelem administracyjnym sekcji "O nas".  
+Strona dostępna pod adresem: **https://bractwowojownikowkruki.github.io/**
+Galerie: **https://bractwowojownikowkruki.github.io/krucze-galery/**
 
 ---
 
@@ -25,7 +27,7 @@ administratora.
 
 ### Edycja ręczna (dla osób technicznych)
 
-Albumy są przechowywane w [`albums.json`](https://github.com/BractwoWojownikowKruki/krucze-galery/blob/main/albums.json)
+Albumy są przechowywane w [`albums.json`](https://github.com/BractwoWojownikowKruki/bractwowojownikowkruki.github.io/blob/main/albums.json)
 — tablicy obiektów `{ "url": "...", "nameOverride": "...", "dateOverride": "YYYY-MM-DD", "hiddenComment": "..." }`
 (wszystkie pola poza `url` opcjonalne). Można edytować bezpośrednio przez GitHub (fork + PR),
 podobnie jak każdy inny plik w repozytorium.

@@ -1,7 +1,7 @@
 /**
  * Navigation Active State Handler
  * Marks the nav item matching the current page as active. Resolves each item's href
- * (which may be relative, e.g. "../galerie/") against the current location before
+ * (which may be relative, e.g. "../krucze-galery/") against the current location before
  * comparing, so this works regardless of whether the site is served from a domain root
  * or a GitHub Pages project subpath (e.g. /krucze-galery/).
  *
