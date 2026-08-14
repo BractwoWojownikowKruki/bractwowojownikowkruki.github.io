@@ -293,6 +293,40 @@ async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse
   sendJson(res, 200, { ok: true });
 }
 
+async function handleAdminListPeople(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const category = parseAboutUsCategory(url.searchParams.get('category'));
+  const folders = await bootstrapAboutUsStructure(deps.drive);
+  const people = await fetchCategoryPeople(deps.drive, folders.categories[category]);
+  sendJson(res, 200, { people });
+}
+
+async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const folderId = url.searchParams.get('folderId');
+  const fileName = url.searchParams.get('fileName');
+  const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
+  if (!folderId || !fileName) throw new AuthError('Brak folderId lub fileName.', 400);
+  requireAllowedMimeType(mimeType, deps.allowedMimeTypes);
+  await deps.drive.uploadFileStream(
+    folderId,
+    decodeURIComponent(fileName),
+    mimeType,
+    validatedUploadStream(req, deps.maxFileBytes, mimeType),
+  );
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const fileId = url.searchParams.get('fileId');
+  if (!fileId) throw new AuthError('Brak fileId.', 400);
+  await deps.drive.deleteFolder(fileId);
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
+}
+
 // Only for galleries this service itself created (drive.file scope can't touch anything else -
 // see KRKG-0025's design.md) - a folder registered by URL instead goes through /unregister.
 async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -496,6 +530,12 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminUpdateDescription(req, res, url, deps);
       } else if (req.method === 'DELETE' && url.pathname === '/admin/people') {
         await handleAdminDeletePerson(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/people') {
+        await handleAdminListPeople(req, res, url, deps);
+      } else if (req.method === 'POST' && url.pathname === '/admin/people/photo') {
+        await handleAdminUploadPhoto(req, res, url, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/admin/people/photo') {
+        await handleAdminDeletePhoto(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
         await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {

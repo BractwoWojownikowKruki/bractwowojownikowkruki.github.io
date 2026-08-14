@@ -291,6 +291,60 @@ test('DELETE /admin/people trashes the person folder', async () => {
   assert.equal(deletedFolderId, 'person-1');
 });
 
+test('GET /admin/people lists people for a category (same shape as public endpoint)', async () => {
+  resetAboutUsBootstrapForTests();
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `folder-${name}`,
+      listGalleryFolders: async parentId =>
+        parentId === 'folder-Emeryci' ? [{ id: 'p1', name: 'Jan', modifiedTime: '2024-01-01T00:00:00Z' }] : [],
+      readTextFile: async () => null,
+      listImageFiles: async () => [],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people?category=Emeryci`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.people[0].name, 'Jan');
+    assert.equal(body.people[0].folderId, 'p1');
+  });
+});
+
+test('POST /admin/people/photo streams an uploaded file into the person folder', async () => {
+  let uploadedTo: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      uploadFileStream: async (folderId, _fileName, _mimeType, bodyStream) => {
+        uploadedTo = folderId;
+        for await (const _chunk of bodyStream) {
+          // drain
+        }
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(
+      `${baseUrl}/admin/people/photo?folderId=person-1&fileName=zdjecie.jpg&mimeType=image%2Fjpeg`,
+      { method: 'POST', body: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]) },
+    );
+    assert.equal(res.status, 200);
+  });
+  assert.equal(uploadedTo, 'person-1');
+});
+
+test('DELETE /admin/people/photo trashes the photo file', async () => {
+  let deletedId: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({ deleteFolder: async fileId => { deletedId = fileId; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo?fileId=photo-1`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(deletedId, 'photo-1');
+});
+
 test('/register rejects an unauthenticated caller before touching Drive or GitHub', async () => {
   let driveCalled = false;
   let githubCalled = false;
