@@ -33,6 +33,7 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     },
     listFiles: async () => [],
     setFolderPublic: async () => {},
+    deleteFolder: async () => {},
     writeManifest: async () => {},
     readManifest: async () => null,
     listGalleryFolders: async () => [],
@@ -252,6 +253,85 @@ test('/register commits a Google Photos URL to albums.json identically', async (
       nameOverride: 'Zlot Wolin',
       dateOverride: '2026-08-09',
     });
+  });
+});
+
+test('/delete-drive-gallery rejects an unauthenticated caller before touching Drive', async () => {
+  let driveCalled = false;
+  const deps = makeDeps({
+    authenticate: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+    drive: makeFakeDrive({ deleteFolder: async () => { driveCalled = true; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/delete-drive-gallery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'abc' }),
+    });
+    assert.equal(res.status, 401);
+    assert.equal(driveCalled, false);
+  });
+});
+
+test('/delete-drive-gallery rejects a body missing folderId', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/delete-drive-gallery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('/delete-drive-gallery deletes the folder via Drive', async () => {
+  let deletedFolderId: string | null = null;
+  const deps = makeDeps({
+    drive: makeFakeDrive({ deleteFolder: async folderId => { deletedFolderId = folderId; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/delete-drive-gallery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'abc123' }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { ok: boolean };
+    assert.deepEqual(body, { ok: true });
+    assert.equal(deletedFolderId, 'abc123');
+  });
+});
+
+test('/delete-drive-gallery invalidates the /galleries cache so the deletion is reflected immediately', async () => {
+  let listCalls = 0;
+  const deps = makeDeps({
+    galleriesCacheTtlMs: 60_000,
+    drive: makeFakeDrive({
+      listGalleryFolders: async () => {
+        listCalls++;
+        return listCalls === 1 ? [{ id: 'g1', name: 'Folder', modifiedTime: '2026-01-01T00:00:00.000Z' }] : [];
+      },
+      deleteFolder: async () => {},
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const first = await fetch(`${baseUrl}/galleries`).then(r => r.json());
+    assert.equal(first.galleries.length, 1);
+
+    await fetch(`${baseUrl}/delete-drive-gallery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'g1' }),
+    });
+
+    // Without the cache invalidation, this would still return the stale cached listing since
+    // galleriesCacheTtlMs (60s) hasn't elapsed.
+    const second = await fetch(`${baseUrl}/galleries`).then(r => r.json());
+    assert.equal(second.galleries.length, 0);
+    assert.equal(listCalls, 2);
   });
 });
 

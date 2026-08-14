@@ -221,6 +221,19 @@ async function handleGalleries(res: ServerResponse, deps: ServerDeps): Promise<v
   sendJson(res, 200, { galleries: galleriesCache.data });
 }
 
+// Only for galleries this service itself created (drive.file scope can't touch anything else -
+// see KRKG-0025's design.md) - a folder registered by URL instead goes through /unregister.
+async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticate(req);
+  const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
+  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  await deps.drive.deleteFolder(folderId);
+  // Invalidated immediately rather than left to expire on its own TTL, so the deletion is
+  // reflected on the next /galleries call instead of up to galleriesCacheTtlMs later.
+  galleriesCache = null;
+  sendJson(res, 200, { ok: true });
+}
+
 async function handleStart(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req);
   const { name, date } = await readJsonBody<{ name?: string; date: string }>(req, deps.maxJsonBodyBytes);
@@ -354,6 +367,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/galleries') {
         await handleGalleries(res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/delete-drive-gallery') {
+        await handleDeleteDriveGallery(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/start') {
         await handleStart(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/register') {

@@ -81,6 +81,21 @@ export async function setFolderPublic(deps: DriveDeps, folderId: string): Promis
   }
 }
 
+// Trashes rather than permanently deletes - a reversible safety net via Drive's own trash if a
+// deletion turns out to be a mistake, while still disappearing from every listing this service
+// makes (listGalleryFolders/listFiles both filter trashed = false).
+export async function deleteFolder(deps: DriveDeps, folderId: string): Promise<void> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const res = await fetch(`${DRIVE_API}/drive/v3/files/${folderId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trashed: true }),
+  });
+  if (!res.ok) {
+    throw new Error(`Nie udało się usunąć folderu w Drive: HTTP ${res.status}`);
+  }
+}
+
 export function buildMultipartParts(
   metadata: Record<string, unknown>,
   mimeType: string,
@@ -272,6 +287,7 @@ export interface DriveClient {
   uploadFileStream(folderId: string, fileName: string, mimeType: string, bodyStream: AsyncIterable<Buffer>): Promise<void>;
   listFiles(folderId: string): Promise<DriveFileInfo[]>;
   setFolderPublic(folderId: string): Promise<void>;
+  deleteFolder(folderId: string): Promise<void>;
   writeManifest(folderId: string, manifest: GalleryManifest): Promise<void>;
   readManifest(folderId: string): Promise<GalleryManifest | null>;
   listGalleryFolders(rootFolderId: string): Promise<DriveFolderInfo[]>;
@@ -287,6 +303,7 @@ export function createDriveClient(deps: DriveDeps): DriveClient {
       uploadFileStream(deps, folderId, fileName, mimeType, bodyStream),
     listFiles: folderId => listFiles(deps, folderId),
     setFolderPublic: folderId => setFolderPublic(deps, folderId),
+    deleteFolder: folderId => deleteFolder(deps, folderId),
     writeManifest: (folderId, manifest) => writeManifest(deps, folderId, manifest),
     readManifest: folderId => readManifest(deps, folderId),
     listGalleryFolders: rootFolderId => listGalleryFolders(deps, rootFolderId),
