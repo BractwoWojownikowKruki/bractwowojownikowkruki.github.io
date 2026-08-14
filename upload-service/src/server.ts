@@ -19,6 +19,10 @@ export interface ServerDeps {
   drive: DriveClient;
   github: GithubClient;
   authenticate: (req: IncomingMessage) => Promise<VerifiedIdentity>;
+  // Same Google-ID-token verification as `authenticate`, checked against a separate,
+  // smaller allowlist (Task 1) - kept as its own function rather than a second parameter
+  // to `authenticate` so route handlers can't accidentally mix the two up.
+  authenticateAdmin: (req: IncomingMessage) => Promise<VerifiedIdentity>;
   submissionTokenSecret: string;
   driveParentFolderId: string;
   allowedOrigin: string;
@@ -458,10 +462,12 @@ async function startProductionServer(): Promise<void> {
     refreshToken: config.driveRefreshToken,
   };
   const allowlist = createSheetAllowlist({ url: config.allowlistSheetUrl });
+  const adminAllowlist = createSheetAllowlist({ url: config.adminAllowlistSheetUrl });
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
     authenticate: req => verifyUploader(req, config.googleOAuthClientId, allowlist),
+    authenticateAdmin: req => verifyUploader(req, config.googleOAuthClientId, adminAllowlist),
     submissionTokenSecret: config.submissionTokenSecret,
     driveParentFolderId: config.driveParentFolderId,
     allowedOrigin: config.allowedOrigin,

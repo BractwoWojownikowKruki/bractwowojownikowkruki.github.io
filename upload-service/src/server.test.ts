@@ -55,6 +55,7 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     drive: makeFakeDrive(),
     github: makeFakeGithub(),
     authenticate: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
+    authenticateAdmin: async () => ({ sub: 'admin-1', email: 'admin@gmail.com' }),
     submissionTokenSecret: 'test-secret',
     driveParentFolderId: 'parent-1',
     allowedOrigin: 'https://example.test',
