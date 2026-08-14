@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bractwo Wojowników Kruki</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="apple-touch-icon" href="favicon.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Navigation Header -->
+  <header class="site-header site-header--main">
+    <a href="/" class="logo-link" aria-label="Krucze Galery — strona główna">
+      <picture>
+        <source media="(max-width: 600px)" srcset="logo.png" />
+        <img src="logo-desktop.png" alt="Krucze Galery" class="logo" onerror="this.style.display='none'" />
+      </picture>
+    </a>
+    <nav class="main-nav" id="main-nav">
+      <a href="/" class="nav-item nav-item--active">O nas</a>
+      <a href="/nabor" class="nav-item nav-item--highlighted">Nabór</a>
+      <a href="/turniej" class="nav-item">Kruczy Turniej</a>
+      <a href="/galerie" class="nav-item">Galerie</a>
+      <a href="/oferta" class="nav-item">Oferta</a>
+      <a href="/kontakt" class="nav-item">Kontakt</a>
+    </nav>
+  </header>
+
+  <!-- Banner Carousel -->
+  <div class="banner-section">
+    <div id="banner-carousel" class="carousel"></div>
+  </div>
+
+  <!-- Main Content: Two Column Layout -->
+  <main class="main-content">
+    <div class="content-left">
+      <section class="content-section">
+        <h1>Bractwo Wojowników Kruki</h1>
+        <p>Witamy w naszej społeczności. Poniżej znajdziesz informacje o nas i naszych działaniach.</p>
+
+        <h2>Kim jesteśmy?</h2>
+        <p>
+          Bractwo Wojowników Kruki to społeczność ludzi zjednoczonych wspólnymi wartościami i zainteresowaniami.
+          Naszą misją jest wspieranie się nawzajem, organizowanie spotkań i podtrzymywanie tradycji.
+        </p>
+
+        <h2>Nasze działania</h2>
+        <ul>
+          <li>Organizacja spotkań i événements</li>
+          <li>Turniej Kruczy - doroczna rywalizacja</li>
+          <li>Prowadzenie galerii zdjęć z naszych działań</li>
+          <li>Mentoring i wsparcie dla nowych członków</li>
+        </ul>
+
+        <h2>Dołącz do nas</h2>
+        <p>Zainteresowany dołączeniem? Sprawdź naszą stronę <a href="/nabor">Nabór</a> aby dowiedzieć się jak aplikować.</p>
+      </section>
+    </div>
+
+    <aside class="content-right">
+      <div class="instagram-embed">
+        <!-- Instagram embed will be loaded here -->
+        <iframe src="https://www.instagram.com/kruki.brotherhood/embed" width="100%" height="600" frameborder="0" scrolling="no" allowtransparency="true"></iframe>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    Created by <a href="https://www.cardiocanwait.com" target="_blank" rel="noopener noreferrer">CardioCanWait</a>
+    for <a href="https://www.kruki.org" target="_blank" rel="noopener noreferrer">Bractwo Wojowników Kruki</a>,
+    hosted on <a href="https://github.com/BractwoWojownikowKruki/krucze-galery" target="_blank" rel="noopener noreferrer">GitHub</a>.
+  </footer>
+
+  <script src="carousel.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>
