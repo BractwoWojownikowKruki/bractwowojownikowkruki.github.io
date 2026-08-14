@@ -1053,9 +1053,10 @@ main { padding: 1.25rem 1.5rem 3rem; }
 /* ── Main Navigation (Main Site) ── */
 
 .site-header--main {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: center;
-  justify-content: center;
+  gap: 24px;
   padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--border);
   position: sticky;
