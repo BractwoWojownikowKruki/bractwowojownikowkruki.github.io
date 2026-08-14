@@ -1049,3 +1049,264 @@ main { padding: 1.25rem 1.5rem 3rem; }
   margin-top: 0.5rem;
   padding-left: 1.25rem;
 }
+
+/* ── Main Navigation (Main Site) ── */
+
+.site-header--main {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 24px;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 10;
+}
+
+.main-nav {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.nav-item {
+  padding: 0.5rem 0;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+
+.nav-item--active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.nav-item--highlighted {
+  color: var(--accent);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+/* ── Banner Carousel ── */
+
+.banner-section {
+  width: 100%;
+  max-height: 500px;
+  overflow: hidden;
+  background: var(--surface-deep);
+}
+
+#banner-carousel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 250px;
+}
+
+.carousel-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.carousel-nav {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  z-index: 5;
+}
+
+.carousel-btn {
+  background: rgba(20, 20, 20, 0.7);
+  border: 1px solid var(--border-hover);
+  color: var(--text);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.carousel-btn:hover {
+  background: rgba(20, 20, 20, 0.9);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Main Content Layout ── */
+
+.main-content {
+  display: grid;
+  grid-template-columns: 1fr 350px;
+  gap: 3rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 3rem 1.25rem;
+}
+
+.content-left {
+  min-width: 0;
+}
+
+.content-section h1 {
+  font-family: 'Cinzel', serif;
+  font-size: 2.5rem;
+  font-weight: 900;
+  color: var(--text);
+  margin-bottom: 1rem;
+  letter-spacing: 1px;
+}
+
+.content-section h2 {
+  font-family: 'Cinzel', serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--gold);
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+}
+
+.content-section p {
+  line-height: 1.6;
+  color: var(--text);
+  margin-bottom: 1rem;
+}
+
+.content-section ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.content-section li {
+  padding: 0.5rem 0 0.5rem 2rem;
+  position: relative;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.content-section li::before {
+  content: '▸';
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-weight: bold;
+}
+
+.content-section a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent);
+  transition: all 0.2s ease;
+}
+
+.content-section a:hover {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+
+.content-right {
+  min-width: 0;
+}
+
+.instagram-embed {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 1rem;
+}
+
+.instagram-embed iframe {
+  width: 100% !important;
+  max-width: 100%;
+}
+
+/* ── Responsive Main Site ── */
+
+@media (max-width: 1024px) {
+  .main-nav {
+    gap: 1.5rem;
+    font-size: 12px;
+  }
+
+  .main-content {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+    padding: 2rem 1rem;
+  }
+
+  .content-right {
+    order: -1;
+  }
+}
+
+@media (max-width: 768px) {
+  .site-header--main {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    padding: 1rem 0.75rem;
+  }
+
+  .main-nav {
+    gap: 1rem;
+    font-size: 12px;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .banner-section {
+    max-height: 250px;
+  }
+
+  .nav-item {
+    padding: 0.25rem 0;
+    white-space: nowrap;
+  }
+
+  .main-content {
+    grid-template-columns: 1fr;
+    padding: 1.5rem 0.75rem;
+  }
+
+  .content-section h1 {
+    font-size: 1.75rem;
+  }
+
+  .content-section h2 {
+    font-size: 1.2rem;
+  }
+
+  .carousel-nav {
+    bottom: 12px;
+    gap: 8px;
+  }
+
+  .carousel-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+}
