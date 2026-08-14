@@ -355,10 +355,66 @@ main { padding: 1.25rem 1.5rem 3rem; }
   color: var(--text-muted);
   text-decoration: none;
   font-size: 14px;
-  margin-bottom: 1.25rem;
   transition: color 0.15s;
 }
 .back-link:hover { color: var(--gold); }
+
+.focused-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.btn-delete-gallery {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-delete-gallery:hover { background: var(--accent); color: var(--text); }
+.btn-delete-gallery svg { width: 14px; height: 14px; flex-shrink: 0; pointer-events: none; }
+
+.auth-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 4, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 200;
+}
+
+.auth-modal[hidden] {
+  display: none;
+}
+
+.auth-modal-card {
+  width: 100%;
+  max-width: 340px;
+  padding: 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.auth-modal-card p {
+  margin-bottom: 1rem;
+  color: var(--text-muted);
+  font-size: 14px;
+}
 
 .focused-layout {
   display: flex;
@@ -474,8 +530,9 @@ main { padding: 1.25rem 1.5rem 3rem; }
   .drive-hero-prev, .drive-hero-next { width: 36px; height: 36px; }
   .drive-hero-prev svg, .drive-hero-next svg { width: 18px; height: 18px; }
   .drive-gallery-actions { width: 100%; }
-  .btn-drive-action { flex: 1 1 auto; justify-content: center; }
+  .btn-drive-action, .drive-gallery-actions .btn-delete-gallery { flex: 1 1 auto; justify-content: center; }
   .drive-gallery-header { margin-bottom: 0.75rem; }
+  .focused-header { flex-direction: column; align-items: stretch; }
   .drive-hero { margin-bottom: 0.75rem; }
   .drive-gallery-grid { gap: 0.4rem; }
 }

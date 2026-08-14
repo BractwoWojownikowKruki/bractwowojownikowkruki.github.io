@@ -38,6 +38,11 @@ const ICON_CHEVRON_RIGHT = `<svg viewBox="0 0 24 24" fill="none" stroke="current
   <polyline points="9 18 15 12 9 6"/>
 </svg>`;
 
+const ICON_TRASH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <polyline points="3 6 5 6 21 6"/>
+  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+</svg>`;
+
 let allAlbums = [];
 let sortMode = 'newest';
 
@@ -222,6 +227,10 @@ function renderThumbCol(album, urls) {
     </a>`).join('')}</div>`;
 }
 
+function renderDeleteButton() {
+  return `<button class="btn-delete-gallery" type="button" id="delete-gallery-btn">${ICON_TRASH} Usuń galerię</button>`;
+}
+
 function renderFocusedView(album, albums) {
   const related = findRelated(album, albums);
   const relatedHtml = related.length
@@ -235,7 +244,10 @@ function renderFocusedView(album, albums) {
   const rightThumbs = thumbs.slice(12, 24);
 
   return `
-    <a href="#" class="back-link">&larr; Wszystkie galerie</a>
+    <div class="focused-header">
+      <a href="#" class="back-link">&larr; Wszystkie galerie</a>
+      ${renderDeleteButton()}
+    </div>
     <div class="focused-layout">
       ${renderThumbCol(album, leftThumbs)}
       <div class="focused-card">${renderCard(album, 'external')}</div>
@@ -245,7 +257,7 @@ function renderFocusedView(album, albums) {
 }
 
 const DRIVE_API_KEY_PUBLIC = 'AIzaSyCNnBUsUnpNyfyCeJqPghBraIRjg-YHyPQ';
-const UPLOAD_SERVICE_URL = 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
+// UPLOAD_SERVICE_URL comes from auth.js, loaded before this file.
 
 async function fetchDriveFiles(folderId) {
   let files = [];
@@ -284,6 +296,7 @@ function renderDriveGalleryView(album) {
       <div class="drive-gallery-actions">
         <a class="btn-drive-action" href="${escapeAttr(album.url)}" target="_blank" rel="noopener noreferrer">${ICON_FOLDER} Otwórz w Google Drive</a>
         <button class="btn-drive-action" id="drive-download-album" type="button">${ICON_DOWNLOAD} Pobierz album</button>
+        ${renderDeleteButton()}
       </div>
     </div>
     <p class="drive-gallery-status" id="drive-gallery-status"><span class="spinner"></span> Ładowanie…</p>
@@ -538,7 +551,55 @@ function route() {
 
 window.addEventListener('hashchange', route);
 
+function showDeleteReauth() {
+  document.getElementById('delete-reauth-modal').hidden = false;
+}
+
+function hideDeleteReauth() {
+  document.getElementById('delete-reauth-modal').hidden = true;
+}
+
+// Drive-folder galleries the app created itself (see mapDiscoveredGallery's `deletable` marker)
+// are deleted for real via Drive; everything else - Google Photos, or a Drive folder someone
+// registered by pasting a link - only ever exists as an albums.json entry, so "deleting" it
+// means removing that entry and waiting for the same CI pipeline /register's writes go through.
+async function handleDeleteGallery(album) {
+  const isAppOwned = album.deletable === 'drive-folder';
+  const warning = isAppOwned
+    ? 'Na pewno chcesz usunąć tę galerię? Tej operacji nie można cofnąć.'
+    : 'Na pewno chcesz usunąć tę galerię? Tej operacji nie można cofnąć. Galeria zniknie ze strony po około 10 minutach.';
+  if (!window.confirm(warning)) return;
+
+  try {
+    if (isAppOwned) {
+      await apiFetch('/delete-drive-gallery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId: album.driveFolderId }),
+      }, showDeleteReauth, hideDeleteReauth);
+    } else {
+      await apiFetch('/unregister', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: album.url }),
+      }, showDeleteReauth, hideDeleteReauth);
+    }
+    allAlbums = allAlbums.filter(a => a !== album);
+    location.hash = '';
+    update();
+    showToast(isAppOwned ? 'Galeria usunięta.' : 'Galeria zostanie usunięta ze strony po około 10 minutach.');
+  } catch (err) {
+    window.alert(`Nie udało się usunąć galerii: ${err.message}`);
+  }
+}
+
 document.addEventListener('click', e => {
+  if (e.target.closest('#delete-gallery-btn')) {
+    const hash = location.hash.slice(1);
+    const album = hash ? allAlbums.find(a => slugify(a.title) === hash) : null;
+    if (album) handleDeleteGallery(album);
+    return;
+  }
   if (e.target.closest('#drive-download-album')) {
     downloadAlbum();
     return;
@@ -613,6 +674,10 @@ function mapDiscoveredGallery(gallery) {
     source: 'drive',
     driveFolderId: gallery.id,
     searchText: makeSearchText(title),
+    // Only galleries discovered this way were created by upload-service itself, which is what
+    // makes deleting the actual Drive folder possible (drive.file scope can't touch a folder
+    // the app didn't create) - see handleDeleteGallery.
+    deletable: 'drive-folder',
   };
 }
 
@@ -635,3 +700,7 @@ Promise.allSettled([
   const gridLoading = document.getElementById('grid-loading');
   if (gridLoading) gridLoading.hidden = true;
 });
+
+// Sign-in is only ever needed on demand, when deleting a gallery (see handleDeleteGallery) -
+// no persistent sign-in UI on this page, just the reauth modal wired up ahead of time.
+initGoogleSignIn({ buttonIds: ['delete-google-signin-button'] });

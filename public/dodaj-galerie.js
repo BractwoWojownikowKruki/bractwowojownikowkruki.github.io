@@ -1,15 +1,6 @@
-const UPLOAD_SERVICE_URL = 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
-const GOOGLE_OAUTH_CLIENT_ID = '895090213384-cqac9v2tvmjhkkertjjj5q4h8qf41g3d.apps.googleusercontent.com';
 const MAX_CONCURRENT_UPLOADS = 4;
 const MAX_RETRIES_PER_FILE = 2;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
-// Refresh a little before the token's real expiry, not exactly at it, so an in-flight
-// request never straddles the boundary between "was valid" and "just expired".
-const ID_TOKEN_EXPIRY_SAFETY_MARGIN_SECONDS = 30;
-
-let idToken = null;
-let idTokenExp = 0;
-let pendingReauth = null;
 
 function isValidAlbumUrl(url) {
   return /^https:\/\/photos\.app\.goo\.gl\/\S+$/.test(url)
@@ -27,78 +18,26 @@ function hideError(errorElId) {
   document.getElementById(errorElId).hidden = true;
 }
 
-function decodeJwtPayload(token) {
-  const payload = token.split('.')[1];
-  return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
-}
-
-function isIdTokenValid() {
-  return Boolean(idToken) && idTokenExp - ID_TOKEN_EXPIRY_SAFETY_MARGIN_SECONDS > Date.now() / 1000;
-}
-
-// Pauses the caller and shows a visible re-sign-in prompt if the current Google ID token has
-// expired or is about to. Resolves once handleCredentialResponse fires again with a fresh one.
-// Deliberately explicit/visible rather than a silent background refresh - Identity Services
-// doesn't offer a reliable silent-refresh path across third-party-cookie-restricted browsers.
-async function ensureFreshIdToken() {
-  if (isIdTokenValid()) return;
+function showReauth() {
   document.getElementById('upload-reauth').hidden = false;
-  await new Promise(resolve => { pendingReauth = resolve; });
 }
 
-async function apiFetch(path, options) {
-  await ensureFreshIdToken();
-  const res = await fetch(`${UPLOAD_SERVICE_URL}${path}`, {
-    ...options,
-    headers: { ...(options?.headers ?? {}), Authorization: `Bearer ${idToken}` },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(body.error ?? `HTTP ${res.status}`);
-  }
-  return res.json();
+function hideReauth() {
+  document.getElementById('upload-reauth').hidden = true;
 }
 
-async function handleCredentialResponse(response) {
-  idToken = response.credential;
-  const payload = decodeJwtPayload(idToken);
-  idTokenExp = payload.exp;
-
-  if (pendingReauth) {
-    const resolve = pendingReauth;
-    pendingReauth = null;
-    document.getElementById('upload-reauth').hidden = true;
-    resolve();
-    return;
-  }
-
-  document.getElementById('upload-signin').hidden = true;
-  try {
-    await apiFetch('/whoami', { method: 'GET' });
+initGoogleSignIn({
+  buttonIds: ['google-signin-button', 'google-reauth-button'],
+  onSignedIn: payload => {
+    document.getElementById('upload-signin').hidden = true;
     document.getElementById('upload-signed-in-email').textContent = payload.email;
     document.getElementById('upload-signed-in').hidden = false;
-  } catch {
+  },
+  onForbidden: () => {
+    document.getElementById('upload-signin').hidden = true;
     document.getElementById('upload-forbidden').hidden = false;
-  }
-}
-
-function initGoogleSignIn() {
-  if (!window.google?.accounts?.id) return;
-  window.google.accounts.id.initialize({
-    client_id: GOOGLE_OAUTH_CLIENT_ID,
-    callback: handleCredentialResponse,
-  });
-  window.google.accounts.id.renderButton(document.getElementById('google-signin-button'), {
-    type: 'standard',
-    text: 'signin_with',
-    locale: 'pl',
-  });
-  window.google.accounts.id.renderButton(document.getElementById('google-reauth-button'), {
-    type: 'standard',
-    text: 'signin_with',
-    locale: 'pl',
-  });
-}
+  },
+});
 
 function storageKeyFor(date, name) {
   return `krucze-galery-upload:${date}:${name || ''}`;
@@ -126,6 +65,8 @@ async function uploadOneFile(folderId, submissionToken, file, attempt = 1) {
     await apiFetch(
       `/upload?folderId=${encodeURIComponent(folderId)}&fileName=${encodeURIComponent(file.name)}&mimeType=${encodeURIComponent(file.type || 'application/octet-stream')}`,
       { method: 'POST', body: file, headers: { 'X-Submission-Token': submissionToken } },
+      showReauth,
+      hideReauth,
     );
     return true;
   } catch (err) {
@@ -185,7 +126,7 @@ async function submitViaUpload(name, date, files) {
     const { uploadedFiles } = await apiFetch(`/status?folderId=${encodeURIComponent(folderId)}`, {
       method: 'GET',
       headers: { 'X-Submission-Token': submissionToken },
-    });
+    }, showReauth, hideReauth);
     const uploadedKeys = new Set(uploadedFiles.map(f => fileKey(f.name, f.size)));
     files = files.filter(f => !uploadedKeys.has(fileKey(f.name, f.size)));
   } else {
@@ -193,7 +134,7 @@ async function submitViaUpload(name, date, files) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, date }),
-    }));
+    }, showReauth, hideReauth));
     state = { folderId, submissionToken, date, name };
     saveUploadState(key, state);
   }
@@ -207,7 +148,7 @@ async function submitViaUpload(name, date, files) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Submission-Token': submissionToken },
     body: JSON.stringify({ folderId, name, date }),
-  });
+  }, showReauth, hideReauth);
   clearUploadState(key);
 }
 
@@ -271,7 +212,7 @@ document.getElementById('register-form').addEventListener('submit', async e => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, name, date }),
-    });
+    }, showReauth, hideReauth);
     document.getElementById('register-form').hidden = true;
     document.getElementById('register-success').hidden = false;
   } catch (err) {
@@ -280,19 +221,3 @@ document.getElementById('register-form').addEventListener('submit', async e => {
     submitButton.disabled = false;
   }
 });
-
-// The GSI <script> tag loads with `async`, so it can finish (and even fire its own onload)
-// either before or after this script has run - there's no reliable single event to hang this
-// on in either direction. Polling briefly from here works regardless of which one wins the
-// race: it doesn't depend on GSI calling back into us, and it doesn't require GSI's own load
-// event to fire after this file has already been parsed and defined initGoogleSignIn.
-function waitForGoogleIdentityServices(callback, attemptsRemaining = 100) {
-  if (window.google?.accounts?.id) {
-    callback();
-    return;
-  }
-  if (attemptsRemaining <= 0) return;
-  setTimeout(() => waitForGoogleIdentityServices(callback, attemptsRemaining - 1), 50);
-}
-
-waitForGoogleIdentityServices(initGoogleSignIn);
