@@ -9,7 +9,9 @@ import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSni
 import { fetchInstagramPosts, fetchFacebookPosts } from './social-media.ts';
 import {
   bootstrapAboutUsStructure,
+  buildPersonFolderName,
   fetchCategoryPeople,
+  invalidateAboutUsCache,
   isAboutUsCategory,
   type AboutUsCategory,
 } from './about-us.ts';
@@ -246,6 +248,51 @@ async function handleAboutUs(res: ServerResponse, url: URL, deps: ServerDeps): P
   sendJson(res, 200, { people });
 }
 
+async function handleAdminWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdmin(req);
+  sendJson(res, 200, { email: identity.email });
+}
+
+async function handleAdminCreatePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const { category, name, order, description } = await readJsonBody<{
+    category?: string;
+    name?: string;
+    order?: number | null;
+    description?: string;
+  }>(req, deps.maxJsonBodyBytes);
+  const validCategory = parseAboutUsCategory(category ?? null);
+  if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
+
+  const folders = await bootstrapAboutUsStructure(deps.drive);
+  const folderName = buildPersonFolderName(name, order ?? null);
+  const folderId = await deps.drive.createAlbumFolder(folders.categories[validCategory], folderName);
+  if (description) {
+    await deps.drive.writeTextFile(folderId, 'Opis.txt', description);
+  }
+  invalidateAboutUsCache();
+  sendJson(res, 200, { folderId });
+}
+
+async function handleAdminUpdateDescription(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const folderId = url.searchParams.get('folderId');
+  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  const { description } = await readJsonBody<{ description?: string }>(req, deps.maxJsonBodyBytes);
+  await deps.drive.writeTextFile(folderId, 'Opis.txt', description ?? '');
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const folderId = url.searchParams.get('folderId');
+  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  await deps.drive.deleteFolder(folderId);
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
+}
+
 // Only for galleries this service itself created (drive.file scope can't touch anything else -
 // see KRKG-0025's design.md) - a folder registered by URL instead goes through /unregister.
 async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -441,6 +488,14 @@ export function createRequestListener(deps: ServerDeps) {
         await handleGalleries(res, deps);
       } else if (req.method === 'GET' && url.pathname === '/about-us') {
         await handleAboutUs(res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/whoami') {
+        await handleAdminWhoami(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/admin/people') {
+        await handleAdminCreatePerson(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/people/description') {
+        await handleAdminUpdateDescription(req, res, url, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/admin/people') {
+        await handleAdminDeletePerson(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
         await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {

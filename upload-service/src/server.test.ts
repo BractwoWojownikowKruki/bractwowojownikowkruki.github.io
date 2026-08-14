@@ -204,6 +204,93 @@ test('GET /about-us rejects an unknown category', async () => {
   });
 });
 
+test('GET /admin/whoami returns the admin email when authenticateAdmin succeeds', async () => {
+  const deps = makeDeps({ authenticateAdmin: async () => ({ sub: 'a1', email: 'admin@gmail.com' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/whoami`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { email: 'admin@gmail.com' });
+  });
+});
+
+test('POST /admin/people creates a numbered folder and writes the description', async () => {
+  resetAboutUsBootstrapForTests();
+  let createdFolderName: string | undefined;
+  let writtenDescription: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => {
+        if (name === 'Ragnar') createdFolderName = name;
+        return `folder-${name}`;
+      },
+      createAlbumFolder: async (_parent, name) => {
+        createdFolderName = name;
+        return 'new-person-folder';
+      },
+      writeTextFile: async (_folderId, fileName, content) => {
+        if (fileName === 'Opis.txt') writtenDescription = content;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'Wojownicy', name: 'Ragnar', order: 1, description: 'Krótki opis.' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.folderId, 'new-person-folder');
+  });
+  assert.equal(createdFolderName, '1. Ragnar');
+  assert.equal(writtenDescription, 'Krótki opis.');
+});
+
+test('POST /admin/people rejects an invalid category', async () => {
+  resetAboutUsBootstrapForTests();
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'NieIstnieje', name: 'Ragnar', order: null, description: '' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/people/description updates a person\'s Opis.txt', async () => {
+  let writtenDescription: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      writeTextFile: async (_folderId, _fileName, content) => {
+        writtenDescription = content;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/description?folderId=person-1`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: 'Nowy opis.' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(writtenDescription, 'Nowy opis.');
+});
+
+test('DELETE /admin/people trashes the person folder', async () => {
+  let deletedFolderId: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({ deleteFolder: async folderId => { deletedFolderId = folderId; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people?folderId=person-1`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(deletedFolderId, 'person-1');
+});
+
 test('/register rejects an unauthenticated caller before touching Drive or GitHub', async () => {
   let driveCalled = false;
   let githubCalled = false;
