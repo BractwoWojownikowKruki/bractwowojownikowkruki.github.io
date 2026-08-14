@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Galerie - Krucze Galery</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <link rel="apple-touch-icon" href="../favicon.png" />
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="logo-link" aria-label="Krucze Galery — strona główna">
+      <picture>
+        <source media="(max-width: 600px)" srcset="../logo.png" />
+        <img src="../logo-desktop.png" alt="Krucze Galery" class="logo" onerror="this.style.display='none'" />
+      </picture>
+    </a>
+    <div class="toolbar" id="toolbar">
+      <div class="search-wrap">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <input type="search" id="search" placeholder="Szukaj albumów…" autocomplete="off" />
+      </div>
+      <div class="toolbar-controls">
+        <select id="sort" aria-label="Sortowanie">
+          <option value="newest">Najnowsze</option>
+          <option value="oldest">Najstarsze</option>
+          <option value="alpha">A → Z</option>
+        </select>
+        <div class="count" id="count" aria-live="polite"></div>
+        <a href="dodaj-galerie.html" class="btn-add-album">Dodaj galerię</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div id="view-grid">
+      <div class="page-spinner" id="grid-loading"><span class="spinner"></span></div>
+      <div id="grid"></div>
+      <p class="empty" id="empty" hidden>Nie znaleziono albumów. Spróbuj innego wyszukiwania.</p>
+    </div>
+    <div id="view-focused" hidden></div>
+  </main>
+
+  <footer class="footer">
+    Created by <a href="https://www.cardiocanwait.com" target="_blank" rel="noopener noreferrer">CardioCanWait</a>
+    for <a href="https://www.kruki.org" target="_blank" rel="noopener noreferrer">Bractwo Wojowników Kruki</a>,
+    hosted on <a href="https://github.com/BractwoWojownikowKruki/krucze-galery" target="_blank" rel="noopener noreferrer">GitHub</a>.
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
