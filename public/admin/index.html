@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin - O nas</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="stylesheet" href="../style.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <main style="max-width: 700px; margin: 2rem auto; padding: 0 1.25rem;">
+    <h1 style="font-family:'Cinzel',serif; color: var(--text); margin-bottom: 1.5rem;">Panel administracyjny — O nas</h1>
+
+    <div id="admin-signin">
+      <div id="google-signin-button"></div>
+    </div>
+
+    <div id="admin-forbidden" hidden>
+      <p style="color: var(--accent);">To konto nie ma uprawnień administratora.</p>
+    </div>
+
+    <div id="admin-panel" hidden>
+      <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Zalogowano jako <span id="admin-email"></span></p>
+
+      <section style="margin-bottom: 2rem;">
+        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Dodaj osobę</h2>
+        <form id="add-person-form">
+          <label style="display:block; margin-bottom:0.5rem;">
+            Kategoria
+            <select id="person-category" required style="display:block; width:100%; margin-top:4px;">
+              <option value="Wojownicy">Wojownicy</option>
+              <option value="Niewiasty">Niewiasty</option>
+              <option value="Emeryci">Emeryci</option>
+              <option value="Kandydaci">Kandydaci</option>
+            </select>
+          </label>
+          <label style="display:block; margin-bottom:0.5rem;">
+            Imię
+            <input id="person-name" type="text" required style="display:block; width:100%; margin-top:4px;" />
+          </label>
+          <label style="display:block; margin-bottom:0.5rem;">
+            Kolejność (opcjonalnie, liczba)
+            <input id="person-order" type="number" min="0" style="display:block; width:100%; margin-top:4px;" />
+          </label>
+          <label style="display:block; margin-bottom:0.5rem;">
+            Opis (3-5 zdań)
+            <textarea id="person-description" rows="4" style="display:block; width:100%; margin-top:4px;"></textarea>
+          </label>
+          <button type="submit" class="btn-add-album">Dodaj osobę</button>
+        </form>
+        <p id="add-person-status" style="margin-top:0.5rem;"></p>
+      </section>
+
+      <section>
+        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Zarządzaj osobami</h2>
+        <label style="display:block; margin-bottom:1rem;">
+          Kategoria
+          <select id="manage-category" style="display:block; width:100%; margin-top:4px;">
+            <option value="Wojownicy">Wojownicy</option>
+            <option value="Niewiasty">Niewiasty</option>
+            <option value="Emeryci">Emeryci</option>
+            <option value="Kandydaci">Kandydaci</option>
+          </select>
+        </label>
+        <div id="manage-people-list"></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="../auth.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

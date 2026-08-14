@@ -54,7 +54,7 @@ async function apiFetch(path, options, showReauthUI, hideReauthUI) {
 // `onForbidden()` are optional and fire only after a genuine first sign-in - not one triggered
 // by ensureFreshIdToken's reauth prompt, which just resolves the paused caller instead. Pages
 // that only ever need reauth (nothing to proactively show on initial sign-in) can omit both.
-function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden }) {
+function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, whoamiPath = '/whoami' }) {
   async function handleCredentialResponse(response) {
     idToken = response.credential;
     const payload = decodeJwtPayload(idToken);
@@ -73,7 +73,7 @@ function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden }) {
 
     if (!onSignedIn && !onForbidden) return;
     try {
-      await apiFetch('/whoami', { method: 'GET' }, () => {}, () => {});
+      await apiFetch(whoamiPath, { method: 'GET' }, () => {}, () => {});
       onSignedIn?.(payload);
     } catch {
       onForbidden?.();
