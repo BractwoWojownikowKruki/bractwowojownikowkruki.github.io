@@ -54,6 +54,34 @@ export async function createAlbumFolder(deps: DriveDeps, parentFolderId: string,
   return id;
 }
 
+// Looks up an existing folder by exact name under a parent, or null if none exists. Used by
+// ensureFolder below to make folder creation idempotent - bootstrapping the "O Nas" tree must
+// be safe to call on every cold start without creating duplicate folders each time.
+export async function findFolderByName(deps: DriveDeps, parentFolderId: string, name: string): Promise<string | null> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const escapedName = name.replace(/'/g, "\\'");
+  const q = encodeURIComponent(
+    `'${parentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and name='${escapedName}' and trashed = false`,
+  );
+  const res = await fetch(`${DRIVE_API}/drive/v3/files?q=${q}&fields=files(id)&pageSize=1`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Nie udało się wyszukać folderu w Drive: HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { files: { id: string }[] };
+  return data.files[0]?.id ?? null;
+}
+
+// Idempotent find-or-create. parentFolderId may be the literal string 'root' for a top-level
+// folder in My Drive - the Drive API accepts 'root' as an alias both in query filters and in
+// a create call's `parents` array.
+export async function ensureFolder(deps: DriveDeps, parentFolderId: string, name: string): Promise<string> {
+  const existing = await findFolderByName(deps, parentFolderId, name);
+  if (existing) return existing;
+  return createAlbumFolder(deps, parentFolderId, name);
+}
+
 async function findPublicPermissionId(deps: DriveDeps, accessToken: string, folderId: string): Promise<string | null> {
   const res = await fetch(`${DRIVE_API}/drive/v3/files/${folderId}/permissions?fields=permissions(id,type,role)`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -240,6 +268,63 @@ export async function readManifest(deps: DriveDeps, folderId: string): Promise<G
   }
 }
 
+async function findFileIdByName(deps: DriveDeps, folderId: string, name: string): Promise<string | null> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const escapedName = name.replace(/'/g, "\\'");
+  const q = encodeURIComponent(`'${folderId}' in parents and name='${escapedName}' and trashed = false`);
+  const res = await fetch(`${DRIVE_API}/drive/v3/files?q=${q}&fields=files(id)&pageSize=1`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Nie udało się wyszukać pliku w Drive: HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { files: { id: string }[] };
+  return data.files[0]?.id ?? null;
+}
+
+// Returns null if the file doesn't exist - callers treat a missing Opis.txt as "no
+// description yet" rather than an error, since an admin may create a person before writing one.
+export async function readTextFile(deps: DriveDeps, folderId: string, fileName: string): Promise<string | null> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const fileId = await findFileIdByName(deps, folderId, fileName);
+  if (!fileId) return null;
+  const res = await fetch(`${DRIVE_API}/drive/v3/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Nie udało się odczytać pliku z Drive: HTTP ${res.status}`);
+  }
+  return res.text();
+}
+
+// Idempotent like writeManifest: updates the file in place if it already exists, otherwise
+// creates it - so re-saving a person's description from /admin never leaves duplicate
+// Opis.txt files behind.
+export async function writeTextFile(deps: DriveDeps, folderId: string, fileName: string, content: string): Promise<void> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const existingId = await findFileIdByName(deps, folderId, fileName);
+  if (existingId) {
+    const res = await fetch(`${DRIVE_UPLOAD_API}/drive/v3/files/${existingId}?uploadType=media`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'text/plain; charset=UTF-8' },
+      body: content,
+    });
+    if (!res.ok) {
+      throw new Error(`Nie udało się zaktualizować pliku w Drive: HTTP ${res.status}`);
+    }
+    return;
+  }
+  const { prefix, suffix, boundary } = buildMultipartParts({ name: fileName, parents: [folderId] }, 'text/plain');
+  const res = await fetch(`${DRIVE_UPLOAD_API}/drive/v3/files?uploadType=multipart&fields=id`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+    body: Buffer.concat([prefix, Buffer.from(content, 'utf8'), suffix]),
+  });
+  if (!res.ok) {
+    throw new Error(`Nie udało się utworzyć pliku w Drive: HTTP ${res.status}`);
+  }
+}
+
 export interface DriveFolderInfo {
   id: string;
   name: string;
@@ -282,6 +367,41 @@ export async function getCoverThumbnail(deps: DriveDeps, folderId: string): Prom
   return data.files[0]?.thumbnailLink ?? null;
 }
 
+export interface DriveImageInfo {
+  id: string;
+  name: string;
+  thumbnailLink: string | null;
+}
+
+// Every image file directly inside folderId, sorted by name - the first result is treated as
+// a person's "main photo" by every caller (about-us.ts's fetchCategoryPeople), so admins
+// control which photo is the main one purely by naming it to sort first (e.g. "1-main.jpg").
+export async function listImageFiles(deps: DriveDeps, folderId: string): Promise<DriveImageInfo[]> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const images: DriveImageInfo[] = [];
+  let pageToken: string | undefined;
+  do {
+    const q = encodeURIComponent(`'${folderId}' in parents and mimeType contains 'image/' and trashed = false`);
+    let path = `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,thumbnailLink)&pageSize=1000&orderBy=name`;
+    if (pageToken) path += `&pageToken=${encodeURIComponent(pageToken)}`;
+    const res = await fetch(path, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) {
+      throw new Error(`Nie udało się pobrać listy zdjęć z Drive: HTTP ${res.status}`);
+    }
+    const data = (await res.json()) as { files: { id: string; name: string; thumbnailLink?: string }[]; nextPageToken?: string };
+    images.push(...data.files.map(f => ({ id: f.id, name: f.name, thumbnailLink: f.thumbnailLink ?? null })));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return images;
+}
+
+// Same `=s<size>` query-param substitution the frontend already does client-side in
+// galerie/app.js's driveThumbUrl - kept server-side here too so about-us.ts can hand the
+// frontend a ready-to-use URL at the right size without duplicating this regex in a third place.
+export function resizeThumbnailUrl(thumbnailLink: string, size: number): string {
+  return thumbnailLink.replace(/=s\d+$/, `=s${size}`);
+}
+
 export interface DriveClient {
   createAlbumFolder(parentFolderId: string, folderName: string): Promise<string>;
   uploadFileStream(folderId: string, fileName: string, mimeType: string, bodyStream: AsyncIterable<Buffer>): Promise<void>;
@@ -292,6 +412,11 @@ export interface DriveClient {
   readManifest(folderId: string): Promise<GalleryManifest | null>;
   listGalleryFolders(rootFolderId: string): Promise<DriveFolderInfo[]>;
   getCoverThumbnail(folderId: string): Promise<string | null>;
+  findFolderByName(parentFolderId: string, name: string): Promise<string | null>;
+  ensureFolder(parentFolderId: string, name: string): Promise<string>;
+  readTextFile(folderId: string, fileName: string): Promise<string | null>;
+  writeTextFile(folderId: string, fileName: string, content: string): Promise<void>;
+  listImageFiles(folderId: string): Promise<DriveImageInfo[]>;
 }
 
 // Binds the module's functions to one set of Drive credentials, giving server.ts a small
@@ -308,5 +433,10 @@ export function createDriveClient(deps: DriveDeps): DriveClient {
     readManifest: folderId => readManifest(deps, folderId),
     listGalleryFolders: rootFolderId => listGalleryFolders(deps, rootFolderId),
     getCoverThumbnail: folderId => getCoverThumbnail(deps, folderId),
+    findFolderByName: (parentFolderId, name) => findFolderByName(deps, parentFolderId, name),
+    ensureFolder: (parentFolderId, name) => ensureFolder(deps, parentFolderId, name),
+    readTextFile: (folderId, fileName) => readTextFile(deps, folderId, fileName),
+    writeTextFile: (folderId, fileName, content) => writeTextFile(deps, folderId, fileName, content),
+    listImageFiles: folderId => listImageFiles(deps, folderId),
   };
 }
