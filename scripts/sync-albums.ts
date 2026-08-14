@@ -150,6 +150,88 @@ async function syncAlbum({ url, nameOverride, dateOverride }: AlbumEntry, cached
   }
 }
 
+async function driveApiFetch(path: string, apiKey: string): Promise<Response> {
+  return fetch(`https://www.googleapis.com${path}`, {
+    headers: { 'X-Goog-Api-Key': apiKey },
+  });
+}
+
+async function syncDriveAlbum(
+  { url, nameOverride, dateOverride }: AlbumEntry,
+  driveFolderId: string,
+  cached: AlbumRecord | undefined,
+): Promise<AlbumRecord> {
+  const hash = coverHash(url);
+  const coverFile = `${hash}.jpg`;
+  const coverPath = join(COVERS_DIR, coverFile);
+  const coverPublic = `covers/${coverFile}`;
+  const now = new Date().toISOString();
+
+  const failedRecord = (): AlbumRecord => ({
+    url,
+    title: cached?.title ?? nameOverride ?? 'Album bez tytułu',
+    date: cached?.date ?? dateOverride ?? null,
+    cover: cached?.cover ?? 'covers/placeholder.jpg',
+    photoCount: cached?.photoCount ?? null,
+    thumbs: [],
+    searchText: cached?.searchText ?? makeSearchText(nameOverride ?? ''),
+    lastSyncedAt: now,
+    syncStatus: 'failed',
+    source: 'drive',
+    driveFolderId,
+  });
+
+  const apiKey = process.env.DRIVE_API_KEY_SYNC;
+  if (!apiKey) {
+    console.warn(`[warn] DRIVE_API_KEY_SYNC nie ustawiony — pomijam ${url}`);
+    return cached ?? failedRecord();
+  }
+
+  try {
+    console.log(`[sync] Drive: ${url}`);
+
+    const folderRes = await driveApiFetch(`/drive/v3/files/${driveFolderId}?fields=name`, apiKey);
+    if (!folderRes.ok) throw new Error(`HTTP ${folderRes.status} (folder metadata)`);
+    const folder = (await folderRes.json()) as { name: string };
+
+    const q = encodeURIComponent(`'${driveFolderId}' in parents and mimeType contains 'image/'`);
+    const listRes = await driveApiFetch(`/drive/v3/files?q=${q}&fields=files(id,thumbnailLink)&pageSize=1000`, apiKey);
+    if (!listRes.ok) throw new Error(`HTTP ${listRes.status} (file list)`);
+    const list = (await listRes.json()) as { files: { id: string; thumbnailLink?: string }[] };
+
+    const photoCount = list.files.length;
+    const coverThumb = list.files[0]?.thumbnailLink;
+    if (coverThumb) {
+      try {
+        await downloadImage(coverThumb.replace(/=s\d+$/, '=s800'), coverPath);
+      } catch (e) {
+        console.warn(`[warn] Nie udało się pobrać okładki (Drive): ${(e as Error).message}`);
+      }
+    }
+
+    const cover = existsSync(coverPath) ? coverPublic : (cached?.cover ?? 'covers/placeholder.jpg');
+    const title = nameOverride ?? folder.name;
+    const date = dateOverride ?? parseDate(title);
+
+    return {
+      url,
+      title,
+      date,
+      cover,
+      photoCount,
+      thumbs: [],
+      searchText: makeSearchText(title),
+      lastSyncedAt: now,
+      syncStatus: 'ok',
+      source: 'drive',
+      driveFolderId,
+    };
+  } catch (e) {
+    console.error(`[error] Drive folder ${url}: ${(e as Error).message}`);
+    return cached ?? failedRecord();
+  }
+}
+
 async function main(): Promise<void> {
   mkdirSync(COVERS_DIR, { recursive: true });
   mkdirSync(THUMBS_DIR, { recursive: true });
@@ -165,15 +247,12 @@ async function main(): Promise<void> {
 
   const results: AlbumRecord[] = [];
   for (const entry of entries) {
-    // Drive-folder galleries are now discovered dynamically by upload-service's
-    // GET /galleries (KRKG-0025) instead of synced through albums.json - a Drive URL still
-    // listed here is a pre-migration leftover, skipped rather than mis-processed as a Photos
-    // album scrape.
-    if (extractDriveFolderId(entry.url)) {
-      console.warn(`[warn] Pomijam wpis Drive w albums.json (odkrywane teraz dynamicznie) — przenieś folder pod korzeń odkrywania i usuń ten wpis: ${entry.url}`);
-      continue;
+    const driveFolderId = extractDriveFolderId(entry.url);
+    if (driveFolderId) {
+      results.push(await syncDriveAlbum(entry, driveFolderId, cache.get(entry.url)));
+    } else {
+      results.push(await syncAlbum(entry, cache.get(entry.url)));
     }
-    results.push(await syncAlbum(entry, cache.get(entry.url)));
   }
 
   writeFileSync(GENERATED_JSON, JSON.stringify(results, null, 2) + '\n');

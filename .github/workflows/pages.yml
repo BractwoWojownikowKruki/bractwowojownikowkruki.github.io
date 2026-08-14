@@ -38,6 +38,8 @@ jobs:
         run: npm test
 
       - name: Sync albums metadata
+        env:
+          DRIVE_API_KEY_SYNC: ${{ secrets.DRIVE_API_KEY_SYNC }}
         run: npm run sync-albums
 
       - name: Commit generated files
