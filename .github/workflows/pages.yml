@@ -47,7 +47,7 @@ jobs:
           if [ -n "$(git status --porcelain)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add public/krucze-galery/data/albums.generated.json public/krucze-galery/covers public/krucze-galery/thumbs
+            git add public/galerie/data/albums.generated.json public/galerie/covers public/galerie/thumbs
             git commit -m "chore: update generated album metadata"
             git push
           else

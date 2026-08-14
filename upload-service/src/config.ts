@@ -23,7 +23,7 @@ export const config = {
   // comment on ServerDeps.galleriesCacheTtlMs in server.ts for why this exists.
   galleriesCacheTtlMs: Number(process.env.GALLERIES_CACHE_TTL_MS ?? 10 * 60 * 1000),
   githubToken: requireEnv('GITHUB_TOKEN'),
-  githubRepo: process.env.GITHUB_REPO ?? 'BractwoWojownikowKruki/krucze-galery',
+  githubRepo: process.env.GITHUB_REPO ?? 'BractwoWojownikowKruki/bractwowojownikowkruki.github.io',
   allowedOrigin: process.env.ALLOWED_ORIGIN ?? 'https://bractwowojownikowkruki.github.io',
   submissionTokenSecret: requireEnv('SUBMISSION_TOKEN_SECRET'),
   // 20 MB per photo - comfortably under Cloud Run's 32 MiB HTTP/1 request body limit,

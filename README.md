@@ -3,13 +3,13 @@
 Główna strona Bractwa Wojowników Kruki, wraz z sekcją galerii albumów (Google Photos i Google
 Drive) oraz panelem administracyjnym sekcji "O nas".  
 Strona dostępna pod adresem: **https://bractwowojownikowkruki.github.io/**
-Galerie: **https://bractwowojownikowkruki.github.io/krucze-galery/**
+Galerie: **https://bractwowojownikowkruki.github.io/galerie/**
 
 ---
 
 ## Jak dodać album
 
-Wypełnij formularz: **https://bractwowojownikowkruki.github.io/krucze-galery/dodaj-galerie.html**
+Wypełnij formularz: **https://bractwowojownikowkruki.github.io/galerie/dodaj-galerie.html**
 
 Podaj link do udostępnionego albumu Google Photos lub folderu Google Drive, opcjonalnie własną
 nazwę (jeśli pominięta, użyty zostanie tytuł albumu/folderu), i datę. Po

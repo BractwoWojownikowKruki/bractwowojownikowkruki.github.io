@@ -206,7 +206,7 @@ function renderCard(album, mode = 'focus') {
           >${album.source === 'drive' ? ICON_GOOGLE_DRIVE : ICON_GOOGLE_PHOTOS}</a>
           <button
             class="btn-copy"
-            data-url="${escapeAttr(`https://bractwowojownikowkruki.github.io/krucze-galery/#${slugify(album.title)}`)}"
+            data-url="${escapeAttr(`https://bractwowojownikowkruki.github.io/galerie/#${slugify(album.title)}`)}"
             title="Kopiuj link"
             aria-label="Kopiuj link do albumu"
           >${ICON_LINK}</button>
