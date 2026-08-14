@@ -1,6 +1,14 @@
 /**
  * Navigation Active State Handler
- * Sets active/highlighted nav item based on current page
+ * Marks the nav item matching the current page as active. Resolves each item's href
+ * (which may be relative, e.g. "../galerie/") against the current location before
+ * comparing, so this works regardless of whether the site is served from a domain root
+ * or a GitHub Pages project subpath (e.g. /krucze-galery/).
+ *
+ * Deliberately does not touch .nav-item--highlighted: that class is a static, always-on
+ * style on the Nabór link (a permanent call-to-action), not a current-page indicator -
+ * stripping and conditionally re-adding it here would only show it while literally on
+ * /nabor, defeating its purpose.
  */
 function updateNavigation() {
   const currentPath = window.location.pathname;
@@ -8,22 +16,14 @@ function updateNavigation() {
 
   navItems.forEach(item => {
     const href = item.getAttribute('href');
-
-    // Check if this is the current page
-    const isActive = href === currentPath || (href === '/' && currentPath === '/');
-
-    // Remove previous active states
-    item.classList.remove('nav-item--active');
-    item.classList.remove('nav-item--highlighted');
-
-    if (isActive) {
-      // Nabór gets highlighted style, others get active style
-      if (href === '/nabor') {
-        item.classList.add('nav-item--highlighted');
-      } else {
-        item.classList.add('nav-item--active');
-      }
-    }
+    if (!href) return;
+    const resolvedPath = new URL(href, window.location.href).pathname;
+    // Exact match, or (for a directory link like ".../o-nas/") the current page is a
+    // subpage of that section - so /o-nas/wojownicy/ still highlights "O nas".
+    const isActive =
+      currentPath === resolvedPath ||
+      (resolvedPath.endsWith('/') && resolvedPath.length > 1 && currentPath.startsWith(resolvedPath));
+    item.classList.toggle('nav-item--active', isActive);
   });
 }
 
