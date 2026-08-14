@@ -121,8 +121,13 @@ async function fetchFacebookPosts(): Promise<SocialMediaPosts> {
   }
 
   try {
+    // full_picture/permalink_url replace the older aggregated picture/link/type fields, which
+    // Facebook deprecated in v3.3 (error #12, deprecate_post_aggregated_fields_for_attachement) -
+    // this API is on v18.0. permalink_url is also the semantically correct field for "link to
+    // this post on Facebook" (the spec's requirement) - the old 'link' field returned an
+    // external URL the post happened to share, not a link back to the post itself.
     const feedResponse = await fetch(
-      `https://graph.facebook.com/v18.0/me/posts?fields=id,message,created_time,picture,link,type,story&access_token=${token}`
+      `https://graph.facebook.com/v18.0/me/posts?fields=id,message,created_time,full_picture,permalink_url&access_token=${token}`
     );
 
     if (!feedResponse.ok) {
@@ -132,13 +137,13 @@ async function fetchFacebookPosts(): Promise<SocialMediaPosts> {
 
     const feedData = await feedResponse.json();
     const posts: Post[] = (feedData.data || [])
-      .filter((item: any) => item.type === 'status' || item.message)
+      .filter((item: any) => Boolean(item.message))
       .map((item: any) => ({
         id: item.id,
-        caption: item.message || item.story || '',
+        caption: item.message || '',
         media_type: 'IMAGE' as const,
-        media_url: item.picture || '',
-        permalink: item.link || `https://facebook.com/${item.id}`,
+        media_url: item.full_picture || '',
+        permalink: item.permalink_url || `https://facebook.com/${item.id}`,
         timestamp: item.created_time || new Date().toISOString(),
       }));
 
