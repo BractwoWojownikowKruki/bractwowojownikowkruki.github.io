@@ -38,6 +38,11 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     readManifest: async () => null,
     listGalleryFolders: async () => [],
     getCoverThumbnail: async () => null,
+    findFolderByName: async () => null,
+    ensureFolder: async () => 'ensured-folder-id',
+    readTextFile: async () => null,
+    writeTextFile: async () => {},
+    listImageFiles: async () => [],
     ...overrides,
   };
 }
