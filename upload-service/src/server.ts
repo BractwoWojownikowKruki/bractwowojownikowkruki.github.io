@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { AuthError, verifyUploader, type VerifiedIdentity } from './auth.ts';
 import { createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
-import { createDriveClient, debugListAllChildren, type DriveClient, type DriveDeps } from './drive.ts';
+import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
 import { extractDriveFolderId } from './urls.ts';
@@ -38,9 +38,6 @@ export interface ServerDeps {
   // may still be publicly readable with no automatic fix. Production logs a structured line
   // a Cloud Logging alert policy is wired to match (Task 0 Step 12); tests substitute a spy.
   alertStuckFolder: (folderId: string, driveUrl: string, reason: string) => void;
-  // TEMPORARY for KRKG-0025 migration troubleshooting - unset in tests, only wired in
-  // productionDeps. Remove alongside GET /debug/children and debugListAllChildren.
-  debugDriveDeps?: DriveDeps;
 }
 
 // Per-folder exact file-count reservation, in-process. This is what actually enforces
@@ -394,17 +391,6 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: S
   sendJson(res, 200, { ok: true, type: 'photos' });
 }
 
-// TEMPORARY for KRKG-0025 migration troubleshooting - see debugListAllChildren.
-async function handleDebugChildren(res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  if (!deps.debugDriveDeps) {
-    sendJson(res, 404, { error: 'Nie znaleziono.' });
-    return;
-  }
-  const folderId = url.searchParams.get('folderId') ?? deps.driveParentFolderId;
-  const children = await debugListAllChildren(deps.debugDriveDeps, folderId);
-  sendJson(res, 200, { folderId, children });
-}
-
 export function createRequestListener(deps: ServerDeps) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     setCors(res, deps.allowedOrigin);
@@ -419,8 +405,6 @@ export function createRequestListener(deps: ServerDeps) {
         await handleWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/galleries') {
         await handleGalleries(res, deps);
-      } else if (req.method === 'GET' && url.pathname === '/debug/children') {
-        await handleDebugChildren(res, url, deps);
       } else if (req.method === 'POST' && url.pathname === '/start') {
         await handleStart(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/register') {
@@ -485,7 +469,6 @@ async function startProductionServer(): Promise<void> {
     galleriesCacheTtlMs: config.galleriesCacheTtlMs,
     revokeRetryDelaysMs: [500, 1500, 3000],
     alertStuckFolder,
-    debugDriveDeps: driveDeps,
   };
   const server = createServer(createRequestListener(productionDeps));
   server.listen(config.port, () => {
