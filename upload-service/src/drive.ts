@@ -246,6 +246,31 @@ export interface DriveFolderInfo {
   modifiedTime: string;
 }
 
+// TEMPORARY diagnostic for KRKG-0025 migration troubleshooting - lists every direct child of a
+// folder with no mimeType/trashed filtering, so we can see exactly what Drive returns instead of
+// guessing. Remove once the missing-galleries issue is understood.
+export async function debugListAllChildren(
+  deps: DriveDeps,
+  folderId: string,
+): Promise<{ id: string; name: string; mimeType: string; trashed: boolean; shortcutDetails?: unknown }[]> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const items: { id: string; name: string; mimeType: string; trashed: boolean; shortcutDetails?: unknown }[] = [];
+  let pageToken: string | undefined;
+  do {
+    const q = encodeURIComponent(`'${folderId}' in parents`);
+    let path = `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,trashed,shortcutDetails)&pageSize=1000&includeItemsFromAllDrives=true&supportsAllDrives=true`;
+    if (pageToken) path += `&pageToken=${encodeURIComponent(pageToken)}`;
+    const res = await fetch(path, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) {
+      throw new Error(`debugListAllChildren: HTTP ${res.status}: ${await res.text()}`);
+    }
+    const data = (await res.json()) as { files: typeof items; nextPageToken?: string };
+    items.push(...data.files);
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return items;
+}
+
 // Lists the immediate subfolders of a root folder - each one is a gallery for discovery
 // purposes, regardless of whether it has a manifest yet (see readManifest's fallback).
 export async function listGalleryFolders(deps: DriveDeps, rootFolderId: string): Promise<DriveFolderInfo[]> {
