@@ -137,12 +137,14 @@ select:focus { border-color: var(--accent); }
   border: none;
   color: var(--text);
   cursor: pointer;
-  padding: 0.4rem;
+  padding: 4px;
 }
 
+/* Sized to match the mobile logo (32px, see .site-header--main .logo below) rather than a
+   generic icon-button size - a bigger toggle read as heavier/oversized next to the small logo. */
 .nav-toggle svg {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   display: block;
   pointer-events: none;
 }
