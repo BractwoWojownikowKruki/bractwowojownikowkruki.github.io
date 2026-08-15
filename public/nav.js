@@ -32,3 +32,29 @@ document.addEventListener('DOMContentLoaded', updateNavigation);
 
 // Update navigation on popstate (browser back/forward)
 window.addEventListener('popstate', updateNavigation);
+
+/**
+ * Mobile hamburger toggle. #nav-toggle/#main-nav only exist on pages that opted into the
+ * collapsible mobile nav (the .is-open class it adds is a no-op above the 768px breakpoint,
+ * where .main-nav is always visible via CSS) - harmless to wire up unconditionally here since
+ * this script already loads on every page that has the shared header.
+ */
+document.addEventListener('DOMContentLoaded', () => {
+  const toggle = document.getElementById('nav-toggle');
+  const nav = document.getElementById('main-nav');
+  if (!toggle || !nav) return;
+
+  toggle.addEventListener('click', () => {
+    const isOpen = nav.classList.toggle('is-open');
+    toggle.setAttribute('aria-expanded', String(isOpen));
+  });
+
+  // Closes the menu after following a link, so returning via the browser's back button (or
+  // clicking straight back into this same page) doesn't leave it stuck open.
+  nav.addEventListener('click', event => {
+    if (event.target.closest('.nav-item')) {
+      nav.classList.remove('is-open');
+      toggle.setAttribute('aria-expanded', 'false');
+    }
+  });
+});
