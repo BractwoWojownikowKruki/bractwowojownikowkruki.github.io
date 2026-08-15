@@ -1120,6 +1120,38 @@ main { padding: 1.25rem 1.5rem 3rem; }
   border-bottom-color: var(--accent);
 }
 
+/* Desktop: hover-triggered floating dropdown for the Wojownicy nav item. Collapses to a
+   static always-visible nested list on mobile instead (see the 768px block below) - no JS
+   needed for either mode beyond the existing hamburger toggle. */
+.nav-item-dropdown {
+  position: relative;
+}
+
+.nav-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 160px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.4rem 0;
+  z-index: 20;
+}
+
+.nav-item-dropdown:hover .nav-dropdown-menu,
+.nav-item-dropdown:focus-within .nav-dropdown-menu {
+  display: block;
+}
+
+.nav-subitem {
+  display: block;
+  padding: 0.5rem 1rem;
+  border-bottom: none;
+  white-space: nowrap;
+}
+
 /* ── Banner Carousel ── */
 
 /* aspect-ratio (not a height:100% chain) is what actually gives #banner-carousel and
@@ -1195,6 +1227,30 @@ main { padding: 1.25rem 1.5rem 3rem; }
   min-width: 0;
 }
 
+/* Single-column prose pages (O nas, Nabór, Kontakt, Kruczy Turniej) - no .content-right
+   sidebar, so the two-column grid default would leave a dead empty column instead of
+   centering the text. */
+.main-content--single {
+  grid-template-columns: 1fr;
+  max-width: 900px;
+}
+
+.content-section .content-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 1.5rem 0;
+}
+
+.content-section figcaption {
+  color: var(--text);
+  opacity: 0.7;
+  font-size: 0.85rem;
+  margin-top: -1rem;
+  margin-bottom: 1.5rem;
+}
+
 .content-section h1 {
   font-family: 'Cinzel', serif;
   font-size: 2.5rem;
@@ -1211,6 +1267,15 @@ main { padding: 1.25rem 1.5rem 3rem; }
   color: var(--gold);
   margin-top: 2rem;
   margin-bottom: 1rem;
+}
+
+.content-section h3 {
+  font-family: 'Cinzel', serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
 }
 
 .content-section p {
@@ -1661,6 +1726,26 @@ main { padding: 1.25rem 1.5rem 3rem; }
      .content-section a vs. the Facebook feed's buttons/links elsewhere in this file. */
   .nav-item--highlighted {
     border-bottom-color: var(--accent);
+  }
+
+  /* Mobile: no hover, so the dropdown becomes a static, always-visible nested indented
+     list instead of a hidden hover panel - .nav-item-dropdown's own .nav-item (Wojownicy)
+     stays a normal top-level row, and the submenu just renders inline beneath it. */
+  .nav-dropdown-menu {
+    display: block;
+    position: static;
+    border: none;
+    padding: 0;
+    background: transparent;
+  }
+
+  .nav-subitem {
+    padding-left: 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-subitem:last-child {
+    border-bottom: none;
   }
 
   .main-content {

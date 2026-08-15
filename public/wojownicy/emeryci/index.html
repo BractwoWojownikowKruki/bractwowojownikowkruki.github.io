@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kandydaci - O nas - Bractwo Wojowników Kruki</title>
+  <title>Emeryci - Wojownicy - Bractwo Wojowników Kruki</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="../../favicon.png" />
   <link rel="apple-touch-icon" href="../../favicon.png" />
   <link rel="stylesheet" href="../../style.css" />
 </head>
-<body data-category="Kandydaci">
+<body data-category="Emeryci">
   <header class="site-header site-header--main">
     <a href="../../" class="logo-link" aria-label="Bractwo Wojowników Kruki">
       <img src="../../kruki-logo.png" alt="Kruki" class="logo" />
@@ -19,17 +19,26 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
     </button>
     <nav class="main-nav" id="main-nav">
-      <a href="../" class="nav-item">O nas</a>
-      <a href="../../nabor" class="nav-item nav-item--highlighted">Nabór</a>
-      <a href="../../turniej" class="nav-item">Kruczy Turniej</a>
+      <a href="../../o-nas/" class="nav-item">O nas</a>
+      <div class="nav-item-dropdown">
+        <a href="../../wojownicy/" class="nav-item">Wojownicy</a>
+        <div class="nav-dropdown-menu">
+          <a href="../../wojownicy/blachowi/" class="nav-item nav-subitem">Blachowi</a>
+          <a href="../../wojownicy/niewiasty/" class="nav-item nav-subitem">Niewiasty</a>
+          <a href="../../wojownicy/kandydaci/" class="nav-item nav-subitem">Kandydaci</a>
+          <a href="../../wojownicy/emeryci/" class="nav-item nav-subitem">Emeryci</a>
+        </div>
+      </div>
+      <a href="../../nabor/" class="nav-item nav-item--highlighted">Nabór</a>
+      <a href="../../turniej/" class="nav-item">Kruczy Turniej</a>
       <a href="../../galerie/" class="nav-item">Galerie</a>
       <a href="../../oferta" class="nav-item">Oferta</a>
-      <a href="../../kontakt" class="nav-item">Kontakt</a>
+      <a href="../../kontakt/" class="nav-item">Kontakt</a>
     </nav>
   </header>
 
   <main>
-    <h1 style="text-align:center; margin: 2rem 0 0; font-family: 'Cinzel', serif; color: var(--text);">Kandydaci</h1>
+    <h1 style="text-align:center; margin: 2rem 0 0; font-family: 'Cinzel', serif; color: var(--text);">Emeryci</h1>
     <div id="people-grid" class="people-grid">
       <div class="loading-spinner"><span class="spinner"></span> Ładowanie...</div>
     </div>

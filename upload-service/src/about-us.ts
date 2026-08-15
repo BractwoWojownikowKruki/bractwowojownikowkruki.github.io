@@ -1,7 +1,10 @@
 import type { DriveClient } from './drive.ts';
 import { resizeThumbnailUrl } from './drive.ts';
 
-export const ABOUT_US_CATEGORIES = ['Wojownicy', 'Niewiasty', 'Emeryci', 'Kandydaci'] as const;
+// "Blachowi" - warriors who've earned their Kruczy Wisior badge (see kruki.org's "Po tym nas
+// poznacie" section) - was originally named "Wojownicy" before the nav was restructured to
+// put a "Wojownicy" menu item above these four categories instead.
+export const ABOUT_US_CATEGORIES = ['Blachowi', 'Niewiasty', 'Emeryci', 'Kandydaci'] as const;
 export type AboutUsCategory = (typeof ABOUT_US_CATEGORIES)[number];
 
 export function isAboutUsCategory(value: string): value is AboutUsCategory {

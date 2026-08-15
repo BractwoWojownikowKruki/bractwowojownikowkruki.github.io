@@ -186,7 +186,7 @@ test('GET /about-us returns people for a valid category, sorted by folder-name o
     drive: makeFakeDrive({
       ensureFolder: async (_parent, name) => `folder-${name}`,
       listGalleryFolders: async parentId => {
-        if (parentId !== 'folder-Wojownicy') return [];
+        if (parentId !== 'folder-Blachowi') return [];
         return [
           { id: 'p2', name: '2. Piotr', modifiedTime: '2024-01-01T00:00:00Z' },
           { id: 'p1', name: '1. Ragnar', modifiedTime: '2024-01-01T00:00:00Z' },
@@ -197,7 +197,7 @@ test('GET /about-us returns people for a valid category, sorted by folder-name o
     }),
   });
   await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/about-us?category=Wojownicy`);
+    const res = await fetch(`${baseUrl}/about-us?category=Blachowi`);
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.people.length, 2);
@@ -276,7 +276,7 @@ test('POST /admin/people creates a numbered folder and writes the description', 
     const res = await fetch(`${baseUrl}/admin/people`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category: 'Wojownicy', name: 'Ragnar', order: 1, description: 'Krótki opis.' }),
+      body: JSON.stringify({ category: 'Blachowi', name: 'Ragnar', order: 1, description: 'Krótki opis.' }),
     });
     assert.equal(res.status, 200);
     const body = await res.json();
