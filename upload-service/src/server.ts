@@ -482,7 +482,12 @@ async function handleInstagramPosts(res: ServerResponse): Promise<void> {
   try {
     const posts = await fetchInstagramPosts();
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=21600'); // 6 hours
+    // Short browser cache, not 6h like the server-side cache in social-media.ts: that server
+    // cache already absorbs repeated Graph API calls, so there's no need for the browser to
+    // also sit on a stale copy for hours - a long value here made the admin's "refresh cache"
+    // button (POST /admin/social-media/refresh, which only clears the server-side cache)
+    // invisible to visitors for up to 6h after clicking it.
+    res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes
     res.writeHead(200);
     res.end(JSON.stringify(posts));
   } catch (error) {
@@ -500,7 +505,12 @@ async function handleFacebookPosts(res: ServerResponse): Promise<void> {
   try {
     const posts = await fetchFacebookPosts();
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=21600'); // 6 hours
+    // Short browser cache, not 6h like the server-side cache in social-media.ts: that server
+    // cache already absorbs repeated Graph API calls, so there's no need for the browser to
+    // also sit on a stale copy for hours - a long value here made the admin's "refresh cache"
+    // button (POST /admin/social-media/refresh, which only clears the server-side cache)
+    // invisible to visitors for up to 6h after clicking it.
+    res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes
     res.writeHead(200);
     res.end(JSON.stringify(posts));
   } catch (error) {
