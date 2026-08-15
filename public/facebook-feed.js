@@ -6,7 +6,7 @@
 class FacebookFeed {
   constructor(containerId, options = {}) {
     this.container = document.getElementById(containerId);
-    this.backendUrl = options.backendUrl || 'https://upload.kruki.org';
+    this.backendUrl = options.backendUrl || 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
     this.postsLimit = options.postsLimit || 10;
   }
 
@@ -97,7 +97,7 @@ class FacebookFeed {
 document.addEventListener('DOMContentLoaded', () => {
   const feedContainer = document.getElementById('facebook-feed');
   if (feedContainer) {
-    const backendUrl = feedContainer.dataset.backendUrl || 'https://upload.kruki.org';
+    const backendUrl = feedContainer.dataset.backendUrl || 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
     const postsLimit = parseInt(feedContainer.dataset.postsLimit || '10');
 
     const feed = new FacebookFeed('facebook-feed', {
