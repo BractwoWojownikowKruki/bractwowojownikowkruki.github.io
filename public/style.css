@@ -1487,9 +1487,10 @@ main { padding: 1.25rem 1.5rem 3rem; }
     padding: 2rem 1rem;
   }
 
-  .content-right {
-    order: -1;
-  }
+  /* No order override here (there used to be one, order: -1, promoting Instagram/YouTube
+     above Aktualności on mobile) - content-right is secondary/supplementary on desktop (a
+     sidebar beside the main content), so it should stay secondary on mobile too (below, in
+     source order) rather than flipping to the first thing visitors see. */
 }
 
 @media (max-width: 768px) {
