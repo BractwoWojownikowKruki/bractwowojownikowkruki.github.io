@@ -1114,17 +1114,36 @@ main { padding: 1.25rem 1.5rem 3rem; }
   border-bottom-color: var(--accent);
 }
 
+/* A solid-fill pill, not colored text + underline - the underline treatment reads as "current
+   page" (same visual language as .nav-item--active), which is the wrong message for Nabór:
+   it's a standing call-to-action, not a page indicator, so it needs to look different in kind,
+   not just in color. */
 .nav-item--highlighted {
-  color: var(--accent);
+  color: var(--text);
   font-weight: 600;
-  border-bottom-color: var(--accent);
+  background: var(--accent);
+  padding: 0.5rem 0.9rem;
+  border-radius: 4px;
+  border-bottom-color: transparent;
+}
+
+.nav-item--highlighted:hover {
+  color: var(--text);
+  background: var(--accent-dark);
+  border-bottom-color: transparent;
 }
 
 /* Desktop: hover-triggered floating dropdown for the Wojownicy nav item. Collapses to a
    static always-visible nested list on mobile instead (see the 768px block below) - no JS
    needed for either mode beyond the existing hamburger toggle. */
+/* display:flex here (not just position:relative) so its child .nav-item link is blockified
+   the same way .main-nav's direct <a> children are - otherwise the link stays inline (an <a>'s
+   default), and inline layout's line-box metrics sit it a few pixels higher than its own
+   wrapper, visibly misaligned against the other top-level nav items. */
 .nav-item-dropdown {
   position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .nav-dropdown-menu {
@@ -1316,8 +1335,12 @@ main { padding: 1.25rem 1.5rem 3rem; }
   border-bottom-color: var(--gold);
 }
 
+/* Pushed down to line up with the first Facebook post tile, not with the "Aktualności"
+   heading above it - matches the h1's own rendered height + margin-bottom (measured, since
+   the two columns are independent grid items with no shared row to align them automatically). */
 .content-right {
   min-width: 0;
+  margin-top: 70px;
 }
 
 .instagram-embed {
@@ -1721,11 +1744,13 @@ main { padding: 1.25rem 1.5rem 3rem; }
 
   /* Reasserted here (not just relying on the earlier .nav-item--highlighted rule) because
      this block's own .nav-item { border-bottom: ... } shorthand comes later in the file and
-     would otherwise overwrite Nabór's red border-bottom-color back to the default divider
-     color, despite equal selector specificity - same class of cascade-order bug as
-     .content-section a vs. the Facebook feed's buttons/links elsewhere in this file. */
+     would otherwise overwrite the pill's transparent border-bottom back to the default
+     divider color, despite equal selector specificity - same class of cascade-order bug as
+     .content-section a vs. the Facebook feed's buttons/links elsewhere in this file. Margin
+     instead of the divider gives the solid-fill pill room to read as a button, not a row. */
   .nav-item--highlighted {
-    border-bottom-color: var(--accent);
+    border-bottom-color: transparent;
+    margin: 0.4rem 0;
   }
 
   /* Mobile: no hover, so the dropdown becomes a static, always-visible nested indented
@@ -1963,6 +1988,37 @@ main { padding: 1.25rem 1.5rem 3rem; }
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Long posts get clamped to 16 lines with a "Rozwiń" button (facebook-feed.js removes the
+   button itself for posts short enough that the clamp never kicks in). */
+.fb-post-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 16;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fb-post-text--expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.fb-post-expand {
+  display: block;
+  margin-top: 0.5rem;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fb-post-expand:hover {
+  color: var(--gold);
 }
 
 .facebook-link-container {

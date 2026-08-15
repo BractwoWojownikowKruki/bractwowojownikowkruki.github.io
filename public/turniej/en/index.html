@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Raven Tournament - Bractwo Wojowników Kruki</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../../favicon.png" />
+  <link rel="apple-touch-icon" href="../../favicon.png" />
+  <link rel="stylesheet" href="../../style.css" />
+</head>
+<body>
+  <header class="site-header site-header--main">
+    <a href="../../" class="logo-link" aria-label="Bractwo Wojowników Kruki">
+      <img src="../../kruki-logo.png" alt="Kruki" class="logo" />
+    </a>
+    <button id="nav-toggle" class="nav-toggle" aria-label="Otwórz menu" aria-expanded="false" aria-controls="main-nav">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <nav class="main-nav" id="main-nav">
+      <a href="../../o-nas/" class="nav-item">O nas</a>
+      <div class="nav-item-dropdown">
+        <a href="../../wojownicy/" class="nav-item">Wojownicy</a>
+        <div class="nav-dropdown-menu">
+          <a href="../../wojownicy/blachowi/" class="nav-item nav-subitem">Blachowi</a>
+          <a href="../../wojownicy/niewiasty/" class="nav-item nav-subitem">Niewiasty</a>
+          <a href="../../wojownicy/kandydaci/" class="nav-item nav-subitem">Kandydaci</a>
+          <a href="../../wojownicy/emeryci/" class="nav-item nav-subitem">Emeryci</a>
+        </div>
+      </div>
+      <a href="../../nabor/" class="nav-item nav-item--highlighted">Nabór</a>
+      <a href="../../turniej/" class="nav-item">Kruczy Turniej</a>
+      <a href="../../galerie/" class="nav-item">Galerie</a>
+      <a href="../../kontakt/" class="nav-item">Kontakt</a>
+    </nav>
+  </header>
+
+  <div class="banner-section">
+    <div id="banner-carousel" class="carousel"></div>
+  </div>
+
+  <main class="main-content main-content--single">
+    <div class="content-left">
+      <section class="content-section">
+        <h1>The Raven Tournament</h1>
+
+        <p><a href="../">Wersja polska</a></p>
+
+        <p>When preparing this tournament, we wanted to reflect the realities of fights fought in the early Middle Ages as faithfully as possible. During those skirmishes, only a small part of the warriors were actually killed in direct combat. If the commanders of that time had sacrificed their warriors as generously as it happens during our reenactment battles or tournaments, then all the fighting men would have died out a thousand years ago.</p>
+
+        <p>The Raven Tournament better reflects the realities of real skirmishes, in which not only winning was important, but also surviving. The victors would have expected to face another clash later, knowing they would only have the strength and the weapons that remained after the previous encounter. This is what we want to re-enact as faithfully as possible, while also providing an attraction for our spectators and, above all, fun for the participants. The better the team, the lower their losses.</p>
+
+        <p>In our tournament, the team with better skills and smarter tactics wins by economically managing their forces. The condition for the victory is either to eliminate the entire opponent's team or to eliminate its commander.</p>
+
+        <p><strong>Most importantly: only the survivors of the winning team may form the lineup of the next encounter.</strong></p>
+
+        <h2>The rules of the Raven Tournament</h2>
+
+        <h3>Main Rules</h3>
+        <ol>
+          <li>Each team shall have a maximum of 15 fighters: 10 on the battlefield and 5 in the reserve. The organizer of the festival may reduce these numbers to 12 warriors: 8 on the field and 4 in the reserve.</li>
+          <li>Each match shall have a single clash, but the referees may order it to be repeated.</li>
+          <li>In the event of a repeated clash, the same warriors with the same weaponry as in the previous clash shall be fighting – no changes allowed.</li>
+          <li>Only the survivors of the clash shall form the winner's lineup in the next clash.</li>
+          <li>Each team shall have an assigned referee.</li>
+          <li>Each team that substitutes warriors or other weapons without the explicit consent of the assigned referee shall be disqualified.</li>
+          <li>Any warrior who behaves dangerously or is caught cheating shall be disqualified.</li>
+          <li>Each warrior shall respect the decisions of the judges and uphold them. The decisions of the judges are binding.</li>
+          <li>Each warrior that was hit in a clash shall fall and is considered "dead".</li>
+          <li>Each warrior shall only have one "life" for the entire tournament.</li>
+        </ol>
+
+        <h3>The Commander</h3>
+        <ol>
+          <li>Each team shall designate their Commander. Defeating him or defeating all those fighting beside him in a given battle shall result in a loss of the entire team, regardless of the number of people remaining in the reserve.</li>
+          <li>The Commander shall not be re-designated between clashes.</li>
+          <li>The Commander shall participate in all clashes – they cannot be in the reserve.</li>
+        </ol>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer">
+    Created by <a href="https://www.cardiocanwait.com" target="_blank" rel="noopener noreferrer">CardioCanWait</a>
+    for <a href="https://www.kruki.org" target="_blank" rel="noopener noreferrer">Bractwo Wojowników Kruki</a>,
+    hosted on <a href="https://github.com/BractwoWojownikowKruki/bractwowojownikowkruki.github.io" target="_blank" rel="noopener noreferrer">GitHub</a>.
+  </footer>
+  <script src="../../carousel.js"></script>
+  <script src="../../nav.js"></script>
+</body>
+</html>

@@ -62,6 +62,26 @@ class FacebookFeed {
         new window.YouTubeFeed('inline-yt-feed', { backendUrl: this.backendUrl, compact: true }).load();
       }
     }
+
+    this.setupExpandButtons();
+  }
+
+  // The 16-line clamp (see .fb-post-text in style.css) only needs a button when it's actually
+  // truncating - scrollHeight > clientHeight is the standard way to detect that after the
+  // clamped box has been laid out. No re-fetch on click: the full caption is already in the
+  // DOM, clamping is pure CSS, so expanding is just a class toggle.
+  setupExpandButtons() {
+    this.container.querySelectorAll('.fb-post-text').forEach(p => {
+      const btn = p.nextElementSibling;
+      if (p.scrollHeight <= p.clientHeight + 1) {
+        btn.remove();
+        return;
+      }
+      btn.addEventListener('click', () => {
+        p.classList.add('fb-post-text--expanded');
+        btn.remove();
+      });
+    });
   }
 
   renderPost(post) {
@@ -92,7 +112,8 @@ class FacebookFeed {
           <span class="fb-post-fb-icon">${this.facebookIconSvg()}</span>
         </a>
         <div class="fb-post-content">
-          <p>${this.escapeHtml(caption)}</p>
+          <p class="fb-post-text">${this.escapeHtml(caption)}</p>
+          <button type="button" class="fb-post-expand">Rozwiń</button>
         </div>
       </article>
     `;
