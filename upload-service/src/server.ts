@@ -494,6 +494,7 @@ async function handleInstagramPosts(res: ServerResponse): Promise<void> {
     console.error('Instagram posts fetch error:', error);
     sendJson(res, 500, {
       error: 'Nie udało się pobrać postów z Instagrama.',
+      details: error instanceof Error ? error.message : String(error),
       posts: [],
       source: 'instagram',
       lastUpdated: new Date().toISOString()
