@@ -1114,22 +1114,25 @@ main { padding: 1.25rem 1.5rem 3rem; }
   border-bottom-color: var(--accent);
 }
 
-/* A solid-fill pill, not colored text + underline - the underline treatment reads as "current
-   page" (same visual language as .nav-item--active), which is the wrong message for Nabór:
-   it's a standing call-to-action, not a page indicator, so it needs to look different in kind,
-   not just in color. */
+/* A soft translucent glow, not a solid-fill badge or colored text + underline - the underline
+   treatment reads as "current page" (same visual language as .nav-item--active), the wrong
+   message for Nabór (a standing call-to-action, not a page indicator), and a hard-edged solid
+   pill read as too badge-like. A faint tinted background plus a diffuse box-shadow bloom gives
+   it presence without either. */
 .nav-item--highlighted {
-  color: var(--text);
+  color: var(--accent);
   font-weight: 600;
-  background: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 35%, transparent);
   padding: 0.5rem 0.9rem;
   border-radius: 4px;
   border-bottom-color: transparent;
 }
 
 .nav-item--highlighted:hover {
-  color: var(--text);
-  background: var(--accent-dark);
+  color: var(--gold);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 50%, transparent);
   border-bottom-color: transparent;
 }
 
@@ -2112,14 +2115,17 @@ main { padding: 1.25rem 1.5rem 3rem; }
    resolution/orientation - object-fit:contain (not cover) then scales each photo to fit
    inside that fixed box without cropping it, letterboxing into the surface-deep background
    instead. 3:4 was picked because most of the migrated photos are portrait; it's a compromise,
-   not a perfect fit for every photo, but no fixed ratio can be without cropping something. */
+   not a perfect fit for every photo, but no fixed ratio can be without cropping something.
+   max-width caps it well under the tile's own width and centers it - the tile doesn't need a
+   full-width photo when clicking through to the lightbox is one tap away for the full view. */
 .person-main-photo {
   width: 100%;
+  max-width: 180px;
   aspect-ratio: 3 / 4;
   overflow: hidden;
   border-radius: 6px;
   background: var(--surface-deep);
-  margin-bottom: 0.75rem;
+  margin: 0 auto 0.75rem;
   cursor: pointer;
 }
 
