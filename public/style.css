@@ -1421,18 +1421,25 @@ main { padding: 1.25rem 1.5rem 3rem; }
   overflow: hidden;
 }
 
-.fb-post-date {
+/* .fb-post a.fb-post-date/.fb-post-engagement (rather than just the single class) is needed
+   to out-specificity .content-section a, which otherwise wins the cascade (class+type beats
+   a single class) and forces its own border-bottom onto these - a bright red line under the
+   date, and an overridden bottom-border color that broke .fb-post-engagement's intended
+   subtle divider. */
+.fb-post a.fb-post-date {
   display: block;
   padding: 1rem 1rem 0.5rem;
   font-size: 13px;
   font-weight: 600;
   color: var(--accent);
   text-decoration: none;
+  border-bottom: none;
   transition: color 0.15s;
 }
 
-.fb-post-date:hover {
+.fb-post a.fb-post-date:hover {
   color: var(--gold);
+  border-bottom: none;
 }
 
 .fb-post-media {
@@ -1452,7 +1459,7 @@ main { padding: 1.25rem 1.5rem 3rem; }
   display: block;
 }
 
-.fb-post-engagement {
+.fb-post a.fb-post-engagement {
   display: flex;
   align-items: center;
   gap: 1.25rem;
@@ -1465,8 +1472,10 @@ main { padding: 1.25rem 1.5rem 3rem; }
   transition: color 0.15s;
 }
 
-.fb-post-engagement:hover {
+.fb-post a.fb-post-engagement:hover {
   color: var(--gold);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .fb-post-stat {
@@ -1516,7 +1525,11 @@ main { padding: 1.25rem 1.5rem 3rem; }
   margin-top: 2rem;
 }
 
-.facebook-link-btn {
+/* .facebook-link-container a.facebook-link-btn (rather than just .facebook-link-btn) is
+   needed to out-specificity .content-section a above, which otherwise wins the cascade
+   (class+type selector beats a single class) and paints the button's text the same red as
+   its own background - invisible except while :hover swaps it to gold. */
+.facebook-link-container a.facebook-link-btn {
   display: inline-block;
   padding: 1rem 2rem;
   background: var(--accent);
@@ -1525,12 +1538,15 @@ main { padding: 1.25rem 1.5rem 3rem; }
   font-weight: 600;
   font-size: 14px;
   border-radius: 8px;
+  border-bottom: none;
   transition: background 0.15s;
   letter-spacing: 0.5px;
 }
 
-.facebook-link-btn:hover {
+.facebook-link-container a.facebook-link-btn:hover {
   background: var(--accent-dark);
+  color: var(--text);
+  border-bottom: none;
 }
 
 .fb-feed-empty,

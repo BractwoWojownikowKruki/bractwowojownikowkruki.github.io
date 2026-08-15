@@ -126,8 +126,14 @@ async function fetchFacebookPosts(): Promise<SocialMediaPosts> {
     // this API is on v18.0. permalink_url is also the semantically correct field for "link to
     // this post on Facebook" (the spec's requirement) - the old 'link' field returned an
     // external URL the post happened to share, not a link back to the post itself.
+    //
+    // likes/comments use .limit(0) alongside .summary(true): without it, Facebook also fetches
+    // the actual like/comment objects (just to discard them, since only the summary is read
+    // below), which counts against a per-request complexity budget - observed in practice to
+    // silently shrink /me/posts from its normal ~10-25 items down to just 1. .limit(0) asks for
+    // the count only, which is cheap regardless of how many likes/comments a post has.
     const feedResponse = await fetch(
-      `https://graph.facebook.com/v18.0/me/posts?fields=id,message,created_time,full_picture,permalink_url,likes.summary(true),comments.summary(true)&access_token=${token}`
+      `https://graph.facebook.com/v18.0/me/posts?fields=id,message,created_time,full_picture,permalink_url,likes.limit(0).summary(true),comments.limit(0).summary(true)&limit=25&access_token=${token}`
     );
 
     if (!feedResponse.ok) {
