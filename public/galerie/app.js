@@ -687,7 +687,7 @@ function mapDiscoveredGallery(gallery) {
 }
 
 Promise.allSettled([
-  fetch('../data/albums.generated.json').then(r => r.json()),
+  fetch('data/albums.generated.json').then(r => r.json()),
   fetch(`${UPLOAD_SERVICE_URL}/galleries`).then(r => r.json()),
 ]).then(([generatedResult, discoveredResult]) => {
   const generated = generatedResult.status === 'fulfilled' ? generatedResult.value : null;
