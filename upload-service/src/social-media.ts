@@ -45,44 +45,62 @@ function setCached<T>(key: string, data: T): void {
 }
 
 /**
- * Fetch posts from Instagram Graph API
- * Requires: INSTAGRAM_ACCESS_TOKEN env var
+ * Fetch posts from the Instagram Business account linked to the club's Facebook Page.
+ * Requires: FACEBOOK_PAGE_ACCESS_TOKEN env var - the same Page Access Token fetchFacebookPosts
+ * uses, not a separate Instagram credential. Deliberately not the "Instagram API with
+ * Instagram Login" flow (graph.instagram.com + its own Instagram User Access Token) - that
+ * needs its own app product, its own OAuth popup, and its own long-lived-token exchange/renewal,
+ * none of which is worth it when the classic Instagram Graph API already gets there through
+ * infrastructure this app has working: the Page token can read whatever Instagram professional
+ * account is linked to the Page (Meta Business Suite confirmed @kruki.brotherhood is linked to
+ * "Bractwo Wojowników KRUKI"), via graph.facebook.com like every other Page-scoped call here.
  */
-async function fetchInstagramPosts(userId: string = 'kruki.brotherhood'): Promise<SocialMediaPosts> {
-  const cacheKey = `instagram:${userId}`;
+async function fetchInstagramPosts(): Promise<SocialMediaPosts> {
+  const cacheKey = 'instagram:page-linked';
   const cached = getCached<SocialMediaPosts>(cacheKey);
   if (cached) return cached;
 
-  const token = process.env.INSTAGRAM_ACCESS_TOKEN;
+  const token = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
   if (!token) {
-    throw new Error('INSTAGRAM_ACCESS_TOKEN not configured');
+    throw new Error('FACEBOOK_PAGE_ACCESS_TOKEN not configured');
   }
 
   try {
-    // Get Instagram Business Account ID from username
-    const userResponse = await fetch(
-      `https://graph.instagram.com/ig_hashtag_search?user_id=${userId}&fields=id&access_token=${token}`
+    // 'me' resolves to the page the token was issued for (same reasoning as
+    // fetchFacebookPosts) - instagram_business_account is that page's linked IG account, absent
+    // entirely from the response if nothing is linked.
+    const pageResponse = await fetch(
+      `https://graph.facebook.com/v18.0/me?fields=instagram_business_account&access_token=${token}`
     );
 
-    if (!userResponse.ok) {
-      throw new Error(`Instagram API error: ${userResponse.status}`);
+    if (!pageResponse.ok) {
+      const errorBody = await pageResponse.text();
+      throw new Error(`Facebook page lookup error: ${pageResponse.status} - ${errorBody}`);
     }
 
-    // Get media from account
+    const pageData = await pageResponse.json();
+    const igUserId = pageData.instagram_business_account?.id;
+    if (!igUserId) {
+      throw new Error('No Instagram Business Account linked to this Facebook Page');
+    }
+
+    // thumbnail_url is only populated for VIDEO items - media_url for a video is the raw video
+    // file, not something an <img> tag can render, so the frontend needs the thumbnail instead.
     const mediaResponse = await fetch(
-      `https://graph.instagram.com/${userId}/media?fields=id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count&access_token=${token}`
+      `https://graph.facebook.com/v18.0/${igUserId}/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&access_token=${token}`
     );
 
     if (!mediaResponse.ok) {
-      throw new Error(`Instagram media fetch failed: ${mediaResponse.status}`);
+      const errorBody = await mediaResponse.text();
+      throw new Error(`Instagram media fetch failed: ${mediaResponse.status} - ${errorBody}`);
     }
 
     const mediaData = await mediaResponse.json();
     const posts: Post[] = (mediaData.data || []).map((item: any) => ({
       id: item.id,
       caption: item.caption || '',
-      media_type: item.media_type || 'IMAGE',
-      media_url: item.media_url || '',
+      media_type: item.media_type === 'CAROUSEL_ALBUM' ? 'CAROUSEL' : item.media_type || 'IMAGE',
+      media_url: (item.media_type === 'VIDEO' ? item.thumbnail_url : item.media_url) || '',
       permalink: item.permalink || `https://instagram.com/p/${item.id}`,
       timestamp: item.timestamp || new Date().toISOString(),
       like_count: item.like_count,
