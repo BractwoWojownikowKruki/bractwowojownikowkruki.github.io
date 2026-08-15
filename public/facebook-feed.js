@@ -43,7 +43,7 @@ class FacebookFeed {
   }
 
   renderPost(post) {
-    const { caption, media_url, permalink, timestamp } = post;
+    const { caption, media_url, permalink, timestamp, like_count, comments_count } = post;
     const date = new Date(timestamp);
     const dateStr = date.toLocaleDateString('pl-PL', {
       year: 'numeric',
@@ -52,10 +52,11 @@ class FacebookFeed {
       hour: '2-digit',
       minute: '2-digit'
     });
+    const safePermalink = this.escapeHtml(permalink);
 
     return `
       <article class="fb-post">
-        <a href="${this.escapeHtml(permalink)}" target="_blank" rel="noopener noreferrer" class="fb-post-date">
+        <a href="${safePermalink}" target="_blank" rel="noopener noreferrer" class="fb-post-date">
           ${this.escapeHtml(dateStr)}
         </a>
         ${media_url ? `
@@ -63,11 +64,28 @@ class FacebookFeed {
             <img src="${this.escapeHtml(media_url)}" alt="Post" loading="lazy" />
           </div>
         ` : ''}
+        <a href="${safePermalink}" target="_blank" rel="noopener noreferrer" class="fb-post-engagement" aria-label="Zobacz post na Facebooku">
+          <span class="fb-post-stat">${this.likeIconSvg()}${like_count ?? 0}</span>
+          <span class="fb-post-stat">${this.commentIconSvg()}${comments_count ?? 0}</span>
+          <span class="fb-post-fb-icon">${this.facebookIconSvg()}</span>
+        </a>
         <div class="fb-post-content">
           <p>${this.escapeHtml(caption)}</p>
         </div>
       </article>
     `;
+  }
+
+  likeIconSvg() {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"/></svg>';
+  }
+
+  commentIconSvg() {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>';
+  }
+
+  facebookIconSvg() {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>';
   }
 
   renderEmpty() {

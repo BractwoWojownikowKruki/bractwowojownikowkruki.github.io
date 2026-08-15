@@ -127,7 +127,7 @@ async function fetchFacebookPosts(): Promise<SocialMediaPosts> {
     // this post on Facebook" (the spec's requirement) - the old 'link' field returned an
     // external URL the post happened to share, not a link back to the post itself.
     const feedResponse = await fetch(
-      `https://graph.facebook.com/v18.0/me/posts?fields=id,message,created_time,full_picture,permalink_url&access_token=${token}`
+      `https://graph.facebook.com/v18.0/me/posts?fields=id,message,created_time,full_picture,permalink_url,likes.summary(true),comments.summary(true)&access_token=${token}`
     );
 
     if (!feedResponse.ok) {
@@ -145,6 +145,8 @@ async function fetchFacebookPosts(): Promise<SocialMediaPosts> {
         media_url: item.full_picture || '',
         permalink: item.permalink_url || `https://facebook.com/${item.id}`,
         timestamp: item.created_time || new Date().toISOString(),
+        like_count: item.likes?.summary?.total_count ?? 0,
+        comments_count: item.comments?.summary?.total_count ?? 0,
       }));
 
     const result: SocialMediaPosts = {
