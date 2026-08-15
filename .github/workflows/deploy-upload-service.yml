@@ -87,3 +87,4 @@ jobs:
             GITHUB_TOKEN=github-pat:latest
             SUBMISSION_TOKEN_SECRET=submission-token-secret:latest
             FACEBOOK_PAGE_ACCESS_TOKEN=facebook-page-access-token:latest
+            YOUTUBE_API_KEY=youtube-api-key:latest

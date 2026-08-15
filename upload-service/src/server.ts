@@ -6,7 +6,7 @@ import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken }
 import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
-import { fetchInstagramPosts, fetchFacebookPosts, clearSocialMediaCache } from './social-media.ts';
+import { fetchInstagramPosts, fetchFacebookPosts, fetchYouTubeVideos, clearSocialMediaCache } from './social-media.ts';
 import {
   bootstrapAboutUsStructure,
   buildPersonFolderName,
@@ -525,6 +525,27 @@ async function handleFacebookPosts(res: ServerResponse): Promise<void> {
   }
 }
 
+async function handleYouTubeVideos(res: ServerResponse): Promise<void> {
+  try {
+    const data = await fetchYouTubeVideos();
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes - see handleFacebookPosts
+    res.writeHead(200);
+    res.end(JSON.stringify(data));
+  } catch (error) {
+    console.error('YouTube videos fetch error:', error);
+    sendJson(res, 500, {
+      error: 'Nie udało się pobrać filmów z YouTube.',
+      details: error instanceof Error ? error.message : String(error),
+      channelTitle: '',
+      channelThumbnail: '',
+      channelUrl: '',
+      videos: [],
+      lastUpdated: new Date().toISOString(),
+    });
+  }
+}
+
 export function createRequestListener(deps: ServerDeps) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     setCors(res, deps.allowedOrigin);
@@ -561,6 +582,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {
         await handleFacebookPosts(res);
+      } else if (req.method === 'GET' && url.pathname === '/youtube-videos') {
+        await handleYouTubeVideos(res);
       } else if (req.method === 'POST' && url.pathname === '/delete-drive-gallery') {
         await handleDeleteDriveGallery(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/start') {
