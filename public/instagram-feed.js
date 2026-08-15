@@ -11,7 +11,11 @@ class InstagramFeed {
   constructor(containerId, options = {}) {
     this.container = document.getElementById(containerId);
     this.backendUrl = options.backendUrl || 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
-    this.postsLimit = options.postsLimit || 6;
+    // Compact mode: a single scrollable row of thumbnails, no header/"see more" chrome - used
+    // when this widget is inlined between Facebook posts on mobile instead of shown in the
+    // (now hidden-on-mobile) sidebar.
+    this.compact = options.compact || false;
+    this.postsLimit = options.postsLimit || (this.compact ? 4 : 6);
   }
 
   async load() {
@@ -38,6 +42,11 @@ class InstagramFeed {
       return;
     }
 
+    if (this.compact) {
+      this.renderCompact(posts);
+      return;
+    }
+
     const postsHtml = posts
       .slice(0, this.postsLimit)
       .map(post => this.renderPost(post))
@@ -52,6 +61,26 @@ class InstagramFeed {
       <a href="${INSTAGRAM_PROFILE_URL}" target="_blank" rel="noopener noreferrer" class="ig-more-link">
         Zobacz więcej na Instagramie
       </a>
+    `;
+  }
+
+  renderCompact(posts) {
+    const postsHtml = posts
+      .slice(0, this.postsLimit)
+      .map(
+        post => `
+      <a class="ig-compact-post" href="${this.escapeHtml(post.permalink)}" target="_blank" rel="noopener noreferrer" title="${this.escapeHtml(post.caption || '')}">
+        <img src="${this.escapeHtml(post.media_url)}" alt="" loading="lazy" />
+      </a>`,
+      )
+      .join('');
+
+    this.container.innerHTML = `
+      <a href="${INSTAGRAM_PROFILE_URL}" target="_blank" rel="noopener noreferrer" class="ig-compact-header">
+        ${this.instagramIconSvg()}
+        <span>Instagram</span>
+      </a>
+      <div class="ig-compact-row">${postsHtml}</div>
     `;
   }
 
@@ -91,10 +120,12 @@ class InstagramFeed {
   }
 }
 
-// Auto-initialize Instagram feed
+// Auto-initialize the sidebar Instagram feed - skipped on mobile, where the sidebar itself is
+// hidden (see .content-right in style.css) and facebook-feed.js instead mounts a compact
+// instance of this same class inline between Facebook posts.
 document.addEventListener('DOMContentLoaded', () => {
   const feedContainer = document.getElementById('instagram-feed');
-  if (feedContainer) {
+  if (feedContainer && !window.matchMedia('(max-width: 768px)').matches) {
     const backendUrl = feedContainer.dataset.backendUrl;
     const feed = new InstagramFeed('instagram-feed', backendUrl ? { backendUrl } : {});
     feed.load();

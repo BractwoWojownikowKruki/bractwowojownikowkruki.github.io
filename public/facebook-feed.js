@@ -34,12 +34,34 @@ class FacebookFeed {
       return;
     }
 
-    const postsHtml = posts
-      .slice(0, this.postsLimit)
-      .map(post => this.renderPost(post))
-      .join('');
+    const limited = posts.slice(0, this.postsLimit);
+    // Mobile only: the Instagram/YouTube sidebar is hidden on small screens (see .content-right
+    // in style.css) so those channels stay discoverable without scrolling through every
+    // Facebook post first - compact, single-row versions of each are inlined after the 1st and
+    // 2nd post instead. Desktop is unaffected: the sidebar there already shows both in full.
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    let html = '';
+    limited.forEach((post, index) => {
+      html += this.renderPost(post);
+      if (isMobile && index === 0) html += '<div id="inline-ig-feed" class="inline-widget-slot"></div>';
+      if (isMobile && index === 1) html += '<div id="inline-yt-feed" class="inline-widget-slot"></div>';
+    });
+    // Fewer than 2 posts would otherwise silently drop the YouTube slot (its usual position,
+    // after the 2nd post, never comes up) - append it at the end instead of losing it.
+    if (isMobile && limited.length < 2) {
+      html += '<div id="inline-yt-feed" class="inline-widget-slot"></div>';
+    }
 
-    this.container.innerHTML = `<div class="fb-posts-grid">${postsHtml}</div>`;
+    this.container.innerHTML = `<div class="fb-posts-grid">${html}</div>`;
+
+    if (isMobile) {
+      if (window.InstagramFeed) {
+        new window.InstagramFeed('inline-ig-feed', { backendUrl: this.backendUrl, compact: true }).load();
+      }
+      if (window.YouTubeFeed) {
+        new window.YouTubeFeed('inline-yt-feed', { backendUrl: this.backendUrl, compact: true }).load();
+      }
+    }
   }
 
   renderPost(post) {

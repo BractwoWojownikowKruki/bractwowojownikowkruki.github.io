@@ -7,6 +7,10 @@ class YouTubeFeed {
   constructor(containerId, options = {}) {
     this.container = document.getElementById(containerId);
     this.backendUrl = options.backendUrl || 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
+    // Compact mode: a single scrollable row of small thumbnails, no title/date/"see more"
+    // chrome - used when this widget is inlined between Facebook posts on mobile instead of
+    // shown in the (now hidden-on-mobile) sidebar.
+    this.compact = options.compact || false;
   }
 
   async load() {
@@ -35,6 +39,11 @@ class YouTubeFeed {
       return;
     }
 
+    if (this.compact) {
+      this.renderCompact(channelUrl, videos);
+      return;
+    }
+
     const videosHtml = videos.map(video => this.renderVideo(video)).join('');
     const safeChannelUrl = this.escapeHtml(channelUrl);
 
@@ -46,6 +55,31 @@ class YouTubeFeed {
       <div class="yt-videos-grid">${videosHtml}</div>
       <a href="${safeChannelUrl}" target="_blank" rel="noopener noreferrer" class="yt-more-link">
         Zobacz więcej na YouTube
+      </a>
+    `;
+  }
+
+  renderCompact(channelUrl, videos) {
+    const safeChannelUrl = this.escapeHtml(channelUrl);
+    const videosHtml = videos.slice(0, 3).map(video => this.renderCompactVideo(video)).join('');
+
+    this.container.innerHTML = `
+      <a href="${safeChannelUrl}" target="_blank" rel="noopener noreferrer" class="yt-compact-header">
+        ${this.youtubeIconSvg()}
+        <span>YouTube</span>
+      </a>
+      <div class="yt-compact-row">${videosHtml}</div>
+    `;
+  }
+
+  renderCompactVideo(video) {
+    const { thumbnail, url, duration, title } = video;
+    return `
+      <a class="yt-compact-post" href="${this.escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="${this.escapeHtml(title)}">
+        <div class="yt-compact-thumb">
+          <img src="${this.escapeHtml(thumbnail)}" alt="" loading="lazy" />
+          ${duration ? `<span class="yt-video-duration">${this.escapeHtml(duration)}</span>` : ''}
+        </div>
       </a>
     `;
   }
@@ -105,10 +139,12 @@ class YouTubeFeed {
   }
 }
 
-// Auto-initialize YouTube feed
+// Auto-initialize the sidebar YouTube feed - skipped on mobile, where the sidebar itself is
+// hidden (see .content-right in style.css) and facebook-feed.js instead mounts a compact
+// instance of this same class inline between Facebook posts.
 document.addEventListener('DOMContentLoaded', () => {
   const feedContainer = document.getElementById('youtube-feed');
-  if (feedContainer) {
+  if (feedContainer && !window.matchMedia('(max-width: 768px)').matches) {
     const backendUrl = feedContainer.dataset.backendUrl;
     const feed = new YouTubeFeed('youtube-feed', backendUrl ? { backendUrl } : {});
     feed.load();
