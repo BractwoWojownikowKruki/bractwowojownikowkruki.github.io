@@ -2108,18 +2108,31 @@ main { padding: 1.25rem 1.5rem 3rem; }
   margin-bottom: 0.75rem;
 }
 
+/* Fixed aspect-ratio so every tile in the grid is the same size regardless of a photo's own
+   resolution/orientation - object-fit:contain (not cover) then scales each photo to fit
+   inside that fixed box without cropping it, letterboxing into the surface-deep background
+   instead. 3:4 was picked because most of the migrated photos are portrait; it's a compromise,
+   not a perfect fit for every photo, but no fixed ratio can be without cropping something. */
 .person-main-photo {
   width: 100%;
+  aspect-ratio: 3 / 4;
   overflow: hidden;
   border-radius: 6px;
   background: var(--surface-deep);
   margin-bottom: 0.75rem;
+  cursor: pointer;
 }
 
 .person-main-photo img {
   width: 100%;
-  height: auto;
+  height: 100%;
+  object-fit: contain;
   display: block;
+  transition: transform 0.15s;
+}
+
+.person-main-photo:hover img {
+  transform: scale(1.03);
 }
 
 .person-gallery {
@@ -2135,6 +2148,12 @@ main { padding: 1.25rem 1.5rem 3rem; }
   object-fit: cover;
   border-radius: 4px;
   flex-shrink: 0;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.person-gallery img:hover {
+  opacity: 0.8;
 }
 
 .person-description {
