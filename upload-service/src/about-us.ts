@@ -77,6 +77,12 @@ export interface Person {
 export interface AboutUsFolders {
   root: string;
   categories: Record<AboutUsCategory, string>;
+  // Sibling of the categories, not one of them - self-service submissions from the Wojownicy
+  // "Wrzucam swoje zdjęcie" flow land here for Bartosz to review and move into an actual
+  // category manually, rather than publishing straight to a live category (see
+  // handleWojownicyUploadSubmit in server.ts). Deliberately not made public via
+  // setFolderPublic below - nothing here is meant to be linked from the public site.
+  uploadRoot: string;
 }
 
 // Memoized for the process lifetime: the folder tree, once created, never needs to be
@@ -97,7 +103,8 @@ export function bootstrapAboutUsStructure(drive: DriveClient): Promise<AboutUsFo
       for (const category of ABOUT_US_CATEGORIES) {
         categories[category] = await drive.ensureFolder(oNasId, category);
       }
-      return { root: oNasId, categories };
+      const uploadRoot = await drive.ensureFolder(oNasId, 'upload');
+      return { root: oNasId, categories, uploadRoot };
     })();
   }
   return bootstrapPromise;

@@ -14,6 +14,13 @@ export const config = {
   // and same phone-manageable editing story as allowlistSheetUrl above (KRKG-0024) - just a
   // different Sheet.
   adminAllowlistSheetUrl: 'https://docs.google.com/spreadsheets/d/1StUp5mdTmbbuadc1XCOA_c2PILmYSAJ0Z5t1K7xjn78/export?format=csv',
+  // Apps Script Web App deployed under the club's own Google account, returning
+  // {"emails": [...]} for the live membership of the kruki Google Group (groups.google.com/g/kruki)
+  // via GroupsApp - gates the self-service "Wrzucam swoje zdjęcie" upload in the Wojownicy
+  // section to actual group members, kept in sync automatically instead of a manually-copied
+  // Sheet. Public/unguessable URL by the same design as the two Sheet URls above - see
+  // createAppsScriptAllowlist in allowlist.ts.
+  wojownicyUploadGroupUrl: 'https://script.google.com/macros/s/AKfycbwkSGgWwYLq2XyGQSX7ntWh_PgvJ3ZTDV6NDRJ304wl0bkOJ3XyqKg1QjtWl5g5WYc7/exec',
   googleOAuthClientId: requireEnv('GOOGLE_OAUTH_CLIENT_ID'),
   driveRefreshToken: requireEnv('DRIVE_REFRESH_TOKEN'),
   driveClientId: requireEnv('DRIVE_CLIENT_ID'),

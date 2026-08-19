@@ -27,12 +27,19 @@ export interface SheetAllowlistOptions {
 
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
 
-// Fetches the allowlist from a published Google Sheet CSV export, caching it for ttlMs.
-// Fails closed on any fetch/parse error - including when a refetch fails after a previous
-// successful fetch - so a transient outage denies uploads rather than risk stale/unverifiable
-// data. See KRKG-0024 design.md for the rationale.
-export function createSheetAllowlist(options: SheetAllowlistOptions): SheetAllowlist {
-  const { url, ttlMs = DEFAULT_TTL_MS, fetchImpl = fetch as unknown as AllowlistFetch, now = Date.now } = options;
+// Shared by every allowlist source below: fetch, parse, cache for ttlMs, and fail closed
+// (empty list, never a thrown error) on any fetch/parse problem - including when a refetch
+// fails after a previous fetch had succeeded - so a transient outage denies uploads rather
+// than risk stale/unverifiable data. See KRKG-0024 design.md for the rationale; the same
+// posture applies regardless of what's on the other end of `url` (a Sheet export or an Apps
+// Script endpoint).
+function createCachedAllowlist(
+  url: string,
+  parse: (body: string) => string[],
+  errorLabel: string,
+  options: Pick<SheetAllowlistOptions, 'ttlMs' | 'fetchImpl' | 'now'> = {},
+): SheetAllowlist {
+  const { ttlMs = DEFAULT_TTL_MS, fetchImpl = fetch as unknown as AllowlistFetch, now = Date.now } = options;
   let cache: { emails: string[]; fetchedAt: number } | null = null;
 
   return {
@@ -43,15 +50,38 @@ export function createSheetAllowlist(options: SheetAllowlistOptions): SheetAllow
       try {
         const res = await fetchImpl(url);
         if (!res.ok) {
-          throw new Error(`Nieoczekiwany status odpowiedzi arkusza dostępu: ${res.status}`);
+          throw new Error(`Nieoczekiwany status odpowiedzi (${errorLabel}): ${res.status}`);
         }
-        const emails = parseAllowlistCsv(await res.text());
+        const emails = parse(await res.text());
         cache = { emails, fetchedAt: now() };
         return emails;
       } catch (err) {
-        console.error('Nie udało się pobrać listy dostępu z arkusza Google:', err);
+        console.error(`Nie udało się pobrać listy dostępu (${errorLabel}):`, err);
         return [];
       }
     },
   };
+}
+
+// Fetches the allowlist from a published Google Sheet CSV export.
+export function createSheetAllowlist(options: SheetAllowlistOptions): SheetAllowlist {
+  return createCachedAllowlist(options.url, parseAllowlistCsv, 'arkusz Google', options);
+}
+
+function parseGroupMembersJson(body: string): string[] {
+  const data = JSON.parse(body) as { emails?: unknown };
+  if (!Array.isArray(data.emails)) {
+    throw new Error('Odpowiedź nie zawiera pola "emails" jako tablicy.');
+  }
+  return data.emails.map(e => String(e).trim().toLowerCase()).filter(Boolean);
+}
+
+// Fetches the allowlist from a Google Apps Script Web App deployment (doGet) that returns
+// {"emails": [...]}, reading live membership of a Google Group via GroupsApp - see
+// upload-service/README or the Wojownicy-upload feature notes for the script itself. Deployed
+// under the club's own Google account (not a personal one), "Execute as: Me" / "Who has
+// access: Anyone" - the "Anyone" is required because the caller here is this server, not a
+// signed-in browser, and can't complete an interactive Google OAuth prompt.
+export function createAppsScriptAllowlist(options: SheetAllowlistOptions): SheetAllowlist {
+  return createCachedAllowlist(options.url, parseGroupMembersJson, 'Apps Script grupy', options);
 }

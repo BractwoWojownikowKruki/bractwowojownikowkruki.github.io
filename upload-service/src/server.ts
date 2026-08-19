@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { AuthError, verifyUploader, type VerifiedIdentity } from './auth.ts';
-import { createSheetAllowlist } from './allowlist.ts';
+import { createAppsScriptAllowlist, createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
 import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, type GithubClient } from './github.ts';
@@ -31,6 +31,10 @@ export interface ServerDeps {
   // smaller allowlist (Task 1) - kept as its own function rather than a second parameter
   // to `authenticate` so route handlers can't accidentally mix the two up.
   authenticateAdmin: (req: IncomingMessage) => Promise<VerifiedIdentity>;
+  // Same shape again, checked against the kruki Google Group's live membership (via an Apps
+  // Script Web App, see createAppsScriptAllowlist) instead of a Sheet - gates the self-service
+  // "Wrzucam swoje zdjęcie" flow in the Wojownicy section.
+  authenticateWojownicyUpload: (req: IncomingMessage) => Promise<VerifiedIdentity>;
   submissionTokenSecret: string;
   driveParentFolderId: string;
   allowedOrigin: string;
@@ -335,6 +339,77 @@ async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse,
   sendJson(res, 200, { ok: true });
 }
 
+const WOJOWNICY_UPLOAD_MIME_EXTENSIONS: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
+};
+
+function extensionForMimeType(mimeType: string): string {
+  return WOJOWNICY_UPLOAD_MIME_EXTENSIONS[mimeType] ?? 'jpg';
+}
+
+async function handleWojownicyUploadWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req);
+  sendJson(res, 200, { email: identity.email });
+}
+
+// Creates the per-submission staging folder (Strona/O Nas/upload/{Imię} - {email} - {data}) and
+// issues a submission token exactly like handleStart does for gallery uploads - the two photo
+// endpoints below require it, so one group member can't upload into another's (or an admin
+// category's) folder just by guessing/reusing a folderId.
+async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req);
+  const { name } = await readJsonBody<{ name?: string }>(req, deps.maxJsonBodyBytes);
+  if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
+
+  const folders = await bootstrapAboutUsStructure(deps.drive);
+  const date = new Date().toISOString().slice(0, 10);
+  const folderName = `${name.trim()} - ${identity.email} - ${date}`;
+  const folderId = await deps.drive.createAlbumFolder(folders.uploadRoot, folderName);
+  const submissionToken = issueSubmissionToken(
+    { folderId, sub: identity.sub, exp: Date.now() + SUBMISSION_TTL_MS },
+    deps.submissionTokenSecret,
+  );
+  sendJson(res, 200, { folderId, submissionToken });
+}
+
+// isMain=true renames whatever the browser called the file to "main.<ext>" (the club's naming
+// convention for the staging folder, so Bartosz can tell the cover photo apart at a glance) -
+// every other photo keeps its own original name.
+async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req);
+  const folderId = url.searchParams.get('folderId');
+  const fileName = url.searchParams.get('fileName');
+  const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
+  const isMain = url.searchParams.get('isMain') === 'true';
+  if (!folderId || !fileName) throw new AuthError('Brak folderId lub fileName.', 400);
+  requireAllowedMimeType(mimeType, deps.allowedMimeTypes);
+  const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
+  checkSubmissionOwnership(claims, folderId, identity.sub);
+
+  const reserved = await reserveUploadSlot(deps.drive, folderId, deps.maxFilesPerSubmission);
+  if (!reserved) {
+    throw new AuthError(`Zgłoszenie osiągnęło maksymalną liczbę zdjęć (${deps.maxFilesPerSubmission}).`, 400);
+  }
+
+  const targetName = isMain ? `main.${extensionForMimeType(mimeType)}` : decodeURIComponent(fileName);
+  try {
+    await deps.drive.uploadFileStream(
+      folderId,
+      targetName,
+      mimeType,
+      validatedUploadStream(req, deps.maxFileBytes, mimeType),
+    );
+  } catch (err) {
+    releaseUploadSlot(folderId);
+    throw err;
+  }
+  sendJson(res, 200, { ok: true });
+}
+
 // Only for galleries this service itself created (drive.file scope can't touch anything else -
 // see KRKG-0025's design.md) - a folder registered by URL instead goes through /unregister.
 async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -579,6 +654,12 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminUploadPhoto(req, res, url, deps);
       } else if (req.method === 'DELETE' && url.pathname === '/admin/people/photo') {
         await handleAdminDeletePhoto(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/wojownicy-upload/whoami') {
+        await handleWojownicyUploadWhoami(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/wojownicy-upload/submit') {
+        await handleWojownicyUploadSubmit(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/wojownicy-upload/photo') {
+        await handleWojownicyUploadPhoto(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
         await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {
@@ -625,11 +706,13 @@ async function startProductionServer(): Promise<void> {
   };
   const allowlist = createSheetAllowlist({ url: config.allowlistSheetUrl });
   const adminAllowlist = createSheetAllowlist({ url: config.adminAllowlistSheetUrl });
+  const wojownicyUploadAllowlist = createAppsScriptAllowlist({ url: config.wojownicyUploadGroupUrl });
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
     authenticate: req => verifyUploader(req, config.googleOAuthClientId, allowlist),
     authenticateAdmin: req => verifyUploader(req, config.googleOAuthClientId, adminAllowlist),
+    authenticateWojownicyUpload: req => verifyUploader(req, config.googleOAuthClientId, wojownicyUploadAllowlist),
     submissionTokenSecret: config.submissionTokenSecret,
     driveParentFolderId: config.driveParentFolderId,
     allowedOrigin: config.allowedOrigin,

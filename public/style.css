@@ -1071,6 +1071,44 @@ main { padding: 1.25rem 1.5rem 3rem; }
   padding-left: 1.25rem;
 }
 
+/* ── Wojownicy self-service photo upload ── */
+
+.wrzuc-preview-wrap {
+  margin-top: 1.5rem;
+}
+
+.wrzuc-preview-wrap .people-grid {
+  padding: 1.5rem 0;
+  max-width: none;
+}
+
+.wrzuc-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.wrzuc-actions .add-album-submit {
+  width: auto;
+  flex: 1;
+}
+
+.btn-cancel {
+  padding: 10px 1.25rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 15px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.btn-cancel:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
 /* ── Main Navigation (Main Site) ── */
 
 .site-header--main {

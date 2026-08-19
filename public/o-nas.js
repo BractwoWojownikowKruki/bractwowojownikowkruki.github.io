@@ -1,7 +1,8 @@
 /**
  * Renders the "O nas" category tile grid from GET /about-us?category=<X>, plus a click-to-
  * fullscreen lightbox for each person's photos (mirrors the galleries page's lightbox markup/
- * CSS classes so it needs no styles of its own).
+ * CSS classes so it needs no styles of its own). Tile markup itself lives in person-tile.js,
+ * shared with the Wojownicy upload page's preview - loaded before this script.
  */
 const ICON_CHEVRON_LEFT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
 const ICON_CHEVRON_RIGHT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
@@ -25,14 +26,6 @@ async function loadAboutUsCategory() {
   }
 }
 
-function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function escapeAttr(str) {
-  return escapeHtml(str).replace(/"/g, '&quot;');
-}
-
 // Google Drive thumbnail URLs (both mainPhoto's 800px and photos[]'s 300px versions) end in
 // =sNNN - bumping that number gets a sharper version of the same image for the lightbox
 // without the backend needing to serve a separate full-resolution field.
@@ -49,26 +42,6 @@ function personPhotos(person) {
   return list;
 }
 
-function renderPerson(person, personIndex) {
-  const mainPhotoHtml = person.mainPhoto
-    ? `<div class="person-main-photo" data-person-index="${personIndex}" data-photo-index="0">
-         <img src="${escapeAttr(person.mainPhoto.url)}" alt="${escapeAttr(person.name)}" loading="lazy" />
-       </div>`
-    : '';
-  const galleryHtml = person.photos.length
-    ? `<div class="person-gallery">${person.photos
-        .map((p, i) => `<img src="${escapeAttr(p.url)}" alt="" loading="lazy" data-person-index="${personIndex}" data-photo-index="${i + (person.mainPhoto ? 1 : 0)}" />`)
-        .join('')}</div>`
-    : '';
-  return `
-    <article class="person-tile">
-      <h3 class="person-name">${escapeHtml(person.name)}</h3>
-      ${mainPhotoHtml}
-      ${galleryHtml}
-      <p class="person-description">${escapeHtml(person.description)}</p>
-    </article>`;
-}
-
 function renderPeople(peopleData) {
   const grid = document.getElementById('people-grid');
   people = peopleData;
@@ -76,7 +49,7 @@ function renderPeople(peopleData) {
     grid.innerHTML = '<p class="empty">Brak osób do wyświetlenia w tej kategorii.</p>';
     return;
   }
-  grid.innerHTML = people.map(renderPerson).join('');
+  grid.innerHTML = people.map(personTileHtml).join('');
 }
 
 function lightboxMarkup() {

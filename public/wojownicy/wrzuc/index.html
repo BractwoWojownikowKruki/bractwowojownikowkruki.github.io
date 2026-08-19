@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wrzucam swoje zdjęcie - Bractwo Wojowników Kruki</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../../favicon.png" />
+  <link rel="apple-touch-icon" href="../../favicon.png" />
+  <link rel="stylesheet" href="../../style.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <header class="site-header site-header--main">
+    <a href="../../" class="logo-link" aria-label="Bractwo Wojowników Kruki">
+      <img src="../../kruki-logo.png" alt="Kruki" class="logo" />
+    </a>
+    <button id="nav-toggle" class="nav-toggle" aria-label="Otwórz menu" aria-expanded="false" aria-controls="main-nav">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <nav class="main-nav" id="main-nav">
+      <a href="../../o-nas/" class="nav-item">O nas</a>
+      <div class="nav-item-dropdown">
+        <a href="../../wojownicy/" class="nav-item">Wojownicy</a>
+        <div class="nav-dropdown-menu">
+          <a href="../../wojownicy/blachowi/" class="nav-item nav-subitem">Blachowi</a>
+          <a href="../../wojownicy/niewiasty/" class="nav-item nav-subitem">Niewiasty</a>
+          <a href="../../wojownicy/kandydaci/" class="nav-item nav-subitem">Kandydaci</a>
+          <a href="../../wojownicy/emeryci/" class="nav-item nav-subitem">Emeryci</a>
+        </div>
+      </div>
+      <a href="../../nabor/" class="nav-item nav-item--highlighted">Nabór</a>
+      <a href="../../turniej/" class="nav-item">Kruczy Turniej</a>
+      <a href="../../galerie/" class="nav-item">Galerie</a>
+      <a href="../../kontakt/" class="nav-item">Kontakt</a>
+    </nav>
+  </header>
+
+  <div class="banner-section">
+    <div id="banner-carousel" class="carousel"></div>
+  </div>
+
+  <main class="main-content main-content--single">
+    <div class="content-left">
+      <section class="content-section">
+        <h1>Wrzucam swoje zdjęcie</h1>
+        <p>Dostępne dla członków grupy <a href="https://groups.google.com/g/kruki" target="_blank" rel="noopener noreferrer">Kruki</a> na Google Groups. Zaloguj się kontem Google, którym jesteś zapisany/a do grupy.</p>
+
+        <div class="upload-signin" id="upload-signin">
+          <div id="google-signin-button"></div>
+        </div>
+        <p class="upload-signed-in" id="upload-signed-in" hidden>
+          Zalogowano jako <strong id="upload-signed-in-email"></strong>.
+        </p>
+        <p class="upload-forbidden" id="upload-forbidden" hidden>
+          To konto Google nie jest członkiem grupy Kruki, więc nie może tu nic dodać.
+        </p>
+        <div class="upload-reauth" id="upload-reauth" hidden>
+          <p>Twoja sesja logowania wygasła. Zaloguj się ponownie, aby kontynuować.</p>
+          <div id="google-reauth-button"></div>
+        </div>
+
+        <form id="wrzuc-form" hidden novalidate>
+          <div class="field">
+            <label for="wrzuc-name">Imię</label>
+            <input type="text" id="wrzuc-name" required />
+          </div>
+
+          <div class="field">
+            <label for="wrzuc-main-photo">Główne zdjęcie</label>
+            <input type="file" id="wrzuc-main-photo" accept="image/*" required />
+          </div>
+
+          <div class="field">
+            <label for="wrzuc-extra-photos">Dodatkowe zdjęcia (opcjonalnie)</label>
+            <input type="file" id="wrzuc-extra-photos" accept="image/*" multiple />
+          </div>
+        </form>
+
+        <div class="wrzuc-preview-wrap" id="wrzuc-preview-wrap" hidden>
+          <h2>Podgląd</h2>
+          <div class="people-grid" id="wrzuc-preview"></div>
+
+          <p class="add-album-error" id="wrzuc-error" hidden></p>
+          <p class="upload-progress" id="wrzuc-progress" hidden></p>
+
+          <div class="wrzuc-actions">
+            <button type="button" class="add-album-submit" id="wrzuc-confirm">Zatwierdzam</button>
+            <button type="button" class="btn-cancel" id="wrzuc-cancel">Anuluj</button>
+          </div>
+        </div>
+
+        <div class="upload-success" id="wrzuc-success" hidden>
+          <p>Dziękujemy! Twoje zdjęcia trafiły na dysk i czekają na publikację.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer">
+    Created by <a href="https://www.cardiocanwait.com" target="_blank" rel="noopener noreferrer">CardioCanWait</a>
+    for <a href="https://www.kruki.org" target="_blank" rel="noopener noreferrer">Bractwo Wojowników Kruki</a>,
+    hosted on <a href="https://github.com/BractwoWojownikowKruki/bractwowojownikowkruki.github.io" target="_blank" rel="noopener noreferrer">GitHub</a>.
+  </footer>
+
+  <script src="../../carousel.js"></script>
+  <script src="../../auth.js"></script>
+  <script src="../../person-tile.js"></script>
+  <script src="../../nav.js"></script>
+  <script src="wrzuc.js"></script>
+</body>
+</html>

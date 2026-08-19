@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSheetAllowlist, parseAllowlistCsv } from './allowlist.ts';
+import { createAppsScriptAllowlist, createSheetAllowlist, parseAllowlistCsv } from './allowlist.ts';
 
 test('parseAllowlistCsv skips the header row and returns trimmed, lowercased emails', () => {
   const csv = 'Email\nAlice@Gmail.com\nbob@example.com\n';
@@ -92,5 +92,48 @@ test('getEmails fails closed on refetch failure even though a previous fetch had
   assert.deepEqual(await allowlist.getEmails(), ['alice@gmail.com']);
   now += 5001;
   shouldFail = true;
+  assert.deepEqual(await allowlist.getEmails(), []);
+});
+
+test('createAppsScriptAllowlist parses {"emails": [...]}, trimming and lowercasing', async () => {
+  const allowlist = createAppsScriptAllowlist({
+    url: 'https://script.google.com/macros/s/xyz/exec',
+    fetchImpl: async () => fakeResponse(200, JSON.stringify({ emails: [' Alice@Gmail.com ', 'bob@example.com'] })),
+  });
+  assert.deepEqual(await allowlist.getEmails(), ['alice@gmail.com', 'bob@example.com']);
+});
+
+test('createAppsScriptAllowlist caches within the TTL like the sheet allowlist', async () => {
+  let calls = 0;
+  let now = 1000;
+  const allowlist = createAppsScriptAllowlist({
+    url: 'https://script.google.com/macros/s/xyz/exec',
+    ttlMs: 5000,
+    now: () => now,
+    fetchImpl: async () => {
+      calls += 1;
+      return fakeResponse(200, JSON.stringify({ emails: ['alice@gmail.com'] }));
+    },
+  });
+
+  assert.deepEqual(await allowlist.getEmails(), ['alice@gmail.com']);
+  now += 1000;
+  assert.deepEqual(await allowlist.getEmails(), ['alice@gmail.com']);
+  assert.equal(calls, 1);
+});
+
+test('createAppsScriptAllowlist fails closed when the response has no "emails" array', async () => {
+  const allowlist = createAppsScriptAllowlist({
+    url: 'https://script.google.com/macros/s/xyz/exec',
+    fetchImpl: async () => fakeResponse(200, JSON.stringify({ error: 'nope' })),
+  });
+  assert.deepEqual(await allowlist.getEmails(), []);
+});
+
+test('createAppsScriptAllowlist fails closed on a non-OK HTTP status', async () => {
+  const allowlist = createAppsScriptAllowlist({
+    url: 'https://script.google.com/macros/s/xyz/exec',
+    fetchImpl: async () => fakeResponse(500, 'error'),
+  });
   assert.deepEqual(await allowlist.getEmails(), []);
 });

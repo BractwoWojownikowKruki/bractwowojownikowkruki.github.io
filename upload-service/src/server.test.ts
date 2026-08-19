@@ -62,6 +62,7 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     github: makeFakeGithub(),
     authenticate: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
     authenticateAdmin: async () => ({ sub: 'admin-1', email: 'admin@gmail.com' }),
+    authenticateWojownicyUpload: async () => ({ sub: 'wojownik-1', email: 'wojownik@gmail.com' }),
     submissionTokenSecret: 'test-secret',
     driveParentFolderId: 'parent-1',
     allowedOrigin: 'https://example.test',
@@ -885,5 +886,152 @@ test('/start rejects a JSON body larger than maxJsonBodyBytes', async () => {
       body: JSON.stringify({ date: '2026-08-09', name: oversizedName }),
     });
     assert.equal(res.status, 413);
+  });
+});
+
+test('/wojownicy-upload/whoami rejects a caller not on the group allowlist', async () => {
+  const deps = makeDeps({
+    authenticateWojownicyUpload: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do przesyłania zdjęć.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-upload/whoami`);
+    assert.equal(res.status, 403);
+  });
+});
+
+test('/wojownicy-upload/whoami returns the caller\'s email once authenticated', async () => {
+  const deps = makeDeps({
+    authenticateWojownicyUpload: async () => ({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-upload/whoami`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { email: 'ktos@gmail.com' });
+  });
+});
+
+test('/wojownicy-upload/submit rejects a missing name before touching Drive', async () => {
+  let driveCalled = false;
+  const deps = makeDeps({
+    drive: makeFakeDrive({ createAlbumFolder: async () => { driveCalled = true; return 'x'; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-upload/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 400);
+    assert.equal(driveCalled, false);
+  });
+});
+
+test('/wojownicy-upload/submit creates a folder named "Imię - email - data" under the upload root, and returns a submission token', async () => {
+  resetAboutUsBootstrapForTests();
+  let createdParent: string | undefined;
+  let createdName: string | undefined;
+  const deps = makeDeps({
+    authenticateWojownicyUpload: async () => ({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      ensureFolder: async (parent, name) => (name === 'upload' ? 'upload-root' : `ensured-${name}`),
+      createAlbumFolder: async (parent, name) => {
+        createdParent = parent;
+        createdName = name;
+        return 'submission-folder';
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-upload/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Jan Kowalski' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.folderId, 'submission-folder');
+    assert.ok(typeof body.submissionToken === 'string' && body.submissionToken.length > 0);
+    assert.equal(createdParent, 'upload-root');
+    const today = new Date().toISOString().slice(0, 10);
+    assert.equal(createdName, `Jan Kowalski - ktos@gmail.com - ${today}`);
+  });
+});
+
+test('/wojownicy-upload/photo rejects a request with no X-Submission-Token', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-upload/photo?folderId=${uniqueFolderId()}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 401);
+  });
+});
+
+test('/wojownicy-upload/photo rejects a submission token minted for a different folder', async () => {
+  const deps = makeDeps();
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, 'some-other-folder');
+    const res = await fetch(`${baseUrl}/wojownicy-upload/photo?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 403);
+  });
+});
+
+test('/wojownicy-upload/photo with isMain=true uploads the file as main.<ext>, ignoring the original filename', async () => {
+  let uploadedName: string | undefined;
+  const deps = makeDeps({
+    authenticateWojownicyUpload: async () => ({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      listFiles: async () => [],
+      uploadFileStream: async (_f, fileName, _m, stream) => {
+        uploadedName = fileName;
+        for await (const _chunk of stream) {
+          // drain
+        }
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(
+      `${baseUrl}/wojownicy-upload/photo?folderId=${folderId}&fileName=IMG_1234.jpg&mimeType=image/jpeg&isMain=true`,
+      { method: 'POST', headers: { 'X-Submission-Token': token }, body: VALID_JPEG_BYTES },
+    );
+    assert.equal(res.status, 200);
+    assert.equal(uploadedName, 'main.jpg');
+  });
+});
+
+test('/wojownicy-upload/photo without isMain keeps the original filename', async () => {
+  let uploadedName: string | undefined;
+  const deps = makeDeps({
+    authenticateWojownicyUpload: async () => ({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      listFiles: async () => [],
+      uploadFileStream: async (_f, fileName, _m, stream) => {
+        uploadedName = fileName;
+        for await (const _chunk of stream) {
+          // drain
+        }
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(
+      `${baseUrl}/wojownicy-upload/photo?folderId=${folderId}&fileName=IMG_1234.jpg&mimeType=image/jpeg`,
+      { method: 'POST', headers: { 'X-Submission-Token': token }, body: VALID_JPEG_BYTES },
+    );
+    assert.equal(res.status, 200);
+    assert.equal(uploadedName, 'IMG_1234.jpg');
   });
 });
