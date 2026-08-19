@@ -49,7 +49,9 @@ function renderPeople(peopleData) {
     grid.innerHTML = '<p class="empty">Brak osób do wyświetlenia w tej kategorii.</p>';
     return;
   }
-  grid.innerHTML = people.map(personTileHtml).join('');
+  // Array.prototype.map also passes the array itself as a 3rd argument - wrapped so
+  // personTileHtml never sees that as its options parameter.
+  grid.innerHTML = people.map((person, i) => personTileHtml(person, i)).join('');
 }
 
 function lightboxMarkup() {

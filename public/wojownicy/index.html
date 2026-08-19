@@ -9,6 +9,7 @@
   <link rel="icon" type="image/png" href="../favicon.png" />
   <link rel="apple-touch-icon" href="../favicon.png" />
   <link rel="stylesheet" href="../style.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <header class="site-header site-header--main">
@@ -48,7 +49,10 @@
       <a href="kandydaci/" class="category-link-tile">Kandydaci</a>
     </div>
     <div style="text-align: center; padding: 0 1.25rem 3rem;">
-      <a href="wrzuc/" class="btn-add-album">Wrzucam swoje zdjęcie</a>
+      <div class="upload-signin" id="upload-signin">
+        <div id="google-signin-button"></div>
+      </div>
+      <a href="wrzuc/" class="btn-add-album" id="wrzuc-link" hidden>Wrzucam swoje zdjęcie</a>
     </div>
   </main>
 
@@ -58,8 +62,8 @@
     hosted on <a href="https://github.com/BractwoWojownikowKruki/bractwowojownikowkruki.github.io" target="_blank" rel="noopener noreferrer">GitHub</a>.
   </footer>
   <script src="../carousel.js"></script>
-
-
+  <script src="../auth.js"></script>
   <script src="../nav.js"></script>
+  <script src="wojownicy.js"></script>
 </body>
 </html>

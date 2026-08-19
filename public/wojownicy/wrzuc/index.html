@@ -9,6 +9,7 @@
   <link rel="icon" type="image/png" href="../../favicon.png" />
   <link rel="apple-touch-icon" href="../../favicon.png" />
   <link rel="stylesheet" href="../../style.css" />
+  <link rel="stylesheet" href="../../vendor/cropperjs/cropper.min.css" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -45,7 +46,7 @@
     <div class="content-left">
       <section class="content-section">
         <h1>Wrzucam swoje zdjęcie</h1>
-        <p>Dostępne dla członków grupy <a href="https://groups.google.com/g/kruki" target="_blank" rel="noopener noreferrer">Kruki</a> na Google Groups. Zaloguj się kontem Google, którym jesteś zapisany/a do grupy.</p>
+        <p>Zaloguj się kontem Google, aby kontynuować.</p>
 
         <div class="upload-signin" id="upload-signin">
           <div id="google-signin-button"></div>
@@ -54,7 +55,7 @@
           Zalogowano jako <strong id="upload-signed-in-email"></strong>.
         </p>
         <p class="upload-forbidden" id="upload-forbidden" hidden>
-          To konto Google nie jest członkiem grupy Kruki, więc nie może tu nic dodać.
+          To konto Google nie ma tu uprawnień.
         </p>
         <div class="upload-reauth" id="upload-reauth" hidden>
           <p>Twoja sesja logowania wygasła. Zaloguj się ponownie, aby kontynuować.</p>
@@ -98,6 +99,19 @@
     </div>
   </main>
 
+  <div class="crop-modal" id="crop-modal" hidden>
+    <div class="crop-modal-inner">
+      <img id="crop-target" alt="" />
+    </div>
+    <p class="crop-modal-error" id="crop-modal-error" hidden>
+      Nie udało się otworzyć tego zdjęcia do kadrowania w tej przeglądarce. Zostanie przesłane w oryginalnej wersji.
+    </p>
+    <div class="crop-modal-actions">
+      <button type="button" class="add-album-submit" id="crop-save">Zapisz</button>
+      <button type="button" class="btn-cancel" id="crop-cancel">Anuluj</button>
+    </div>
+  </div>
+
   <footer class="footer">
     Created by <a href="https://www.cardiocanwait.com" target="_blank" rel="noopener noreferrer">CardioCanWait</a>
     for <a href="https://www.kruki.org" target="_blank" rel="noopener noreferrer">Bractwo Wojowników Kruki</a>,
@@ -108,6 +122,7 @@
   <script src="../../auth.js"></script>
   <script src="../../person-tile.js"></script>
   <script src="../../nav.js"></script>
+  <script src="../../vendor/cropperjs/cropper.min.js"></script>
   <script src="wrzuc.js"></script>
 </body>
 </html>
