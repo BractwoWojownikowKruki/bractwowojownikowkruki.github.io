@@ -1306,14 +1306,20 @@ main { padding: 1.25rem 1.5rem 3rem; }
   white-space: nowrap;
 }
 
-/* Site-wide sign-in slot, last item in .main-nav (see nav.js's renderNavAuth): either the
-   Google sign-in button (signed out) or the user's avatar plus an optional "Panel admina"
-   link (signed in). display:flex so it lays out inline with .main-nav's row on desktop and
-   as a compact row of its own when .main-nav stacks on mobile. */
+/* Lives in .header-actions (top bar, next to the hamburger) - holds only the avatar once
+   signed in, nothing while signed out. The "Zaloguj" button and "Panel admina" link live in
+   the menu itself instead (.nav-signin-slot / #nav-admin-link below), not here - see nav.js. */
 .nav-auth-slot {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+}
+
+/* Wraps the Google-rendered sign-in button as a .main-nav child, so it gets the same row
+   treatment as the other menu items rather than sitting flush against them unstyled. */
+.nav-signin-slot {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0;
 }
 
 .nav-avatar {
@@ -1884,6 +1890,13 @@ main { padding: 1.25rem 1.5rem 3rem; }
   }
 
   .nav-item:last-child {
+    border-bottom: none;
+  }
+
+  /* #nav-admin-link and .nav-signin-slot are the true trailing items in the menu (see nav.js) -
+     only one is ever visible at a time, and whichever one is hidden still counts as the
+     structural :last-child, so the rule above never reaches the one that's actually showing. */
+  #nav-admin-link {
     border-bottom: none;
   }
 

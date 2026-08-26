@@ -60,31 +60,40 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
- * Site-wide sign-in status in the main nav: a "Zaloguj" button when signed out, the user's
- * Google avatar once signed in, and (only for the /admin/whoami allowlist) a "Panel admina"
- * link. Reuses initGoogleSignIn from auth.js, which is safe to call alongside a page's own
- * sign-in flow (e.g. wojownicy.js's group-membership check) - see the shared-listener comment
- * in auth.js. Only runs on pages that carry the #nav-auth-slot markup; the admin panel's own
- * page deliberately omits it since it already has a richer sign-in UI in its main content.
+ * Site-wide sign-in status: the user's Google avatar in the always-visible top bar next to the
+ * hamburger (#nav-auth-slot) once signed in, plus - inside the collapsible menu itself, not the
+ * top bar - a "Zaloguj" button when signed out (#nav-google-signin-button) or a "Panel admina"
+ * link when the /admin/whoami check passes (#nav-admin-link). Keeping the sign-in button and
+ * admin link out of the top bar avoids crowding it (logo + avatar + hamburger already fill it
+ * on mobile) - they only need to be reachable, not always visible.
+ *
+ * Reuses initGoogleSignIn from auth.js, which is safe to call alongside a page's own sign-in
+ * flow (e.g. wojownicy.js's group-membership check) - see the shared-listener comment in
+ * auth.js. Only runs on pages that carry this markup; the admin panel's own page deliberately
+ * omits it since it already has a richer sign-in UI in its main content.
  */
 document.addEventListener('DOMContentLoaded', () => {
-  const slot = document.getElementById('nav-auth-slot');
-  if (!slot || typeof initGoogleSignIn !== 'function') return;
+  const avatarSlot = document.getElementById('nav-auth-slot');
+  const signinSlot = document.getElementById('nav-google-signin-button');
+  const adminLink = document.getElementById('nav-admin-link');
+  if (!avatarSlot || typeof initGoogleSignIn !== 'function') return;
 
   function renderNavAuth(payload, isAdmin) {
     if (!payload) {
-      slot.innerHTML = '<div id="nav-google-signin-button"></div>';
+      avatarSlot.innerHTML = '';
+      if (signinSlot) signinSlot.hidden = false;
+      if (adminLink) adminLink.hidden = true;
       return;
     }
-    const adminHref = slot.dataset.adminHref;
-    const adminLink = isAdmin && adminHref ? `<a href="${adminHref}" class="nav-item">Panel admina</a>` : '';
     const email = payload.email ? payload.email.replace(/"/g, '&quot;') : '';
     const picture = payload.picture ? payload.picture.replace(/"/g, '&quot;') : '';
-    slot.innerHTML = `${adminLink}<img src="${picture}" alt="${email}" title="${email}" class="nav-avatar" />`;
+    avatarSlot.innerHTML = `<img src="${picture}" alt="${email}" title="${email}" class="nav-avatar" />`;
+    if (signinSlot) signinSlot.hidden = true;
+    if (adminLink) adminLink.hidden = !isAdmin;
   }
 
   // Only show the "Zaloguj" button right away if there's definitely no restorable session to
-  // check first (see the equivalent comment in wojownicy.js) - otherwise leave the slot blank
+  // check first (see the equivalent comment in wojownicy.js) - otherwise leave everything as-is
   // for the brief async whoami round trip rather than flashing a misleading "you're signed
   // out" button for an already-signed-in visitor.
   if (typeof isIdTokenValid !== 'function' || !isIdTokenValid()) {
