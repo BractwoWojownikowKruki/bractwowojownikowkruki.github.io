@@ -752,15 +752,19 @@ async function startProductionServer(): Promise<void> {
     clientSecret: config.driveClientSecret,
     refreshToken: config.driveRefreshToken,
   };
-  const allowlist = createSheetAllowlist({ url: config.allowlistSheetUrl });
   const adminAllowlist = createSheetAllowlist({ url: config.adminAllowlistSheetUrl });
-  const wojownicyUploadAllowlist = createAppsScriptAllowlist({ url: config.wojownicyUploadGroupUrl });
+  // One shared allowlist (live kruki Google Group membership, see createAppsScriptAllowlist)
+  // now gates both the Krucze Galerie access/upload flow and the Wojownicy self-service
+  // upload flow - previously galerie had its own separate, manually-maintained Sheet. Sharing
+  // one instance (not two separate ones pointed at the same URL) also means one cache, so a
+  // visitor hitting both flows doesn't double the Apps Script call volume.
+  const groupAllowlist = createAppsScriptAllowlist({ url: config.wojownicyUploadGroupUrl });
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
-    authenticate: req => verifyUploader(req, config.googleOAuthClientId, allowlist),
+    authenticate: req => verifyUploader(req, config.googleOAuthClientId, groupAllowlist),
     authenticateAdmin: req => verifyUploader(req, config.googleOAuthClientId, adminAllowlist),
-    authenticateWojownicyUpload: req => verifyUploader(req, config.googleOAuthClientId, wojownicyUploadAllowlist),
+    authenticateWojownicyUpload: req => verifyUploader(req, config.googleOAuthClientId, groupAllowlist),
     submissionTokenSecret: config.submissionTokenSecret,
     driveParentFolderId: config.driveParentFolderId,
     allowedOrigin: config.allowedOrigin,

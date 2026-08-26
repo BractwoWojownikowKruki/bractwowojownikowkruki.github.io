@@ -6,13 +6,12 @@ function requireEnv(name: string): string {
 
 export const config = {
   port: Number(process.env.PORT ?? 8080),
-  // Published CSV export of the allowlist Sheet Bartosz manages directly (Viewer access via
-  // link, editable only by him). See KRKG-0024 design.md - no env var/secret needed, this is
-  // a public read-only URL by design.
-  allowlistSheetUrl: 'https://docs.google.com/spreadsheets/d/1QH_OElOz3-_YbK71D_0gjX4P5OYJMjuS0zv0J5lL3dY/export?format=csv',
-  // Published CSV export of a second Sheet, listing emails allowed into /admin. Same pattern
-  // and same phone-manageable editing story as allowlistSheetUrl above (KRKG-0024) - just a
-  // different Sheet.
+  // Published CSV export of a Sheet listing emails allowed into /admin (Viewer access via
+  // link, editable only by Bartosz). See KRKG-0024 design.md for the pattern - no env
+  // var/secret needed, this is a public read-only URL by design. Krucze Galerie's own
+  // access/upload allowlist used to be a second Sheet like this one, but now shares
+  // wojownicyUploadGroupUrl below instead (live Google Group membership, not a hand-edited
+  // Sheet) - see the "same mechanism" gallery-auth migration.
   adminAllowlistSheetUrl: 'https://docs.google.com/spreadsheets/d/1StUp5mdTmbbuadc1XCOA_c2PILmYSAJ0Z5t1K7xjn78/export?format=csv',
   // Apps Script Web App deployed under the club's own Google account, returning
   // {"emails": [...]} for the live membership of the kruki Google Group (groups.google.com/g/kruki)
