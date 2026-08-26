@@ -344,12 +344,22 @@ document.getElementById('manage-people-list').addEventListener('change', async e
   }
   const inMemoriamCheckbox = e.target.closest('.toggle-in-memoriam');
   if (inMemoriamCheckbox) {
+    const nowChecked = inMemoriamCheckbox.checked;
+    const confirmed = window.confirm(
+      nowChecked
+        ? 'Na pewno oznaczyć tę osobę jako in memoriam? Jej zdjęcia będą pokazywane czarno-białe z czarną wstęgą.'
+        : 'Na pewno cofnąć oznaczenie in memoriam dla tej osoby?',
+    );
+    if (!confirmed) {
+      inMemoriamCheckbox.checked = !nowChecked;
+      return;
+    }
     await apiFetch(
       '/admin/people/in-memoriam',
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folderId: inMemoriamCheckbox.dataset.folderId, inMemoriam: inMemoriamCheckbox.checked }),
+        body: JSON.stringify({ folderId: inMemoriamCheckbox.dataset.folderId, inMemoriam: nowChecked }),
       },
       showReauth,
       hideReauth,
