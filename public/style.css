@@ -2360,8 +2360,8 @@ main { padding: 1.25rem 1.5rem 3rem; }
 
 .in-memoriam-ribbon {
   position: absolute;
-  top: 22px;
-  left: -42px;
+  bottom: 22px;
+  right: -42px;
   width: 150px;
   height: 24px;
   background: #000;
