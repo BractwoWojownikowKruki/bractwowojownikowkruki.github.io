@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePersonFolderName, buildPersonFolderName, sortPeopleByFolderName } from './about-us.ts';
+import {
+  parsePersonFolderName,
+  buildPersonFolderName,
+  sortPeopleByFolderName,
+  computeOrderForDepartmentMove,
+} from './about-us.ts';
 
 test('parsePersonFolderName extracts a leading "N. " order prefix', () => {
   assert.deepEqual(parsePersonFolderName('1. Ragnar'), { order: 1, name: 'Ragnar' });
@@ -40,4 +45,24 @@ test('sortPeopleByFolderName keeps duplicate-order entries together as a group, 
   const order1Names = ['1. Ragnar A', '1. Ragnar B'];
   assert.deepEqual(sorted.slice(0, 2).sort(), order1Names.sort());
   assert.deepEqual(sorted.slice(2), ['2. Piotr', '3. Jan']);
+});
+
+test('computeOrderForDepartmentMove appends after the highest existing order for a normal department', () => {
+  assert.equal(computeOrderForDepartmentMove('Blachowi', ['3. Anna', '1. Piotr']), 4);
+});
+
+test('computeOrderForDepartmentMove prepends before the lowest existing order for Emeryci', () => {
+  assert.equal(computeOrderForDepartmentMove('Emeryci', ['2. Jan', '5. Piotr']), 1);
+});
+
+test('computeOrderForDepartmentMove defaults to 1 for an empty normal department', () => {
+  assert.equal(computeOrderForDepartmentMove('Kandydaci', []), 1);
+});
+
+test('computeOrderForDepartmentMove defaults to 1 for an empty Emeryci department', () => {
+  assert.equal(computeOrderForDepartmentMove('Emeryci', []), 1);
+});
+
+test('computeOrderForDepartmentMove ignores unnumbered folders when computing the new order', () => {
+  assert.equal(computeOrderForDepartmentMove('Niewiasty', ['Zenon', '2. Anna', 'Adam']), 3);
 });

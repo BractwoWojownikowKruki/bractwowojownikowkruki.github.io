@@ -106,6 +106,7 @@ const DEPARTMENT_OPTIONS = [
   ['Emeryci', 'Emeryci'],
   ['Kandydaci', 'Kandydaci'],
   ['upload', 'Upload (zgłoszenia)'],
+  ['deleted', 'Usunięci'],
 ];
 
 function departmentOptionsHtml(selected) {

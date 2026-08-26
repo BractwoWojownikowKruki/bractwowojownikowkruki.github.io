@@ -10,11 +10,13 @@ import { fetchInstagramPosts, fetchFacebookPosts, fetchYouTubeVideos, clearSocia
 import {
   bootstrapAboutUsStructure,
   buildPersonFolderName,
+  computeOrderForDepartmentMove,
   departmentFolderId,
   fetchCategoryPeople,
   invalidateAboutUsCache,
   isAboutUsCategory,
   isAdminDepartment,
+  parsePersonFolderName,
   type AboutUsCategory,
   type AdminDepartment,
 } from './about-us.ts';
@@ -342,17 +344,35 @@ async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerRes
   sendJson(res, 200, { ok: true });
 }
 
-// Moves a person's folder into a different department (any of the 4 categories, or back into
-// "upload") - e.g. reviewing a self-service submission and moving it out of the staging folder
-// into Niewiasty/Kandydaci/etc. Drive's own move semantics (addParents/removeParents) are
-// handled in moveFolder; this just resolves the target department name to its folder id.
+// Moves a person's folder into a different department (any of the 4 categories, "upload", or
+// "deleted" - the admin panel's "remove from site" action, see AboutUsFolders.deletedRoot) -
+// e.g. reviewing a self-service submission and moving it out of the staging folder into
+// Niewiasty/Kandydaci/etc. Drive's own move semantics (addParents/removeParents) are handled in
+// moveFolder; this just resolves the target department name to its folder id.
+//
+// Moving into one of the 4 *public* categories also reassigns the person's display order (see
+// computeOrderForDepartmentMove): every department appends them at the end, except Emeryci,
+// which prepends instead - by design, not something the admin panel asks for explicitly.
+// "upload"/"deleted" skip this entirely since order is meaningless there.
 async function handleAdminMovePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   await deps.authenticateAdmin(req);
   const { folderId, category } = await readJsonBody<{ folderId?: string; category?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   const department = parseAdminDepartment(category ?? null);
   const folders = await bootstrapAboutUsStructure(deps.drive);
-  await deps.drive.moveFolder(folderId, departmentFolderId(folders, department));
+  const targetFolderId = departmentFolderId(folders, department);
+  const { name: currentFolderName } = await deps.drive.moveFolder(folderId, targetFolderId);
+
+  if (isAboutUsCategory(department)) {
+    const siblings = await deps.drive.listGalleryFolders(targetFolderId);
+    const newOrder = computeOrderForDepartmentMove(
+      department,
+      siblings.filter(f => f.id !== folderId).map(f => f.name),
+    );
+    const { name: personName } = parsePersonFolderName(currentFolderName);
+    await deps.drive.renameFolder(folderId, buildPersonFolderName(personName, newOrder));
+  }
+
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -420,9 +440,14 @@ async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResp
   sendJson(res, 200, { folderId, submissionToken });
 }
 
-// isMain=true renames whatever the browser called the file to "main.<ext>" (the club's naming
-// convention for the staging folder, so Bartosz can tell the cover photo apart at a glance) -
-// every other photo keeps its own original name.
+// isMain=true renames whatever the browser called the file to "!main.<ext>" - every other photo
+// keeps its own original name. The leading "!" is load-bearing, not decorative: about-us.ts's
+// fetchCategoryPeople picks the *alphabetically first* file (Drive's orderBy=name) as the
+// person's main photo, and a plain "main.<ext>" is not guaranteed to sort before an extra
+// photo's original camera/phone filename (e.g. "IMG_1234.jpg" sorts before "main.jpg" - 'I' <
+// 'm'), which was silently showing the wrong photo as the cover once moved into a public
+// category. "!" sorts before every digit and letter, so this file always wins regardless of
+// what the other photos happen to be named.
 async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req);
   const folderId = url.searchParams.get('folderId');
@@ -439,7 +464,7 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
     throw new AuthError(`Zgłoszenie osiągnęło maksymalną liczbę zdjęć (${deps.maxFilesPerSubmission}).`, 400);
   }
 
-  const targetName = isMain ? `main.${extensionForMimeType(mimeType)}` : decodeURIComponent(fileName);
+  const targetName = isMain ? `!main.${extensionForMimeType(mimeType)}` : decodeURIComponent(fileName);
   try {
     await deps.drive.uploadFileStream(
       folderId,

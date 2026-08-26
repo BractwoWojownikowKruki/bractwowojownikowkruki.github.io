@@ -11,18 +11,36 @@ export function isAboutUsCategory(value: string): value is AboutUsCategory {
   return (ABOUT_US_CATEGORIES as readonly string[]).includes(value);
 }
 
-// The admin panel's "department" concept is the 4 public categories plus the "upload" staging
-// folder (see AboutUsFolders.uploadRoot) - kept distinct from AboutUsCategory/isAboutUsCategory,
-// which gate the *public* /about-us endpoint and must never accept "upload" (those submissions
-// aren't reviewed yet, so they must never become publicly fetchable by category name).
-export type AdminDepartment = AboutUsCategory | 'upload';
+// The admin panel's "department" concept is the 4 public categories plus two staging/archive
+// folders - "upload" (see AboutUsFolders.uploadRoot) and "deleted" (see AboutUsFolders.deletedRoot,
+// the admin panel's "remove from site" action - a soft delete, moving the folder aside rather
+// than actually deleting it from Drive) - kept distinct from AboutUsCategory/isAboutUsCategory,
+// which gate the *public* /about-us endpoint and must never accept either (neither unreviewed
+// submissions nor removed people should ever become publicly fetchable by category name).
+export type AdminDepartment = AboutUsCategory | 'upload' | 'deleted';
 
 export function isAdminDepartment(value: string): value is AdminDepartment {
-  return value === 'upload' || isAboutUsCategory(value);
+  return value === 'upload' || value === 'deleted' || isAboutUsCategory(value);
 }
 
 export function departmentFolderId(folders: AboutUsFolders, department: AdminDepartment): string {
-  return department === 'upload' ? folders.uploadRoot : folders.categories[department];
+  if (department === 'upload') return folders.uploadRoot;
+  if (department === 'deleted') return folders.deletedRoot;
+  return folders.categories[department];
+}
+
+// The order a person's folder should be renamed to when moved into a *public* department (see
+// handleAdminMovePerson) - moving into "upload"/"deleted" never calls this, since order is
+// meaningless there (neither is publicly listed). Every department appends to the end (the
+// highest existing order + 1, so sortPeopleByFolderName shows the newcomer last) except
+// Emeryci, which by design prepends instead (the lowest existing order - 1, shown first) -
+// retiring warriors join at the top of that list, not the bottom.
+export function computeOrderForDepartmentMove(department: AboutUsCategory, existingFolderNames: string[]): number {
+  const orders = existingFolderNames
+    .map(name => parsePersonFolderName(name).order)
+    .filter((order): order is number => order !== null);
+  if (orders.length === 0) return 1;
+  return department === 'Emeryci' ? Math.min(...orders) - 1 : Math.max(...orders) + 1;
 }
 
 const PERSON_FOLDER_NAME_PATTERN = /^(\d+)\.\s*(.+)$/;
@@ -101,6 +119,11 @@ export interface AboutUsFolders {
   // handleWojownicyUploadSubmit in server.ts). Deliberately not made public via
   // setFolderPublic below - nothing here is meant to be linked from the public site.
   uploadRoot: string;
+  // Another sibling, holding people removed from the site via the admin panel's "move to
+  // department" action (see handleAdminMovePerson) - a soft delete: the folder and its photos
+  // stay in Drive, just moved out of any publicly-listed category, rather than being deleted
+  // outright. Same "not public" treatment as uploadRoot above.
+  deletedRoot: string;
 }
 
 // Memoized for the process lifetime: the folder tree, once created, never needs to be
@@ -122,7 +145,8 @@ export function bootstrapAboutUsStructure(drive: DriveClient): Promise<AboutUsFo
         categories[category] = await drive.ensureFolder(oNasId, category);
       }
       const uploadRoot = await drive.ensureFolder(oNasId, 'upload');
-      return { root: oNasId, categories, uploadRoot };
+      const deletedRoot = await drive.ensureFolder(oNasId, 'deleted');
+      return { root: oNasId, categories, uploadRoot, deletedRoot };
     })();
   }
   return bootstrapPromise;
