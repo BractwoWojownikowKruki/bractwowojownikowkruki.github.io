@@ -6,17 +6,46 @@
   <title>Dodaj galerię — Krucze Galery</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
-  <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="apple-touch-icon" href="favicon.png" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <link rel="apple-touch-icon" href="../favicon.png" />
+  <link rel="stylesheet" href="../style.css" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
+  <div class="site-header site-header--main site-header--static">
+    <a href="../" class="logo-link" aria-label="Bractwo Wojowników Kruki">
+      <img src="../kruki-logo.png" alt="Kruki" class="logo" />
+    </a>
+    <nav class="main-nav" id="main-nav">
+      <a href="../o-nas/" class="nav-item">O nas</a>
+      <div class="nav-item-dropdown">
+        <a href="../wojownicy/" class="nav-item">Wojownicy</a>
+        <div class="nav-dropdown-menu">
+          <a href="../wojownicy/blachowi/" class="nav-item nav-subitem">Blachowi</a>
+          <a href="../wojownicy/niewiasty/" class="nav-item nav-subitem">Niewiasty</a>
+          <a href="../wojownicy/kandydaci/" class="nav-item nav-subitem">Kandydaci</a>
+          <a href="../wojownicy/emeryci/" class="nav-item nav-subitem">Emeryci</a>
+        </div>
+      </div>
+      <a href="../nabor/" class="nav-item nav-item--highlighted">Nabór</a>
+      <a href="../turniej/" class="nav-item">Kruczy Turniej</a>
+      <a href="../kontakt/" class="nav-item">Kontakt</a>
+      <a href="../admin/" class="nav-item" id="nav-admin-link" hidden>Panel admina</a>
+      <div id="nav-google-signin-button" class="nav-signin-slot" hidden></div>
+    </nav>
+    <div class="header-actions">
+      <span class="nav-auth-slot" id="nav-auth-slot"></span>
+      <button id="nav-toggle" class="nav-toggle" aria-label="Otwórz menu" aria-expanded="false" aria-controls="main-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+
   <header class="site-header">
     <a href="index.html" class="logo-link" aria-label="Krucze Galery — strona główna">
       <picture>
-        <source media="(max-width: 600px)" srcset="logo.png" />
-        <img src="logo-desktop.png" alt="Krucze Galery" class="logo" onerror="this.style.display='none'" />
+        <source media="(max-width: 600px)" srcset="../logo.png" />
+        <img src="../logo-desktop.png" alt="Krucze Galery" class="logo" onerror="this.style.display='none'" />
       </picture>
     </a>
   </header>
@@ -126,7 +155,8 @@
     hosted on <a href="https://github.com/BractwoWojownikowKruki/bractwowojownikowkruki.github.io" target="_blank" rel="noopener noreferrer">GitHub</a>.
   </footer>
 
-  <script src="auth.js"></script>
+  <script src="../auth.js"></script>
+  <script src="../nav.js"></script>
   <script src="dodaj-galerie.js"></script>
 </body>
 </html>
