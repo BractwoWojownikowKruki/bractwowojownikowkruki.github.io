@@ -56,6 +56,12 @@ export function verifyJwtSignature(decoded: DecodedJwt, jwk: Jwk): boolean {
 export interface VerifiedIdentity {
   sub: string;
   email: string;
+  // Standard Google OIDC claims, present on every ID token from the default Sign In With
+  // Google flow (no extra scope needed) - optional here only because a hand-issued test token
+  // might omit them, not because Google ever does. Used to attribute an uploaded photo to the
+  // person who added it (see the gallery-photos upload-attribution log in server.ts).
+  name?: string;
+  picture?: string;
 }
 
 export function checkClaims(
@@ -80,7 +86,9 @@ export function checkClaims(
   if (typeof sub !== 'string' || !sub || !email) {
     throw new AuthError('Token nie zawiera wymaganych danych.', 401);
   }
-  return { sub, email };
+  const name = typeof payload.name === 'string' ? payload.name : undefined;
+  const picture = typeof payload.picture === 'string' ? payload.picture : undefined;
+  return { sub, email, ...(name ? { name } : {}), ...(picture ? { picture } : {}) };
 }
 
 export function checkAllowlist(identity: VerifiedIdentity, allowedEmails: string[]): VerifiedIdentity {

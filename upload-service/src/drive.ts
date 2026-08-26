@@ -203,14 +203,16 @@ export function buildMultipartParts(
 
 // Streams the multipart body straight through to Drive - the caller's bodyStream (Task 8's
 // validated stream) enforces the size cap and MIME sniff chunk-by-chunk, so this never buffers
-// a whole file twice.
+// a whole file twice. Returns the created file's id (the request already asked Drive for
+// `fields=id`) so callers can attribute the upload to whoever made it - see the
+// gallery-photos upload-attribution log in server.ts.
 export async function uploadFileStream(
   deps: DriveDeps,
   folderId: string,
   fileName: string,
   mimeType: string,
   bodyStream: AsyncIterable<Buffer>,
-): Promise<void> {
+): Promise<{ id: string }> {
   const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
   const { prefix, suffix, boundary } = buildMultipartParts({ name: fileName, parents: [folderId] }, mimeType);
 
@@ -234,6 +236,7 @@ export async function uploadFileStream(
   if (!res.ok) {
     throw new Error(`Nie udało się przesłać pliku "${fileName}" do Drive: HTTP ${res.status}`);
   }
+  return (await res.json()) as { id: string };
 }
 
 export interface DriveFileInfo {
@@ -465,7 +468,7 @@ export function resizeThumbnailUrl(thumbnailLink: string, size: number): string 
 
 export interface DriveClient {
   createAlbumFolder(parentFolderId: string, folderName: string): Promise<string>;
-  uploadFileStream(folderId: string, fileName: string, mimeType: string, bodyStream: AsyncIterable<Buffer>): Promise<void>;
+  uploadFileStream(folderId: string, fileName: string, mimeType: string, bodyStream: AsyncIterable<Buffer>): Promise<{ id: string }>;
   listFiles(folderId: string): Promise<DriveFileInfo[]>;
   setFolderPublic(folderId: string): Promise<void>;
   deleteFolder(folderId: string): Promise<void>;

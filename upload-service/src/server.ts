@@ -111,6 +111,43 @@ function releaseUploadSlot(folderId: string): void {
   }
 }
 
+// Who uploaded which photo, and when - shown as "Dodane przez" in the gallery's detail/lightbox
+// view (see GET /gallery-photos/uploaders). Stored as one small JSON file per gallery folder
+// (UPLOAD_LOG_FILE_NAME, via the existing generic readTextFile/writeTextFile - no new Drive
+// plumbing needed) rather than per-file Drive `properties`, which cap each value at 124 bytes -
+// too tight to reliably hold a Google profile picture URL.
+export interface UploadAttribution {
+  fileId: string;
+  email: string;
+  name?: string;
+  picture?: string;
+  uploadedAt: string;
+}
+
+const UPLOAD_LOG_FILE_NAME = '.uploads.json';
+
+async function readUploadLog(drive: DriveClient, folderId: string): Promise<UploadAttribution[]> {
+  const raw = await drive.readTextFile(folderId, UPLOAD_LOG_FILE_NAME);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// Serialized per folder via withFolderLock (the same lock reserveUploadSlot uses) - concurrent
+// uploads to the same gallery would otherwise race on this read-modify-write and silently drop
+// entries.
+function appendUploadAttribution(drive: DriveClient, folderId: string, entry: UploadAttribution): Promise<void> {
+  return withFolderLock(folderId, async () => {
+    const log = await readUploadLog(drive, folderId);
+    log.push(entry);
+    await drive.writeTextFile(folderId, UPLOAD_LOG_FILE_NAME, JSON.stringify(log));
+  });
+}
+
 function setCors(res: ServerResponse, allowedOrigin: string): void {
   res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -560,8 +597,9 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
     throw new AuthError(`Zgłoszenie osiągnęło maksymalną liczbę zdjęć (${deps.maxFilesPerSubmission}).`, 400);
   }
 
+  let uploaded: { id: string };
   try {
-    await deps.drive.uploadFileStream(
+    uploaded = await deps.drive.uploadFileStream(
       folderId,
       decodeURIComponent(fileName),
       mimeType,
@@ -570,6 +608,19 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
   } catch (err) {
     releaseUploadSlot(folderId);
     throw err;
+  }
+  // Best-effort: a failure here shouldn't fail an otherwise-successful upload (the photo is
+  // already safely in Drive), just leave it unattributed in the detail view's "Dodane przez".
+  try {
+    await appendUploadAttribution(deps.drive, folderId, {
+      fileId: uploaded.id,
+      email: identity.email,
+      ...(identity.name ? { name: identity.name } : {}),
+      ...(identity.picture ? { picture: identity.picture } : {}),
+      uploadedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('Nie udało się zapisać informacji o autorze zdjęcia:', err);
   }
   sendJson(res, 200, { ok: true });
 }
@@ -619,6 +670,66 @@ async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: S
   // instead, which commits to albums.json for the pipeline-based sync to pick up.
   await deps.drive.setFolderPublic(folderId);
   sendJson(res, 200, { ok: true });
+}
+
+// Confirms folderId is a real, already-discoverable gallery (one of driveParentFolderId's own
+// children) before handing out a token for it - the frontend only ever offers this for a
+// gallery it already rendered from GET /galleries, but this endpoint shouldn't just trust an
+// arbitrary caller-supplied id.
+async function requireExistingGalleryFolder(drive: DriveClient, driveParentFolderId: string, folderId: string): Promise<void> {
+  const folders = await drive.listGalleryFolders(driveParentFolderId);
+  if (!folders.some(f => f.id === folderId)) {
+    throw new AuthError('Nie znaleziono galerii.', 404);
+  }
+}
+
+// Starting point for "add photos to an existing gallery" (as opposed to /start, which always
+// creates a brand-new folder) - issues a submission token for an already-published gallery so
+// the rest of the flow (/upload, then /gallery-photos/finalize below) can reuse the exact same
+// per-file upload endpoint and token-ownership machinery as creating a new one.
+async function handleGalleryPhotosStart(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req);
+  const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
+  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  await requireExistingGalleryFolder(deps.drive, deps.driveParentFolderId, folderId);
+  const submissionToken = issueSubmissionToken(
+    { folderId, sub: identity.sub, exp: Date.now() + SUBMISSION_TTL_MS },
+    deps.submissionTokenSecret,
+  );
+  sendJson(res, 200, { folderId, submissionToken });
+}
+
+// Counterpart to /finalize for the same flow - the gallery is already public and already has a
+// manifest with its own name/date, so this only ever adds the uploader to `contributors` (never
+// overwrites name/date, and never re-publishes) rather than writing a fresh manifest from
+// scratch.
+async function handleGalleryPhotosFinalize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req);
+  const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
+  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
+  checkSubmissionOwnership(claims, folderId, identity.sub);
+
+  const existing = await deps.drive.readManifest(folderId);
+  const contributors = new Set(existing?.contributors ?? []);
+  contributors.add(identity.email);
+  await deps.drive.writeManifest(folderId, {
+    ...(existing?.name ? { name: existing.name } : {}),
+    date: existing?.date ?? new Date().toISOString().slice(0, 10),
+    contributors: [...contributors],
+  });
+  galleriesCache = null;
+  sendJson(res, 200, { ok: true });
+}
+
+// Public and unauthenticated, like /galleries - lets the gallery detail view show "Dodane
+// przez" (avatar/name/timestamp) for each photo without requiring a visitor to sign in just to
+// look. Not more sensitive than what /galleries already exposes (contributor email addresses).
+async function handleGalleryPhotoUploaders(res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const folderId = url.searchParams.get('folderId');
+  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  const uploaders = await readUploadLog(deps.drive, folderId);
+  sendJson(res, 200, { uploaders });
 }
 
 // Lets an already-authenticated, allowlisted user register a gallery that already exists
@@ -793,6 +904,12 @@ export function createRequestListener(deps: ServerDeps) {
         await handleStatus(req, res, url, deps);
       } else if (req.method === 'POST' && url.pathname === '/finalize') {
         await handleFinalize(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/gallery-photos/start') {
+        await handleGalleryPhotosStart(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/gallery-photos/finalize') {
+        await handleGalleryPhotosFinalize(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/gallery-photos/uploaders') {
+        await handleGalleryPhotoUploaders(res, url, deps);
       } else {
         sendJson(res, 404, { error: 'Nie znaleziono.' });
       }

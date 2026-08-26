@@ -31,6 +31,7 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
       for await (const _chunk of bodyStream) {
         // no-op
       }
+      return { id: 'fake-uploaded-file-id' };
     },
     listFiles: async () => [],
     setFolderPublic: async () => {},
@@ -640,6 +641,7 @@ test('POST /admin/people/photo streams an uploaded file into the person folder',
         for await (const _chunk of bodyStream) {
           // drain
         }
+        return { id: 'fake-uploaded-file-id' };
       },
     }),
   });
@@ -1086,6 +1088,7 @@ test('/upload accepts a correctly labeled, correctly sized JPEG under the cap', 
           // drain
         }
         uploaded = true;
+        return { id: 'fake-uploaded-file-id' };
       },
     }),
   });
@@ -1192,6 +1195,170 @@ test('/finalize succeeds, publishes the folder, and does not touch GitHub', asyn
   });
 });
 
+test('/upload records who uploaded the file and when', async () => {
+  let writtenTo: string | undefined;
+  let writtenContent: string | undefined;
+  const deps = makeDeps({
+    authenticate: async () => ({ sub: 'sub-1', email: 'alice@gmail.com', name: 'Alice', picture: 'https://example.com/a.jpg' }),
+    drive: makeFakeDrive({
+      readTextFile: async () => null,
+      writeTextFile: async (folderId, fileName, content) => {
+        if (fileName === '.uploads.json') {
+          writtenTo = folderId;
+          writtenContent = content;
+        }
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(writtenTo, folderId);
+  const log = JSON.parse(writtenContent ?? '[]');
+  assert.equal(log.length, 1);
+  assert.equal(log[0].fileId, 'fake-uploaded-file-id');
+  assert.equal(log[0].email, 'alice@gmail.com');
+  assert.equal(log[0].name, 'Alice');
+  assert.equal(log[0].picture, 'https://example.com/a.jpg');
+  assert.ok(typeof log[0].uploadedAt === 'string' && log[0].uploadedAt.length > 0);
+});
+
+test('/upload appends to an existing upload log instead of overwriting it', async () => {
+  let writtenContent: string | undefined;
+  const existingEntry = { fileId: 'old-file', email: 'bob@gmail.com', uploadedAt: '2026-01-01T00:00:00.000Z' };
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      readTextFile: async () => JSON.stringify([existingEntry]),
+      writeTextFile: async (_folderId, fileName, content) => {
+        if (fileName === '.uploads.json') writtenContent = content;
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    });
+  });
+  const log = JSON.parse(writtenContent ?? '[]');
+  assert.equal(log.length, 2);
+  assert.deepEqual(log[0], existingEntry);
+  assert.equal(log[1].fileId, 'fake-uploaded-file-id');
+});
+
+test('POST /gallery-photos/start issues a token for an existing gallery folder', async () => {
+  const deps = makeDeps({
+    driveParentFolderId: 'parent-1',
+    drive: makeFakeDrive({ listGalleryFolders: async () => [{ id: 'gallery-1', name: 'Wolin', modifiedTime: '2026-01-01' }] }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/gallery-photos/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'gallery-1' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.folderId, 'gallery-1');
+    assert.ok(typeof body.submissionToken === 'string' && body.submissionToken.length > 0);
+  });
+});
+
+test('POST /gallery-photos/start rejects a folderId that is not an existing gallery', async () => {
+  const deps = makeDeps({
+    drive: makeFakeDrive({ listGalleryFolders: async () => [{ id: 'gallery-1', name: 'Wolin', modifiedTime: '2026-01-01' }] }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/gallery-photos/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'not-a-real-gallery' }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('POST /gallery-photos/finalize adds the uploader to contributors without duplicating or touching name/date', async () => {
+  let writtenManifest: unknown;
+  const deps = makeDeps({
+    authenticate: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
+    drive: makeFakeDrive({
+      readManifest: async () => ({ name: 'Wolin', date: '2026-01-01', contributors: ['bob@gmail.com', 'alice@gmail.com'] }),
+      writeManifest: async (_folderId, manifest) => {
+        writtenManifest = manifest;
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/gallery-photos/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Submission-Token': token },
+      body: JSON.stringify({ folderId }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.deepEqual(writtenManifest, { name: 'Wolin', date: '2026-01-01', contributors: ['bob@gmail.com', 'alice@gmail.com'] });
+});
+
+test('POST /gallery-photos/finalize adds a new contributor when the gallery has no manifest yet', async () => {
+  let writtenManifest: { name?: string; date: string; contributors: string[] } | undefined;
+  const deps = makeDeps({
+    authenticate: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
+    drive: makeFakeDrive({
+      readManifest: async () => null,
+      writeManifest: async (_folderId, manifest) => {
+        writtenManifest = manifest;
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    await fetch(`${baseUrl}/gallery-photos/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Submission-Token': token },
+      body: JSON.stringify({ folderId }),
+    });
+  });
+  assert.deepEqual(writtenManifest?.contributors, ['alice@gmail.com']);
+  assert.equal(writtenManifest?.name, undefined);
+});
+
+test('GET /gallery-photos/uploaders returns the upload log for a folder', async () => {
+  const entries = [{ fileId: 'f1', email: 'alice@gmail.com', uploadedAt: '2026-01-01T00:00:00.000Z' }];
+  const deps = makeDeps({
+    drive: makeFakeDrive({ readTextFile: async () => JSON.stringify(entries) }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/gallery-photos/uploaders?folderId=gallery-1`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.uploaders, entries);
+  });
+});
+
+test('GET /gallery-photos/uploaders returns an empty list when there is no upload log yet', async () => {
+  const deps = makeDeps({ drive: makeFakeDrive({ readTextFile: async () => null }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/gallery-photos/uploaders?folderId=gallery-1`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.uploaders, []);
+  });
+});
+
 test('/upload enforces the exact file cap under real concurrency, not just the frontend\'s expected worker-pool size', async () => {
   const deps = makeDeps({
     maxFilesPerSubmission: 5,
@@ -1241,6 +1408,7 @@ test('/upload releases its reserved slot when the write itself fails, so a legit
       for await (const _chunk of stream) {
         // drain
       }
+      return { id: 'fake-uploaded-file-id' };
     };
     const retry = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
       method: 'POST',
@@ -1370,6 +1538,7 @@ test('/wojownicy-upload/photo with isMain=true uploads the file as !main.<ext>, 
         for await (const _chunk of stream) {
           // drain
         }
+        return { id: 'fake-uploaded-file-id' };
       },
     }),
   });
@@ -1396,6 +1565,7 @@ test('/wojownicy-upload/photo without isMain keeps the original filename', async
         for await (const _chunk of stream) {
           // drain
         }
+        return { id: 'fake-uploaded-file-id' };
       },
     }),
   });

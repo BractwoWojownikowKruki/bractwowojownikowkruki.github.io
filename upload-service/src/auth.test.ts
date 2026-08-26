@@ -53,6 +53,40 @@ test('checkClaims accepts a well-formed, current, verified-email payload and low
   assert.deepEqual(identity, { sub: 'sub-1', email: 'alice@gmail.com' });
 });
 
+test('checkClaims includes name and picture when the token carries them', () => {
+  const now = 1_700_000_000;
+  const identity = checkClaims(
+    {
+      iss: 'https://accounts.google.com',
+      aud: 'client-123',
+      exp: now + 60,
+      email_verified: true,
+      email: 'alice@gmail.com',
+      sub: 'sub-1',
+      name: 'Alice Kowalski',
+      picture: 'https://lh3.googleusercontent.com/a/example',
+    },
+    'client-123',
+    now,
+  );
+  assert.deepEqual(identity, {
+    sub: 'sub-1',
+    email: 'alice@gmail.com',
+    name: 'Alice Kowalski',
+    picture: 'https://lh3.googleusercontent.com/a/example',
+  });
+});
+
+test('checkClaims omits name and picture when the token lacks them', () => {
+  const now = 1_700_000_000;
+  const identity = checkClaims(
+    { iss: 'https://accounts.google.com', aud: 'client-123', exp: now + 60, email_verified: true, email: 'alice@gmail.com', sub: 'sub-1' },
+    'client-123',
+    now,
+  );
+  assert.deepEqual(identity, { sub: 'sub-1', email: 'alice@gmail.com' });
+});
+
 test('checkClaims rejects a token issued for a different audience', () => {
   assert.throws(
     () => checkClaims({ iss: 'https://accounts.google.com', aud: 'wrong', exp: 9e9, email_verified: true, email: 'a@b.com', sub: 's' }, 'client-123'),
