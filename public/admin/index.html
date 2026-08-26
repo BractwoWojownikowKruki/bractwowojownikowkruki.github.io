@@ -9,6 +9,31 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
+  <header class="site-header site-header--main">
+    <a href="../" class="logo-link" aria-label="Bractwo Wojowników Kruki">
+      <img src="../kruki-logo.png" alt="Kruki" class="logo" />
+    </a>
+    <button id="nav-toggle" class="nav-toggle" aria-label="Otwórz menu" aria-expanded="false" aria-controls="main-nav">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <nav class="main-nav" id="main-nav">
+      <a href="../o-nas/" class="nav-item">O nas</a>
+      <div class="nav-item-dropdown">
+        <a href="../wojownicy/" class="nav-item">Wojownicy</a>
+        <div class="nav-dropdown-menu">
+          <a href="../wojownicy/blachowi/" class="nav-item nav-subitem">Blachowi</a>
+          <a href="../wojownicy/niewiasty/" class="nav-item nav-subitem">Niewiasty</a>
+          <a href="../wojownicy/kandydaci/" class="nav-item nav-subitem">Kandydaci</a>
+          <a href="../wojownicy/emeryci/" class="nav-item nav-subitem">Emeryci</a>
+        </div>
+      </div>
+      <a href="../nabor/" class="nav-item nav-item--highlighted">Nabór</a>
+      <a href="../turniej/" class="nav-item">Kruczy Turniej</a>
+      <a href="../galerie/" class="nav-item">Galerie</a>
+      <a href="../kontakt/" class="nav-item">Kontakt</a>
+    </nav>
+  </header>
+
   <main style="max-width: 700px; margin: 2rem auto; padding: 0 1.25rem;">
     <h1 style="font-family:'Cinzel',serif; color: var(--text); margin-bottom: 1.5rem;">Panel administracyjny</h1>
 
@@ -90,6 +115,7 @@
   </main>
 
   <script src="../auth.js"></script>
+  <script src="../nav.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>

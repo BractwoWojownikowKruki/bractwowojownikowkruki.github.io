@@ -1294,6 +1294,25 @@ main { padding: 1.25rem 1.5rem 3rem; }
   white-space: nowrap;
 }
 
+/* Site-wide sign-in slot, last item in .main-nav (see nav.js's renderNavAuth): either the
+   Google sign-in button (signed out) or the user's avatar plus an optional "Panel admina"
+   link (signed in). display:flex so it lays out inline with .main-nav's row on desktop and
+   as a compact row of its own when .main-nav stacks on mobile. */
+.nav-auth-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.nav-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: block;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
 /* ── Banner Carousel ── */
 
 /* aspect-ratio (not a height:100% chain) is what actually gives #banner-carousel and
@@ -1895,6 +1914,10 @@ main { padding: 1.25rem 1.5rem 3rem; }
     border: none;
     padding: 0;
     background: transparent;
+  }
+
+  .nav-auth-slot {
+    padding: 0.85rem 0;
   }
 
   .nav-subitem {

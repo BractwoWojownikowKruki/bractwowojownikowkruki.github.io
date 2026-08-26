@@ -58,3 +58,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+/**
+ * Site-wide sign-in status in the main nav: a "Zaloguj" button when signed out, the user's
+ * Google avatar once signed in, and (only for the /admin/whoami allowlist) a "Panel admina"
+ * link. Reuses initGoogleSignIn from auth.js, which is safe to call alongside a page's own
+ * sign-in flow (e.g. wojownicy.js's group-membership check) - see the shared-listener comment
+ * in auth.js. Only runs on pages that carry the #nav-auth-slot markup; the admin panel's own
+ * page deliberately omits it since it already has a richer sign-in UI in its main content.
+ */
+document.addEventListener('DOMContentLoaded', () => {
+  const slot = document.getElementById('nav-auth-slot');
+  if (!slot || typeof initGoogleSignIn !== 'function') return;
+
+  function renderNavAuth(payload, isAdmin) {
+    if (!payload) {
+      slot.innerHTML = '<div id="nav-google-signin-button"></div>';
+      return;
+    }
+    const adminHref = slot.dataset.adminHref;
+    const adminLink = isAdmin && adminHref ? `<a href="${adminHref}" class="nav-item">Panel admina</a>` : '';
+    const email = payload.email ? payload.email.replace(/"/g, '&quot;') : '';
+    const picture = payload.picture ? payload.picture.replace(/"/g, '&quot;') : '';
+    slot.innerHTML = `${adminLink}<img src="${picture}" alt="${email}" title="${email}" class="nav-avatar" />`;
+  }
+
+  renderNavAuth(null);
+  initGoogleSignIn({
+    buttonIds: ['nav-google-signin-button'],
+    whoamiPath: '/admin/whoami',
+    buttonConfig: { theme: 'filled_black', size: 'medium', text: 'signin' },
+    onSignedIn: payload => renderNavAuth(payload, true),
+    onForbidden: payload => renderNavAuth(payload, false),
+  });
+});

@@ -13,6 +13,13 @@ let idToken = null;
 let idTokenExp = 0;
 let pendingReauth = null;
 let pendingReauthHide = null;
+// Google Identity Services only keeps ONE active initialize() config per page - calling it
+// twice would silently replace the first caller's callback. So initialize() runs at most once
+// (guarded by this flag) with a single shared callback that fans out to every registered
+// listener below, each checking its own whoamiPath independently (e.g. the nav's "is this user
+// an admin" check coexisting with a page's own "is this user an uploader" check).
+let gisInitialized = false;
+const signedInListeners = [];
 
 function decodeJwtPayload(token) {
   const payload = token.split('.')[1];
@@ -48,48 +55,59 @@ async function apiFetch(path, options, showReauthUI, hideReauthUI) {
   return res.json();
 }
 
+async function handleCredentialResponse(response) {
+  idToken = response.credential;
+  const payload = decodeJwtPayload(idToken);
+  idTokenExp = payload.exp;
+
+  if (pendingReauth) {
+    const resolve = pendingReauth;
+    pendingReauth = null;
+    if (pendingReauthHide) {
+      pendingReauthHide();
+      pendingReauthHide = null;
+    }
+    resolve();
+    return;
+  }
+
+  for (const listener of signedInListeners) {
+    if (!listener.onSignedIn && !listener.onForbidden) continue;
+    try {
+      await apiFetch(listener.whoamiPath, { method: 'GET' }, () => {}, () => {});
+      listener.onSignedIn?.(payload);
+    } catch {
+      listener.onForbidden?.(payload);
+    }
+  }
+}
+
 // Wires up Google Identity Services for the current page. `buttonIds` are the DOM ids of every
 // container GIS should render a sign-in button into (a page may need more than one, e.g. an
 // initial sign-in button and a separate reauth-prompt button). `onSignedIn(payload)` and
-// `onForbidden()` are optional and fire only after a genuine first sign-in - not one triggered
-// by ensureFreshIdToken's reauth prompt, which just resolves the paused caller instead. Pages
-// that only ever need reauth (nothing to proactively show on initial sign-in) can omit both.
-function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, whoamiPath = '/whoami' }) {
-  async function handleCredentialResponse(response) {
-    idToken = response.credential;
-    const payload = decodeJwtPayload(idToken);
-    idTokenExp = payload.exp;
-
-    if (pendingReauth) {
-      const resolve = pendingReauth;
-      pendingReauth = null;
-      if (pendingReauthHide) {
-        pendingReauthHide();
-        pendingReauthHide = null;
-      }
-      resolve();
-      return;
-    }
-
-    if (!onSignedIn && !onForbidden) return;
-    try {
-      await apiFetch(whoamiPath, { method: 'GET' }, () => {}, () => {});
-      onSignedIn?.(payload);
-    } catch {
-      onForbidden?.();
-    }
-  }
+// `onForbidden(payload)` are optional and fire only after a genuine first sign-in - not one
+// triggered by ensureFreshIdToken's reauth prompt, which just resolves the paused caller
+// instead. Pages that only ever need reauth (nothing to proactively show on initial sign-in)
+// can omit both. `buttonConfig` overrides GIS's renderButton options (theme/size/text/shape)
+// for just this call's buttons. Safe to call more than once per page (see signedInListeners
+// above) - each call independently verifies its own whoamiPath against the one shared token.
+function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, whoamiPath = '/whoami', buttonConfig = {} }) {
+  signedInListeners.push({ whoamiPath, onSignedIn, onForbidden });
 
   function render() {
     if (!window.google?.accounts?.id) return;
-    window.google.accounts.id.initialize({
-      client_id: GOOGLE_OAUTH_CLIENT_ID,
-      callback: handleCredentialResponse,
-    });
+    if (!gisInitialized) {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_OAUTH_CLIENT_ID,
+        callback: handleCredentialResponse,
+      });
+      gisInitialized = true;
+    }
+    const config = { type: 'standard', text: 'signin_with', locale: 'pl', ...buttonConfig };
     for (const id of buttonIds) {
       const el = document.getElementById(id);
       if (el) {
-        window.google.accounts.id.renderButton(el, { type: 'standard', text: 'signin_with', locale: 'pl' });
+        window.google.accounts.id.renderButton(el, config);
       }
     }
   }
