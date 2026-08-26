@@ -49,7 +49,16 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add public/galerie/data/albums.generated.json public/galerie/covers public/galerie/thumbs
             git commit -m "chore: update generated album metadata"
-            git push
+            # main can easily have moved by now (npm ci/test/sync-albums above take a while,
+            # and this repo sees several pushes per session) - a plain `git push` then fails
+            # with a non-fast-forward rejection. Rebase onto the latest main and retry a few
+            # times instead of failing the whole run over an unrelated, already-landed commit.
+            for attempt in 1 2 3 4 5; do
+              git push && break
+              echo "Push rejected (attempt $attempt/5) - rebasing onto latest main and retrying..."
+              git pull --rebase origin main
+              sleep 3
+            done
           else
             echo "No generated changes to commit"
           fi
