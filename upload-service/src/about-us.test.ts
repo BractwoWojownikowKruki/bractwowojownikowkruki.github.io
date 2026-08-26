@@ -19,6 +19,21 @@ test('parsePersonFolderName treats a name with no leading number as unordered', 
   assert.deepEqual(parsePersonFolderName('Jan Kowalski'), { order: null, name: 'Jan Kowalski' });
 });
 
+// Regression: repeatedly prepending to Emeryci (computeOrderForDepartmentMove's lowest - 1)
+// eventually produces a negative order - a pattern that didn't accept "-" treated the whole
+// "-1. Ragnar" as an unparsed name instead of {order: -1, name: "Ragnar"}, which both showed
+// the "-1. " prefix in the displayed name and sorted the person to the end of the list (as an
+// "unnumbered" entry) instead of the top.
+test('parsePersonFolderName handles a negative order', () => {
+  assert.deepEqual(parsePersonFolderName('-1. Ragnar'), { order: -1, name: 'Ragnar' });
+});
+
+test('buildPersonFolderName and parsePersonFolderName round-trip a negative order', () => {
+  const folderName = buildPersonFolderName('Ragnar', -2);
+  assert.equal(folderName, '-2. Ragnar');
+  assert.deepEqual(parsePersonFolderName(folderName), { order: -2, name: 'Ragnar' });
+});
+
 test('buildPersonFolderName prefixes the order when given', () => {
   assert.equal(buildPersonFolderName('Ragnar', 1), '1. Ragnar');
 });
@@ -37,6 +52,12 @@ test('sortPeopleByFolderName places unnumbered entries after all numbered ones, 
   const items = [{ folderName: 'Zenon' }, { folderName: '1. Ragnar' }, { folderName: 'Adam' }];
   const sorted = sortPeopleByFolderName(items).map(i => i.folderName);
   assert.deepEqual(sorted, ['1. Ragnar', 'Adam', 'Zenon']);
+});
+
+test('sortPeopleByFolderName places a negative-order entry before positive ones (Emeryci prepend)', () => {
+  const items = [{ folderName: '1. Anna' }, { folderName: '-1. Ragnar' }, { folderName: '2. Jan' }];
+  const sorted = sortPeopleByFolderName(items).map(i => i.folderName);
+  assert.deepEqual(sorted, ['-1. Ragnar', '1. Anna', '2. Jan']);
 });
 
 test('sortPeopleByFolderName keeps duplicate-order entries together as a group, in either relative order', () => {

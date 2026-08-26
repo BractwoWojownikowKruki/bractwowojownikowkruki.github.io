@@ -43,7 +43,13 @@ export function computeOrderForDepartmentMove(department: AboutUsCategory, exist
   return department === 'Emeryci' ? Math.min(...orders) - 1 : Math.max(...orders) + 1;
 }
 
-const PERSON_FOLDER_NAME_PATTERN = /^(\d+)\.\s*(.+)$/;
+// Allows an optional leading "-": computeOrderForDepartmentMove can legitimately produce a
+// negative order (Emeryci prepends via lowest-existing-order - 1, and repeated moves there walk
+// that value below zero) - a pattern that didn't accept "-" silently failed to parse a folder
+// like "-1. Ragnar" back out, treating the *entire* "-1. Ragnar" as an unnumbered name instead
+// (which also meant it sorted to the end of the list, alongside every other real unnumbered
+// entry, rather than at the top as intended).
+const PERSON_FOLDER_NAME_PATTERN = /^(-?\d+)\.\s*(.+)$/;
 
 export interface ParsedPersonFolderName {
   order: number | null;
