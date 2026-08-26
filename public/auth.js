@@ -124,16 +124,31 @@ async function handleCredentialResponse(response) {
 // can omit both. `buttonConfig` overrides GIS's renderButton options (theme/size/text/shape)
 // for just this call's buttons. Safe to call more than once per page (see signedInListeners
 // above) - each call independently verifies its own whoamiPath against the one shared token.
-function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, whoamiPath = '/whoami', buttonConfig = {} }) {
+//
+// `onRestoredIdentity(payload)` is a separate, optional, *unverified* fast path: if a page load
+// restores a still-valid token (see restoreIdToken), this fires immediately, synchronously,
+// from the token's own locally-decoded payload - no network round trip. onSignedIn/onForbidden
+// still run afterwards once the real whoamiPath check resolves; they're what anything
+// privilege-gated (an admin link, an upload button) must wait for. onRestoredIdentity exists so
+// purely cosmetic, non-privileged UI (e.g. the nav's avatar) can update at once instead of
+// sitting blank for however long that check takes - which can be a real 1-3s+ on this service's
+// end, especially a cold Cloud Run instance or a slow allowlist check (see the Apps Script
+// allowlist comment in upload-service/src/allowlist.ts). Safe to "trust" cosmetically: a forged
+// payload here can't grant anything, since every actual privileged action still goes through
+// the server-verified token on the real API calls.
+function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, onRestoredIdentity, whoamiPath = '/whoami', buttonConfig = {} }) {
   signedInListeners.push({ whoamiPath, onSignedIn, onForbidden });
 
   // A token restored from an earlier page (see restoreIdToken) means this page should start
   // already signed in, without waiting for GSI to load or for a fresh button click.
-  if (isIdTokenValid() && (onSignedIn || onForbidden)) {
+  if (isIdTokenValid()) {
     const payload = decodeJwtPayload(idToken);
-    apiFetch(whoamiPath, { method: 'GET' }, () => {}, () => {})
-      .then(() => onSignedIn?.(payload))
-      .catch(() => onForbidden?.(payload));
+    onRestoredIdentity?.(payload);
+    if (onSignedIn || onForbidden) {
+      apiFetch(whoamiPath, { method: 'GET' }, () => {}, () => {})
+        .then(() => onSignedIn?.(payload))
+        .catch(() => onForbidden?.(payload));
+    }
   }
 
   function render() {

@@ -1297,17 +1297,17 @@ main { padding: 1.25rem 1.5rem 3rem; }
 .nav-item--highlighted {
   color: var(--accent);
   font-weight: 600;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 35%, transparent);
-  padding: 0.5rem 0.9rem;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 20%, transparent);
+  padding: 0.3rem 0.55rem;
   border-radius: 4px;
   border-bottom-color: transparent;
 }
 
 .nav-item--highlighted:hover {
   color: var(--gold);
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--accent) 30%, transparent);
   border-bottom-color: transparent;
 }
 

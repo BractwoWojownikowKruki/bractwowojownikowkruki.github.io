@@ -78,32 +78,45 @@ document.addEventListener('DOMContentLoaded', () => {
   const adminLink = document.getElementById('nav-admin-link');
   if (!avatarSlot || typeof initGoogleSignIn !== 'function') return;
 
-  function renderNavAuth(payload, isAdmin) {
+  // Split in two so the avatar can update the instant a restored token is found - locally,
+  // from the token's own payload, no network wait - while the admin link still only ever
+  // reflects the real, server-verified /admin/whoami result (see onRestoredIdentity's comment
+  // in auth.js for why that split is safe).
+  function renderAvatar(payload) {
     if (!payload) {
       avatarSlot.innerHTML = '';
       if (signinSlot) signinSlot.hidden = false;
-      if (adminLink) adminLink.hidden = true;
       return;
     }
     const email = payload.email ? payload.email.replace(/"/g, '&quot;') : '';
     const picture = payload.picture ? payload.picture.replace(/"/g, '&quot;') : '';
     avatarSlot.innerHTML = `<img src="${picture}" alt="${email}" title="${email}" class="nav-avatar" />`;
     if (signinSlot) signinSlot.hidden = true;
+  }
+
+  function renderAdminLink(isAdmin) {
     if (adminLink) adminLink.hidden = !isAdmin;
   }
 
   // Only show the "Zaloguj" button right away if there's definitely no restorable session to
   // check first (see the equivalent comment in wojownicy.js) - otherwise leave everything as-is
-  // for the brief async whoami round trip rather than flashing a misleading "you're signed
-  // out" button for an already-signed-in visitor.
+  // for onRestoredIdentity below to resolve immediately instead of flashing a misleading
+  // "you're signed out" button for an already-signed-in visitor.
   if (typeof isIdTokenValid !== 'function' || !isIdTokenValid()) {
-    renderNavAuth(null);
+    renderAvatar(null);
   }
   initGoogleSignIn({
     buttonIds: ['nav-google-signin-button'],
     whoamiPath: '/admin/whoami',
     buttonConfig: { theme: 'filled_black', size: 'medium', text: 'signin' },
-    onSignedIn: payload => renderNavAuth(payload, true),
-    onForbidden: payload => renderNavAuth(payload, false),
+    onRestoredIdentity: payload => renderAvatar(payload),
+    onSignedIn: payload => {
+      renderAvatar(payload);
+      renderAdminLink(true);
+    },
+    onForbidden: payload => {
+      renderAvatar(payload);
+      renderAdminLink(false);
+    },
   });
 });
