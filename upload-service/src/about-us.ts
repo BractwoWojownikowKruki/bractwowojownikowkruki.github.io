@@ -11,6 +11,20 @@ export function isAboutUsCategory(value: string): value is AboutUsCategory {
   return (ABOUT_US_CATEGORIES as readonly string[]).includes(value);
 }
 
+// The admin panel's "department" concept is the 4 public categories plus the "upload" staging
+// folder (see AboutUsFolders.uploadRoot) - kept distinct from AboutUsCategory/isAboutUsCategory,
+// which gate the *public* /about-us endpoint and must never accept "upload" (those submissions
+// aren't reviewed yet, so they must never become publicly fetchable by category name).
+export type AdminDepartment = AboutUsCategory | 'upload';
+
+export function isAdminDepartment(value: string): value is AdminDepartment {
+  return value === 'upload' || isAboutUsCategory(value);
+}
+
+export function departmentFolderId(folders: AboutUsFolders, department: AdminDepartment): string {
+  return department === 'upload' ? folders.uploadRoot : folders.categories[department];
+}
+
 const PERSON_FOLDER_NAME_PATTERN = /^(\d+)\.\s*(.+)$/;
 
 export interface ParsedPersonFolderName {
@@ -69,6 +83,10 @@ export interface PersonPhoto {
 export interface Person {
   folderId: string;
   name: string;
+  // Parsed straight from the folder name (see parsePersonFolderName) - null for an unnumbered
+  // folder. Exposed so the admin panel can prefill a "Kolejność" input with the current value
+  // when offering to change it (see handleAdminUpdatePersonOrder in server.ts).
+  order: number | null;
   description: string;
   mainPhoto: PersonPhoto | null;
   photos: PersonPhoto[];
@@ -131,7 +149,7 @@ export async function fetchCategoryPeople(drive: DriveClient, categoryFolderId: 
 
   const people = await Promise.all(
     sortedFolders.map(async folder => {
-      const { name } = parsePersonFolderName(folder.name);
+      const { name, order } = parsePersonFolderName(folder.name);
       const [description, images] = await Promise.all([
         drive.readTextFile(folder.id, 'Opis.txt'),
         drive.listImageFiles(folder.id),
@@ -142,7 +160,7 @@ export async function fetchCategoryPeople(drive: DriveClient, categoryFolderId: 
       const photos: PersonPhoto[] = restImages
         .filter((img): img is typeof img & { thumbnailLink: string } => img.thumbnailLink != null)
         .map(img => ({ id: img.id, url: resizeThumbnailUrl(img.thumbnailLink, 300) }));
-      return { folderId: folder.id, name, description: description ?? '', mainPhoto, photos };
+      return { folderId: folder.id, name, order, description: description ?? '', mainPhoto, photos };
     }),
   );
 

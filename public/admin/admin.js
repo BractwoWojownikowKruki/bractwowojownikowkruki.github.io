@@ -100,8 +100,23 @@ async function loadManageList() {
   }
 }
 
+const DEPARTMENT_OPTIONS = [
+  ['Blachowi', 'Blachowi'],
+  ['Niewiasty', 'Niewiasty'],
+  ['Emeryci', 'Emeryci'],
+  ['Kandydaci', 'Kandydaci'],
+  ['upload', 'Upload (zgłoszenia)'],
+];
+
+function departmentOptionsHtml(selected) {
+  return DEPARTMENT_OPTIONS.map(
+    ([value, label]) => `<option value="${value}"${value === selected ? ' selected' : ''}>${label}</option>`,
+  ).join('');
+}
+
 function renderManageList(people) {
   const list = document.getElementById('manage-people-list');
+  const currentCategory = document.getElementById('manage-category').value;
   if (!people.length) {
     list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
     return;
@@ -114,6 +129,26 @@ function renderManageList(people) {
       <p style="color:var(--text-muted); font-size:13px;">${p.photos.length + (p.mainPhoto ? 1 : 0)} zdjęć</p>
       <textarea class="edit-description" data-folder-id="${p.folderId}" rows="3" style="width:100%; margin:0.5rem 0;">${escapeHtml(p.description)}</textarea>
       <button class="save-description" data-folder-id="${p.folderId}">Zapisz opis</button>
+
+      <div style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap; margin:0.75rem 0;">
+        <label>Imię
+          <input type="text" class="edit-name" data-folder-id="${p.folderId}" value="${escapeAttr(p.name)}" style="display:block; margin-top:4px;" />
+        </label>
+        <label>Kolejność
+          <input type="number" min="0" class="edit-order" data-folder-id="${p.folderId}" value="${p.order ?? ''}" style="display:block; width:90px; margin-top:4px;" />
+        </label>
+        <button class="save-order" data-folder-id="${p.folderId}">Zapisz</button>
+      </div>
+
+      <div style="display:flex; gap:0.5rem; align-items:flex-end; margin:0.75rem 0;">
+        <label>Przenieś do
+          <select class="move-category" data-folder-id="${p.folderId}" style="display:block; margin-top:4px;">
+            ${departmentOptionsHtml(currentCategory)}
+          </select>
+        </label>
+        <button class="move-person" data-folder-id="${p.folderId}">Przenieś</button>
+      </div>
+
       <input type="file" class="upload-photo" data-folder-id="${p.folderId}" accept="image/*" multiple style="display:block; margin:0.5rem 0;" />
       <button class="delete-person" data-folder-id="${p.folderId}" style="color:var(--accent);">Usuń osobę</button>
     </div>`,
@@ -123,6 +158,10 @@ function renderManageList(people) {
 
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeAttr(str) {
+  return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
 document.getElementById('manage-people-list').addEventListener('click', async e => {
@@ -144,6 +183,42 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
     if (!window.confirm('Na pewno usunąć tę osobę?')) return;
     const folderId = deleteBtn.dataset.folderId;
     await apiFetch(`/admin/people?folderId=${encodeURIComponent(folderId)}`, { method: 'DELETE' }, showReauth, hideReauth);
+    loadManageList();
+    return;
+  }
+  const saveOrderBtn = e.target.closest('.save-order');
+  if (saveOrderBtn) {
+    const folderId = saveOrderBtn.dataset.folderId;
+    const nameInput = document.querySelector(`.edit-name[data-folder-id="${folderId}"]`);
+    const orderInput = document.querySelector(`.edit-order[data-folder-id="${folderId}"]`);
+    const order = orderInput.value === '' ? null : Number(orderInput.value);
+    await apiFetch(
+      '/admin/people/order',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId, name: nameInput.value, order }),
+      },
+      showReauth,
+      hideReauth,
+    );
+    loadManageList();
+    return;
+  }
+  const moveBtn = e.target.closest('.move-person');
+  if (moveBtn) {
+    const folderId = moveBtn.dataset.folderId;
+    const select = document.querySelector(`.move-category[data-folder-id="${folderId}"]`);
+    await apiFetch(
+      '/admin/people/category',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId, category: select.value }),
+      },
+      showReauth,
+      hideReauth,
+    );
     loadManageList();
   }
 });

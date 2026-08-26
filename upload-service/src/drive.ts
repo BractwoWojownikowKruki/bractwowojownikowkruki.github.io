@@ -124,6 +124,49 @@ export async function deleteFolder(deps: DriveDeps, folderId: string): Promise<v
   }
 }
 
+// Renames a folder in place - used by the admin panel to change a person's "N. Imię" folder
+// name (and so their display order/name) without touching its contents or parent.
+export async function renameFolder(deps: DriveDeps, folderId: string, newName: string): Promise<void> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const res = await fetch(`${DRIVE_API}/drive/v3/files/${folderId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: sanitizeFolderName(newName) }),
+  });
+  if (!res.ok) {
+    throw new Error(`Nie udało się zmienić nazwy folderu w Drive: HTTP ${res.status}`);
+  }
+}
+
+// Moves a folder to a new parent (e.g. from the "upload" staging folder into a real category,
+// or between categories) - addParents/removeParents are query params on files.update, not body
+// fields, per the Drive API. Reads the folder's current parents first rather than trusting a
+// caller-supplied "old parent", since the admin panel doesn't reliably know which department a
+// folder currently lives in when the target department is chosen from a plain dropdown.
+export async function moveFolder(deps: DriveDeps, folderId: string, newParentId: string): Promise<void> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const getRes = await fetch(`${DRIVE_API}/drive/v3/files/${folderId}?fields=parents`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!getRes.ok) {
+    throw new Error(`Nie udało się odczytać folderu w Drive: HTTP ${getRes.status}`);
+  }
+  const { parents } = (await getRes.json()) as { parents?: string[] };
+  const removeParents = (parents ?? []).join(',');
+
+  const updateUrl = new URL(`${DRIVE_API}/drive/v3/files/${folderId}`);
+  updateUrl.searchParams.set('addParents', newParentId);
+  if (removeParents) updateUrl.searchParams.set('removeParents', removeParents);
+
+  const res = await fetch(updateUrl.toString(), {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Nie udało się przenieść folderu w Drive: HTTP ${res.status}`);
+  }
+}
+
 export function buildMultipartParts(
   metadata: Record<string, unknown>,
   mimeType: string,
@@ -408,6 +451,8 @@ export interface DriveClient {
   listFiles(folderId: string): Promise<DriveFileInfo[]>;
   setFolderPublic(folderId: string): Promise<void>;
   deleteFolder(folderId: string): Promise<void>;
+  renameFolder(folderId: string, newName: string): Promise<void>;
+  moveFolder(folderId: string, newParentId: string): Promise<void>;
   writeManifest(folderId: string, manifest: GalleryManifest): Promise<void>;
   readManifest(folderId: string): Promise<GalleryManifest | null>;
   listGalleryFolders(rootFolderId: string): Promise<DriveFolderInfo[]>;
@@ -429,6 +474,8 @@ export function createDriveClient(deps: DriveDeps): DriveClient {
     listFiles: folderId => listFiles(deps, folderId),
     setFolderPublic: folderId => setFolderPublic(deps, folderId),
     deleteFolder: folderId => deleteFolder(deps, folderId),
+    renameFolder: (folderId, newName) => renameFolder(deps, folderId, newName),
+    moveFolder: (folderId, newParentId) => moveFolder(deps, folderId, newParentId),
     writeManifest: (folderId, manifest) => writeManifest(deps, folderId, manifest),
     readManifest: folderId => readManifest(deps, folderId),
     listGalleryFolders: rootFolderId => listGalleryFolders(deps, rootFolderId),

@@ -10,10 +10,13 @@ import { fetchInstagramPosts, fetchFacebookPosts, fetchYouTubeVideos, clearSocia
 import {
   bootstrapAboutUsStructure,
   buildPersonFolderName,
+  departmentFolderId,
   fetchCategoryPeople,
   invalidateAboutUsCache,
   isAboutUsCategory,
+  isAdminDepartment,
   type AboutUsCategory,
+  type AdminDepartment,
 } from './about-us.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
@@ -245,6 +248,16 @@ function parseAboutUsCategory(value: string | null): AboutUsCategory {
   return value;
 }
 
+// Admin-only counterpart to parseAboutUsCategory - also accepts "upload" (see AdminDepartment),
+// so the admin panel can list/manage the self-service submission queue the same way it does
+// any real category. Never used by the public /about-us endpoint.
+function parseAdminDepartment(value: string | null): AdminDepartment {
+  if (!value || !isAdminDepartment(value)) {
+    throw new AuthError('Nieprawidłowy dział.', 400);
+  }
+  return value;
+}
+
 async function handleAboutUs(res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const category = parseAboutUsCategory(url.searchParams.get('category'));
   const folders = await bootstrapAboutUsStructure(deps.drive);
@@ -307,10 +320,41 @@ async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse
 
 async function handleAdminListPeople(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   await deps.authenticateAdmin(req);
-  const category = parseAboutUsCategory(url.searchParams.get('category'));
+  const department = parseAdminDepartment(url.searchParams.get('category'));
   const folders = await bootstrapAboutUsStructure(deps.drive);
-  const people = await fetchCategoryPeople(deps.drive, folders.categories[category]);
+  const people = await fetchCategoryPeople(deps.drive, departmentFolderId(folders, department));
   sendJson(res, 200, { people });
+}
+
+// Renames the folder to reflect a new display order and/or name - the two always travel
+// together (see buildPersonFolderName) so the admin panel sends both, even when only one
+// actually changed, rather than this handler needing to fetch the current folder name first.
+async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const { folderId, name, order } = await readJsonBody<{ folderId?: string; name?: string; order?: number | null }>(
+    req,
+    deps.maxJsonBodyBytes,
+  );
+  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
+  await deps.drive.renameFolder(folderId, buildPersonFolderName(name, order ?? null));
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
+}
+
+// Moves a person's folder into a different department (any of the 4 categories, or back into
+// "upload") - e.g. reviewing a self-service submission and moving it out of the staging folder
+// into Niewiasty/Kandydaci/etc. Drive's own move semantics (addParents/removeParents) are
+// handled in moveFolder; this just resolves the target department name to its folder id.
+async function handleAdminMovePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const { folderId, category } = await readJsonBody<{ folderId?: string; category?: string }>(req, deps.maxJsonBodyBytes);
+  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  const department = parseAdminDepartment(category ?? null);
+  const folders = await bootstrapAboutUsStructure(deps.drive);
+  await deps.drive.moveFolder(folderId, departmentFolderId(folders, department));
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
@@ -646,6 +690,10 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminCreatePerson(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/description') {
         await handleAdminUpdateDescription(req, res, url, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/people/order') {
+        await handleAdminUpdatePersonOrder(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/people/category') {
+        await handleAdminMovePerson(req, res, deps);
       } else if (req.method === 'DELETE' && url.pathname === '/admin/people') {
         await handleAdminDeletePerson(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/people') {

@@ -35,6 +35,8 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     listFiles: async () => [],
     setFolderPublic: async () => {},
     deleteFolder: async () => {},
+    renameFolder: async () => {},
+    moveFolder: async () => {},
     writeManifest: async () => {},
     readManifest: async () => null,
     listGalleryFolders: async () => [],
@@ -349,6 +351,148 @@ test('GET /admin/people lists people for a category (same shape as public endpoi
     const body = await res.json();
     assert.equal(body.people[0].name, 'Jan');
     assert.equal(body.people[0].folderId, 'p1');
+  });
+});
+
+test('GET /admin/people?category=upload lists people from the upload staging folder', async () => {
+  resetAboutUsBootstrapForTests();
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => (name === 'upload' ? 'upload-root' : `folder-${name}`),
+      listGalleryFolders: async parentId =>
+        parentId === 'upload-root' ? [{ id: 'p1', name: 'Anna - anna@gmail.com - 2026-08-19', modifiedTime: '2026-08-19T00:00:00Z' }] : [],
+      readTextFile: async () => null,
+      listImageFiles: async () => [],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people?category=upload`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.people[0].folderId, 'p1');
+    assert.equal(body.people[0].name, 'Anna - anna@gmail.com - 2026-08-19');
+    assert.equal(body.people[0].order, null);
+  });
+});
+
+test('GET /admin/people rejects a nonexistent department', async () => {
+  resetAboutUsBootstrapForTests();
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people?category=NieIstnieje`);
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/people/order renames the folder to reflect the new name and order', async () => {
+  let renamedTo: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      renameFolder: async (_folderId, newName) => {
+        renamedTo = newName;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/order`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1', name: 'Ragnar', order: 3 }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(renamedTo, '3. Ragnar');
+});
+
+test('PUT /admin/people/order accepts a null order (unnumbered, sorted alphabetically)', async () => {
+  let renamedTo: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      renameFolder: async (_folderId, newName) => {
+        renamedTo = newName;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/order`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1', name: 'Ragnar', order: null }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(renamedTo, 'Ragnar');
+});
+
+test('PUT /admin/people/order rejects a missing name', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/order`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1', order: 1 }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/people/category moves the folder into the target department', async () => {
+  resetAboutUsBootstrapForTests();
+  let movedFolderId: string | undefined;
+  let movedToParent: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `folder-${name}`,
+      moveFolder: async (folderId, newParentId) => {
+        movedFolderId = folderId;
+        movedToParent = newParentId;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/category`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1', category: 'Niewiasty' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(movedFolderId, 'person-1');
+  assert.equal(movedToParent, 'folder-Niewiasty');
+});
+
+test('PUT /admin/people/category can move a folder into the upload staging department', async () => {
+  resetAboutUsBootstrapForTests();
+  let movedToParent: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => (name === 'upload' ? 'upload-root' : `folder-${name}`),
+      moveFolder: async (_folderId, newParentId) => {
+        movedToParent = newParentId;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/category`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1', category: 'upload' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(movedToParent, 'upload-root');
+});
+
+test('PUT /admin/people/category rejects a nonexistent department', async () => {
+  resetAboutUsBootstrapForTests();
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/category`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1', category: 'NieIstnieje' }),
+    });
+    assert.equal(res.status, 400);
   });
 });
 
