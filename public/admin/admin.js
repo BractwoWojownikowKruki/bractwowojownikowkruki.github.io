@@ -88,13 +88,38 @@ document.getElementById('add-person-form').addEventListener('submit', async e =>
 
 document.getElementById('manage-category').addEventListener('change', loadManageList);
 
+// Valid "transfer this photo to" targets: existing people in the 3 categories a photo could
+// reasonably belong to (Emeryci excluded per spec - retired warriors aren't where a fresh
+// upload-staging photo should ever land; upload/deleted excluded since those aren't existing
+// published profiles). Fetched fresh on every loadManageList() call rather than cached across
+// them, so a person added/moved/renamed a moment ago always shows up correctly.
+const TRANSFER_TARGET_CATEGORIES = ['Blachowi', 'Niewiasty', 'Kandydaci'];
+
+async function loadTransferTargets() {
+  const results = await Promise.all(
+    TRANSFER_TARGET_CATEGORIES.map(category =>
+      apiFetch(`/admin/people?category=${encodeURIComponent(category)}`, { method: 'GET' }, showReauth, hideReauth),
+    ),
+  );
+  const targets = [];
+  results.forEach((data, i) => {
+    for (const p of data.people || []) {
+      targets.push({ folderId: p.folderId, path: `${TRANSFER_TARGET_CATEGORIES[i]} / ${p.name}` });
+    }
+  });
+  return targets;
+}
+
 async function loadManageList() {
   const category = document.getElementById('manage-category').value;
   const list = document.getElementById('manage-people-list');
   list.textContent = 'Ładowanie...';
   try {
-    const data = await apiFetch(`/admin/people?category=${encodeURIComponent(category)}`, { method: 'GET' }, showReauth, hideReauth);
-    renderManageList(data.people || []);
+    const [data, transferTargets] = await Promise.all([
+      apiFetch(`/admin/people?category=${encodeURIComponent(category)}`, { method: 'GET' }, showReauth, hideReauth),
+      loadTransferTargets(),
+    ]);
+    renderManageList(data.people || [], transferTargets);
   } catch (err) {
     list.textContent = `Błąd: ${err.message}`;
   }
@@ -115,7 +140,36 @@ function departmentOptionsHtml(selected) {
   ).join('');
 }
 
-function renderManageList(people) {
+function transferTargetOptionsHtml(transferTargets, excludeFolderId) {
+  return transferTargets
+    .filter(t => t.folderId !== excludeFolderId)
+    .map(t => `<option value="${escapeAttr(t.folderId)}">${escapeHtml(t.path)}</option>`)
+    .join('');
+}
+
+function photoItemHtml(folderId, photo, isMain, transferTargets) {
+  return `
+    <div class="manage-photo-item" style="display:inline-block; text-align:center; margin:0 0.5rem 0.5rem 0; vertical-align:top; width:100px;">
+      <img src="${photo.url}" alt="" style="width:100px; height:100px; object-fit:cover; border-radius:4px; display:block; border:1px solid var(--border);" />
+      <div style="font-size:11px; margin-top:2px;">
+        ${
+          isMain
+            ? '<strong>Główne</strong>'
+            : `<button class="set-main-photo" data-folder-id="${folderId}" data-file-id="${photo.id}">Ustaw główne</button>`
+        }
+      </div>
+      <button class="delete-photo" data-file-id="${photo.id}" style="color:var(--accent); font-size:11px; margin-top:2px;">Usuń zdjęcie</button>
+      <div style="margin-top:4px;">
+        <select class="transfer-target" data-file-id="${photo.id}" style="width:100%; font-size:11px;">
+          <option value="">Transferuj do...</option>
+          ${transferTargetOptionsHtml(transferTargets, folderId)}
+        </select>
+        <button class="transfer-photo" data-file-id="${photo.id}" style="font-size:11px; margin-top:2px;">Transferuj</button>
+      </div>
+    </div>`;
+}
+
+function renderManageList(people, transferTargets) {
   const list = document.getElementById('manage-people-list');
   const currentCategory = document.getElementById('manage-category').value;
   if (!people.length) {
@@ -123,11 +177,18 @@ function renderManageList(people) {
     return;
   }
   list.innerHTML = people
-    .map(
-      p => `
+    .map(p => {
+      const allPhotos = [
+        ...(p.mainPhoto ? [{ ...p.mainPhoto, isMain: true }] : []),
+        ...p.photos.map(photo => ({ ...photo, isMain: false })),
+      ];
+      const photosHtml = allPhotos.length
+        ? allPhotos.map(photo => photoItemHtml(p.folderId, photo, photo.isMain, transferTargets)).join('')
+        : '<p style="color:var(--text-muted); font-size:13px;">Brak zdjęć.</p>';
+      return `
     <div style="border:1px solid var(--border); border-radius:6px; padding:1rem; margin-bottom:1rem;">
       <strong>${escapeHtml(p.name)}</strong>
-      <p style="color:var(--text-muted); font-size:13px;">${p.photos.length + (p.mainPhoto ? 1 : 0)} zdjęć</p>
+      <div style="margin:0.5rem 0;">${photosHtml}</div>
       <textarea class="edit-description" data-folder-id="${p.folderId}" rows="3" style="width:100%; margin:0.5rem 0;">${escapeHtml(p.description)}</textarea>
       <button class="save-description" data-folder-id="${p.folderId}">Zapisz opis</button>
 
@@ -152,8 +213,8 @@ function renderManageList(people) {
 
       <input type="file" class="upload-photo" data-folder-id="${p.folderId}" accept="image/*" multiple style="display:block; margin:0.5rem 0;" />
       <button class="delete-person" data-folder-id="${p.folderId}" style="color:var(--accent);">Usuń osobę</button>
-    </div>`,
-    )
+    </div>`;
+    })
     .join('');
 }
 
@@ -216,6 +277,49 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folderId, category: select.value }),
+      },
+      showReauth,
+      hideReauth,
+    );
+    loadManageList();
+    return;
+  }
+  const deletePhotoBtn = e.target.closest('.delete-photo');
+  if (deletePhotoBtn) {
+    if (!window.confirm('Na pewno usunąć to zdjęcie?')) return;
+    await apiFetch(`/admin/people/photo?fileId=${encodeURIComponent(deletePhotoBtn.dataset.fileId)}`, { method: 'DELETE' }, showReauth, hideReauth);
+    loadManageList();
+    return;
+  }
+  const setMainBtn = e.target.closest('.set-main-photo');
+  if (setMainBtn) {
+    await apiFetch(
+      '/admin/people/photo/main',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId: setMainBtn.dataset.folderId, fileId: setMainBtn.dataset.fileId }),
+      },
+      showReauth,
+      hideReauth,
+    );
+    loadManageList();
+    return;
+  }
+  const transferBtn = e.target.closest('.transfer-photo');
+  if (transferBtn) {
+    const fileId = transferBtn.dataset.fileId;
+    const select = document.querySelector(`.transfer-target[data-file-id="${fileId}"]`);
+    if (!select.value) {
+      window.alert('Wybierz osobę, do której chcesz przenieść zdjęcie.');
+      return;
+    }
+    await apiFetch(
+      '/admin/people/photo/transfer',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId, targetFolderId: select.value }),
       },
       showReauth,
       hideReauth,

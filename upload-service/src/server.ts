@@ -403,6 +403,42 @@ async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse,
   sendJson(res, 200, { ok: true });
 }
 
+// Designates one photo in a folder as the "main" one, by giving it (and only it) the leading
+// "!" that fetchCategoryPeople's alphabetical sort relies on (see the comment on isMain in
+// handleWojownicyUploadPhoto below for why "!" specifically) - strips the prefix from whatever
+// other file currently has it first, so exactly one photo is ever marked main at a time.
+async function handleAdminSetMainPhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const { folderId, fileId } = await readJsonBody<{ folderId?: string; fileId?: string }>(req, deps.maxJsonBodyBytes);
+  if (!folderId || !fileId) throw new AuthError('Brak folderId lub fileId.', 400);
+  const images = await deps.drive.listImageFiles(folderId);
+  for (const image of images) {
+    const isTarget = image.id === fileId;
+    const hasMainPrefix = image.name.startsWith('!');
+    if (isTarget && !hasMainPrefix) {
+      await deps.drive.renameFolder(image.id, `!${image.name}`);
+    } else if (!isTarget && hasMainPrefix) {
+      await deps.drive.renameFolder(image.id, image.name.slice(1));
+    }
+  }
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
+}
+
+// Moves a single photo into a different person's folder - see moveFile in drive.ts for why
+// (reviewing an upload-staging submission for someone who already has an existing profile).
+async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const { fileId, targetFolderId } = await readJsonBody<{ fileId?: string; targetFolderId?: string }>(
+    req,
+    deps.maxJsonBodyBytes,
+  );
+  if (!fileId || !targetFolderId) throw new AuthError('Brak fileId lub targetFolderId.', 400);
+  await deps.drive.moveFile(fileId, targetFolderId);
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
+}
+
 const WOJOWNICY_UPLOAD_MIME_EXTENSIONS: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -727,6 +763,10 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminUploadPhoto(req, res, url, deps);
       } else if (req.method === 'DELETE' && url.pathname === '/admin/people/photo') {
         await handleAdminDeletePhoto(req, res, url, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/people/photo/main') {
+        await handleAdminSetMainPhoto(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/people/photo/transfer') {
+        await handleAdminTransferPhoto(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/wojownicy-upload/whoami') {
         await handleWojownicyUploadWhoami(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/wojownicy-upload/submit') {

@@ -37,6 +37,7 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     deleteFolder: async () => {},
     renameFolder: async () => {},
     moveFolder: async () => ({ name: 'Test Person' }),
+    moveFile: async () => {},
     writeManifest: async () => {},
     readManifest: async () => null,
     listGalleryFolders: async () => [],
@@ -662,6 +663,102 @@ test('DELETE /admin/people/photo trashes the photo file', async () => {
     assert.equal(res.status, 200);
   });
   assert.equal(deletedId, 'photo-1');
+});
+
+test('PUT /admin/people/photo/main prefixes the target photo and strips any previous main prefix', async () => {
+  const renamedTo: Record<string, string> = {};
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listImageFiles: async () => [
+        { id: 'photo-1', name: '!IMG_0001.jpg', thumbnailLink: null },
+        { id: 'photo-2', name: 'IMG_0002.jpg', thumbnailLink: null },
+      ],
+      renameFolder: async (fileId, newName) => {
+        renamedTo[fileId] = newName;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/main`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1', fileId: 'photo-2' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(renamedTo['photo-1'], 'IMG_0001.jpg');
+  assert.equal(renamedTo['photo-2'], '!IMG_0002.jpg');
+});
+
+test('PUT /admin/people/photo/main is a no-op when the target is already main and nothing else has the prefix', async () => {
+  let renameCalled = false;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listImageFiles: async () => [
+        { id: 'photo-1', name: '!IMG_0001.jpg', thumbnailLink: null },
+        { id: 'photo-2', name: 'IMG_0002.jpg', thumbnailLink: null },
+      ],
+      renameFolder: async () => {
+        renameCalled = true;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/main`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1', fileId: 'photo-1' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(renameCalled, false);
+});
+
+test('PUT /admin/people/photo/main rejects a missing fileId', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/main`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/people/photo/transfer moves the photo into the target folder', async () => {
+  let movedFileId: string | undefined;
+  let movedToParent: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      moveFile: async (fileId, newParentFolderId) => {
+        movedFileId = fileId;
+        movedToParent = newParentFolderId;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/transfer`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'photo-1', targetFolderId: 'person-2' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(movedFileId, 'photo-1');
+  assert.equal(movedToParent, 'person-2');
+});
+
+test('PUT /admin/people/photo/transfer rejects a missing targetFolderId', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/transfer`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'photo-1' }),
+    });
+    assert.equal(res.status, 400);
+  });
 });
 
 test('/register rejects an unauthenticated caller before touching Drive or GitHub', async () => {
