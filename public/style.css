@@ -2349,6 +2349,29 @@ main { padding: 1.25rem 1.5rem 3rem; }
   transform: scale(1.03);
 }
 
+/* In memoriam (see admin.js's "Oznacz jako in memoriam" toggle, person-tile.js's
+   inMemoriam-driven markup): every photo of the person renders grayscale, and the main photo
+   additionally gets a black ribbon banner across its top-left corner. The ribbon is a plain
+   rotated bar clipped by .person-main-photo's own overflow:hidden, not a separate asset. */
+.person-tile--in-memoriam .person-main-photo img,
+.person-tile--in-memoriam .person-gallery img {
+  filter: grayscale(100%);
+}
+
+.in-memoriam-ribbon {
+  position: absolute;
+  top: 22px;
+  left: -42px;
+  width: 150px;
+  height: 24px;
+  background: #000;
+  transform: rotate(-45deg);
+  transform-origin: center;
+  z-index: 2;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
 .person-gallery {
   display: flex;
   gap: 0.5rem;

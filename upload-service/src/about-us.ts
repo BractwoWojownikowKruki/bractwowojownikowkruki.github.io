@@ -114,7 +114,14 @@ export interface Person {
   description: string;
   mainPhoto: PersonPhoto | null;
   photos: PersonPhoto[];
+  // Set via the admin panel's "Oznacz jako in memoriam" toggle (handleAdminSetInMemoriam) -
+  // the public site renders this person's photos in grayscale with a black diagonal ribbon
+  // (see person-tile.js). Stored as a small marker file (IN_MEMORIAM_FILE_NAME) rather than in
+  // the folder name, so it doesn't interact with the "N. Imię" order-prefix parsing at all.
+  inMemoriam: boolean;
 }
+
+export const IN_MEMORIAM_FILE_NAME = '.in-memoriam';
 
 export interface AboutUsFolders {
   root: string;
@@ -180,9 +187,10 @@ export async function fetchCategoryPeople(drive: DriveClient, categoryFolderId: 
   const people = await Promise.all(
     sortedFolders.map(async folder => {
       const { name, order } = parsePersonFolderName(folder.name);
-      const [description, images] = await Promise.all([
+      const [description, images, inMemoriamMarker] = await Promise.all([
         drive.readTextFile(folder.id, 'Opis.txt'),
         drive.listImageFiles(folder.id),
+        drive.readTextFile(folder.id, IN_MEMORIAM_FILE_NAME),
       ]);
       const [mainImage, ...restImages] = images;
       const mainPhoto: PersonPhoto | null =
@@ -190,7 +198,15 @@ export async function fetchCategoryPeople(drive: DriveClient, categoryFolderId: 
       const photos: PersonPhoto[] = restImages
         .filter((img): img is typeof img & { thumbnailLink: string } => img.thumbnailLink != null)
         .map(img => ({ id: img.id, url: resizeThumbnailUrl(img.thumbnailLink, 300) }));
-      return { folderId: folder.id, name, order, description: description ?? '', mainPhoto, photos };
+      return {
+        folderId: folder.id,
+        name,
+        order,
+        description: description ?? '',
+        mainPhoto,
+        photos,
+        inMemoriam: inMemoriamMarker === 'true',
+      };
     }),
   );
 

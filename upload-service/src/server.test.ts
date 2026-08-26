@@ -763,6 +763,83 @@ test('PUT /admin/people/photo/transfer rejects a missing targetFolderId', async 
   });
 });
 
+test('PUT /admin/people/in-memoriam writes the marker file and invalidates the cache', async () => {
+  let writtenTo: string | undefined;
+  let writtenName: string | undefined;
+  let writtenContent: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      writeTextFile: async (folderId, fileName, content) => {
+        writtenTo = folderId;
+        writtenName = fileName;
+        writtenContent = content;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/in-memoriam`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1', inMemoriam: true }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(writtenTo, 'person-1');
+  assert.equal(writtenName, '.in-memoriam');
+  assert.equal(writtenContent, 'true');
+});
+
+test('PUT /admin/people/in-memoriam can unset the marker', async () => {
+  let writtenContent: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      writeTextFile: async (_folderId, _fileName, content) => {
+        writtenContent = content;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/in-memoriam`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1', inMemoriam: false }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(writtenContent, 'false');
+});
+
+test('PUT /admin/people/in-memoriam rejects a missing inMemoriam field', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/in-memoriam`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('GET /admin/people includes inMemoriam for each person', async () => {
+  resetAboutUsBootstrapForTests();
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `folder-${name}`,
+      listGalleryFolders: async parentId =>
+        parentId === 'folder-Blachowi' ? [{ id: 'p1', name: '1. Ragnar', modifiedTime: '2024-01-01T00:00:00Z' }] : [],
+      readTextFile: async (_folderId, fileName) => (fileName === '.in-memoriam' ? 'true' : null),
+      listImageFiles: async () => [],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people?category=Blachowi`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.people[0].inMemoriam, true);
+  });
+});
+
 test('/register rejects an unauthenticated caller before touching Drive or GitHub', async () => {
   let driveCalled = false;
   let githubCalled = false;

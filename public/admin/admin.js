@@ -211,6 +211,11 @@ function renderManageList(people, transferTargets) {
         <button class="move-person" data-folder-id="${p.folderId}">Przenieś</button>
       </div>
 
+      <label style="display:block; margin:0.75rem 0;">
+        <input type="checkbox" class="toggle-in-memoriam" data-folder-id="${p.folderId}" ${p.inMemoriam ? 'checked' : ''} />
+        Oznacz jako in memoriam (zdjęcia czarno-białe z czarną wstęgą)
+      </label>
+
       <input type="file" class="upload-photo" data-folder-id="${p.folderId}" accept="image/*" multiple style="display:block; margin:0.5rem 0;" />
       <button class="delete-person" data-folder-id="${p.folderId}" style="color:var(--accent);">Usuń osobę</button>
     </div>`;
@@ -329,9 +334,26 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
 });
 
 document.getElementById('manage-people-list').addEventListener('change', async e => {
-  const input = e.target.closest('.upload-photo');
-  if (!input || !input.files.length) return;
-  await uploadPhotos(input.dataset.folderId, input.files);
-  input.value = '';
-  loadManageList();
+  const uploadInput = e.target.closest('.upload-photo');
+  if (uploadInput) {
+    if (!uploadInput.files.length) return;
+    await uploadPhotos(uploadInput.dataset.folderId, uploadInput.files);
+    uploadInput.value = '';
+    loadManageList();
+    return;
+  }
+  const inMemoriamCheckbox = e.target.closest('.toggle-in-memoriam');
+  if (inMemoriamCheckbox) {
+    await apiFetch(
+      '/admin/people/in-memoriam',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId: inMemoriamCheckbox.dataset.folderId, inMemoriam: inMemoriamCheckbox.checked }),
+      },
+      showReauth,
+      hideReauth,
+    );
+    loadManageList();
+  }
 });

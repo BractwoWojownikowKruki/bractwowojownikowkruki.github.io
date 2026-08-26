@@ -23,9 +23,12 @@ function personTileHtml(person, personIndex, options = {}) {
   const cropBtn = photoIndex =>
     editable ? `<button type="button" class="photo-crop-btn" data-photo-index="${photoIndex}" aria-label="Kadruj zdjęcie">${CROP_ICON}</button>` : '';
 
+  const inMemoriamRibbon = person.inMemoriam ? '<span class="in-memoriam-ribbon" aria-hidden="true"></span>' : '';
+
   const mainPhotoHtml = person.mainPhoto
     ? `<div class="person-main-photo" data-person-index="${personIndex}" data-photo-index="0">
          <img src="${escapeAttr(person.mainPhoto.url)}" alt="${escapeAttr(person.name)}" loading="lazy" />
+         ${inMemoriamRibbon}
          ${cropBtn(0)}
        </div>`
     : '';
@@ -40,8 +43,12 @@ function personTileHtml(person, personIndex, options = {}) {
         })
         .join('')}</div>`
     : '';
+  // In memoriam: photos render grayscale (main photo + gallery thumbnails alike, via the
+  // class below) plus a diagonal ribbon on the main photo specifically - .person-main-photo
+  // already has the position:relative/overflow:hidden the ribbon needs; the small gallery
+  // thumbnails don't have an equivalent wrapper, so they get the grayscale treatment only.
   return `
-    <article class="person-tile">
+    <article class="person-tile${person.inMemoriam ? ' person-tile--in-memoriam' : ''}">
       <h3 class="person-name">${escapeHtml(person.name)}</h3>
       ${mainPhotoHtml}
       ${galleryHtml}

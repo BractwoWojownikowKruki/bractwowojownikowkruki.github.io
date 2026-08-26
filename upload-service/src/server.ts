@@ -13,6 +13,7 @@ import {
   computeOrderForDepartmentMove,
   departmentFolderId,
   fetchCategoryPeople,
+  IN_MEMORIAM_FILE_NAME,
   invalidateAboutUsCache,
   isAboutUsCategory,
   isAdminDepartment,
@@ -476,6 +477,17 @@ async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerRespons
   sendJson(res, 200, { ok: true });
 }
 
+// Toggles the "Oznacz jako in memoriam" marker (see IN_MEMORIAM_FILE_NAME in about-us.ts) - the
+// public site renders this person's photos grayscale with a black diagonal ribbon once set.
+async function handleAdminSetInMemoriam(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const { folderId, inMemoriam } = await readJsonBody<{ folderId?: string; inMemoriam?: boolean }>(req, deps.maxJsonBodyBytes);
+  if (!folderId || typeof inMemoriam !== 'boolean') throw new AuthError('Brak folderId lub inMemoriam.', 400);
+  await deps.drive.writeTextFile(folderId, IN_MEMORIAM_FILE_NAME, inMemoriam ? 'true' : 'false');
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
+}
+
 const WOJOWNICY_UPLOAD_MIME_EXTENSIONS: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -878,6 +890,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminSetMainPhoto(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/photo/transfer') {
         await handleAdminTransferPhoto(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/people/in-memoriam') {
+        await handleAdminSetInMemoriam(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/wojownicy-upload/whoami') {
         await handleWojownicyUploadWhoami(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/wojownicy-upload/submit') {
