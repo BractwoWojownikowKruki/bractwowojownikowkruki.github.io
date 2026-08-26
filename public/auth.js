@@ -8,6 +8,11 @@ const GOOGLE_OAUTH_CLIENT_ID = '895090213384-cqac9v2tvmjhkkertjjj5q4h8qf41g3d.ap
 // Refresh a little before the token's real expiry, not exactly at it, so an in-flight
 // request never straddles the boundary between "was valid" and "just expired".
 const ID_TOKEN_EXPIRY_SAFETY_MARGIN_SECONDS = 30;
+// Persisting the token is what lets sign-in survive navigating to a new page (each page load
+// is a fresh JS context, so without this the user would have to re-click "Zaloguj" on every
+// single page). localStorage rather than sessionStorage so it also survives opening a link in
+// a new tab - the token's own short expiry already bounds how long it stays usable either way.
+const ID_TOKEN_STORAGE_KEY = 'kruki_id_token';
 
 let idToken = null;
 let idTokenExp = 0;
@@ -29,6 +34,33 @@ function decodeJwtPayload(token) {
 function isIdTokenValid() {
   return Boolean(idToken) && idTokenExp - ID_TOKEN_EXPIRY_SAFETY_MARGIN_SECONDS > Date.now() / 1000;
 }
+
+function persistIdToken() {
+  try {
+    localStorage.setItem(ID_TOKEN_STORAGE_KEY, JSON.stringify({ token: idToken, exp: idTokenExp }));
+  } catch {
+    // localStorage can throw (private browsing, disabled storage) - falling back to
+    // in-memory-only just means sign-in won't survive navigation, not a hard failure.
+  }
+}
+
+// Restores a still-valid token saved by an earlier page (see persistIdToken) so this page
+// starts already signed in instead of showing "Zaloguj" again. Runs once at load time.
+(function restoreIdToken() {
+  try {
+    const raw = localStorage.getItem(ID_TOKEN_STORAGE_KEY);
+    if (!raw) return;
+    const stored = JSON.parse(raw);
+    if (stored?.token && stored?.exp - ID_TOKEN_EXPIRY_SAFETY_MARGIN_SECONDS > Date.now() / 1000) {
+      idToken = stored.token;
+      idTokenExp = stored.exp;
+    } else {
+      localStorage.removeItem(ID_TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // Same as above - just means this page starts signed out.
+  }
+})();
 
 // Pauses the caller and invokes showReauthUI() if the current Google ID token has expired, is
 // about to, or was never obtained. Resolves (after calling hideReauthUI()) once a sign-in
@@ -59,6 +91,7 @@ async function handleCredentialResponse(response) {
   idToken = response.credential;
   const payload = decodeJwtPayload(idToken);
   idTokenExp = payload.exp;
+  persistIdToken();
 
   if (pendingReauth) {
     const resolve = pendingReauth;
@@ -93,6 +126,15 @@ async function handleCredentialResponse(response) {
 // above) - each call independently verifies its own whoamiPath against the one shared token.
 function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, whoamiPath = '/whoami', buttonConfig = {} }) {
   signedInListeners.push({ whoamiPath, onSignedIn, onForbidden });
+
+  // A token restored from an earlier page (see restoreIdToken) means this page should start
+  // already signed in, without waiting for GSI to load or for a fresh button click.
+  if (isIdTokenValid() && (onSignedIn || onForbidden)) {
+    const payload = decodeJwtPayload(idToken);
+    apiFetch(whoamiPath, { method: 'GET' }, () => {}, () => {})
+      .then(() => onSignedIn?.(payload))
+      .catch(() => onForbidden?.(payload));
+  }
 
   function render() {
     if (!window.google?.accounts?.id) return;
