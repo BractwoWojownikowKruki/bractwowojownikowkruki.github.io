@@ -83,7 +83,13 @@ document.addEventListener('DOMContentLoaded', () => {
     slot.innerHTML = `${adminLink}<img src="${picture}" alt="${email}" title="${email}" class="nav-avatar" />`;
   }
 
-  renderNavAuth(null);
+  // Only show the "Zaloguj" button right away if there's definitely no restorable session to
+  // check first (see the equivalent comment in wojownicy.js) - otherwise leave the slot blank
+  // for the brief async whoami round trip rather than flashing a misleading "you're signed
+  // out" button for an already-signed-in visitor.
+  if (typeof isIdTokenValid !== 'function' || !isIdTokenValid()) {
+    renderNavAuth(null);
+  }
   initGoogleSignIn({
     buttonIds: ['nav-google-signin-button'],
     whoamiPath: '/admin/whoami',

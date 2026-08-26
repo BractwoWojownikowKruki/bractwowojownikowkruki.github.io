@@ -17,9 +17,6 @@
     <a href="/" class="logo-link" aria-label="Bractwo Wojowników Kruki">
       <img src="kruki-logo.png" alt="Kruki" class="logo" />
     </a>
-    <button id="nav-toggle" class="nav-toggle" aria-label="Otwórz menu" aria-expanded="false" aria-controls="main-nav">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-    </button>
     <nav class="main-nav" id="main-nav">
       <a href="o-nas/" class="nav-item">O nas</a>
       <div class="nav-item-dropdown">
@@ -35,8 +32,13 @@
       <a href="turniej/" class="nav-item">Kruczy Turniej</a>
       <a href="galerie/" class="nav-item">Galerie</a>
       <a href="kontakt/" class="nav-item">Kontakt</a>
-      <span class="nav-auth-slot" id="nav-auth-slot" data-admin-href="admin/"></span>
     </nav>
+    <div class="header-actions">
+      <span class="nav-auth-slot" id="nav-auth-slot" data-admin-href="admin/"></span>
+      <button id="nav-toggle" class="nav-toggle" aria-label="Otwórz menu" aria-expanded="false" aria-controls="main-nav">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    </div>
   </header>
 
   <!-- Banner Carousel -->
