@@ -48,6 +48,13 @@ const ICON_TRASH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
   <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
 </svg>`;
 
+const ICON_ADD_PHOTO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <rect x="3" y="3" width="18" height="18" rx="2"/>
+  <circle cx="9" cy="9" r="2"/>
+  <path d="M21 15l-5-5L5 21"/>
+  <path d="M17 9h4M19 7v4" stroke-width="2"/>
+</svg>`;
+
 let allAlbums = [];
 let sortMode = 'newest';
 
@@ -290,6 +297,56 @@ function driveDownloadUrl(fileId) {
 
 let driveGalleryFiles = [];
 let currentIndex = -1;
+let photoUploaderByFileId = {};
+
+async function fetchPhotoUploaders(folderId) {
+  try {
+    const res = await fetch(`${UPLOAD_SERVICE_URL}/gallery-photos/uploaders?folderId=${encodeURIComponent(folderId)}`);
+    if (!res.ok) return {};
+    const { uploaders } = await res.json();
+    const byFileId = {};
+    for (const entry of uploaders ?? []) byFileId[entry.fileId] = entry;
+    return byFileId;
+  } catch {
+    // Attribution is a nice-to-have, not core to viewing the gallery - fail silently.
+    return {};
+  }
+}
+
+function formatUploadedAt(iso) {
+  try {
+    return new Date(iso).toLocaleDateString('pl-PL', { year: 'numeric', month: 'long', day: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
+function renderAttribution(elId, file) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const entry = file && photoUploaderByFileId[file.id];
+  if (!entry) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  const avatar = entry.picture
+    ? `<img src="${escapeAttr(entry.picture)}" alt="" />`
+    : '';
+  const label = escapeHtml(entry.name || entry.email || '');
+  const when = formatUploadedAt(entry.uploadedAt);
+  el.innerHTML = `${avatar}<span>Dodane przez <span class="photo-attribution-name">${label}</span>${when ? `, ${when}` : ''}</span>`;
+  el.hidden = false;
+}
+
+function addPhotosUrl(album) {
+  const params = new URLSearchParams({
+    folderId: album.driveFolderId,
+    name: displayTitle(album.title),
+    hash: slugify(album.title),
+  });
+  return `dodaj-zdjecia.html?${params.toString()}`;
+}
 
 function renderDriveGalleryView(album) {
   const badge = album.date ? `<span class="drive-gallery-date">${album.date}</span>` : '';
@@ -299,6 +356,7 @@ function renderDriveGalleryView(album) {
       <h1 class="drive-gallery-title">${escapeHtml(displayTitle(album.title))}</h1>
       ${badge}
       <div class="drive-gallery-actions">
+        <a class="btn-drive-action" href="${escapeAttr(addPhotosUrl(album))}">${ICON_ADD_PHOTO} Dodaj zdjęcia</a>
         <a class="btn-drive-action" href="${escapeAttr(album.url)}" target="_blank" rel="noopener noreferrer">${ICON_GOOGLE_DRIVE} Otwórz w Google Drive</a>
         <button class="btn-drive-action" id="drive-download-album" type="button">${ICON_DOWNLOAD} Pobierz album</button>
         ${renderDeleteButton()}
@@ -312,6 +370,7 @@ function renderDriveGalleryView(album) {
           <img id="drive-hero-img" alt="" />
           <span class="spinner"></span>
           <a class="btn-download-image" id="drive-hero-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
+          <p class="photo-attribution" id="drive-hero-attribution" hidden></p>
         </div>
         <button class="drive-hero-next" id="drive-hero-next" aria-label="Następne">${ICON_CHEVRON_RIGHT}</button>
       </div>
@@ -324,6 +383,7 @@ function renderDriveGalleryView(album) {
         <img id="lightbox-img" alt="" />
         <span class="spinner"></span>
         <a class="btn-download-image" id="lightbox-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
+        <p class="photo-attribution" id="lightbox-attribution" hidden></p>
       </div>
       <button class="lightbox-next" id="lightbox-next" aria-label="Następne">${ICON_CHEVRON_RIGHT}</button>
       <div class="lightbox-filmstrip" id="lightbox-filmstrip"></div>
@@ -402,9 +462,13 @@ async function loadDriveGallery(album) {
   const status = document.getElementById('drive-gallery-status');
   const grid = document.getElementById('drive-gallery-grid');
   driveGalleryFiles = [];
+  photoUploaderByFileId = {};
   currentIndex = -1;
   try {
-    driveGalleryFiles = await fetchDriveFiles(album.driveFolderId);
+    [driveGalleryFiles, photoUploaderByFileId] = await Promise.all([
+      fetchDriveFiles(album.driveFolderId),
+      fetchPhotoUploaders(album.driveFolderId),
+    ]);
     if (!status || !grid) return; // user navigated away before this resolved
     if (driveGalleryFiles.length === 0) {
       status.textContent = 'Brak zdjęć w tym folderze.';
@@ -445,6 +509,8 @@ function setCurrentIndex(index) {
   }
   const heroDownload = document.getElementById('drive-hero-download');
   if (heroDownload) heroDownload.href = downloadHref;
+  renderAttribution('drive-hero-attribution', file);
+  renderAttribution('lightbox-attribution', file);
 
   const lightboxImg = document.getElementById('lightbox-img');
   if (lightboxImg) {
