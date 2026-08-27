@@ -304,16 +304,24 @@ let driveGalleryFiles = [];
 let currentIndex = -1;
 let photoUploaderByFileId = {};
 
+// GET /gallery-photos/uploaders requires the same kruki-group sign-in as the rest of this page
+// (KRKG-0031) - guarded by isIdTokenValid() rather than apiFetch's usual ensureFreshIdToken/
+// showReauthUI dance, since attribution is a nice-to-have, not core to viewing the gallery: if
+// the token has expired mid-session, this silently omits attribution rather than interrupting
+// the visitor with a reauth prompt just to show who uploaded a photo.
 async function fetchPhotoUploaders(folderId) {
+  if (typeof isIdTokenValid === 'function' && !isIdTokenValid()) return {};
   try {
-    const res = await fetch(`${UPLOAD_SERVICE_URL}/gallery-photos/uploaders?folderId=${encodeURIComponent(folderId)}`);
-    if (!res.ok) return {};
-    const { uploaders } = await res.json();
+    const { uploaders } = await apiFetch(
+      `/gallery-photos/uploaders?folderId=${encodeURIComponent(folderId)}`,
+      { method: 'GET' },
+      () => {},
+      () => {},
+    );
     const byFileId = {};
     for (const entry of uploaders ?? []) byFileId[entry.fileId] = entry;
     return byFileId;
   } catch {
-    // Attribution is a nice-to-have, not core to viewing the gallery - fail silently.
     return {};
   }
 }
@@ -627,13 +635,11 @@ function route() {
 
 window.addEventListener('hashchange', route);
 
-function showDeleteReauth() {
-  document.getElementById('delete-reauth-modal').hidden = false;
-}
-
-function hideDeleteReauth() {
-  document.getElementById('delete-reauth-modal').hidden = true;
-}
+// Reuses the page's own galerie-reauth prompt (see loadGalleries above) - a distinct
+// #delete-reauth-modal was referenced here previously but never existed in index.html, so a
+// reauth prompt during delete silently threw instead of showing anything.
+const showDeleteReauth = showGalerieReauth;
+const hideDeleteReauth = hideGalerieReauth;
 
 // Drive-folder galleries the app created itself (see mapDiscoveredGallery's `deletable` marker)
 // are deleted for real via Drive; everything else - Google Photos, or a Drive folder someone
@@ -768,26 +774,62 @@ function mapDiscoveredGallery(gallery) {
   };
 }
 
-Promise.allSettled([
-  fetch('data/albums.generated.json').then(r => r.json()),
-  fetch(`${UPLOAD_SERVICE_URL}/galleries`).then(r => r.json()),
-]).then(([generatedResult, discoveredResult]) => {
-  const generated = generatedResult.status === 'fulfilled' ? generatedResult.value : null;
-  const discovered = discoveredResult.status === 'fulfilled' ? discoveredResult.value.galleries : null;
+function showGalerieReauth() {
+  document.getElementById('galerie-reauth').hidden = false;
+}
 
-  if (!generated && !discovered) {
-    document.getElementById('count').textContent = 'Błąd ładowania danych';
-    return;
-  }
+function hideGalerieReauth() {
+  document.getElementById('galerie-reauth').hidden = true;
+}
 
-  allAlbums = [...(generated ?? []), ...(discovered ?? []).map(mapDiscoveredGallery)];
-  update();
-  route();
-}).finally(() => {
-  const gridLoading = document.getElementById('grid-loading');
-  if (gridLoading) gridLoading.hidden = true;
+// GET /galleries requires kruki-group sign-in (KRKG-0031: galleries carry contributor/uploader
+// personal data, so this page is no longer public). data/albums.generated.json (the CI
+// pipeline's own output for Photos/Drive-by-URL galleries) stays a plain fetch - it's a static
+// file checked into this same repo, already served publicly by GitHub Pages regardless.
+function loadGalleries() {
+  Promise.allSettled([
+    fetch('data/albums.generated.json').then(r => r.json()),
+    apiFetch('/galleries', { method: 'GET' }, showGalerieReauth, hideGalerieReauth),
+  ]).then(([generatedResult, discoveredResult]) => {
+    const generated = generatedResult.status === 'fulfilled' ? generatedResult.value : null;
+    const discovered = discoveredResult.status === 'fulfilled' ? discoveredResult.value.galleries : null;
+
+    if (!generated && !discovered) {
+      document.getElementById('count').textContent = 'Błąd ładowania danych';
+      return;
+    }
+
+    allAlbums = [...(generated ?? []), ...(discovered ?? []).map(mapDiscoveredGallery)];
+    update();
+    route();
+  }).finally(() => {
+    const gridLoading = document.getElementById('grid-loading');
+    if (gridLoading) gridLoading.hidden = true;
+  });
+}
+
+function showGalerieMain() {
+  document.getElementById('galerie-gate').hidden = true;
+  document.getElementById('galerie-main').hidden = false;
+  document.getElementById('toolbar').hidden = false;
+}
+
+function showGalerieForbidden() {
+  document.getElementById('galerie-signin').hidden = true;
+  document.getElementById('galerie-forbidden').hidden = false;
+}
+
+// Replaces the old "sign-in only on demand, for deleting a gallery" flow - the whole page is
+// now behind the same kruki-group check (KRKG-0031), so galerie-reauth-button doubles as both
+// the initial gate's button and the later on-demand reauth prompt (for this fetch and for
+// delete/unregister, via handleDeleteGallery's own apiFetch call further up).
+initGoogleSignIn({
+  buttonIds: ['galerie-google-signin-button', 'galerie-reauth-button'],
+  onSignedIn: () => {
+    showGalerieMain();
+    loadGalleries();
+  },
+  onForbidden: () => {
+    showGalerieForbidden();
+  },
 });
-
-// Sign-in is only ever needed on demand, when deleting a gallery (see handleDeleteGallery) -
-// no persistent sign-in UI on this page, just the reauth modal wired up ahead of time.
-initGoogleSignIn({ buttonIds: ['delete-google-signin-button'] });

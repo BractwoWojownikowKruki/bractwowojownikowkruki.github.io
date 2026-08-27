@@ -277,9 +277,14 @@ async function buildGalleryList(deps: ServerDeps): Promise<GalleryListItem[]> {
   );
 }
 
-// Public and unauthenticated, like the static albums.generated.json it's replacing for Drive
-// galleries - the cache above is what keeps this from becoming a live-Drive-call-per-page-view.
-async function handleGalleries(res: ServerResponse, deps: ServerDeps): Promise<void> {
+// Requires the same kruki-group sign-in as upload/register (KRKG-0031) - previously
+// unauthenticated, like the static albums.generated.json it's replacing for Drive galleries,
+// but each gallery's `contributors` is a list of real email addresses, so a fully public,
+// unauthenticated endpoint was handing that out to anyone on the internet. Gating it narrows
+// that to signed-in kruki-group members, who already know each other. The cache above is what
+// keeps this from becoming a live-Drive-call-per-request once a caller is past that gate.
+async function handleGalleries(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticate(req);
   const now = Date.now();
   if (!galleriesCache || galleriesCache.expiresAt <= now) {
     const data = await buildGalleryList(deps);
@@ -761,10 +766,11 @@ async function handleGalleryPhotosFinalize(req: IncomingMessage, res: ServerResp
   sendJson(res, 200, { ok: true });
 }
 
-// Public and unauthenticated, like /galleries - lets the gallery detail view show "Dodane
-// przez" (avatar/name/timestamp) for each photo without requiring a visitor to sign in just to
-// look. Not more sensitive than what /galleries already exposes (contributor email addresses).
-async function handleGalleryPhotoUploaders(res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+// Same gate as /galleries (KRKG-0031) - lets the gallery detail view show "Dodane przez"
+// (avatar/name/timestamp) for each photo to signed-in kruki-group members, without handing
+// uploader emails/names/photos to anonymous visitors.
+async function handleGalleryPhotoUploaders(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticate(req);
   const folderId = url.searchParams.get('folderId');
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   const uploaders = await readUploadLog(deps.drive, folderId);
@@ -850,10 +856,15 @@ async function handleInstagramPosts(res: ServerResponse): Promise<void> {
     res.writeHead(200);
     res.end(JSON.stringify(posts));
   } catch (error) {
-    console.error('Instagram posts fetch error:', error);
+    // The public response never includes the upstream error text (KRKG-0034) - it can carry
+    // implementation details or, in a misconfigured deployment, part of a token/key. The full
+    // error is still logged server-side, tagged with the same correlationId returned to the
+    // caller, so an operator can correlate a support report back to the real cause.
+    const correlationId = randomUUID();
+    console.error(`[${correlationId}] Instagram posts fetch error:`, error);
     sendJson(res, 500, {
       error: 'Nie udało się pobrać postów z Instagrama.',
-      details: error instanceof Error ? error.message : String(error),
+      correlationId,
       posts: [],
       source: 'instagram',
       lastUpdated: new Date().toISOString()
@@ -874,10 +885,12 @@ async function handleFacebookPosts(res: ServerResponse): Promise<void> {
     res.writeHead(200);
     res.end(JSON.stringify(posts));
   } catch (error) {
-    console.error('Facebook posts fetch error:', error);
+    // See handleInstagramPosts's catch block above for why details are not returned publicly.
+    const correlationId = randomUUID();
+    console.error(`[${correlationId}] Facebook posts fetch error:`, error);
     sendJson(res, 500, {
       error: 'Nie udało się pobrać postów z Facebooka.',
-      details: error instanceof Error ? error.message : String(error),
+      correlationId,
       posts: [],
       source: 'facebook',
       lastUpdated: new Date().toISOString()
@@ -893,10 +906,12 @@ async function handleYouTubeVideos(res: ServerResponse): Promise<void> {
     res.writeHead(200);
     res.end(JSON.stringify(data));
   } catch (error) {
-    console.error('YouTube videos fetch error:', error);
+    // See handleInstagramPosts's catch block above for why details are not returned publicly.
+    const correlationId = randomUUID();
+    console.error(`[${correlationId}] YouTube videos fetch error:`, error);
     sendJson(res, 500, {
       error: 'Nie udało się pobrać filmów z YouTube.',
-      details: error instanceof Error ? error.message : String(error),
+      correlationId,
       channelTitle: '',
       channelThumbnail: '',
       channelUrl: '',
@@ -919,7 +934,7 @@ export function createRequestListener(deps: ServerDeps) {
       if (req.method === 'GET' && url.pathname === '/whoami') {
         await handleWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/galleries') {
-        await handleGalleries(res, deps);
+        await handleGalleries(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/about-us') {
         await handleAboutUs(res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/whoami') {
@@ -979,7 +994,7 @@ export function createRequestListener(deps: ServerDeps) {
       } else if (req.method === 'POST' && url.pathname === '/gallery-photos/finalize') {
         await handleGalleryPhotosFinalize(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/gallery-photos/uploaders') {
-        await handleGalleryPhotoUploaders(res, url, deps);
+        await handleGalleryPhotoUploaders(req, res, url, deps);
       } else {
         sendJson(res, 404, { error: 'Nie znaleziono.' });
       }

@@ -118,7 +118,22 @@ test('OPTIONS advertises PUT and DELETE alongside GET/POST for admin routes', as
   });
 });
 
-test('/galleries merges each discovered folder with its manifest, unauthenticated', async () => {
+test('/galleries rejects an unauthenticated caller before touching Drive', async () => {
+  let driveCalled = false;
+  const deps = makeDeps({
+    authenticate: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+    drive: makeFakeDrive({ listGalleryFolders: async () => { driveCalled = true; return []; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/galleries`);
+    assert.equal(res.status, 401);
+    assert.equal(driveCalled, false);
+  });
+});
+
+test('/galleries merges each discovered folder with its manifest, for a signed-in kruki-group member', async () => {
   const deps = makeDeps({
     drive: makeFakeDrive({
       listGalleryFolders: async rootFolderId => {
@@ -1480,6 +1495,21 @@ test('POST /gallery-photos/finalize adds a new contributor when the gallery has 
   });
   assert.deepEqual(writtenManifest?.contributors, ['alice@gmail.com']);
   assert.equal(writtenManifest?.name, undefined);
+});
+
+test('GET /gallery-photos/uploaders rejects an unauthenticated caller before touching Drive', async () => {
+  let driveCalled = false;
+  const deps = makeDeps({
+    authenticate: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+    drive: makeFakeDrive({ readTextFile: async () => { driveCalled = true; return null; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/gallery-photos/uploaders?folderId=gallery-1`);
+    assert.equal(res.status, 401);
+    assert.equal(driveCalled, false);
+  });
 });
 
 test('GET /gallery-photos/uploaders returns the upload log for a folder', async () => {

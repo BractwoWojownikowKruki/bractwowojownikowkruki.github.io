@@ -571,6 +571,13 @@ main { padding: 1.25rem 1.5rem 3rem; }
   max-width: 480px;
 }
 
+/* Reuses .add-album-card's width/typography for the galerie page's sign-in gate (KRKG-0031),
+   which - unlike the add-album page - has no .add-album-main flex wrapper to center it in. */
+.galerie-gate {
+  margin: 3rem auto;
+  padding: 0 1.5rem;
+}
+
 .add-album-title {
   font-family: 'Cinzel', serif;
   font-size: 22px;
