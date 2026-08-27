@@ -112,13 +112,30 @@ async function uploadAllFiles(targetFolderId, submissionToken, files, onProgress
 function renderProgress(completed, total, failed) {
   const progressEl = document.getElementById('upload-progress');
   const textEl = document.getElementById('upload-progress-text');
+  const fillEl = document.getElementById('upload-progress-fill');
   const listEl = document.getElementById('upload-failed-list');
   progressEl.hidden = false;
   textEl.textContent = `Przesłano ${completed} / ${total}`;
+  if (fillEl) fillEl.style.width = `${total ? Math.round((completed / total) * 100) : 0}%`;
   if (failed.length) {
     listEl.hidden = false;
     listEl.innerHTML = failed.map(name => `<li>Nie udało się przesłać: ${name}</li>`).join('');
   }
+}
+
+// Shown the instant the submit handler starts, before /gallery-photos/start or the first file
+// upload has even resolved - otherwise the only feedback for however long that takes is the
+// disabled button, which easily reads as "did clicking that do anything at all?".
+function renderUploadStarting() {
+  const progressEl = document.getElementById('upload-progress');
+  const textEl = document.getElementById('upload-progress-text');
+  const fillEl = document.getElementById('upload-progress-fill');
+  const listEl = document.getElementById('upload-failed-list');
+  progressEl.hidden = false;
+  textEl.textContent = 'Rozpoczynanie przesyłania...';
+  if (fillEl) fillEl.style.width = '0%';
+  listEl.hidden = true;
+  listEl.innerHTML = '';
 }
 
 async function submitPhotos(files) {
@@ -174,6 +191,7 @@ document.getElementById('upload-form').addEventListener('submit', async e => {
 
   const submitButton = document.getElementById('upload-submit-button');
   submitButton.disabled = true;
+  renderUploadStarting();
   try {
     await submitPhotos(files);
     document.getElementById('upload-form').hidden = true;

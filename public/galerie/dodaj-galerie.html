@@ -53,11 +53,9 @@
   <main class="add-album-main">
     <div class="add-album-card">
       <h1 class="add-album-title">Dodaj galerię</h1>
-      <p class="add-album-intro">
-        Aby dodać album, zaloguj się kontem Google z uprawnieniami.
-      </p>
 
       <div class="upload-signin" id="upload-signin">
+        <p class="add-album-intro">Aby dodać album, zaloguj się kontem Google z uprawnieniami.</p>
         <div id="google-signin-button"></div>
       </div>
       <p class="upload-signed-in" id="upload-signed-in" hidden>
@@ -100,6 +98,7 @@
 
           <div class="upload-progress" id="upload-progress" hidden>
             <p id="upload-progress-text"></p>
+            <div class="upload-progress-bar"><div class="upload-progress-bar-fill" id="upload-progress-fill"></div></div>
             <ul class="upload-failed-list" id="upload-failed-list" hidden></ul>
           </div>
 

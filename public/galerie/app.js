@@ -378,14 +378,16 @@ function renderDriveGalleryView(album) {
     <p class="drive-gallery-status" id="drive-gallery-status"><span class="spinner"></span> Ładowanie…</p>
     <div class="drive-gallery-browser">
       <div class="drive-hero" id="drive-hero" hidden>
-        <button class="drive-hero-prev" id="drive-hero-prev" aria-label="Poprzednie">${ICON_CHEVRON_LEFT}</button>
-        <div class="drive-hero-image-wrap">
-          <img id="drive-hero-img" alt="" />
-          <span class="spinner"></span>
-          <a class="btn-download-image" id="drive-hero-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
-          <p class="photo-attribution" id="drive-hero-attribution" hidden></p>
+        <div class="drive-hero-row">
+          <button class="drive-hero-prev" id="drive-hero-prev" aria-label="Poprzednie">${ICON_CHEVRON_LEFT}</button>
+          <div class="drive-hero-image-wrap">
+            <img id="drive-hero-img" alt="" />
+            <span class="spinner"></span>
+            <a class="btn-download-image" id="drive-hero-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
+          </div>
+          <button class="drive-hero-next" id="drive-hero-next" aria-label="Następne">${ICON_CHEVRON_RIGHT}</button>
         </div>
-        <button class="drive-hero-next" id="drive-hero-next" aria-label="Następne">${ICON_CHEVRON_RIGHT}</button>
+        <p class="photo-attribution" id="drive-hero-attribution" hidden></p>
       </div>
       <div class="drive-gallery-grid" id="drive-gallery-grid"></div>
     </div>
@@ -396,8 +398,8 @@ function renderDriveGalleryView(album) {
         <img id="lightbox-img" alt="" />
         <span class="spinner"></span>
         <a class="btn-download-image" id="lightbox-download" download target="_blank" rel="noopener" title="Pobierz zdjęcie" aria-label="Pobierz zdjęcie">${ICON_DOWNLOAD}</a>
-        <p class="photo-attribution" id="lightbox-attribution" hidden></p>
       </div>
+      <p class="photo-attribution" id="lightbox-attribution" hidden></p>
       <button class="lightbox-next" id="lightbox-next" aria-label="Następne">${ICON_CHEVRON_RIGHT}</button>
       <div class="lightbox-filmstrip" id="lightbox-filmstrip"></div>
     </div>`;
