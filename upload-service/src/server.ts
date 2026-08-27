@@ -713,6 +713,9 @@ async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: S
   // a folder the app did NOT create (an existing external gallery) goes through /register
   // instead, which commits to albums.json for the pipeline-based sync to pick up.
   await deps.drive.setFolderPublic(folderId);
+  // Invalidated so the new gallery shows up on the next /galleries call instead of waiting out
+  // galleriesCacheTtlMs - same reasoning as handleGalleryPhotosFinalize's cache clear below.
+  galleriesCache = null;
   sendJson(res, 200, { ok: true });
 }
 

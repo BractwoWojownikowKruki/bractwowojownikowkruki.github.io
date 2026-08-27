@@ -1356,6 +1356,38 @@ test('/finalize succeeds, publishes the folder, and does not touch GitHub', asyn
   });
 });
 
+test('/finalize invalidates the /galleries cache so the new gallery shows up immediately', async () => {
+  let listCalls = 0;
+  const deps = makeDeps({
+    galleriesCacheTtlMs: 60_000,
+    drive: makeFakeDrive({
+      listFiles: async () => [{ name: 'a.jpg', size: 10 }],
+      listGalleryFolders: async () => {
+        listCalls++;
+        return listCalls === 1 ? [] : [{ id: 'g1', name: 'Nowa galeria', modifiedTime: '2026-01-01T00:00:00.000Z' }];
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const first = await fetch(`${baseUrl}/galleries`).then(r => r.json());
+    assert.equal(first.galleries.length, 0);
+
+    const token = await issueTestSubmissionToken(deps, folderId);
+    await fetch(`${baseUrl}/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Submission-Token': token },
+      body: JSON.stringify({ folderId, date: '2026-08-09' }),
+    });
+
+    // Without the cache invalidation, this would still return the stale (empty) cached listing
+    // since galleriesCacheTtlMs (60s) hasn't elapsed.
+    const second = await fetch(`${baseUrl}/galleries`).then(r => r.json());
+    assert.equal(second.galleries.length, 1);
+    assert.equal(listCalls, 2);
+  });
+});
+
 test('/upload records who uploaded the file and when', async () => {
   let writtenTo: string | undefined;
   let writtenContent: string | undefined;
@@ -1495,6 +1527,38 @@ test('POST /gallery-photos/finalize adds a new contributor when the gallery has 
   });
   assert.deepEqual(writtenManifest?.contributors, ['alice@gmail.com']);
   assert.equal(writtenManifest?.name, undefined);
+});
+
+test('POST /gallery-photos/finalize invalidates the /galleries cache so the added photo count shows up immediately', async () => {
+  let listCalls = 0;
+  const deps = makeDeps({
+    galleriesCacheTtlMs: 60_000,
+    drive: makeFakeDrive({
+      listGalleryFolders: async () => {
+        listCalls++;
+        return [{ id: 'g1', name: 'Galeria', modifiedTime: '2026-01-01T00:00:00.000Z' }];
+      },
+      getCoverThumbnail: async () => (listCalls === 1 ? null : 'https://example.test/thumb=s220'),
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const first = await fetch(`${baseUrl}/galleries`).then(r => r.json());
+    assert.equal(first.galleries[0].coverThumbnailLink, null);
+
+    const token = await issueTestSubmissionToken(deps, folderId);
+    await fetch(`${baseUrl}/gallery-photos/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Submission-Token': token },
+      body: JSON.stringify({ folderId }),
+    });
+
+    // Without the cache invalidation, this would still return the stale cached listing since
+    // galleriesCacheTtlMs (60s) hasn't elapsed.
+    const second = await fetch(`${baseUrl}/galleries`).then(r => r.json());
+    assert.equal(second.galleries[0].coverThumbnailLink, 'https://example.test/thumb=s220');
+    assert.equal(listCalls, 2);
+  });
 });
 
 test('GET /gallery-photos/uploaders rejects an unauthenticated caller before touching Drive', async () => {
