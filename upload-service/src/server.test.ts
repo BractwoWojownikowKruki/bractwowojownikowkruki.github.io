@@ -67,6 +67,7 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     authenticate: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
     authenticateAdmin: async () => ({ sub: 'admin-1', email: 'admin@gmail.com' }),
     authenticateWojownicyUpload: async () => ({ sub: 'wojownik-1', email: 'wojownik@gmail.com' }),
+    authenticateModerator: async () => ({ sub: 'moderator-1', email: 'moderator@gmail.com' }),
     submissionTokenSecret: 'test-secret',
     driveParentFolderId: 'parent-1',
     allowedOrigin: 'https://example.test',
@@ -117,7 +118,22 @@ test('OPTIONS advertises PUT and DELETE alongside GET/POST for admin routes', as
   });
 });
 
-test('/galleries merges each discovered folder with its manifest, unauthenticated', async () => {
+test('/galleries rejects an unauthenticated caller before touching Drive', async () => {
+  let driveCalled = false;
+  const deps = makeDeps({
+    authenticate: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+    drive: makeFakeDrive({ listGalleryFolders: async () => { driveCalled = true; return []; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/galleries`);
+    assert.equal(res.status, 401);
+    assert.equal(driveCalled, false);
+  });
+});
+
+test('/galleries merges each discovered folder with its manifest, for a signed-in kruki-group member', async () => {
   const deps = makeDeps({
     drive: makeFakeDrive({
       listGalleryFolders: async rootFolderId => {
@@ -886,6 +902,30 @@ test('/register rejects a malformed URL', async () => {
   });
 });
 
+test('/register rejects unsafe or unsupported URL schemes/hosts without invoking GitHub', async () => {
+  const unsafeUrls = [
+    'javascript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'http://drive.google.com/drive/folders/abc123',
+    'https://evil.example@photos.app.goo.gl/AbCdEf',
+    'https://photos.app.goo.gl.evil.example/AbCdEf',
+    'https://drive.google.com.evil.example/drive/folders/abc123',
+  ];
+  for (const url of unsafeUrls) {
+    let githubCalled = false;
+    const deps = makeDeps({ github: makeFakeGithub({ appendAlbumToMain: async () => { githubCalled = true; } }) });
+    await withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, date: '2026-08-09' }),
+      });
+      assert.equal(res.status, 400, `expected 400 for "${url}", got ${res.status}`);
+      assert.equal(githubCalled, false, `GitHub should not be called for "${url}"`);
+    });
+  }
+});
+
 test('/register commits a Drive folder URL to albums.json and does not touch Drive itself', async () => {
   let appendedEntry: unknown = null;
   let driveCalled = false;
@@ -939,7 +979,7 @@ test('/register commits a Google Photos URL to albums.json identically', async (
 test('/unregister rejects an unauthenticated caller before touching GitHub', async () => {
   let githubCalled = false;
   const deps = makeDeps({
-    authenticate: async () => {
+    authenticateModerator: async () => {
       throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
     },
     github: makeFakeGithub({ removeAlbumFromMain: async () => { githubCalled = true; } }),
@@ -951,6 +991,27 @@ test('/unregister rejects an unauthenticated caller before touching GitHub', asy
       body: JSON.stringify({ url: 'https://photos.app.goo.gl/AbCdEf' }),
     });
     assert.equal(res.status, 401);
+    assert.equal(githubCalled, false);
+  });
+});
+
+// See the equivalent /delete-drive-gallery test above for why this matters.
+test('/unregister rejects a caller who passes the general allowlist but not the moderator one', async () => {
+  let githubCalled = false;
+  const deps = makeDeps({
+    authenticate: async () => ({ sub: 'member-1', email: 'member@gmail.com' }),
+    authenticateModerator: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
+    },
+    github: makeFakeGithub({ removeAlbumFromMain: async () => { githubCalled = true; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/unregister`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://photos.app.goo.gl/AbCdEf' }),
+    });
+    assert.equal(res.status, 403);
     assert.equal(githubCalled, false);
   });
 });
@@ -988,7 +1049,7 @@ test('/unregister removes the matching albums.json entry, for a Drive-by-URL or 
 test('/delete-drive-gallery rejects an unauthenticated caller before touching Drive', async () => {
   let driveCalled = false;
   const deps = makeDeps({
-    authenticate: async () => {
+    authenticateModerator: async () => {
       throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
     },
     drive: makeFakeDrive({ deleteFolder: async () => { driveCalled = true; } }),
@@ -1000,6 +1061,29 @@ test('/delete-drive-gallery rejects an unauthenticated caller before touching Dr
       body: JSON.stringify({ folderId: 'abc' }),
     });
     assert.equal(res.status, 401);
+    assert.equal(driveCalled, false);
+  });
+});
+
+// KRKG-0027: an ordinary allowlisted kruki-group member (passes the general `authenticate`,
+// used elsewhere for upload/register) must NOT be able to delete a gallery just by being on
+// that broader list - only someone the narrower authenticateModerator gate accepts can.
+test('/delete-drive-gallery rejects a caller who passes the general allowlist but not the moderator one', async () => {
+  let driveCalled = false;
+  const deps = makeDeps({
+    authenticate: async () => ({ sub: 'member-1', email: 'member@gmail.com' }),
+    authenticateModerator: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
+    },
+    drive: makeFakeDrive({ deleteFolder: async () => { driveCalled = true; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/delete-drive-gallery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'abc' }),
+    });
+    assert.equal(res.status, 403);
     assert.equal(driveCalled, false);
   });
 });
@@ -1411,6 +1495,21 @@ test('POST /gallery-photos/finalize adds a new contributor when the gallery has 
   });
   assert.deepEqual(writtenManifest?.contributors, ['alice@gmail.com']);
   assert.equal(writtenManifest?.name, undefined);
+});
+
+test('GET /gallery-photos/uploaders rejects an unauthenticated caller before touching Drive', async () => {
+  let driveCalled = false;
+  const deps = makeDeps({
+    authenticate: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+    drive: makeFakeDrive({ readTextFile: async () => { driveCalled = true; return null; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/gallery-photos/uploaders?folderId=gallery-1`);
+    assert.equal(res.status, 401);
+    assert.equal(driveCalled, false);
+  });
 });
 
 test('GET /gallery-photos/uploaders returns the upload log for a folder', async () => {

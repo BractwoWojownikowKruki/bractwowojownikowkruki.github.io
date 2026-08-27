@@ -75,11 +75,17 @@ jobs:
           region: europe-central2
           project_id: krucze-galery-upload
           source: ./upload-service
-          flags: --max-instances=1 --concurrency=10 --timeout=300 --memory=512Mi --allow-unauthenticated
+          # KRKG-0032: pins the Cloud Run runtime identity to a dedicated, least-privilege
+          # service account instead of the implicit (and typically over-privileged) Compute
+          # Engine default SA - but only once CLOUD_RUN_RUNTIME_SA actually exists as a repo
+          # secret, so this deploy keeps working before that SA has been created (see the
+          # runbook note on KRKG-0032 for the gcloud commands to create it and set the secret).
+          flags: --max-instances=1 --concurrency=10 --timeout=300 --memory=512Mi --allow-unauthenticated${{ secrets.CLOUD_RUN_RUNTIME_SA && format(' --service-account={0}', secrets.CLOUD_RUN_RUNTIME_SA) || '' }}
           env_vars: |
             GOOGLE_OAUTH_CLIENT_ID=${{ secrets.UPLOAD_OAUTH_CLIENT_ID }}
             DRIVE_PARENT_FOLDER_ID=${{ secrets.UPLOAD_DRIVE_PARENT_FOLDER_ID }}
             GITHUB_REPO=BractwoWojownikowKruki/bractwowojownikowkruki.github.io
+            MODERATOR_GROUP_URL=${{ secrets.MODERATOR_GROUP_URL }}
           secrets: |
             DRIVE_REFRESH_TOKEN=drive-refresh-token:latest
             DRIVE_CLIENT_ID=drive-oauth-client-id:latest

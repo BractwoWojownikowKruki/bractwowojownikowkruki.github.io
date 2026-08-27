@@ -126,16 +126,20 @@ export const IN_MEMORIAM_FILE_NAME = '.in-memoriam';
 export interface AboutUsFolders {
   root: string;
   categories: Record<AboutUsCategory, string>;
-  // Sibling of the categories, not one of them - self-service submissions from the Wojownicy
-  // "Wrzucam swoje zdjęcie" flow land here for Bartosz to review and move into an actual
-  // category manually, rather than publishing straight to a live category (see
-  // handleWojownicyUploadSubmit in server.ts). Deliberately not made public via
-  // setFolderPublic below - nothing here is meant to be linked from the public site.
+  // Holds self-service submissions from the Wojownicy "Wrzucam swoje zdjęcie" flow, for
+  // Bartosz to review and move into an actual category manually, rather than publishing
+  // straight to a live category (see handleWojownicyUploadSubmit in server.ts). Lives under a
+  // *separate* private root (see bootstrapAboutUsStructure), not under `root`/"O Nas" itself
+  // (KRKG-0029): Drive permissions are inherited by every descendant of a shared folder
+  // regardless of when they're created, so merely never calling setFolderPublic on this folder
+  // was not enough - it still inherited "O Nas"'s own public-reader grant by being nested under
+  // it. Being a sibling of "O Nas" instead, under an unshared parent, is what actually keeps it
+  // private.
   uploadRoot: string;
-  // Another sibling, holding people removed from the site via the admin panel's "move to
-  // department" action (see handleAdminMovePerson) - a soft delete: the folder and its photos
-  // stay in Drive, just moved out of any publicly-listed category, rather than being deleted
-  // outright. Same "not public" treatment as uploadRoot above.
+  // Another child of the same private root, holding people removed from the site via the admin
+  // panel's "move to department" action (see handleAdminMovePerson) - a soft delete: the folder
+  // and its photos stay in Drive, just moved out of any publicly-listed category, rather than
+  // being deleted outright. Same private-root placement as uploadRoot above, for the same reason.
   deletedRoot: string;
 }
 
@@ -157,8 +161,12 @@ export function bootstrapAboutUsStructure(drive: DriveClient): Promise<AboutUsFo
       for (const category of ABOUT_US_CATEGORIES) {
         categories[category] = await drive.ensureFolder(oNasId, category);
       }
-      const uploadRoot = await drive.ensureFolder(oNasId, 'upload');
-      const deletedRoot = await drive.ensureFolder(oNasId, 'deleted');
+      // A sibling of "O Nas" under "Strona", not a descendant of "O Nas" itself (KRKG-0029) -
+      // see AboutUsFolders.uploadRoot for why that placement matters. `stronaId` itself is never
+      // passed to setFolderPublic, so nothing under it is public by inheritance either.
+      const privateRootId = await drive.ensureFolder(stronaId, 'O Nas (prywatne)');
+      const uploadRoot = await drive.ensureFolder(privateRootId, 'upload');
+      const deletedRoot = await drive.ensureFolder(privateRootId, 'deleted');
       return { root: oNasId, categories, uploadRoot, deletedRoot };
     })();
   }

@@ -48,7 +48,7 @@
         <img src="../logo-desktop.png" alt="Krucze Galery" class="logo" onerror="this.style.display='none'" />
       </picture>
     </a>
-    <div class="toolbar" id="toolbar">
+    <div class="toolbar" id="toolbar" hidden>
       <div class="search-wrap">
         <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
@@ -67,7 +67,22 @@
     </div>
   </header>
 
-  <main>
+  <!-- Galerie contain personal data (contributor/uploader emails, names, photos), so viewing
+       them requires being signed in with the same kruki-group Google account as
+       upload/register (KRKG-0031) - shown instead of <main> until that check passes. -->
+  <div class="add-album-card galerie-gate" id="galerie-gate">
+    <p class="add-album-intro">Aby zobaczyć galerie, zaloguj się kontem Google należącym do grupy kruki.</p>
+    <div class="upload-signin" id="galerie-signin">
+      <div id="galerie-google-signin-button"></div>
+    </div>
+    <p class="upload-forbidden" id="galerie-forbidden" hidden>To konto Google nie ma uprawnień do przeglądania galerii.</p>
+    <div class="upload-reauth" id="galerie-reauth" hidden>
+      <p>Twoja sesja logowania wygasła. Zaloguj się ponownie, aby zobaczyć galerie.</p>
+      <div id="galerie-reauth-button"></div>
+    </div>
+  </div>
+
+  <main hidden id="galerie-main">
     <div id="view-grid">
       <div class="page-spinner" id="grid-loading"><span class="spinner"></span></div>
       <div id="grid"></div>

@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { AuthError, fetchGoogleJwks, verifyUploader, type VerifiedIdentity } from './auth.ts';
-import { createAppsScriptAllowlist, createSheetAllowlist } from './allowlist.ts';
+import { createAppsScriptAllowlist, createEmptyAllowlist, createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
 import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, type GithubClient } from './github.ts';
@@ -41,6 +42,12 @@ export interface ServerDeps {
   // Script Web App, see createAppsScriptAllowlist) instead of a Sheet - gates the self-service
   // "Wrzucam swoje zdjęcie" flow in the Wojownicy section.
   authenticateWojownicyUpload: (req: IncomingMessage) => Promise<VerifiedIdentity>;
+  // Gates destructive gallery actions (/delete-drive-gallery, /unregister) - a narrower,
+  // purpose-specific allowlist than the general kruki `authenticate`, so any allowlisted member
+  // can no longer delete or unregister a gallery they don't moderate (KRKG-0027). See
+  // config.ts's moderatorGroupUrl for why this fails closed (denies everyone) until that group
+  // actually exists.
+  authenticateModerator: (req: IncomingMessage) => Promise<VerifiedIdentity>;
   submissionTokenSecret: string;
   driveParentFolderId: string;
   allowedOrigin: string;
@@ -270,9 +277,14 @@ async function buildGalleryList(deps: ServerDeps): Promise<GalleryListItem[]> {
   );
 }
 
-// Public and unauthenticated, like the static albums.generated.json it's replacing for Drive
-// galleries - the cache above is what keeps this from becoming a live-Drive-call-per-page-view.
-async function handleGalleries(res: ServerResponse, deps: ServerDeps): Promise<void> {
+// Requires the same kruki-group sign-in as upload/register (KRKG-0031) - previously
+// unauthenticated, like the static albums.generated.json it's replacing for Drive galleries,
+// but each gallery's `contributors` is a list of real email addresses, so a fully public,
+// unauthenticated endpoint was handing that out to anyone on the internet. Gating it narrows
+// that to signed-in kruki-group members, who already know each other. The cache above is what
+// keeps this from becoming a live-Drive-call-per-request once a caller is past that gate.
+async function handleGalleries(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticate(req);
   const now = Date.now();
   if (!galleriesCache || galleriesCache.expiresAt <= now) {
     const data = await buildGalleryList(deps);
@@ -564,13 +576,33 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
   sendJson(res, 200, { ok: true });
 }
 
+// Structured console log for every destructive gallery action (KRKG-0027's audit requirement) -
+// actor, target, outcome, and a correlation id tying a single request's attempt/result together
+// in Cloud Run's log output. No dedicated logging store exists in this project; console.log is
+// the same mechanism every other error path here already relies on for operator visibility.
+function logDestructiveAction(action: string, actorEmail: string, target: string, outcome: 'ok' | 'error', detail?: unknown): void {
+  const correlationId = randomUUID();
+  console.log(
+    JSON.stringify({ audit: true, action, actorEmail, target, outcome, correlationId, at: new Date().toISOString() }),
+  );
+  if (detail !== undefined) {
+    console.error(`[${correlationId}]`, detail);
+  }
+}
+
 // Only for galleries this service itself created (drive.file scope can't touch anything else -
 // see KRKG-0025's design.md) - a folder registered by URL instead goes through /unregister.
 async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticate(req);
+  const identity = await deps.authenticateModerator(req);
   const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId) throw new AuthError('Brak folderId.', 400);
-  await deps.drive.deleteFolder(folderId);
+  try {
+    await deps.drive.deleteFolder(folderId);
+  } catch (err) {
+    logDestructiveAction('delete-drive-gallery', identity.email, folderId, 'error', err);
+    throw err;
+  }
+  logDestructiveAction('delete-drive-gallery', identity.email, folderId, 'ok');
   // Invalidated immediately rather than left to expire on its own TTL, so the deletion is
   // reflected on the next /galleries call instead of up to galleriesCacheTtlMs later.
   galleriesCache = null;
@@ -734,14 +766,42 @@ async function handleGalleryPhotosFinalize(req: IncomingMessage, res: ServerResp
   sendJson(res, 200, { ok: true });
 }
 
-// Public and unauthenticated, like /galleries - lets the gallery detail view show "Dodane
-// przez" (avatar/name/timestamp) for each photo without requiring a visitor to sign in just to
-// look. Not more sensitive than what /galleries already exposes (contributor email addresses).
-async function handleGalleryPhotoUploaders(res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+// Same gate as /galleries (KRKG-0031) - lets the gallery detail view show "Dodane przez"
+// (avatar/name/timestamp) for each photo to signed-in kruki-group members, without handing
+// uploader emails/names/photos to anonymous visitors.
+async function handleGalleryPhotoUploaders(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticate(req);
   const folderId = url.searchParams.get('folderId');
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   const uploaders = await readUploadLog(deps.drive, folderId);
   sendJson(res, 200, { uploaders });
+}
+
+// Mirrors public/galerie/dodaj-galerie.js's isValidAlbumUrl, but this copy is the one that
+// actually matters: the browser check is only UX, and POST /register can be called directly by
+// anyone holding a valid bearer token, bypassing it entirely. Without a server-side allowlist,
+// an allowlisted account could commit a javascript:/data: URL (or any http(s) host) into
+// albums.json, which public/galerie/app.js later renders straight into an <a href> - escapeAttr
+// there only HTML-escapes the attribute, it does not neutralize a dangerous URL scheme, so that
+// would be a stored XSS served to every visitor who opens the gallery link (KRKG-0026). Each
+// pattern is anchored immediately after "https://" through to end-of-string, so there is no room
+// for a credential prefix (https://evil@photos.app.goo.gl/...) or a lookalike host
+// (https://photos.app.goo.gl.evil.example/...) to slip through.
+const CANONICAL_GALLERY_URL_PATTERNS = [
+  /^https:\/\/photos\.app\.goo\.gl\/[A-Za-z0-9_-]+$/,
+  /^https:\/\/photos\.google\.com\/share\/[A-Za-z0-9_-]+$/,
+  /^https:\/\/drive\.google\.com\/drive\/folders\/[A-Za-z0-9_-]+$/,
+];
+
+function canonicalizeGalleryUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  if (!CANONICAL_GALLERY_URL_PATTERNS.some(pattern => pattern.test(trimmed))) {
+    throw new AuthError(
+      'Link nie wygląda na udostępniony album Google Photos ani folder Google Drive. Oczekiwany format: https://photos.app.goo.gl/XYZ, https://photos.google.com/share/... lub https://drive.google.com/drive/folders/XYZ.',
+      400,
+    );
+  }
+  return trimmed;
 }
 
 // Lets an already-authenticated, allowlisted user register a gallery that already exists
@@ -756,14 +816,10 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: S
   await deps.authenticate(req);
   const { url, name, date } = await readJsonBody<{ url?: string; name?: string; date: string }>(req, deps.maxJsonBodyBytes);
   if (!url || !date) throw new AuthError('Brak adresu URL galerii lub daty.', 400);
-  try {
-    new URL(url);
-  } catch {
-    throw new AuthError('Nieprawidłowy adres URL galerii.', 400);
-  }
+  const canonicalUrl = canonicalizeGalleryUrl(url);
 
   await deps.github.appendAlbumToMain({
-    url,
+    url: canonicalUrl,
     ...(name ? { nameOverride: name } : {}),
     dateOverride: date,
   });
@@ -774,10 +830,16 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: S
 // albums.json entry, see handleRegister above) by removing that entry, same auth gate as
 // everything else. An app-owned Drive folder is deleted via /delete-drive-gallery instead.
 async function handleUnregister(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticate(req);
+  const identity = await deps.authenticateModerator(req);
   const { url } = await readJsonBody<{ url?: string }>(req, deps.maxJsonBodyBytes);
   if (!url) throw new AuthError('Brak adresu URL galerii.', 400);
-  await deps.github.removeAlbumFromMain(url);
+  try {
+    await deps.github.removeAlbumFromMain(url);
+  } catch (err) {
+    logDestructiveAction('unregister', identity.email, url, 'error', err);
+    throw err;
+  }
+  logDestructiveAction('unregister', identity.email, url, 'ok');
   sendJson(res, 200, { ok: true });
 }
 
@@ -794,10 +856,15 @@ async function handleInstagramPosts(res: ServerResponse): Promise<void> {
     res.writeHead(200);
     res.end(JSON.stringify(posts));
   } catch (error) {
-    console.error('Instagram posts fetch error:', error);
+    // The public response never includes the upstream error text (KRKG-0034) - it can carry
+    // implementation details or, in a misconfigured deployment, part of a token/key. The full
+    // error is still logged server-side, tagged with the same correlationId returned to the
+    // caller, so an operator can correlate a support report back to the real cause.
+    const correlationId = randomUUID();
+    console.error(`[${correlationId}] Instagram posts fetch error:`, error);
     sendJson(res, 500, {
       error: 'Nie udało się pobrać postów z Instagrama.',
-      details: error instanceof Error ? error.message : String(error),
+      correlationId,
       posts: [],
       source: 'instagram',
       lastUpdated: new Date().toISOString()
@@ -818,10 +885,12 @@ async function handleFacebookPosts(res: ServerResponse): Promise<void> {
     res.writeHead(200);
     res.end(JSON.stringify(posts));
   } catch (error) {
-    console.error('Facebook posts fetch error:', error);
+    // See handleInstagramPosts's catch block above for why details are not returned publicly.
+    const correlationId = randomUUID();
+    console.error(`[${correlationId}] Facebook posts fetch error:`, error);
     sendJson(res, 500, {
       error: 'Nie udało się pobrać postów z Facebooka.',
-      details: error instanceof Error ? error.message : String(error),
+      correlationId,
       posts: [],
       source: 'facebook',
       lastUpdated: new Date().toISOString()
@@ -837,10 +906,12 @@ async function handleYouTubeVideos(res: ServerResponse): Promise<void> {
     res.writeHead(200);
     res.end(JSON.stringify(data));
   } catch (error) {
-    console.error('YouTube videos fetch error:', error);
+    // See handleInstagramPosts's catch block above for why details are not returned publicly.
+    const correlationId = randomUUID();
+    console.error(`[${correlationId}] YouTube videos fetch error:`, error);
     sendJson(res, 500, {
       error: 'Nie udało się pobrać filmów z YouTube.',
-      details: error instanceof Error ? error.message : String(error),
+      correlationId,
       channelTitle: '',
       channelThumbnail: '',
       channelUrl: '',
@@ -863,7 +934,7 @@ export function createRequestListener(deps: ServerDeps) {
       if (req.method === 'GET' && url.pathname === '/whoami') {
         await handleWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/galleries') {
-        await handleGalleries(res, deps);
+        await handleGalleries(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/about-us') {
         await handleAboutUs(res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/whoami') {
@@ -923,7 +994,7 @@ export function createRequestListener(deps: ServerDeps) {
       } else if (req.method === 'POST' && url.pathname === '/gallery-photos/finalize') {
         await handleGalleryPhotosFinalize(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/gallery-photos/uploaders') {
-        await handleGalleryPhotoUploaders(res, url, deps);
+        await handleGalleryPhotoUploaders(req, res, url, deps);
       } else {
         sendJson(res, 404, { error: 'Nie znaleziono.' });
       }
@@ -955,12 +1026,19 @@ async function startProductionServer(): Promise<void> {
   // one instance (not two separate ones pointed at the same URL) also means one cache, so a
   // visitor hitting both flows doesn't double the Apps Script call volume.
   const groupAllowlist = createAppsScriptAllowlist({ url: config.wojownicyUploadGroupUrl });
+  // See config.ts's moderatorGroupUrl - undefined until the moderator group actually exists,
+  // in which case every /delete-drive-gallery and /unregister call is denied (fail closed)
+  // rather than falling back to the broader kruki group.
+  const moderatorAllowlist = config.moderatorGroupUrl
+    ? createAppsScriptAllowlist({ url: config.moderatorGroupUrl })
+    : createEmptyAllowlist();
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
     authenticate: req => verifyUploader(req, config.googleOAuthClientId, groupAllowlist),
     authenticateAdmin: req => verifyUploader(req, config.googleOAuthClientId, adminAllowlist),
     authenticateWojownicyUpload: req => verifyUploader(req, config.googleOAuthClientId, groupAllowlist),
+    authenticateModerator: req => verifyUploader(req, config.googleOAuthClientId, moderatorAllowlist),
     submissionTokenSecret: config.submissionTokenSecret,
     driveParentFolderId: config.driveParentFolderId,
     allowedOrigin: config.allowedOrigin,
@@ -981,7 +1059,7 @@ async function startProductionServer(): Promise<void> {
   // visitor's request happens to arrive first also pays for a JWKS fetch plus an allowlist fetch
   // (a Sheet CSV, or worse, the Apps Script group check) stacked on top of that, lazily, inline
   // with their own request. Warming here means that cost is paid once at boot instead.
-  Promise.all([fetchGoogleJwks(), adminAllowlist.getEmails(), groupAllowlist.getEmails()]).catch(err => {
+  Promise.all([fetchGoogleJwks(), adminAllowlist.getEmails(), groupAllowlist.getEmails(), moderatorAllowlist.getEmails()]).catch(err => {
     console.error('Nie udało się wstępnie rozgrzać pamięci podręcznej uwierzytelniania:', err);
   });
 }

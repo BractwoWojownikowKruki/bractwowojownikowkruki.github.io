@@ -93,7 +93,7 @@ export function checkClaims(
 
 export function checkAllowlist(identity: VerifiedIdentity, allowedEmails: string[]): VerifiedIdentity {
   if (!allowedEmails.includes(identity.email)) {
-    throw new AuthError('Ten adres e-mail nie ma uprawnień do przesyłania zdjęć.', 403);
+    throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
   }
   return identity;
 }
