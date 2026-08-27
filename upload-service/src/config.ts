@@ -20,6 +20,13 @@ export const config = {
   // Sheet. Public/unguessable URL by the same design as the two Sheet URls above - see
   // createAppsScriptAllowlist in allowlist.ts.
   wojownicyUploadGroupUrl: 'https://script.google.com/macros/s/AKfycbwkSGgWwYLq2XyGQSX7ntWh_PgvJ3ZTDV6NDRJ304wl0bkOJ3XyqKg1QjtWl5g5WYc7/exec',
+  // Same Apps Script pattern as wojownicyUploadGroupUrl above, but for a moderator group that
+  // does not exist yet (see KRKG-0027) - gates destructive gallery actions (/delete-drive-gallery,
+  // /unregister). Deliberately optional and undefined by default: until this is set to a real
+  // group's Apps Script URL, createEmptyAllowlist denies every caller rather than either
+  // blocking deploys on a secret that can't exist yet or leaving those endpoints open to the
+  // whole kruki group in the meantime.
+  moderatorGroupUrl: process.env.MODERATOR_GROUP_URL,
   googleOAuthClientId: requireEnv('GOOGLE_OAUTH_CLIENT_ID'),
   driveRefreshToken: requireEnv('DRIVE_REFRESH_TOKEN'),
   driveClientId: requireEnv('DRIVE_CLIENT_ID'),

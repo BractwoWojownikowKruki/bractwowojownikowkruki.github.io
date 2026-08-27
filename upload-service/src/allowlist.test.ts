@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createAppsScriptAllowlist, createSheetAllowlist, parseAllowlistCsv } from './allowlist.ts';
+import { createAppsScriptAllowlist, createEmptyAllowlist, createSheetAllowlist, parseAllowlistCsv } from './allowlist.ts';
 
 test('parseAllowlistCsv skips the header row and returns trimmed, lowercased emails', () => {
   const csv = 'Email\nAlice@Gmail.com\nbob@example.com\n';
@@ -135,5 +135,11 @@ test('createAppsScriptAllowlist fails closed on a non-OK HTTP status', async () 
     url: 'https://script.google.com/macros/s/xyz/exec',
     fetchImpl: async () => fakeResponse(500, 'error'),
   });
+  assert.deepEqual(await allowlist.getEmails(), []);
+});
+
+test('createEmptyAllowlist always returns an empty list, without making a network call', async () => {
+  const allowlist = createEmptyAllowlist();
+  assert.deepEqual(await allowlist.getEmails(), []);
   assert.deepEqual(await allowlist.getEmails(), []);
 });
