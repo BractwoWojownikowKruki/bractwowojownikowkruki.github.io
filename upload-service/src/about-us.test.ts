@@ -5,7 +5,68 @@ import {
   buildPersonFolderName,
   sortPeopleByFolderName,
   computeOrderForDepartmentMove,
+  bootstrapAboutUsStructure,
+  resetAboutUsBootstrapForTests,
 } from './about-us.ts';
+import type { DriveClient } from './drive.ts';
+
+// Records every ensureFolder(parentFolderId, name) call and every setFolderPublic(folderId)
+// call, assigning each distinct (parentFolderId, name) pair its own fake id - enough to trace
+// the actual parent/child shape bootstrapAboutUsStructure builds, which the fake DriveClient
+// used elsewhere (server.test.ts's makeFakeDrive, returning a single constant id regardless of
+// arguments) is not detailed enough to verify.
+function makeTracingDrive() {
+  const ensureFolderCalls: { parentFolderId: string; name: string }[] = [];
+  const publicFolderIds: string[] = [];
+  const idsByCall = new Map<string, string>();
+  let nextId = 0;
+
+  const drive: Pick<DriveClient, 'ensureFolder' | 'setFolderPublic'> = {
+    async ensureFolder(parentFolderId, name) {
+      ensureFolderCalls.push({ parentFolderId, name });
+      const key = `${parentFolderId}::${name}`;
+      let id = idsByCall.get(key);
+      if (!id) {
+        nextId += 1;
+        id = `folder-${nextId}`;
+        idsByCall.set(key, id);
+      }
+      return id;
+    },
+    async setFolderPublic(folderId) {
+      publicFolderIds.push(folderId);
+    },
+  };
+
+  return { drive: drive as DriveClient, ensureFolderCalls, publicFolderIds };
+}
+
+test('bootstrapAboutUsStructure creates upload/deleted under a private root, never under the public "O Nas" folder', async () => {
+  resetAboutUsBootstrapForTests();
+  const { drive, ensureFolderCalls, publicFolderIds } = makeTracingDrive();
+
+  const folders = await bootstrapAboutUsStructure(drive);
+
+  // Exactly one folder is ever made public, and it's "O Nas" (folders.root) - not the private
+  // root, not upload/deleted, not "Strona".
+  assert.deepEqual(publicFolderIds, [folders.root]);
+
+  const uploadCall = ensureFolderCalls.find(c => c.name === 'upload');
+  const deletedCall = ensureFolderCalls.find(c => c.name === 'deleted');
+  assert.ok(uploadCall && deletedCall, 'expected ensureFolder calls creating "upload" and "deleted"');
+
+  // The critical assertion (KRKG-0029): upload/deleted's parent must not be "O Nas" itself, and
+  // must not be "O Nas" nested any deeper - it must sit outside the public folder's own subtree.
+  assert.notEqual(uploadCall!.parentFolderId, folders.root);
+  assert.notEqual(deletedCall!.parentFolderId, folders.root);
+
+  // Both share one private-root parent, and that parent is a sibling of "O Nas" (same
+  // grandparent - "Strona" - not a descendant of "O Nas").
+  assert.equal(uploadCall!.parentFolderId, deletedCall!.parentFolderId);
+  const oNasCall = ensureFolderCalls.find(c => c.name === 'O Nas');
+  const privateRootCall = ensureFolderCalls.find(c => c.name !== 'O Nas' && c.parentFolderId === oNasCall!.parentFolderId && c.name !== 'Strona');
+  assert.ok(privateRootCall, 'expected the private root to be created as a sibling of "O Nas"');
+});
 
 test('parsePersonFolderName extracts a leading "N. " order prefix', () => {
   assert.deepEqual(parsePersonFolderName('1. Ragnar'), { order: 1, name: 'Ragnar' });
