@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { AuthError, verifyUploader, type VerifiedIdentity } from './auth.ts';
+import { AuthError, fetchGoogleJwks, verifyUploader, type VerifiedIdentity } from './auth.ts';
 import { createAppsScriptAllowlist, createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
 import { createDriveClient, type DriveClient } from './drive.ts';
@@ -973,6 +973,16 @@ async function startProductionServer(): Promise<void> {
   const server = createServer(createRequestListener(productionDeps));
   server.listen(config.port, () => {
     console.log(`upload-service listening on :${config.port}`);
+  });
+
+  // Pre-warms the auth caches (Google's JWKS, both allowlists) as soon as the container boots,
+  // in the background - not awaited before listen() above, so this never delays Cloud Run's
+  // readiness check. A cold instance already pays real startup latency; without this, whichever
+  // visitor's request happens to arrive first also pays for a JWKS fetch plus an allowlist fetch
+  // (a Sheet CSV, or worse, the Apps Script group check) stacked on top of that, lazily, inline
+  // with their own request. Warming here means that cost is paid once at boot instead.
+  Promise.all([fetchGoogleJwks(), adminAllowlist.getEmails(), groupAllowlist.getEmails()]).catch(err => {
+    console.error('Nie udało się wstępnie rozgrzać pamięci podręcznej uwierzytelniania:', err);
   });
 }
 
