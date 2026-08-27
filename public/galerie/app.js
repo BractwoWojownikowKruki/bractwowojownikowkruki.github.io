@@ -258,7 +258,12 @@ function renderFocusedView(album, albums) {
   return `
     <div class="focused-header">
       <a href="#" class="back-link">&larr; Wszystkie galerie</a>
-      ${renderDeleteButton()}
+      <div class="drive-gallery-actions">
+        <button class="btn-drive-action" id="photos-add-photos-btn" type="button">${ICON_ADD_PHOTO} Dodaj zdjęcia</button>
+        <a class="btn-drive-action" href="${escapeAttr(album.url)}" target="_blank" rel="noopener noreferrer">${ICON_GOOGLE_PHOTOS} Otwórz w Google Photos</a>
+        <button class="btn-drive-action" id="photos-download-btn" type="button">${ICON_DOWNLOAD} Pobierz album</button>
+        ${renderDeleteButton()}
+      </div>
     </div>
     <div class="focused-layout">
       ${renderThumbCol(album, leftThumbs)}
@@ -673,6 +678,17 @@ document.addEventListener('click', e => {
   }
   if (e.target.closest('#drive-download-album')) {
     downloadAlbum();
+    return;
+  }
+  if (e.target.closest('#photos-download-btn')) {
+    window.alert('Pobranie galerii nie jest możliwe w przypadku Google Photos. Przejdź do Google Photos i pobierz stamtąd.');
+    return;
+  }
+  if (e.target.closest('#photos-add-photos-btn')) {
+    const wantsNewGallery = window.confirm(
+      'Dodawanie zdjęć do istniejącej galerii możliwe tylko przy galeriach z Google Drive. Chcesz dodać zdjęcia do nowej galerii?',
+    );
+    if (wantsNewGallery) location.href = 'dodaj-galerie.html';
     return;
   }
   if (e.target.id === 'lightbox' || e.target.closest('#lightbox-close')) {
