@@ -13,6 +13,7 @@ initGoogleSignIn({
     document.getElementById('admin-email').textContent = payload.email;
     document.getElementById('admin-panel').hidden = false;
     loadManageList();
+    loadFacebookSettings();
   },
   onForbidden: () => {
     document.getElementById('admin-signin').hidden = true;
@@ -27,6 +28,33 @@ document.getElementById('refresh-social-cache').addEventListener('click', async 
     await apiFetch('/admin/social-media/refresh', { method: 'POST' }, showReauth, hideReauth);
     status.textContent =
       'Cache serwera wyczyszczony - kolejne wczytanie strony głównej pobierze świeże posty (przeglądarka, która ma już zapisaną stronę we własnej pamięci podręcznej, może wymagać twardego odświeżenia).';
+  } catch (err) {
+    status.textContent = `Błąd: ${err.message}`;
+  }
+});
+
+async function loadFacebookSettings() {
+  try {
+    const settings = await apiFetch('/admin/settings', { method: 'GET' }, showReauth, hideReauth);
+    document.getElementById('facebook-live-count').value = settings.liveFetchPostCount;
+  } catch (err) {
+    document.getElementById('facebook-settings-status').textContent = `Błąd: ${err.message}`;
+  }
+}
+
+document.getElementById('facebook-settings-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const status = document.getElementById('facebook-settings-status');
+  status.textContent = 'Zapisywanie...';
+  try {
+    const liveFetchPostCount = parseInt(document.getElementById('facebook-live-count').value, 10);
+    await apiFetch(
+      '/admin/settings',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ liveFetchPostCount }) },
+      showReauth,
+      hideReauth,
+    );
+    status.textContent = 'Zapisano.';
   } catch (err) {
     status.textContent = `Błąd: ${err.message}`;
   }
