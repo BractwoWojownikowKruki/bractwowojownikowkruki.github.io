@@ -1999,9 +1999,13 @@ main { padding: 1.25rem 1.5rem 3rem; }
      divider color, despite equal selector specificity - same class of cascade-order bug as
      .content-section a vs. the Facebook feed's buttons/links elsewhere in this file. Margin
      instead of the divider gives the solid-fill pill room to read as a button, not a row. */
+  /* align-self overrides .main-nav's align-items:stretch, which otherwise stretches every
+     .nav-item (including this one) to the menu's full width - without it the pill's background
+     spans the whole row instead of hugging just the "Nabór" text. */
   .nav-item--highlighted {
     border-bottom-color: transparent;
     margin: 0.4rem 0;
+    align-self: flex-start;
   }
 
   /* .nav-item-dropdown is display:flex (row, centered) for desktop's single-line nav bar -
