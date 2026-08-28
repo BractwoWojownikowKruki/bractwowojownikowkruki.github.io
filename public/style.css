@@ -2452,39 +2452,3 @@ main { padding: 1.25rem 1.5rem 3rem; }
   }
 }
 
-/* ── O nas: category landing page ── */
-
-.category-links {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1.5rem;
-  max-width: 800px;
-  margin: 3rem auto;
-  padding: 0 1.25rem;
-}
-
-.category-link-tile {
-  display: block;
-  padding: 2rem 1rem;
-  text-align: center;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  text-decoration: none;
-  font-family: 'Cinzel', serif;
-  font-size: 1.2rem;
-  transition: border-color 0.15s, transform 0.15s;
-}
-
-.category-link-tile:hover {
-  border-color: var(--accent);
-  color: var(--gold);
-  transform: translateY(-2px);
-}
-
-@media (max-width: 600px) {
-  .category-links {
-    grid-template-columns: 1fr;
-  }
-}

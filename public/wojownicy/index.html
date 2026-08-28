@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Wojownicy - Bractwo Wojowników Kruki</title>
+  <title>My, Wojownicy - Bractwo Wojowników Kruki</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/png" href="../favicon.png" />
@@ -19,7 +19,7 @@
     <nav class="main-nav" id="main-nav">
       <a href="../o-nas/" class="nav-item">O nas</a>
       <div class="nav-item-dropdown">
-        <a href="../wojownicy/" class="nav-item">Wojownicy</a>
+        <a href="../wojownicy/" class="nav-item">My, Wojownicy</a>
         <div class="nav-dropdown-menu">
           <a href="../wojownicy/blachowi/" class="nav-item nav-subitem">Blachowi</a>
           <a href="../wojownicy/niewiasty/" class="nav-item nav-subitem">Niewiasty</a>
@@ -31,6 +31,7 @@
       <a href="../turniej/" class="nav-item">Kruczy Turniej</a>
       <a href="../galerie/" class="nav-item">Galerie</a>
       <a href="../kontakt/" class="nav-item">Kontakt</a>
+      <a href="wrzuc/" class="nav-item" id="wrzuc-link" hidden>Wrzucam swoje zdjęcie</a>
       <a href="../admin/" class="nav-item" id="nav-admin-link" hidden>Panel admina</a>
       <div id="nav-google-signin-button" class="nav-signin-slot" hidden></div>
     </nav>
@@ -46,18 +47,19 @@
     <div id="banner-carousel" class="carousel"></div>
   </div>
 
-  <main>
-    <div class="category-links">
-      <a href="blachowi/" class="category-link-tile">Blachowi</a>
-      <a href="niewiasty/" class="category-link-tile">Niewiasty</a>
-      <a href="emeryci/" class="category-link-tile">Emeryci</a>
-      <a href="kandydaci/" class="category-link-tile">Kandydaci</a>
-    </div>
-    <div style="text-align: center; padding: 0 1.25rem 3rem;">
-      <div class="upload-signin" id="upload-signin" hidden>
-        <div id="google-signin-button"></div>
-      </div>
-      <a href="wrzuc/" class="btn-add-album" id="wrzuc-link" hidden>Wrzucam swoje zdjęcie</a>
+  <main class="main-content main-content--single">
+    <div class="content-left">
+      <section class="content-section">
+        <p>Na tej stronicy nie ma i nie będzie żadnych rewelacji, jedynie nasze zwyrodniałe facjaty, a w przyszłości być może i inne części ciała, jeśli tylko nasi goście zawiadomią nas o swoich pragnieniach.</p>
+
+        <p><a href="blachowi/">Wojownicy</a> poniżej to ci, którzy zasłużyli na noszenie Kruczej blachy.</p>
+
+        <p><a href="niewiasty/">Niewiasty</a> trafiają na stronę gdy dzielnie potrafią ścierpieć przez dłuższy czas nasze zachowanie.</p>
+
+        <p>W dziale <a href="kandydaci/">Kandydaci</a> natomiast znajdują się podobizny osób, które (przynajmniej na razie) nie należą do ani jednej ani do drugiej kategorii.</p>
+
+        <p>Z kolei wizerunki osób, które wspólnie z nami przelewały krew, aktualnie jednakże zawiesiły swą łupieżczą działalność, możecie znaleźć w dziale <a href="emeryci/">emeryci</a>.</p>
+      </section>
     </div>
   </main>
 

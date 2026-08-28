@@ -1,21 +1,11 @@
 /**
- * Gates the "Wrzucam swoje zdjęcie" link behind sign-in: it stays hidden until the visitor
- * signs in AND turns out to be a kruki Google Group member (GET /wojownicy-upload/whoami).
- * Deliberately silent either way once resolved - signed in but not a member just means the
- * link never appears, no explanation of which group is required.
+ * Gates the "Wrzucam swoje zdjęcie" nav link behind sign-in: it stays hidden until the visitor
+ * signs in (via the nav's own Google button - this page has no sign-in button of its own) AND
+ * turns out to be a kruki Google Group member (GET /wojownicy-upload/whoami). Deliberately
+ * silent either way once resolved - signed in but not a member just means the link never
+ * appears, no explanation of which group is required.
  *
- * #upload-signin starts hidden (not shown by default) so a visitor who's already signed in
- * from an earlier page - auth.js restores that session, but re-checking it here is still an
- * async round trip, and this particular check can be slow (whoamiPath is backed by an Apps
- * Script Web App reading live Google Group membership, which has a real cold-start delay) -
- * never sees a misleading "Zaloguj się" while the check is still pending. Only shown if we
- * can tell, synchronously, that there's no restorable session to check in the first place.
- */
-if (!isIdTokenValid()) {
-  document.getElementById('upload-signin').hidden = false;
-}
-
-// Remembers the last confirmed membership result per email, so a returning member sees the
+ * Remembers the last confirmed membership result per email, so a returning member sees the
 // upload link immediately (onRestoredIdentity, below) instead of waiting out the Apps Script
 // check again on every single page load. Purely a perceived-speed optimization: the real
 // upload endpoints still re-verify group membership server-side regardless of what this cache
@@ -41,22 +31,19 @@ function saveCachedMembership(email, isMember) {
 }
 
 initGoogleSignIn({
-  buttonIds: ['google-signin-button'],
+  buttonIds: [],
   whoamiPath: '/wojownicy-upload/whoami',
   onRestoredIdentity: payload => {
     if (loadCachedMembership(payload.email) === true) {
-      document.getElementById('upload-signin').hidden = true;
       document.getElementById('wrzuc-link').hidden = false;
     }
   },
   onSignedIn: payload => {
     saveCachedMembership(payload.email, true);
-    document.getElementById('upload-signin').hidden = true;
     document.getElementById('wrzuc-link').hidden = false;
   },
   onForbidden: payload => {
     if (payload?.email) saveCachedMembership(payload.email, false);
-    document.getElementById('upload-signin').hidden = true;
     document.getElementById('wrzuc-link').hidden = true;
   },
 });
