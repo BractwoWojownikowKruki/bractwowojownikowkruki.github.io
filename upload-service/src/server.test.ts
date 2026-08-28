@@ -7,6 +7,8 @@ import { createRequestListener, type ServerDeps } from './server.ts';
 import type { DriveClient, DriveFileInfo } from './drive.ts';
 import type { GithubClient } from './github.ts';
 import { resetAboutUsBootstrapForTests } from './about-us.ts';
+import { resetSettingsBootstrapForTests } from './settings.ts';
+import { resetRateLimitForTests } from './rate-limit.ts';
 
 const VALID_JPEG_BYTES = Buffer.concat([
   Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01]),
@@ -271,6 +273,79 @@ test('POST /admin/social-media/refresh rejects when authenticateAdmin fails', as
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/social-media/refresh`, { method: 'POST' });
     assert.equal(res.status, 403);
+  });
+});
+
+test('GET /admin/settings returns the default when nothing has been saved yet', async () => {
+  resetSettingsBootstrapForTests();
+  const deps = makeDeps({ drive: makeFakeDrive({ readTextFile: async () => null }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/settings`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { liveFetchPostCount: 5 });
+  });
+});
+
+test('GET /admin/settings rejects when authenticateAdmin fails', async () => {
+  const deps = makeDeps({
+    authenticateAdmin: async () => {
+      throw new AuthError('Brak uprawnień.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/settings`);
+    assert.equal(res.status, 403);
+  });
+});
+
+test('POST /admin/settings writes the setting, then GET reflects it', async () => {
+  resetSettingsBootstrapForTests();
+  let saved: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      readTextFile: async () => saved ?? null,
+      writeTextFile: async (_folderId, _fileName, content) => {
+        saved = content;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const postRes = await fetch(`${baseUrl}/admin/settings`, {
+      method: 'POST',
+      body: JSON.stringify({ liveFetchPostCount: 1 }),
+    });
+    assert.equal(postRes.status, 200);
+    const getRes = await fetch(`${baseUrl}/admin/settings`);
+    assert.deepEqual(await getRes.json(), { liveFetchPostCount: 1 });
+  });
+});
+
+test('POST /admin/settings rejects an out-of-range value without writing', async () => {
+  resetSettingsBootstrapForTests();
+  let wrote = false;
+  const deps = makeDeps({
+    drive: makeFakeDrive({ writeTextFile: async () => { wrote = true; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/settings`, {
+      method: 'POST',
+      body: JSON.stringify({ liveFetchPostCount: 0 }),
+    });
+    assert.equal(res.status, 400);
+  });
+  assert.equal(wrote, false);
+});
+
+test('GET /facebook-posts returns 429 once a single caller exceeds the per-IP rate limit', async () => {
+  resetRateLimitForTests();
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    let lastStatus = 0;
+    for (let i = 0; i < 31; i++) {
+      const res = await fetch(`${baseUrl}/facebook-posts`);
+      lastStatus = res.status;
+    }
+    assert.equal(lastStatus, 429);
   });
 });
 

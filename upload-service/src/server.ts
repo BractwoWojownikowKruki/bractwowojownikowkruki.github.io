@@ -8,6 +8,8 @@ import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
 import { fetchInstagramPosts, fetchFacebookPosts, fetchYouTubeVideos, clearSocialMediaCache } from './social-media.ts';
+import { getFacebookSettings, setFacebookSettings } from './settings.ts';
+import { getClientIp, isRateLimited } from './rate-limit.ts';
 import {
   bootstrapAboutUsStructure,
   buildPersonFolderName,
@@ -328,6 +330,30 @@ async function handleAdminRefreshSocialCache(req: IncomingMessage, res: ServerRe
   await deps.authenticateAdmin(req);
   clearSocialMediaCache();
   sendJson(res, 200, { ok: true });
+}
+
+async function handleAdminGetSettings(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const settings = await getFacebookSettings(deps.drive);
+  sendJson(res, 200, settings);
+}
+
+async function handleAdminUpdateSettings(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const { liveFetchPostCount } = await readJsonBody<{ liveFetchPostCount?: number }>(req, deps.maxJsonBodyBytes);
+  await setFacebookSettings(deps.drive, { liveFetchPostCount: Number(liveFetchPostCount) });
+  sendJson(res, 200, { ok: true });
+}
+
+// Shared guard for the public, unauthenticated social-media GET endpoints - see rate-limit.ts
+// for why they need one. Returns true (and has already written the 429 response) when the
+// caller should stop, so route handlers below can `if (rejectIfRateLimited(...)) return;`... but
+// since these live in a single if/else dispatch chain rather than their own functions, callers
+// instead write `if (!rejectIfRateLimited(req, res)) await handleX(...)`.
+function rejectIfRateLimited(req: IncomingMessage, res: ServerResponse): boolean {
+  if (!isRateLimited(getClientIp(req))) return false;
+  sendJson(res, 429, { error: 'Zbyt wiele żądań, spróbuj ponownie za chwilę.' });
+  return true;
 }
 
 async function handleAdminCreatePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -875,9 +901,12 @@ async function handleInstagramPosts(res: ServerResponse): Promise<void> {
   }
 }
 
-async function handleFacebookPosts(res: ServerResponse): Promise<void> {
+async function handleFacebookPosts(res: ServerResponse, deps: ServerDeps): Promise<void> {
   try {
-    const posts = await fetchFacebookPosts();
+    // liveFetchPostCount tells the frontend how many of these posts to compare against its
+    // statically-synced archive (KRKG-0035) - included here, rather than a second public
+    // endpoint, since this handler already needs to read the setting for nothing extra.
+    const [posts, settings] = await Promise.all([fetchFacebookPosts(), getFacebookSettings(deps.drive)]);
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     // Short browser cache, not 6h like the server-side cache in social-media.ts: that server
     // cache already absorbs repeated Graph API calls, so there's no need for the browser to
@@ -886,7 +915,7 @@ async function handleFacebookPosts(res: ServerResponse): Promise<void> {
     // invisible to visitors for up to 6h after clicking it.
     res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes
     res.writeHead(200);
-    res.end(JSON.stringify(posts));
+    res.end(JSON.stringify({ ...posts, liveFetchPostCount: settings.liveFetchPostCount }));
   } catch (error) {
     // See handleInstagramPosts's catch block above for why details are not returned publicly.
     const correlationId = randomUUID();
@@ -973,11 +1002,15 @@ export function createRequestListener(deps: ServerDeps) {
       } else if (req.method === 'POST' && url.pathname === '/wojownicy-upload/photo') {
         await handleWojownicyUploadPhoto(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
-        await handleInstagramPosts(res);
+        if (!rejectIfRateLimited(req, res)) await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {
-        await handleFacebookPosts(res);
+        if (!rejectIfRateLimited(req, res)) await handleFacebookPosts(res, deps);
       } else if (req.method === 'GET' && url.pathname === '/youtube-videos') {
-        await handleYouTubeVideos(res);
+        if (!rejectIfRateLimited(req, res)) await handleYouTubeVideos(res);
+      } else if (req.method === 'GET' && url.pathname === '/admin/settings') {
+        await handleAdminGetSettings(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/admin/settings') {
+        await handleAdminUpdateSettings(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/delete-drive-gallery') {
         await handleDeleteDriveGallery(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/start') {
