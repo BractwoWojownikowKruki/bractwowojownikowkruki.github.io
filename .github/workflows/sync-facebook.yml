@@ -1,0 +1,61 @@
+name: Sync Facebook posts
+
+# Standalone daily cron (KRKG-0035), deliberately not tied to pushes/pages.yml - Facebook posts
+# change independently of code changes, and this keeps the static archive fresh even during
+# stretches with no code pushes. 17:00 UTC = 18:00 CET (standard time); during CEST (daylight
+# saving, roughly late March-late October) this drifts to 19:00 local, since GitHub Actions cron
+# is fixed UTC and can't express "18:00 local" directly.
+on:
+  schedule:
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-facebook
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Sync Facebook posts
+        run: npm run sync-facebook
+
+      - name: Commit generated files
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add public/facebook/data public/facebook/images
+            git commit -m "chore: sync facebook posts"
+            for attempt in 1 2 3 4 5; do
+              git push && break
+              echo "Push rejected (attempt $attempt/5) - rebasing onto latest main and retrying..."
+              git pull --rebase origin main
+              sleep 3
+            done
+          else
+            echo "No new posts to sync."
+          fi
