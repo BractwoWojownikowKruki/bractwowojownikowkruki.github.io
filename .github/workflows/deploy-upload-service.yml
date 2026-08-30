@@ -68,7 +68,9 @@ jobs:
       # SA still needs 3 narrow grants regardless: source-based Cloud Run deploys always run
       # their build step as that SA, independent of this flag).
       - name: Require dedicated runtime service account
-        if: ${{ secrets.CLOUD_RUN_RUNTIME_SA == '' }}
+        env:
+          CLOUD_RUN_RUNTIME_SA: ${{ secrets.CLOUD_RUN_RUNTIME_SA }}
+        if: ${{ env.CLOUD_RUN_RUNTIME_SA == '' }}
         run: |
           echo "::error::CLOUD_RUN_RUNTIME_SA secret is not set - refusing to deploy with the default Compute Engine service account."
           exit 1
