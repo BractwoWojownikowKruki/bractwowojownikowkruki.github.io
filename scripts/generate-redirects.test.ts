@@ -17,3 +17,14 @@ test('renderRedirectPage escapes double quotes in the target for the meta/link a
   assert.doesNotMatch(html, /url=https:\/\/example\.com\/\?a="x"/);
   assert.match(html, /&quot;/);
 });
+
+test('renderRedirectPage shows the site logo linking home, styled like the rest of the site', () => {
+  const html = renderRedirectPage('https://discord.gg/abc123');
+  assert.match(html, /<link rel="stylesheet" href="\.\.\/style\.css" \/>/);
+  assert.match(html, /<img src="\.\.\/kruki-logo\.png" alt="Kruki" class="logo" \/>/);
+});
+
+test('renderRedirectPage shows a "Poczekaj..." message', () => {
+  const html = renderRedirectPage('https://discord.gg/abc123');
+  assert.match(html, /Poczekaj\.\.\./);
+});
