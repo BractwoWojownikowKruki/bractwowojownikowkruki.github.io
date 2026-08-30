@@ -63,13 +63,15 @@ function renderPreview() {
 
 document.getElementById('wrzuc-name').addEventListener('input', renderPreview);
 
-document.getElementById('wrzuc-main-photo').addEventListener('input', () => {
+// 'change', not 'input': older Safari/iOS versions never fire 'input' for <input type="file">,
+// only 'change' - which every browser (old and new) fires reliably for file pickers.
+document.getElementById('wrzuc-main-photo').addEventListener('change', () => {
   const file = document.getElementById('wrzuc-main-photo').files[0] || null;
   photoEntries[0] = file ? { file, croppedBlob: null } : undefined;
   renderPreview();
 });
 
-document.getElementById('wrzuc-extra-photos').addEventListener('input', () => {
+document.getElementById('wrzuc-extra-photos').addEventListener('change', () => {
   const extraFiles = Array.from(document.getElementById('wrzuc-extra-photos').files);
   photoEntries.length = 1; // keep index 0 (main photo) untouched, drop everything after it
   extraFiles.forEach((file, i) => {
