@@ -1587,6 +1587,20 @@ main { padding: 1.25rem 1.5rem 3rem; }
   border-bottom-color: var(--gold);
 }
 
+/* Category pages (Blachowi, Kandydaci, ...) render their intro paragraph directly in <main>
+   rather than inside .content-section, so links there need the same treatment repeated here. */
+.category-intro a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent);
+  transition: all 0.2s ease;
+}
+
+.category-intro a:hover {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+
 /* Pushed down to line up with the first Facebook post tile, not with the "Aktualności"
    heading above it - matches the h1's own rendered height + margin-bottom (measured, since
    the two columns are independent grid items with no shared row to align them automatically). */
