@@ -78,6 +78,25 @@
         <p id="facebook-settings-status" style="margin-top:0.5rem;"></p>
       </section>
 
+      <section style="margin-bottom: 2rem;">
+        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Przekierowania</h2>
+        <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
+          Alias otwiera się pod adresem kruki.org/&lt;alias&gt; i przekierowuje na docelowy adres. Zmiana pojawia się na
+          stronie po ok. 1-2 minutach (czas przebudowy strony).
+        </p>
+        <form id="add-redirect-form" style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap;">
+          <label>Alias
+            <input id="redirect-path" type="text" placeholder="discord" required pattern="[a-z0-9]+(-[a-z0-9]+)*" style="display:block; margin-top:4px;" />
+          </label>
+          <label style="flex:1; min-width:220px;">Docelowy URL
+            <input id="redirect-target" type="url" placeholder="https://discord.gg/..." required style="display:block; width:100%; margin-top:4px;" />
+          </label>
+          <button type="submit" class="btn-add-album">Dodaj przekierowanie</button>
+        </form>
+        <p id="add-redirect-status" style="margin-top:0.5rem;"></p>
+        <div id="redirects-list" style="margin-top:1rem;"></div>
+      </section>
+
       <h2 style="font-family:'Cinzel',serif; color: var(--text); margin-bottom: 1rem;">O nas</h2>
 
       <section style="margin-bottom: 2rem;">

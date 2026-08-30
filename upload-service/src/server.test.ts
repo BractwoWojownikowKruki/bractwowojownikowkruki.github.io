@@ -58,6 +58,9 @@ function makeFakeGithub(overrides: Partial<GithubClient> = {}): GithubClient {
   return {
     appendAlbumToMain: async () => {},
     removeAlbumFromMain: async () => {},
+    listRedirects: async () => [],
+    appendRedirectToMain: async () => {},
+    removeRedirectFromMain: async () => {},
     ...overrides,
   };
 }
@@ -1118,6 +1121,131 @@ test('/unregister removes the matching albums.json entry, for a Drive-by-URL or 
     const body = (await res.json()) as { ok: boolean };
     assert.deepEqual(body, { ok: true });
     assert.equal(removedUrl, 'https://drive.google.com/drive/folders/abc123');
+  });
+});
+
+test('GET /admin/redirects rejects an unauthenticated caller before touching GitHub', async () => {
+  let githubCalled = false;
+  const deps = makeDeps({
+    authenticateAdmin: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+    github: makeFakeGithub({ listRedirects: async () => { githubCalled = true; return []; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/redirects`);
+    assert.equal(res.status, 401);
+    assert.equal(githubCalled, false);
+  });
+});
+
+test('GET /admin/redirects returns the current list of redirects', async () => {
+  const deps = makeDeps({
+    github: makeFakeGithub({ listRedirects: async () => [{ path: 'discord', target: 'https://discord.gg/abc123' }] }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/redirects`);
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { redirects: unknown };
+    assert.deepEqual(body, { redirects: [{ path: 'discord', target: 'https://discord.gg/abc123' }] });
+  });
+});
+
+test('POST /admin/redirects rejects an unauthenticated caller before touching GitHub', async () => {
+  let githubCalled = false;
+  const deps = makeDeps({
+    authenticateAdmin: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+    github: makeFakeGithub({ appendRedirectToMain: async () => { githubCalled = true; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/redirects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'discord', target: 'https://discord.gg/abc123' }),
+    });
+    assert.equal(res.status, 401);
+    assert.equal(githubCalled, false);
+  });
+});
+
+test('POST /admin/redirects rejects an invalid alias without touching GitHub', async () => {
+  let githubCalled = false;
+  const deps = makeDeps({
+    github: makeFakeGithub({ appendRedirectToMain: async () => { githubCalled = true; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/redirects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'Discord Invite', target: 'https://discord.gg/abc123' }),
+    });
+    assert.equal(res.status, 400);
+    assert.equal(githubCalled, false);
+  });
+});
+
+test('POST /admin/redirects rejects a non-http(s) target without touching GitHub', async () => {
+  let githubCalled = false;
+  const deps = makeDeps({
+    github: makeFakeGithub({ appendRedirectToMain: async () => { githubCalled = true; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/redirects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'discord', target: 'javascript:alert(1)' }),
+    });
+    assert.equal(res.status, 400);
+    assert.equal(githubCalled, false);
+  });
+});
+
+test('POST /admin/redirects commits the new alias to redirects.json', async () => {
+  let appendedEntry: unknown = null;
+  const deps = makeDeps({
+    github: makeFakeGithub({ appendRedirectToMain: async entry => { appendedEntry = entry; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/redirects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'discord', target: 'https://discord.gg/abc123' }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { ok: boolean };
+    assert.deepEqual(body, { ok: true });
+    assert.deepEqual(appendedEntry, { path: 'discord', target: 'https://discord.gg/abc123' });
+  });
+});
+
+test('DELETE /admin/redirects rejects an unauthenticated caller before touching GitHub', async () => {
+  let githubCalled = false;
+  const deps = makeDeps({
+    authenticateAdmin: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+    github: makeFakeGithub({ removeRedirectFromMain: async () => { githubCalled = true; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/redirects?path=discord`, { method: 'DELETE' });
+    assert.equal(res.status, 401);
+    assert.equal(githubCalled, false);
+  });
+});
+
+test('DELETE /admin/redirects removes the matching redirects.json entry', async () => {
+  let removedPath: string | null = null;
+  const deps = makeDeps({
+    github: makeFakeGithub({ removeRedirectFromMain: async path => { removedPath = path; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/redirects?path=discord`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { ok: boolean };
+    assert.deepEqual(body, { ok: true });
+    assert.equal(removedPath, 'discord');
   });
 });
 

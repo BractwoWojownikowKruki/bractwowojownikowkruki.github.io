@@ -5,7 +5,7 @@ import { AuthError, fetchGoogleJwks, verifyUploader, type VerifiedIdentity } fro
 import { createAppsScriptAllowlist, createEmptyAllowlist, createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
 import { createDriveClient, type DriveClient } from './drive.ts';
-import { createGithubClient, type GithubClient } from './github.ts';
+import { createGithubClient, isValidRedirectPath, isValidRedirectTarget, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
 import { fetchInstagramPosts, fetchFacebookPosts, fetchYouTubeVideos, clearSocialMediaCache } from './social-media.ts';
 import { getFacebookSettings, setFacebookSettings } from './settings.ts';
@@ -342,6 +342,38 @@ async function handleAdminUpdateSettings(req: IncomingMessage, res: ServerRespon
   await deps.authenticateAdmin(req);
   const { liveFetchPostCount } = await readJsonBody<{ liveFetchPostCount?: number }>(req, deps.maxJsonBodyBytes);
   await setFacebookSettings(deps.drive, { liveFetchPostCount: Number(liveFetchPostCount) });
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleAdminListRedirects(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const redirects = await deps.github.listRedirects();
+  sendJson(res, 200, { redirects });
+}
+
+async function handleAdminCreateRedirect(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const { path, target } = await readJsonBody<{ path?: string; target?: string }>(req, deps.maxJsonBodyBytes);
+  const trimmedPath = (path ?? '').trim().toLowerCase();
+  const trimmedTarget = (target ?? '').trim();
+  if (!isValidRedirectPath(trimmedPath)) {
+    throw new AuthError(
+      'Alias musi się składać z małych liter, cyfr i myślników (np. "discord") i nie może być nazwą zarezerwowaną przez istniejącą stronę.',
+      400,
+    );
+  }
+  if (!isValidRedirectTarget(trimmedTarget)) {
+    throw new AuthError('Docelowy adres musi być pełnym adresem URL zaczynającym się od http:// lub https://.', 400);
+  }
+  await deps.github.appendRedirectToMain({ path: trimmedPath, target: trimmedTarget });
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleAdminDeleteRedirect(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req);
+  const path = url.searchParams.get('path');
+  if (!path) throw new AuthError('Brak aliasu.', 400);
+  await deps.github.removeRedirectFromMain(path);
   sendJson(res, 200, { ok: true });
 }
 
@@ -973,6 +1005,12 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminWhoami(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/social-media/refresh') {
         await handleAdminRefreshSocialCache(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/redirects') {
+        await handleAdminListRedirects(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/admin/redirects') {
+        await handleAdminCreateRedirect(req, res, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/admin/redirects') {
+        await handleAdminDeleteRedirect(req, res, url, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/people') {
         await handleAdminCreatePerson(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/description') {

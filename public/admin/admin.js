@@ -14,6 +14,7 @@ initGoogleSignIn({
     document.getElementById('admin-panel').hidden = false;
     loadManageList();
     loadFacebookSettings();
+    loadRedirects();
   },
   onForbidden: () => {
     document.getElementById('admin-signin').hidden = true;
@@ -58,6 +59,65 @@ document.getElementById('facebook-settings-form').addEventListener('submit', asy
   } catch (err) {
     status.textContent = `Błąd: ${err.message}`;
   }
+});
+
+async function loadRedirects() {
+  const list = document.getElementById('redirects-list');
+  list.textContent = 'Ładowanie...';
+  try {
+    const { redirects } = await apiFetch('/admin/redirects', { method: 'GET' }, showReauth, hideReauth);
+    renderRedirectsList(redirects);
+  } catch (err) {
+    list.textContent = `Błąd: ${err.message}`;
+  }
+}
+
+function renderRedirectsList(redirects) {
+  const list = document.getElementById('redirects-list');
+  if (!redirects.length) {
+    list.innerHTML = '<p>Brak przekierowań.</p>';
+    return;
+  }
+  list.innerHTML = redirects
+    .map(
+      r => `
+    <div style="display:flex; gap:0.5rem; align-items:center; padding:0.4rem 0; border-bottom:1px solid var(--border);">
+      <code>/${escapeHtml(r.path)}</code>
+      <span>&rarr;</span>
+      <span style="flex:1; overflow-wrap:anywhere;">${escapeHtml(r.target)}</span>
+      <button class="delete-redirect" data-path="${escapeAttr(r.path)}" style="color:var(--accent);">Usuń</button>
+    </div>`,
+    )
+    .join('');
+}
+
+document.getElementById('add-redirect-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const status = document.getElementById('add-redirect-status');
+  status.textContent = 'Zapisywanie...';
+  const path = document.getElementById('redirect-path').value.trim().toLowerCase();
+  const target = document.getElementById('redirect-target').value.trim();
+  try {
+    await apiFetch(
+      '/admin/redirects',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, target }) },
+      showReauth,
+      hideReauth,
+    );
+    status.textContent = 'Dodano przekierowanie.';
+    document.getElementById('add-redirect-form').reset();
+    loadRedirects();
+  } catch (err) {
+    status.textContent = `Błąd: ${err.message}`;
+  }
+});
+
+document.getElementById('redirects-list').addEventListener('click', async e => {
+  const deleteBtn = e.target.closest('.delete-redirect');
+  if (!deleteBtn) return;
+  if (!window.confirm(`Na pewno usunąć przekierowanie /${deleteBtn.dataset.path}?`)) return;
+  await apiFetch(`/admin/redirects?path=${encodeURIComponent(deleteBtn.dataset.path)}`, { method: 'DELETE' }, showReauth, hideReauth);
+  loadRedirects();
 });
 
 // Uploads every file in fileList to folderId, sequentially (simplicity over throughput - this
