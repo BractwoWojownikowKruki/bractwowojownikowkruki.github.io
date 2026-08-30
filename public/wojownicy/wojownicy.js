@@ -6,11 +6,12 @@
  * appears, no explanation of which group is required.
  *
  * Remembers the last confirmed membership result per email, so a returning member sees the
-// upload link immediately (onRestoredIdentity, below) instead of waiting out the Apps Script
-// check again on every single page load. Purely a perceived-speed optimization: the real
-// upload endpoints still re-verify group membership server-side regardless of what this cache
-// says, so a stale "true" here can't grant anything - onSignedIn/onForbidden always correct it
-// once the real check resolves, a moment later.
+ * upload link immediately (onRestoredIdentity, below) instead of waiting out the Apps Script
+ * check again on every single page load. Purely a perceived-speed optimization: the real
+ * upload endpoints still re-verify group membership server-side regardless of what this cache
+ * says, so a stale "true" here can't grant anything - onSignedIn/onForbidden always correct it
+ * once the real check resolves, a moment later.
+ */
 const MEMBER_CACHE_KEY = 'kruki_wojownicy_member';
 
 function loadCachedMembership(email) {
