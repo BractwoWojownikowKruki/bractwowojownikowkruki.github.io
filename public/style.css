@@ -1303,8 +1303,14 @@ main { padding: 1.25rem 1.5rem 3rem; }
   top: auto;
 }
 
+/* align-items:center (not the flex default of stretch) - otherwise taller items (the
+   .nav-item-dropdown wrapper, the Google sign-in button) get stretched to the row's full
+   height and then internally centered within that extra space, while a plain .nav-item <a>
+   just sits at the top of its own stretched box - visibly misaligning "My, Wojownicy" and
+   "Zaloguj się" below the plain text items instead of sharing their baseline. */
 .main-nav {
   display: flex;
+  align-items: center;
   gap: 2rem;
   flex-wrap: wrap;
 }
@@ -1331,26 +1337,14 @@ main { padding: 1.25rem 1.5rem 3rem; }
   border-bottom-color: var(--accent);
 }
 
-/* A soft translucent glow, not a solid-fill badge or colored text + underline - the underline
-   treatment reads as "current page" (same visual language as .nav-item--active), the wrong
-   message for Nabór (a standing call-to-action, not a page indicator), and a hard-edged solid
-   pill read as too badge-like. A faint tinted background plus a diffuse box-shadow bloom gives
-   it presence without either. */
+/* Just red text, same on desktop and mobile - no background/glow/pill treatment. */
 .nav-item--highlighted {
   color: var(--accent);
   font-weight: 600;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 20%, transparent);
-  padding: 0.3rem 0.55rem;
-  border-radius: 4px;
-  border-bottom-color: transparent;
 }
 
 .nav-item--highlighted:hover {
   color: var(--gold);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  box-shadow: 0 0 9px color-mix(in srgb, var(--accent) 30%, transparent);
-  border-bottom-color: transparent;
 }
 
 /* Desktop: hover-triggered floating dropdown for the Wojownicy nav item. Collapses to a
@@ -1991,21 +1985,6 @@ main { padding: 1.25rem 1.5rem 3rem; }
      structural :last-child, so the rule above never reaches the one that's actually showing. */
   #nav-admin-link {
     border-bottom: none;
-  }
-
-  /* Reasserted here (not just relying on the earlier .nav-item--highlighted rule) because
-     this block's own .nav-item { border-bottom: ... } shorthand comes later in the file and
-     would otherwise overwrite the pill's transparent border-bottom back to the default
-     divider color, despite equal selector specificity - same class of cascade-order bug as
-     .content-section a vs. the Facebook feed's buttons/links elsewhere in this file. Margin
-     instead of the divider gives the solid-fill pill room to read as a button, not a row. */
-  /* align-self overrides .main-nav's align-items:stretch, which otherwise stretches every
-     .nav-item (including this one) to the menu's full width - without it the pill's background
-     spans the whole row instead of hugging just the "Nabór" text. */
-  .nav-item--highlighted {
-    border-bottom-color: transparent;
-    margin: 0.4rem 0;
-    align-self: flex-start;
   }
 
   /* .nav-item-dropdown is display:flex (row, centered) for desktop's single-line nav bar -
