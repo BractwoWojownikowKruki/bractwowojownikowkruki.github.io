@@ -10,5 +10,9 @@
   {
     "path": "discord",
     "target": "https://discord.gg/hKDBM7c2Mk"
+  },
+  {
+    "path": "lista-wyjazdowa",
+    "target": "https://docs.google.com/spreadsheets/d/1a-RW9seAVFCEYKI12OdUZhNsv_B8xlKq49RbE8BGdd0/edit?usp=sharing"
   }
 ]
