@@ -251,6 +251,27 @@ test('GET /admin/whoami returns the admin email when authenticateAdmin succeeds'
   });
 });
 
+test('GET /moderator/whoami returns the moderator email when authenticateModerator succeeds', async () => {
+  const deps = makeDeps({ authenticateModerator: async () => ({ sub: 'm1', email: 'moderator@gmail.com' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/moderator/whoami`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { email: 'moderator@gmail.com' });
+  });
+});
+
+test('GET /moderator/whoami rejects a caller who is not a moderator', async () => {
+  const deps = makeDeps({
+    authenticateModerator: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/moderator/whoami`);
+    assert.equal(res.status, 403);
+  });
+});
+
 test('POST /admin/social-media/refresh requires admin auth and returns ok', async () => {
   let authenticatedAsAdmin = false;
   const deps = makeDeps({

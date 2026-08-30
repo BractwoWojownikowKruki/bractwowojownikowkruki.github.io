@@ -61,6 +61,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # KRKG-0032: the runtime SA now exists and is verified working in production, so a
+      # deploy without it is a regression, not a bootstrap state to tolerate - fail before
+      # ever calling `gcloud run deploy`, rather than silently falling back to the default
+      # Compute Engine SA (see the KRKG-0032 story's "break-glass" note for why the default
+      # SA still needs 3 narrow grants regardless: source-based Cloud Run deploys always run
+      # their build step as that SA, independent of this flag).
+      - name: Require dedicated runtime service account
+        if: ${{ secrets.CLOUD_RUN_RUNTIME_SA == '' }}
+        run: |
+          echo "::error::CLOUD_RUN_RUNTIME_SA secret is not set - refusing to deploy with the default Compute Engine service account."
+          exit 1
+
       - id: auth
         name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -75,12 +87,7 @@ jobs:
           region: europe-central2
           project_id: krucze-galery-upload
           source: ./upload-service
-          # KRKG-0032: pins the Cloud Run runtime identity to a dedicated, least-privilege
-          # service account instead of the implicit (and typically over-privileged) Compute
-          # Engine default SA - but only once CLOUD_RUN_RUNTIME_SA actually exists as a repo
-          # secret, so this deploy keeps working before that SA has been created (see the
-          # runbook note on KRKG-0032 for the gcloud commands to create it and set the secret).
-          flags: --max-instances=1 --concurrency=10 --timeout=300 --memory=512Mi --allow-unauthenticated${{ secrets.CLOUD_RUN_RUNTIME_SA && format(' --service-account={0}', secrets.CLOUD_RUN_RUNTIME_SA) || '' }}
+          flags: --max-instances=1 --concurrency=10 --timeout=300 --memory=512Mi --allow-unauthenticated --service-account=${{ secrets.CLOUD_RUN_RUNTIME_SA }}
           env_vars: |
             GOOGLE_OAUTH_CLIENT_ID=${{ secrets.UPLOAD_OAUTH_CLIENT_ID }}
             DRIVE_PARENT_FOLDER_ID=${{ secrets.UPLOAD_DRIVE_PARENT_FOLDER_ID }}
@@ -94,3 +101,16 @@ jobs:
             SUBMISSION_TOKEN_SECRET=submission-token-secret:latest
             FACEBOOK_PAGE_ACCESS_TOKEN=facebook-page-access-token:latest
             YOUTUBE_API_KEY=youtube-api-key:latest
+
+      # KRKG-0032 drift check: confirms the identity actually running in Cloud Run right now
+      # matches what we just asked for, rather than trusting the deploy call succeeded silently
+      # with the wrong account (e.g. a stale cached revision, or a manual console change since
+      # the last deploy).
+      - name: Verify deployed runtime identity matches expected
+        run: |
+          ACTUAL_SA=$(gcloud run services describe krucze-galery-upload --region=europe-central2 --project=krucze-galery-upload --format="value(spec.template.spec.serviceAccountName)")
+          if [ "$ACTUAL_SA" != "${{ secrets.CLOUD_RUN_RUNTIME_SA }}" ]; then
+            echo "::error::Live Cloud Run runtime service account does not match the expected CLOUD_RUN_RUNTIME_SA secret."
+            exit 1
+          fi
+          echo "Runtime identity verified."

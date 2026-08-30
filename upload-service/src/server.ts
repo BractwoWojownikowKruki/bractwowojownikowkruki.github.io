@@ -324,6 +324,14 @@ async function handleAdminWhoami(req: IncomingMessage, res: ServerResponse, deps
   sendJson(res, 200, { email: identity.email });
 }
 
+// Lets a caller (or an operator, via curl) confirm they pass the moderator gate (KRKG-0027)
+// without needing to actually delete or unregister a gallery just to find out - the two
+// destructive endpoints were previously the only way to test this.
+async function handleModeratorWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateModerator(req);
+  sendJson(res, 200, { email: identity.email });
+}
+
 // Not scoped to About Us specifically - clears the Instagram/Facebook posts cache so the
 // homepage's Aktualności feed picks up new posts immediately, instead of waiting out the 6h TTL.
 async function handleAdminRefreshSocialCache(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -1003,6 +1011,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAboutUs(res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/whoami') {
         await handleAdminWhoami(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/moderator/whoami') {
+        await handleModeratorWhoami(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/social-media/refresh') {
         await handleAdminRefreshSocialCache(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/redirects') {
