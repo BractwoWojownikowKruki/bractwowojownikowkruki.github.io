@@ -37,7 +37,10 @@ export const config = {
   galleriesCacheTtlMs: Number(process.env.GALLERIES_CACHE_TTL_MS ?? 10 * 60 * 1000),
   githubToken: requireEnv('GITHUB_TOKEN'),
   githubRepo: process.env.GITHUB_REPO ?? 'BractwoWojownikowKruki/bractwowojownikowkruki.github.io',
-  allowedOrigin: process.env.ALLOWED_ORIGIN ?? 'https://bractwowojownikowkruki.github.io',
+  // The site moved to a custom domain (www.kruki.org) - GitHub Pages now 301-redirects the old
+  // bractwowojownikowkruki.github.io URL there, so no page ever actually runs client-side JS
+  // from that origin anymore and it doesn't need to stay in the CORS allowlist too.
+  allowedOrigin: process.env.ALLOWED_ORIGIN ?? 'https://www.kruki.org',
   submissionTokenSecret: requireEnv('SUBMISSION_TOKEN_SECRET'),
   // 20 MB per photo - comfortably under Cloud Run's 32 MiB HTTP/1 request body limit,
   // with headroom for the multipart wrapper this service adds around each file.
