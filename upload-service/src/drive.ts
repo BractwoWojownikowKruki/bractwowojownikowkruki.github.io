@@ -1,11 +1,16 @@
 const DRIVE_API = 'https://www.googleapis.com';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload';
 
-let cachedAccessToken: { token: string; expiresAt: number } | null = null;
+// Keyed by refreshToken, not a single shared slot: exportDocHtml uses a second, more broadly
+// scoped credential (drive.readonly, for reading pre-existing Docs) alongside the main
+// drive.file-scoped one used everywhere else - a single-slot cache would have the two stomp on
+// each other's access token, silently reusing the wrong scope's token for the wrong call.
+const cachedAccessTokens = new Map<string, { token: string; expiresAt: number }>();
 
 export async function getAccessToken(clientId: string, clientSecret: string, refreshToken: string): Promise<string> {
-  if (cachedAccessToken && cachedAccessToken.expiresAt > Date.now() + 60_000) {
-    return cachedAccessToken.token;
+  const cached = cachedAccessTokens.get(refreshToken);
+  if (cached && cached.expiresAt > Date.now() + 60_000) {
+    return cached.token;
   }
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -21,7 +26,7 @@ export async function getAccessToken(clientId: string, clientSecret: string, ref
     throw new Error(`Nie udało się odświeżyć tokenu Drive: HTTP ${res.status}`);
   }
   const data = (await res.json()) as { access_token: string; expires_in: number };
-  cachedAccessToken = { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
+  cachedAccessTokens.set(refreshToken, { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 });
   return data.access_token;
 }
 
@@ -513,7 +518,11 @@ export interface DriveClient {
 
 // Binds the module's functions to one set of Drive credentials, giving server.ts a small
 // interface it can depend on - and server.test.ts a seam to substitute a fake implementation.
-export function createDriveClient(deps: DriveDeps): DriveClient {
+// `docsDeps` (drive.readonly-scoped, see config.ts's docsRefreshToken) is separate from `deps`
+// (drive.file-scoped, used for everything else) and only ever used for exportDocHtml - the two
+// scopes must stay on distinct credentials, not just distinct calls, since drive.file genuinely
+// cannot read a pre-existing Doc regardless of which account owns or shares it.
+export function createDriveClient(deps: DriveDeps, docsDeps: DriveDeps = deps): DriveClient {
   return {
     createAlbumFolder: (parentFolderId, folderName) => createAlbumFolder(deps, parentFolderId, folderName),
     uploadFileStream: (folderId, fileName, mimeType, bodyStream) =>
@@ -533,6 +542,6 @@ export function createDriveClient(deps: DriveDeps): DriveClient {
     readTextFile: (folderId, fileName) => readTextFile(deps, folderId, fileName),
     writeTextFile: (folderId, fileName, content) => writeTextFile(deps, folderId, fileName, content),
     listImageFiles: folderId => listImageFiles(deps, folderId),
-    exportDocHtml: fileId => exportDocHtml(deps, fileId),
+    exportDocHtml: fileId => exportDocHtml(docsDeps, fileId),
   };
 }

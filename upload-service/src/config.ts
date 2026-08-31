@@ -36,6 +36,17 @@ export const config = {
   // blocking deploys on a secret that can't exist yet or leaving those endpoints open to the
   // whole kruki group in the meantime.
   moderatorGroupUrl: process.env.MODERATOR_GROUP_URL,
+  // exportDocHtml (see drive.ts) needs drive.readonly to read a pre-existing Doc - drive.file
+  // (driveRefreshToken below) only ever sees files this app itself created, which a human-authored
+  // Doc never was, regardless of which account owns or shares it (see the drive.file comments on
+  // handleUpload/handleWojownicyUploadPhoto for the same constraint elsewhere). Same account
+  // (bractwowojownikowkruki@gmail.com) and same OAuth client (driveClientId/driveClientSecret
+  // below), just a second, separately-consented refresh token with the broader scope - kept apart
+  // from driveRefreshToken so the existing upload flow's credential stays narrowly scoped.
+  // Optional and undefined until that consent step is done: until then, server.ts falls back to
+  // driveRefreshToken, so /wojownicy-docs fails closed (403 from Drive) instead of the whole
+  // service failing to boot.
+  docsRefreshToken: process.env.DOCS_REFRESH_TOKEN,
   googleOAuthClientId: requireEnv('GOOGLE_OAUTH_CLIENT_ID'),
   driveRefreshToken: requireEnv('DRIVE_REFRESH_TOKEN'),
   driveClientId: requireEnv('DRIVE_CLIENT_ID'),
