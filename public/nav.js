@@ -120,3 +120,60 @@ document.addEventListener('DOMContentLoaded', () => {
     },
   });
 });
+
+/**
+ * Gates the "Wrzucam swoje zdjęcie" nav link the same way #nav-admin-link is gated above, just
+ * against a different allowlist (kruki Google Group membership, GET /wojownicy-upload/whoami,
+ * checked server-side - see upload-service/src/allowlist.ts's createAppsScriptAllowlist) rather
+ * than the admin allowlist. Lives in the shared nav partial now (previously only injected into
+ * the Wojownicy page's own markup, with this same check duplicated in a page-specific
+ * wojownicy.js), so it shows up from any page once a member signs in, not just from /wojownicy/.
+ *
+ * Remembers the last confirmed membership result per email, so a returning member sees the
+ * link immediately (onRestoredIdentity, below) instead of waiting out the Apps Script check
+ * again on every single page load. Purely a perceived-speed optimization: the real upload
+ * endpoints still re-verify group membership server-side regardless of what this cache says, so
+ * a stale "true" here can't grant anything - onSignedIn/onForbidden always correct it once the
+ * real check resolves, a moment later.
+ */
+document.addEventListener('DOMContentLoaded', () => {
+  const wrzucLink = document.getElementById('wrzuc-link');
+  if (!wrzucLink || typeof initGoogleSignIn !== 'function') return;
+
+  const MEMBER_CACHE_KEY = 'kruki_wojownicy_member';
+
+  function loadCachedMembership(email) {
+    try {
+      const cached = JSON.parse(localStorage.getItem(MEMBER_CACHE_KEY));
+      return cached?.email === email ? cached.isMember : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function saveCachedMembership(email, isMember) {
+    try {
+      localStorage.setItem(MEMBER_CACHE_KEY, JSON.stringify({ email, isMember }));
+    } catch {
+      // Storage can be unavailable (private browsing) - just means no optimistic guess next time.
+    }
+  }
+
+  initGoogleSignIn({
+    buttonIds: [],
+    whoamiPath: '/wojownicy-upload/whoami',
+    onRestoredIdentity: payload => {
+      if (loadCachedMembership(payload.email) === true) {
+        wrzucLink.hidden = false;
+      }
+    },
+    onSignedIn: payload => {
+      saveCachedMembership(payload.email, true);
+      wrzucLink.hidden = false;
+    },
+    onForbidden: payload => {
+      if (payload?.email) saveCachedMembership(payload.email, false);
+      wrzucLink.hidden = true;
+    },
+  });
+});
