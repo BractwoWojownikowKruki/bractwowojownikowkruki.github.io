@@ -354,12 +354,12 @@ async function findFileIdByName(deps: DriveDeps, folderId: string, name: string)
 // Exports a Google Doc as HTML via Drive's export endpoint (not the Docs API's structured JSON
 // model - the export endpoint gives back ready-to-render markup close to what Docs itself shows,
 // which is all the Wojownicy-only doc pages need). Only works for native Google Docs, not an
-// uploaded .docx/.pdf/etc - Drive can only "export" its own formats. Uses the same drive.file
-// -scoped Drive OAuth credentials as every other Drive call here; drive.file normally only sees
-// files this app itself created, but config.ts's wojownicyDocs comment explains how these
-// specific pre-existing files got added to that grant (via Google Picker, see
-// scripts/grant-docs-file-access.ts) without broadening the scope. A file missing from that
-// grant makes Drive return 403/404, surfaced to the caller as a thrown error rather than
+// uploaded .docx/.pdf/etc - Drive can only "export" its own formats. Called with a drive.file
+// -scoped credential (config.ts's docsClientId, a separate OAuth client from the main
+// DriveDeps - see its comment); drive.file normally only sees files the app itself created, but
+// Google Picker lets a human grant it access to specific pre-existing files instead, without
+// broadening to drive.readonly (see scripts/grant-docs-file-access.ts). A file missing from
+// that grant makes Drive return 403/404, surfaced to the caller as a thrown error rather than
 // silently returning empty content.
 export async function exportDocHtml(deps: DriveDeps, fileId: string): Promise<string> {
   const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
@@ -521,7 +521,9 @@ export interface DriveClient {
 
 // Binds the module's functions to one set of Drive credentials, giving server.ts a small
 // interface it can depend on - and server.test.ts a seam to substitute a fake implementation.
-export function createDriveClient(deps: DriveDeps): DriveClient {
+// `docsDeps` is a separate, dedicated OAuth client used only for exportDocHtml - see
+// config.ts's docsClientId comment for why it must stay distinct from `deps`.
+export function createDriveClient(deps: DriveDeps, docsDeps: DriveDeps = deps): DriveClient {
   return {
     createAlbumFolder: (parentFolderId, folderName) => createAlbumFolder(deps, parentFolderId, folderName),
     uploadFileStream: (folderId, fileName, mimeType, bodyStream) =>
@@ -541,6 +543,6 @@ export function createDriveClient(deps: DriveDeps): DriveClient {
     readTextFile: (folderId, fileName) => readTextFile(deps, folderId, fileName),
     writeTextFile: (folderId, fileName, content) => writeTextFile(deps, folderId, fileName, content),
     listImageFiles: folderId => listImageFiles(deps, folderId),
-    exportDocHtml: fileId => exportDocHtml(deps, fileId),
+    exportDocHtml: fileId => exportDocHtml(docsDeps, fileId),
   };
 }

@@ -1122,6 +1122,12 @@ async function startProductionServer(): Promise<void> {
     clientSecret: config.driveClientSecret,
     refreshToken: config.driveRefreshToken,
   };
+  // See config.ts's docsClientId comment - falls back to driveDeps until that separate Web
+  // OAuth client's credential exists, so /wojownicy-docs keeps failing closed (403/404 from
+  // Drive) rather than the whole service failing to boot over a not-yet-done one-time setup.
+  const docsDriveDeps = config.docsClientId && config.docsClientSecret && config.docsRefreshToken
+    ? { clientId: config.docsClientId, clientSecret: config.docsClientSecret, refreshToken: config.docsRefreshToken }
+    : driveDeps;
   const adminAllowlist = createSheetAllowlist({ url: config.adminAllowlistSheetUrl });
   // One shared allowlist (live kruki Google Group membership, see createAppsScriptAllowlist)
   // now gates both the Krucze Galerie access/upload flow and the Wojownicy self-service
@@ -1136,7 +1142,7 @@ async function startProductionServer(): Promise<void> {
     ? createAppsScriptAllowlist({ url: config.moderatorGroupUrl })
     : createEmptyAllowlist();
   const productionDeps: ServerDeps = {
-    drive: createDriveClient(driveDeps),
+    drive: createDriveClient(driveDeps, docsDriveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
     authenticate: req => verifyUploader(req, config.googleOAuthClientId, groupAllowlist),
     authenticateAdmin: req => verifyUploader(req, config.googleOAuthClientId, adminAllowlist),
