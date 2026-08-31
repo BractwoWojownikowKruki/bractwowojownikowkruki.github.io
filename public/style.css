@@ -1613,6 +1613,19 @@ main { padding: 1.25rem 1.5rem 3rem; }
   border-bottom: none;
 }
 
+/* Google Docs' HTML export hard-codes its own text colors (almost always black) as inline
+   styles on individual runs of text - those beat any color this stylesheet sets regardless of
+   selector, so against the site's own dark background the text is unreadable (black on black).
+   Rendering it on its own light "paper" card instead - rather than fighting Docs' inline colors
+   one by one - makes the authored colors legible again, exactly as they'd look in Docs itself. */
+#doc-content {
+  background: #ffffff;
+  color: #000000;
+  padding: 2rem;
+  border-radius: 8px;
+  margin-top: 1rem;
+}
+
 /* Category pages (Blachowi, Kandydaci, ...) render their intro paragraph directly in <main>
    rather than inside .content-section, so links there need the same treatment repeated here. */
 .category-intro a {
