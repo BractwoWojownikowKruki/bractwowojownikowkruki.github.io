@@ -17,3 +17,21 @@ initGoogleSignIn({
   onRestoredIdentity: showSignedIn,
   onIdentity: showSignedIn,
 });
+
+/**
+ * "Zarejestruj się" only makes sense for someone who isn't a member yet - hide it once the
+ * kruki Google Group membership check (same one gating Wrzucam swoje zdjęcie/Zasady Bractwa/
+ * Poradnik Walki) actually confirms membership, not just "signed in with some Google account"
+ * (onIdentity above fires for any account, member or not - that's the wrong signal here, since
+ * a non-member signing in with their own Google account still needs these instructions).
+ */
+initGoogleSignIn({
+  buttonIds: [],
+  whoamiPath: '/wojownicy-upload/whoami',
+  onSignedIn: () => {
+    document.getElementById('register-section').hidden = true;
+  },
+  onForbidden: () => {
+    document.getElementById('register-section').hidden = false;
+  },
+});

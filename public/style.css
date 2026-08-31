@@ -1391,6 +1391,14 @@ main { padding: 1.25rem 1.5rem 3rem; }
   align-items: center;
 }
 
+/* Author CSS beats the UA stylesheet's [hidden] rule regardless of specificity - needed now
+   that #nav-members-zone is a .nav-item-dropdown that's conditionally hidden (every other
+   .nav-item-dropdown on the site, e.g. My, Wojownicy, is always visible, so this never came up
+   before), same class of bug as .nav-item--gated[hidden] elsewhere in this file. */
+.nav-item-dropdown[hidden] {
+  display: none;
+}
+
 .nav-dropdown-menu {
   display: none;
   position: absolute;

@@ -123,25 +123,24 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
- * Gates every plain-member-only nav link (Wrzucam swoje zdjęcie, Zasady Bractwa, Poradnik Walki)
+ * Gates the "Strefa Członków" dropdown (Zasady Bractwa, Poradnik Walki, Wrzucam swoje zdjęcie)
  * the same way #nav-admin-link is gated above, just against a different allowlist (kruki Google
  * Group membership, GET /wojownicy-upload/whoami, checked server-side - see
  * upload-service/src/allowlist.ts's createAppsScriptAllowlist) rather than the admin allowlist.
- * One shared check for all of them since they're the same membership gate - lives in the shared
- * nav partial, so they show up from any page once a member signs in, not just from /wojownicy/.
+ * One shared check for the whole group since they're all behind the identical membership gate -
+ * lives in the shared nav partial, so it shows up from any page once a member signs in, not just
+ * from /wojownicy/.
  *
- * Remembers the last confirmed membership result per email, so a returning member sees these
- * links immediately (onRestoredIdentity, below) instead of waiting out the Apps Script check
- * again on every single page load. Purely a perceived-speed optimization: the real endpoints
- * behind each link still re-verify group membership server-side regardless of what this cache
- * says, so a stale "true" here can't grant anything - onSignedIn/onForbidden always correct it
- * once the real check resolves, a moment later.
+ * Remembers the last confirmed membership result per email, so a returning member sees this
+ * immediately (onRestoredIdentity, below) instead of waiting out the Apps Script check again on
+ * every single page load. Purely a perceived-speed optimization: the real endpoints behind each
+ * link still re-verify group membership server-side regardless of what this cache says, so a
+ * stale "true" here can't grant anything - onSignedIn/onForbidden always correct it once the
+ * real check resolves, a moment later.
  */
 document.addEventListener('DOMContentLoaded', () => {
-  const memberOnlyLinks = ['wrzuc-link', 'nav-zasady-bractwa-link', 'nav-poradnik-walki-link']
-    .map(id => document.getElementById(id))
-    .filter(Boolean);
-  if (!memberOnlyLinks.length || typeof initGoogleSignIn !== 'function') return;
+  const membersZone = document.getElementById('nav-members-zone');
+  if (!membersZone || typeof initGoogleSignIn !== 'function') return;
 
   const MEMBER_CACHE_KEY = 'kruki_wojownicy_member';
 
@@ -163,7 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function setHidden(hidden) {
-    memberOnlyLinks.forEach(link => { link.hidden = hidden; });
+    membersZone.hidden = hidden;
   }
 
   initGoogleSignIn({
