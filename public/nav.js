@@ -60,14 +60,29 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
+ * #nav-members-zone (the "Strefa Członków" box) holds links gated by two different, independent
+ * checks - Panel admina (admin allowlist) alongside Galerie/Zasady Bractwa/Poradnik Walki/
+ * Wrzucam swoje zdjęcie (kruki group membership) - so the box itself has no single gate of its
+ * own. It shows whenever at least one of its links does; called after either gate below changes
+ * any link's hidden state.
+ */
+function updateMembersZoneVisibility() {
+  const zone = document.getElementById('nav-members-zone');
+  if (!zone) return;
+  const anyLinkVisible = Array.from(zone.querySelectorAll('a.nav-item')).some(link => !link.hidden);
+  zone.hidden = !anyLinkVisible;
+}
+
+/**
  * Site-wide sign-in status: the user's Google avatar in the always-visible top bar next to the
  * hamburger (#nav-auth-slot) once signed in, plus - inside the collapsible menu itself, not the
  * top bar - a "Zaloguj się" link (to /logowanie/) when signed out (#nav-login-link) or a "Panel
- * admina" link when the /admin/whoami check passes (#nav-admin-link). Keeping the login link and
- * admin link out of the top bar avoids crowding it (logo + avatar + hamburger already fill it
- * on mobile) - they only need to be reachable, not always visible. The actual Google sign-in
- * button itself is no longer rendered in the nav - it lives on /logowanie/ (see logowanie.js) -
- * #nav-login-link is a plain link there, same as any other nav item.
+ * admina" link inside the Strefa Członków box when the /admin/whoami check passes
+ * (#nav-admin-link). Keeping the login link and admin link out of the top bar avoids crowding it
+ * (logo + avatar + hamburger already fill it on mobile) - they only need to be reachable, not
+ * always visible. The actual Google sign-in button itself is no longer rendered in the nav - it
+ * lives on /logowanie/ (see logowanie.js) - #nav-login-link is a plain link there, same as any
+ * other nav item.
  *
  * Reuses initGoogleSignIn from auth.js, which is safe to call alongside a page's own sign-in
  * flow (e.g. the Wojownicy group-membership check below) - see the shared-listener comment in
@@ -98,6 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderAdminLink(isAdmin) {
     if (adminLink) adminLink.hidden = !isAdmin;
+    updateMembersZoneVisibility();
   }
 
   // Only show the "Zaloguj się" link right away if there's definitely no restorable session to
@@ -123,15 +139,14 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
- * Gates the "Strefa Członków" dropdown (Zasady Bractwa, Poradnik Walki, Wrzucam swoje zdjęcie)
- * the same way #nav-admin-link is gated above, just against a different allowlist (kruki Google
- * Group membership, GET /wojownicy-upload/whoami, checked server-side - see
- * upload-service/src/allowlist.ts's createAppsScriptAllowlist) rather than the admin allowlist.
- * One shared check for the whole group since they're all behind the identical membership gate -
- * lives in the shared nav partial, so it shows up from any page once a member signs in, not just
- * from /wojownicy/.
+ * Gates the rest of the "Strefa Członków" box (Galerie, Zasady Bractwa, Poradnik Walki, Wrzucam
+ * swoje zdjęcie) against kruki Google Group membership, GET /wojownicy-upload/whoami, checked
+ * server-side - see upload-service/src/allowlist.ts's createAppsScriptAllowlist - independently
+ * of Panel admina's own admin-allowlist check above. One shared check for the whole group since
+ * they're all behind the identical membership gate - lives in the shared nav partial, so it
+ * shows up from any page once a member signs in, not just from /wojownicy/.
  *
- * Remembers the last confirmed membership result per email, so a returning member sees this
+ * Remembers the last confirmed membership result per email, so a returning member sees these
  * immediately (onRestoredIdentity, below) instead of waiting out the Apps Script check again on
  * every single page load. Purely a perceived-speed optimization: the real endpoints behind each
  * link still re-verify group membership server-side regardless of what this cache says, so a
@@ -139,8 +154,10 @@ document.addEventListener('DOMContentLoaded', () => {
  * real check resolves, a moment later.
  */
 document.addEventListener('DOMContentLoaded', () => {
-  const membersZone = document.getElementById('nav-members-zone');
-  if (!membersZone || typeof initGoogleSignIn !== 'function') return;
+  const memberOnlyLinks = ['nav-members-galerie-link', 'nav-zasady-bractwa-link', 'nav-poradnik-walki-link', 'wrzuc-link']
+    .map(id => document.getElementById(id))
+    .filter(Boolean);
+  if (!memberOnlyLinks.length || typeof initGoogleSignIn !== 'function') return;
 
   const MEMBER_CACHE_KEY = 'kruki_wojownicy_member';
 
@@ -162,7 +179,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function setHidden(hidden) {
-    membersZone.hidden = hidden;
+    memberOnlyLinks.forEach(link => { link.hidden = hidden; });
+    updateMembersZoneVisibility();
   }
 
   initGoogleSignIn({

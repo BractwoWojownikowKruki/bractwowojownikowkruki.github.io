@@ -1318,6 +1318,69 @@ main { padding: 1.25rem 1.5rem 3rem; }
   align-items: center;
   gap: 2rem;
   flex-wrap: wrap;
+  /* Grows to fill the row between the logo and .header-actions, so .nav-account-area's own
+     margin-left:auto below has somewhere to push against - without this, .main-nav would only
+     be as wide as its own content and the account area couldn't reach the header's right edge. */
+  flex: 1 1 auto;
+}
+
+/* Always present (unlike its two children, which toggle independently) so margin-left:auto
+   reliably pushes whichever one is actually showing - the members-zone box or "Zaloguj się" -
+   to the row's right edge, right next to the avatar/hamburger in .header-actions. Public nav
+   items stay left-aligned next to the logo, exactly as before. */
+.nav-account-area {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+/* A framed, tinted group rather than a dropdown - these are separate destinations a member
+   might jump to directly, not a hierarchy to drill into (unlike My, Wojownicy's subcategories),
+   so a flat inline list reads better than another hover menu. */
+.members-zone {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.members-zone[hidden] {
+  display: none;
+}
+
+.members-zone-label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--gold);
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.members-zone-label svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.members-zone a.nav-item {
+  padding: 0;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* Sibling combinator, not a static " · " in the markup: matches purely on DOM order regardless
+   of which items are actually hidden (Panel admina toggles on a separate, admin-only check from
+   the other four), so a dot never dangles before/after whichever items happen to be hidden for
+   a given visitor - bar the rare edge case of an admin who isn't also a tracked group member,
+   where a stray leading dot is an acceptable trade-off for not needing a CSS :has()-based
+   first-visible-child trick. */
+.members-zone a.nav-item + a.nav-item::before {
+  content: ' · ';
+  color: var(--text-muted);
 }
 
 .nav-item {
@@ -1348,32 +1411,6 @@ main { padding: 1.25rem 1.5rem 3rem; }
   font-weight: 600;
 }
 
-/* Marks a nav item as members-only (Panel admina, Wrzucam swoje zdjęcie, ...) - these only
-   ever appear once already signed in (see nav.js/wojownicy.js), so the lock isn't "you can't
-   open this", it's "this lives in the private area, not the public site". A small icon rather
-   than a color/background change: those are already used elsewhere (Nabór's accent color,
-   .nav-item--active's underline) for different meanings, and reusing them here would blur
-   that distinction instead of adding a new, unambiguous one. */
-.nav-item--gated {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-/* Author CSS beats the UA stylesheet's [hidden] rule regardless of specificity - the
-   .nav-item--gated display:flex above would otherwise win and show the element even while
-   hidden is set. */
-.nav-item--gated[hidden] {
-  display: none;
-}
-
-.nav-item--gated svg {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
-  opacity: 0.7;
-}
-
 .nav-item--highlighted:hover {
   color: var(--gold);
 }
@@ -1389,14 +1426,6 @@ main { padding: 1.25rem 1.5rem 3rem; }
   position: relative;
   display: flex;
   align-items: center;
-}
-
-/* Author CSS beats the UA stylesheet's [hidden] rule regardless of specificity - needed now
-   that #nav-members-zone is a .nav-item-dropdown that's conditionally hidden (every other
-   .nav-item-dropdown on the site, e.g. My, Wojownicy, is always visible, so this never came up
-   before), same class of bug as .nav-item--gated[hidden] elsewhere in this file. */
-.nav-item-dropdown[hidden] {
-  display: none;
 }
 
 .nav-dropdown-menu {
@@ -2082,11 +2111,41 @@ main { padding: 1.25rem 1.5rem 3rem; }
     border-bottom: none;
   }
 
-  /* #nav-login-link is the true structural last-child now (so the rule above already reaches
-     it), but #nav-admin-link sits one position earlier in the DOM - needs its own override so
-     it also loses its divider whenever it's the last one actually visible. */
-  #nav-admin-link {
-    border-bottom: none;
+  /* Desktop pushes .nav-account-area to the row's right edge via margin-left:auto - on mobile's
+     single column that would just misalign it, so it becomes a normal full-width stacked block
+     like everything else instead. */
+  .nav-account-area {
+    margin-left: 0;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  /* The desktop pill (border + tinted background, inline links) doesn't fit a narrow screen -
+     stacks into its own bordered card instead: label on top, each link its own full-width row
+     below, keeping the same "visually separate from the public menu" framing the desktop
+     version has. */
+  .members-zone {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0.5rem 0.75rem;
+    margin: 0.4rem 0;
+  }
+
+  .members-zone-label {
+    padding: 0.35rem 0;
+  }
+
+  .members-zone a.nav-item {
+    padding: 0.6rem 0 0.6rem 1rem;
+    font-size: 15px;
+  }
+
+  /* The desktop " · " separators only make sense inline - stacked vertically they'd just be a
+     stray dot at the start of each row. */
+  .members-zone a.nav-item + a.nav-item::before {
+    content: none;
   }
 
   /* .nav-item-dropdown is display:flex (row, centered) for desktop's single-line nav bar -
