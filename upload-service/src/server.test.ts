@@ -50,6 +50,7 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     readTextFile: async () => null,
     writeTextFile: async () => {},
     listImageFiles: async () => [],
+    exportDocHtml: async () => '<p>fake doc content</p>',
     ...overrides,
   };
 }
@@ -75,6 +76,7 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     authenticateModerator: async () => ({ sub: 'moderator-1', email: 'moderator@gmail.com' }),
     submissionTokenSecret: 'test-secret',
     driveParentFolderId: 'parent-1',
+    wojownicyDocs: { 'zasady-bractwa': 'doc-zasady-1', 'poradnik-walki': 'doc-poradnik-1' },
     allowedOrigin: 'https://example.test',
     maxFileBytes: 10 * 1024 * 1024,
     maxFilesPerSubmission: 800,
@@ -1916,6 +1918,49 @@ test('/wojownicy-upload/whoami returns the caller\'s email once authenticated', 
     const res = await fetch(`${baseUrl}/wojownicy-upload/whoami`);
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { email: 'ktos@gmail.com' });
+  });
+});
+
+test('/wojownicy-docs rejects a caller not on the group allowlist', async () => {
+  const deps = makeDeps({
+    authenticateWojownicyUpload: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do przesyłania zdjęć.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-docs?key=zasady-bractwa`);
+    assert.equal(res.status, 403);
+  });
+});
+
+test('/wojownicy-docs returns the exported HTML for a known key', async () => {
+  const deps = makeDeps({
+    drive: makeFakeDrive({ exportDocHtml: async fileId => `<p>content of ${fileId}</p>` }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-docs?key=zasady-bractwa`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { html: '<p>content of doc-zasady-1</p>' });
+  });
+});
+
+test('/wojownicy-docs rejects an unknown key without calling Drive', async () => {
+  let driveCalled = false;
+  const deps = makeDeps({
+    drive: makeFakeDrive({ exportDocHtml: async () => { driveCalled = true; return ''; } }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-docs?key=nieznany`);
+    assert.equal(res.status, 404);
+    assert.equal(driveCalled, false);
+  });
+});
+
+test('/wojownicy-docs rejects a missing key', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-docs`);
+    assert.equal(res.status, 404);
   });
 });
 

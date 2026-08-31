@@ -52,6 +52,9 @@ export interface ServerDeps {
   authenticateModerator: (req: IncomingMessage) => Promise<VerifiedIdentity>;
   submissionTokenSecret: string;
   driveParentFolderId: string;
+  // Maps a doc "key" (the ?key= query param on GET /wojownicy-docs) to its Google Doc file ID -
+  // see config.ts's wojownicyDocs for which keys currently exist.
+  wojownicyDocs: Record<string, string>;
   allowedOrigin: string;
   maxFileBytes: number;
   maxFilesPerSubmission: number;
@@ -583,6 +586,20 @@ async function handleWojownicyUploadWhoami(req: IncomingMessage, res: ServerResp
   sendJson(res, 200, { email: identity.email });
 }
 
+// Serves the live HTML export of one of the two Wojownicy-only Google Docs (Zasady Bractwa,
+// Poradnik Walki) - same membership gate as the rest of /wojownicy-upload/*. Fetched fresh from
+// Drive on every request (no on-disk/repo caching, deliberately - see config.ts's wojownicyDocs
+// comment on why that matters here), so editing the Doc in Google is all it takes to update
+// the page.
+async function handleWojownicyDoc(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req);
+  const key = url.searchParams.get('key');
+  const fileId = key ? deps.wojownicyDocs[key] : undefined;
+  if (!fileId) throw new AuthError('Nieznany dokument.', 404);
+  const html = await deps.drive.exportDocHtml(fileId);
+  sendJson(res, 200, { html });
+}
+
 // Creates the per-submission staging folder (Strona/O Nas/upload/{Imię} - {email} - {data}) and
 // issues a submission token exactly like handleStart does for gallery uploads - the two photo
 // endpoints below require it, so one group member can't upload into another's (or an admin
@@ -1049,6 +1066,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleWojownicyUploadSubmit(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/wojownicy-upload/photo') {
         await handleWojownicyUploadPhoto(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/wojownicy-docs') {
+        await handleWojownicyDoc(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
         if (!rejectIfRateLimited(req, res)) await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {
@@ -1125,6 +1144,7 @@ async function startProductionServer(): Promise<void> {
     authenticateModerator: req => verifyUploader(req, config.googleOAuthClientId, moderatorAllowlist),
     submissionTokenSecret: config.submissionTokenSecret,
     driveParentFolderId: config.driveParentFolderId,
+    wojownicyDocs: config.wojownicyDocs,
     allowedOrigin: config.allowedOrigin,
     maxFileBytes: config.maxFileBytes,
     maxFilesPerSubmission: config.maxFilesPerSubmission,

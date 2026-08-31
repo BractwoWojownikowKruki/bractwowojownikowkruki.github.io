@@ -1597,6 +1597,22 @@ main { padding: 1.25rem 1.5rem 3rem; }
   border-bottom-color: var(--gold);
 }
 
+/* Qualified with the .content-section ancestor (rather than bare .btn-add-album) to
+   out-specificity .content-section a above - the doc-gate pages' "Zaloguj się"/"Zaloguj się
+   ponownie" buttons live inside .content-section, so without this they'd inherit that rule's
+   accent-red text color on top of the button's own accent-red background, same class of bug as
+   the .inline-widget-slot/.fb-post-date fixes elsewhere in this file. */
+.content-section .btn-add-album {
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: none;
+}
+
+.content-section .btn-add-album:hover {
+  color: var(--text);
+  border-bottom: none;
+}
+
 /* Category pages (Blachowi, Kandydaci, ...) render their intro paragraph directly in <main>
    rather than inside .content-section, so links there need the same treatment repeated here. */
 .category-intro a {

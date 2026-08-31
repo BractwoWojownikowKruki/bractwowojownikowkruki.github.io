@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zasady Bractwa - Bractwo Wojowników Kruki</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <link rel="apple-touch-icon" href="../favicon.png" />
+  <link rel="stylesheet" href="../style.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <!-- PARTIAL:nav -->
+
+  <main class="main-content main-content--single">
+    <div class="content-left">
+      <section class="content-section">
+        <h1>Zasady Bractwa</h1>
+
+        <div class="upload-signin" id="doc-signin">
+          <p>Ta strona jest dostępna tylko dla zalogowanych członków Bractwa.</p>
+          <a href="/logowanie/" class="btn-add-album">Zaloguj się</a>
+        </div>
+        <p class="upload-forbidden" id="doc-forbidden" hidden>
+          To konto Google nie ma tu uprawnień.
+        </p>
+        <div class="upload-reauth" id="doc-reauth" hidden>
+          <p>Twoja sesja logowania wygasła.</p>
+          <a href="/logowanie/" class="btn-add-album">Zaloguj się ponownie</a>
+        </div>
+        <p class="add-album-error" id="doc-error" hidden></p>
+
+        <div id="doc-content" hidden></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- PARTIAL:footer -->
+  <script src="../auth.js"></script>
+  <script src="../nav.js"></script>
+  <script>const DOC_KEY = 'zasady-bractwa';</script>
+  <script src="../wojownicy-doc.js"></script>
+</body>
+</html>

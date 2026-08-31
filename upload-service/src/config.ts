@@ -20,6 +20,15 @@ export const config = {
   // Sheet. Public/unguessable URL by the same design as the two Sheet URls above - see
   // createAppsScriptAllowlist in allowlist.ts.
   wojownicyUploadGroupUrl: 'https://script.google.com/macros/s/AKfycbwkSGgWwYLq2XyGQSX7ntWh_PgvJ3ZTDV6NDRJ304wl0bkOJ3XyqKg1QjtWl5g5WYc7/exec',
+  // Google Doc file IDs for the two Wojownicy-only pages (Zasady Bractwa, Poradnik Walki),
+  // fetched live via drive.ts's exportDocHtml using the same Drive OAuth credentials as
+  // everything else here - never checked out into the repo. Not secret in themselves (same
+  // reasoning as the URLs above): the docs are shared only with the kruki Google Group, and
+  // it's that sharing, not the ID's obscurity, that keeps them access-controlled.
+  wojownicyDocs: {
+    'zasady-bractwa': 'REPLACE_WITH_ZASADY_BRACTWA_DOC_ID',
+    'poradnik-walki': 'REPLACE_WITH_PORADNIK_WALKI_DOC_ID',
+  } as Record<string, string>,
   // Same Apps Script pattern as wojownicyUploadGroupUrl above, but for a moderator group that
   // does not exist yet (see KRKG-0027) - gates destructive gallery actions (/delete-drive-gallery,
   // /unregister). Deliberately optional and undefined by default: until this is set to a real
