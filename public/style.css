@@ -1362,7 +1362,7 @@ main { padding: 1.25rem 1.5rem 3rem; }
 
 /* Author CSS beats the UA stylesheet's [hidden] rule regardless of specificity - the
    .nav-item--gated display:flex above would otherwise win and show the element even while
-   hidden is set, same class of bug as .nav-signin-slot[hidden] below. */
+   hidden is set. */
 .nav-item--gated[hidden] {
   display: none;
 }
@@ -1417,27 +1417,11 @@ main { padding: 1.25rem 1.5rem 3rem; }
 }
 
 /* Lives in .header-actions (top bar, next to the hamburger) - holds only the avatar once
-   signed in, nothing while signed out. The "Zaloguj" button and "Panel admina" link live in
-   the menu itself instead (.nav-signin-slot / #nav-admin-link below), not here - see nav.js. */
+   signed in, nothing while signed out. The "Zaloguj się" link and "Panel admina" link live in
+   the menu itself instead (#nav-login-link / #nav-admin-link below), not here - see nav.js. */
 .nav-auth-slot {
   display: flex;
   align-items: center;
-}
-
-/* Wraps the Google-rendered sign-in button as a .main-nav child, so it gets the same row
-   treatment as the other menu items rather than sitting flush against them unstyled. */
-.nav-signin-slot {
-  display: flex;
-  align-items: center;
-  padding: 0.5rem 0;
-}
-
-/* An unconditional `display` here would otherwise beat the browser's own [hidden] rule
-   (author styles win over the UA stylesheet regardless of specificity) - nav.js toggles the
-   `hidden` attribute on this element once signed in, and without this override the button
-   kept showing even though it was actually hidden=true. */
-.nav-signin-slot[hidden] {
-  display: none;
 }
 
 .nav-avatar {
@@ -2025,9 +2009,9 @@ main { padding: 1.25rem 1.5rem 3rem; }
     border-bottom: none;
   }
 
-  /* #nav-admin-link and .nav-signin-slot are the true trailing items in the menu (see nav.js) -
-     only one is ever visible at a time, and whichever one is hidden still counts as the
-     structural :last-child, so the rule above never reaches the one that's actually showing. */
+  /* #nav-login-link is the true structural last-child now (so the rule above already reaches
+     it), but #nav-admin-link sits one position earlier in the DOM - needs its own override so
+     it also loses its divider whenever it's the last one actually visible. */
   #nav-admin-link {
     border-bottom: none;
   }

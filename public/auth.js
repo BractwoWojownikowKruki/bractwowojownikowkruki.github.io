@@ -105,6 +105,7 @@ async function handleCredentialResponse(response) {
   }
 
   for (const listener of signedInListeners) {
+    listener.onIdentity?.(payload);
     if (!listener.onSignedIn && !listener.onForbidden) continue;
     try {
       await apiFetch(listener.whoamiPath, { method: 'GET' }, () => {}, () => {});
@@ -136,14 +137,21 @@ async function handleCredentialResponse(response) {
 // allowlist comment in upload-service/src/allowlist.ts). Safe to "trust" cosmetically: a forged
 // payload here can't grant anything, since every actual privileged action still goes through
 // the server-verified token on the real API calls.
-function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, onRestoredIdentity, whoamiPath = '/whoami', buttonConfig = {} }) {
-  signedInListeners.push({ whoamiPath, onSignedIn, onForbidden });
+//
+// `onIdentity(payload)` is the live-sign-in counterpart to onRestoredIdentity: it fires on
+// *every* credential response (including a fresh button click), unconditionally, before any
+// whoamiPath check. For a page with no privilege gate of its own (e.g. a plain login page that
+// just wants to greet "Zalogowano jako ...") this is the only callback needed - it never waits
+// on or depends on any particular allowlist.
+function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, onRestoredIdentity, onIdentity, whoamiPath = '/whoami', buttonConfig = {} }) {
+  signedInListeners.push({ whoamiPath, onSignedIn, onForbidden, onIdentity });
 
   // A token restored from an earlier page (see restoreIdToken) means this page should start
   // already signed in, without waiting for GSI to load or for a fresh button click.
   if (isIdTokenValid()) {
     const payload = decodeJwtPayload(idToken);
     onRestoredIdentity?.(payload);
+    onIdentity?.(payload);
     if (onSignedIn || onForbidden) {
       apiFetch(whoamiPath, { method: 'GET' }, () => {}, () => {})
         .then(() => onSignedIn?.(payload))

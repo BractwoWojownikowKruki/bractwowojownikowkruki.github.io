@@ -62,19 +62,21 @@ document.addEventListener('DOMContentLoaded', () => {
 /**
  * Site-wide sign-in status: the user's Google avatar in the always-visible top bar next to the
  * hamburger (#nav-auth-slot) once signed in, plus - inside the collapsible menu itself, not the
- * top bar - a "Zaloguj" button when signed out (#nav-google-signin-button) or a "Panel admina"
- * link when the /admin/whoami check passes (#nav-admin-link). Keeping the sign-in button and
+ * top bar - a "Zaloguj się" link (to /logowanie/) when signed out (#nav-login-link) or a "Panel
+ * admina" link when the /admin/whoami check passes (#nav-admin-link). Keeping the login link and
  * admin link out of the top bar avoids crowding it (logo + avatar + hamburger already fill it
- * on mobile) - they only need to be reachable, not always visible.
+ * on mobile) - they only need to be reachable, not always visible. The actual Google sign-in
+ * button itself is no longer rendered in the nav - it lives on /logowanie/ (see logowanie.js) -
+ * #nav-login-link is a plain link there, same as any other nav item.
  *
  * Reuses initGoogleSignIn from auth.js, which is safe to call alongside a page's own sign-in
- * flow (e.g. wojownicy.js's group-membership check) - see the shared-listener comment in
+ * flow (e.g. the Wojownicy group-membership check below) - see the shared-listener comment in
  * auth.js. Only runs on pages that carry this markup; the admin panel's own page deliberately
  * omits it since it already has a richer sign-in UI in its main content.
  */
 document.addEventListener('DOMContentLoaded', () => {
   const avatarSlot = document.getElementById('nav-auth-slot');
-  const signinSlot = document.getElementById('nav-google-signin-button');
+  const loginLink = document.getElementById('nav-login-link');
   const adminLink = document.getElementById('nav-admin-link');
   if (!avatarSlot || typeof initGoogleSignIn !== 'function') return;
 
@@ -85,30 +87,29 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderAvatar(payload) {
     if (!payload) {
       avatarSlot.innerHTML = '';
-      if (signinSlot) signinSlot.hidden = false;
+      if (loginLink) loginLink.hidden = false;
       return;
     }
     const email = payload.email ? payload.email.replace(/"/g, '&quot;') : '';
     const picture = payload.picture ? payload.picture.replace(/"/g, '&quot;') : '';
     avatarSlot.innerHTML = `<img src="${picture}" alt="${email}" title="${email}" class="nav-avatar" />`;
-    if (signinSlot) signinSlot.hidden = true;
+    if (loginLink) loginLink.hidden = true;
   }
 
   function renderAdminLink(isAdmin) {
     if (adminLink) adminLink.hidden = !isAdmin;
   }
 
-  // Only show the "Zaloguj" button right away if there's definitely no restorable session to
-  // check first (see the equivalent comment in wojownicy.js) - otherwise leave everything as-is
+  // Only show the "Zaloguj się" link right away if there's definitely no restorable session to
+  // check first (see the equivalent comment further below) - otherwise leave everything as-is
   // for onRestoredIdentity below to resolve immediately instead of flashing a misleading
-  // "you're signed out" button for an already-signed-in visitor.
+  // "you're signed out" link for an already-signed-in visitor.
   if (typeof isIdTokenValid !== 'function' || !isIdTokenValid()) {
     renderAvatar(null);
   }
   initGoogleSignIn({
-    buttonIds: ['nav-google-signin-button'],
+    buttonIds: [],
     whoamiPath: '/admin/whoami',
-    buttonConfig: { theme: 'filled_black', size: 'medium', text: 'signin' },
     onRestoredIdentity: payload => renderAvatar(payload),
     onSignedIn: payload => {
       renderAvatar(payload);

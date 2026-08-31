@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Logowanie i rejestracja - Bractwo Wojowników Kruki</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <link rel="apple-touch-icon" href="../favicon.png" />
+  <link rel="stylesheet" href="../style.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <!-- PARTIAL:nav -->
+
+  <main class="add-album-main">
+    <div class="add-album-card">
+      <h1 class="add-album-title">Logowanie i rejestracja</h1>
+
+      <section class="add-album-section">
+        <h2 class="add-album-section-title">Zaloguj się</h2>
+        <div class="upload-signin" id="login-signin">
+          <p class="add-album-intro">Zaloguj się kontem Google.</p>
+          <div id="google-signin-button"></div>
+        </div>
+        <p class="upload-signed-in" id="login-signed-in" hidden>
+          Zalogowano jako <strong id="login-signed-in-email"></strong>.
+        </p>
+      </section>
+
+      <section class="add-album-section">
+        <h2 class="add-album-section-title">Zarejestruj się</h2>
+        <p class="add-album-section-intro">Formularz rejestracji pojawi się tutaj wkrótce.</p>
+        <form id="register-form"></form>
+      </section>
+    </div>
+  </main>
+
+  <!-- PARTIAL:footer -->
+  <script src="../auth.js"></script>
+  <script src="../nav.js"></script>
+  <script src="logowanie.js"></script>
+</body>
+</html>
