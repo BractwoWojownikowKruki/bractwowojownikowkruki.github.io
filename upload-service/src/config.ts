@@ -26,8 +26,8 @@ export const config = {
   // reasoning as the URLs above): the docs are shared only with the kruki Google Group, and
   // it's that sharing, not the ID's obscurity, that keeps them access-controlled.
   wojownicyDocs: {
-    'zasady-bractwa': 'REPLACE_WITH_ZASADY_BRACTWA_DOC_ID',
-    'poradnik-walki': 'REPLACE_WITH_PORADNIK_WALKI_DOC_ID',
+    'zasady-bractwa': '14jV4sHq8hbZSIJfDERNDTtuEmFCdzbAfn3xu42y4_P0',
+    'poradnik-walki': '1zUToN2ZEV3xXvdWZX4JV9QODP2-SZTIR',
   } as Record<string, string>,
   // Same Apps Script pattern as wojownicyUploadGroupUrl above, but for a moderator group that
   // does not exist yet (see KRKG-0027) - gates destructive gallery actions (/delete-drive-gallery,
