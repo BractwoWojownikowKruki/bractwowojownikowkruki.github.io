@@ -103,6 +103,9 @@ jobs:
             SUBMISSION_TOKEN_SECRET=submission-token-secret:latest
             FACEBOOK_PAGE_ACCESS_TOKEN=facebook-page-access-token:latest
             YOUTUBE_API_KEY=youtube-api-key:latest
+            DOCS_CLIENT_ID=docs-oauth-client-id:latest
+            DOCS_CLIENT_SECRET=docs-oauth-client-secret:latest
+            DOCS_REFRESH_TOKEN=docs-refresh-token:latest
 
       # KRKG-0032 drift check: confirms the identity actually running in Cloud Run right now
       # matches what we just asked for, rather than trusting the deploy call succeeded silently
