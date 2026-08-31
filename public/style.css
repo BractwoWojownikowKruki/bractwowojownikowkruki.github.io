@@ -1361,9 +1361,10 @@ main { padding: 1.25rem 1.5rem 3rem; }
   white-space: nowrap;
 }
 
-.members-zone-label svg {
+.members-zone-icon {
+  height: 18px;
+  width: auto;
   flex-shrink: 0;
-  opacity: 0.7;
 }
 
 .members-zone a.nav-item {
@@ -2135,6 +2136,11 @@ main { padding: 1.25rem 1.5rem 3rem; }
 
   .members-zone-label {
     padding: 0.35rem 0;
+    font-size: 15px;
+  }
+
+  .members-zone-icon {
+    height: 22px;
   }
 
   .members-zone a.nav-item {
