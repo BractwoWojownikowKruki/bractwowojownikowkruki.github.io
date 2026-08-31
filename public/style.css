@@ -1361,10 +1361,25 @@ main { padding: 1.25rem 1.5rem 3rem; }
   white-space: nowrap;
 }
 
+/* The source PNG is solid dark-brown line art, which disappears against this dark box - filled
+   with a background-color instead of shown as-is, using the PNG's own alpha channel purely as a
+   shape mask (mask-image), so it renders as a solid, exactly-on-brand gold silhouette regardless
+   of the source art's original color. Requires a plain element (a <span>, not an <img>) since
+   mask only recolors an element's own background/border, not a replaced element's bitmap content. */
 .members-zone-icon {
-  height: 18px;
-  width: auto;
+  display: inline-block;
+  height: 22px;
+  width: 29px;
   flex-shrink: 0;
+  background-color: var(--gold);
+  -webkit-mask-image: url('/icons/strefa-czlonkow.png');
+  mask-image: url('/icons/strefa-czlonkow.png');
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
 }
 
 .members-zone a.nav-item {
@@ -2140,7 +2155,8 @@ main { padding: 1.25rem 1.5rem 3rem; }
   }
 
   .members-zone-icon {
-    height: 22px;
+    height: 26px;
+    width: 35px;
   }
 
   .members-zone a.nav-item {
