@@ -21,13 +21,18 @@ export const config = {
   // createAppsScriptAllowlist in allowlist.ts.
   wojownicyUploadGroupUrl: 'https://script.google.com/macros/s/AKfycbwkSGgWwYLq2XyGQSX7ntWh_PgvJ3ZTDV6NDRJ304wl0bkOJ3XyqKg1QjtWl5g5WYc7/exec',
   // Google Doc file IDs for the two Wojownicy-only pages (Zasady Bractwa, Poradnik Walki),
-  // fetched live via drive.ts's exportDocHtml using the same Drive OAuth credentials as
-  // everything else here - never checked out into the repo. Not secret in themselves (same
-  // reasoning as the URLs above): the docs are shared only with the kruki Google Group, and
-  // it's that sharing, not the ID's obscurity, that keeps them access-controlled.
+  // fetched live via drive.ts's exportDocHtml using the same drive.file-scoped Drive OAuth
+  // credentials as everything else here - never checked out into the repo. drive.file normally
+  // only sees files the app itself created, but Google Picker lets a human explicitly grant it
+  // access to specific pre-existing files without broadening the scope - see
+  // scripts/grant-docs-file-access.ts, which is how these two got added (must be a native
+  // Google Doc, not an uploaded .docx/.pdf/etc - Drive's export endpoint only converts its own
+  // native formats). Re-run that script (picking the new file) whenever another doc needs
+  // exposing here. IDs aren't secret in themselves: it's the drive.file grant that gates access,
+  // not the ID's obscurity.
   wojownicyDocs: {
     'zasady-bractwa': '14jV4sHq8hbZSIJfDERNDTtuEmFCdzbAfn3xu42y4_P0',
-    'poradnik-walki': '1zUToN2ZEV3xXvdWZX4JV9QODP2-SZTIR',
+    'poradnik-walki': '1ZbG5HMcj76twvrwakWaWunHlY_nQjx8r7aysoviZr4I',
   } as Record<string, string>,
   // Same Apps Script pattern as wojownicyUploadGroupUrl above, but for a moderator group that
   // does not exist yet (see KRKG-0027) - gates destructive gallery actions (/delete-drive-gallery,
@@ -36,17 +41,6 @@ export const config = {
   // blocking deploys on a secret that can't exist yet or leaving those endpoints open to the
   // whole kruki group in the meantime.
   moderatorGroupUrl: process.env.MODERATOR_GROUP_URL,
-  // exportDocHtml (see drive.ts) needs drive.readonly to read a pre-existing Doc - drive.file
-  // (driveRefreshToken below) only ever sees files this app itself created, which a human-authored
-  // Doc never was, regardless of which account owns or shares it (see the drive.file comments on
-  // handleUpload/handleWojownicyUploadPhoto for the same constraint elsewhere). Same account
-  // (bractwowojownikowkruki@gmail.com) and same OAuth client (driveClientId/driveClientSecret
-  // below), just a second, separately-consented refresh token with the broader scope - kept apart
-  // from driveRefreshToken so the existing upload flow's credential stays narrowly scoped.
-  // Optional and undefined until that consent step is done: until then, server.ts falls back to
-  // driveRefreshToken, so /wojownicy-docs fails closed (403 from Drive) instead of the whole
-  // service failing to boot.
-  docsRefreshToken: process.env.DOCS_REFRESH_TOKEN,
   googleOAuthClientId: requireEnv('GOOGLE_OAUTH_CLIENT_ID'),
   driveRefreshToken: requireEnv('DRIVE_REFRESH_TOKEN'),
   driveClientId: requireEnv('DRIVE_CLIENT_ID'),

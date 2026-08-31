@@ -1122,12 +1122,6 @@ async function startProductionServer(): Promise<void> {
     clientSecret: config.driveClientSecret,
     refreshToken: config.driveRefreshToken,
   };
-  // See config.ts's docsRefreshToken - falls back to driveDeps (drive.file scope) until that
-  // second, drive.readonly-scoped credential exists, which means exportDocHtml keeps failing
-  // (403 from Drive) rather than the whole service failing to boot over a not-yet-done consent step.
-  const docsDriveDeps = config.docsRefreshToken
-    ? { clientId: config.driveClientId, clientSecret: config.driveClientSecret, refreshToken: config.docsRefreshToken }
-    : driveDeps;
   const adminAllowlist = createSheetAllowlist({ url: config.adminAllowlistSheetUrl });
   // One shared allowlist (live kruki Google Group membership, see createAppsScriptAllowlist)
   // now gates both the Krucze Galerie access/upload flow and the Wojownicy self-service
@@ -1142,7 +1136,7 @@ async function startProductionServer(): Promise<void> {
     ? createAppsScriptAllowlist({ url: config.moderatorGroupUrl })
     : createEmptyAllowlist();
   const productionDeps: ServerDeps = {
-    drive: createDriveClient(driveDeps, docsDriveDeps),
+    drive: createDriveClient(driveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
     authenticate: req => verifyUploader(req, config.googleOAuthClientId, groupAllowlist),
     authenticateAdmin: req => verifyUploader(req, config.googleOAuthClientId, adminAllowlist),

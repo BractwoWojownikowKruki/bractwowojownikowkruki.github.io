@@ -353,11 +353,14 @@ async function findFileIdByName(deps: DriveDeps, folderId: string, name: string)
 
 // Exports a Google Doc as HTML via Drive's export endpoint (not the Docs API's structured JSON
 // model - the export endpoint gives back ready-to-render markup close to what Docs itself shows,
-// which is all the Wojownicy-only doc pages need). Uses the same Drive OAuth credentials as
-// every other Drive call here (the club's own Drive account, already an allowlisted-Wojownicy
-// account) - the doc must be shared with that account (directly, or via the kruki Google Group
-// it's already shared with) for this to succeed; otherwise Drive returns 403/404, surfaced to
-// the caller as a thrown error rather than silently returning empty content.
+// which is all the Wojownicy-only doc pages need). Only works for native Google Docs, not an
+// uploaded .docx/.pdf/etc - Drive can only "export" its own formats. Uses the same drive.file
+// -scoped Drive OAuth credentials as every other Drive call here; drive.file normally only sees
+// files this app itself created, but config.ts's wojownicyDocs comment explains how these
+// specific pre-existing files got added to that grant (via Google Picker, see
+// scripts/grant-docs-file-access.ts) without broadening the scope. A file missing from that
+// grant makes Drive return 403/404, surfaced to the caller as a thrown error rather than
+// silently returning empty content.
 export async function exportDocHtml(deps: DriveDeps, fileId: string): Promise<string> {
   const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
   const res = await fetch(`${DRIVE_API}/drive/v3/files/${fileId}/export?mimeType=text/html`, {
@@ -518,11 +521,7 @@ export interface DriveClient {
 
 // Binds the module's functions to one set of Drive credentials, giving server.ts a small
 // interface it can depend on - and server.test.ts a seam to substitute a fake implementation.
-// `docsDeps` (drive.readonly-scoped, see config.ts's docsRefreshToken) is separate from `deps`
-// (drive.file-scoped, used for everything else) and only ever used for exportDocHtml - the two
-// scopes must stay on distinct credentials, not just distinct calls, since drive.file genuinely
-// cannot read a pre-existing Doc regardless of which account owns or shares it.
-export function createDriveClient(deps: DriveDeps, docsDeps: DriveDeps = deps): DriveClient {
+export function createDriveClient(deps: DriveDeps): DriveClient {
   return {
     createAlbumFolder: (parentFolderId, folderName) => createAlbumFolder(deps, parentFolderId, folderName),
     uploadFileStream: (folderId, fileName, mimeType, bodyStream) =>
@@ -542,6 +541,6 @@ export function createDriveClient(deps: DriveDeps, docsDeps: DriveDeps = deps): 
     readTextFile: (folderId, fileName) => readTextFile(deps, folderId, fileName),
     writeTextFile: (folderId, fileName, content) => writeTextFile(deps, folderId, fileName, content),
     listImageFiles: folderId => listImageFiles(deps, folderId),
-    exportDocHtml: fileId => exportDocHtml(docsDeps, fileId),
+    exportDocHtml: fileId => exportDocHtml(deps, fileId),
   };
 }
