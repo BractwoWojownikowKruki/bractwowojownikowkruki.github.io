@@ -361,6 +361,22 @@ async function findFileIdByName(deps: DriveDeps, folderId: string, name: string)
 // broadening to drive.readonly (see scripts/grant-docs-file-access.ts). A file missing from
 // that grant makes Drive return 403/404, surfaced to the caller as a thrown error rather than
 // silently returning empty content.
+// Docs' export <style> block is mostly plain, unnested `.class{...}` rules (no @media/nesting)
+// - critically including the CSS-counter machinery numbered lists rely on (list-style:none on
+// the <ol>/<ul> plus a ::before with content:counter(...) doing the actual visible numbering).
+// Dropping that block entirely (as an earlier version of this function did) left the browser's
+// own default <li> markers showing instead, with no numbering text of their own - broken/blank
+// bullets rather than "1. 2. 3.". Prefixing every selector with the scope keeps that machinery
+// working without leaking into the rest of the page.
+function scopeCss(css: string, scope: string): string {
+  return css.replace(/([^{}]+)\{([^{}]*)\}/g, (_match, selectors: string, body: string) =>
+    `${selectors
+      .split(',')
+      .map(selector => `${scope} ${selector.trim()}`)
+      .join(', ')}{${body}}`,
+  );
+}
+
 export async function exportDocHtml(deps: DriveDeps, fileId: string): Promise<string> {
   const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
   const res = await fetch(`${DRIVE_API}/drive/v3/files/${fileId}/export?mimeType=text/html`, {
@@ -372,10 +388,13 @@ export async function exportDocHtml(deps: DriveDeps, fileId: string): Promise<st
   const fullHtml = await res.text();
   // Docs' HTML export is a full page (<html><head><style>...), sized and styled for a standalone
   // document - the <head>'s page-level CSS (fixed widths, its own font stack) would fight the
-  // site's own typography if inlined as-is. Keeping just the <body>'s contents lets the site's
-  // .content-section rules style plain elements (p, h1, a, ...) normally; per-run inline styles
-  // Docs also writes (bold, color, ...) still come through unaffected either way.
-  return fullHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? fullHtml;
+  // site's own typography if inlined as-is. Scoping just the <style> block's rules to
+  // #doc-content (rather than dropping it) keeps Docs' list-numbering/spacing working without
+  // that leak; the site's own #doc-content !important rules (style.css) still win for color/font
+  // regardless, since those beat any non-!important rule this scoped block might also set.
+  const style = fullHtml.match(/<style[^>]*>([\s\S]*?)<\/style>/i)?.[1];
+  const body = fullHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? fullHtml;
+  return style ? `<style>${scopeCss(style, '#doc-content')}</style>${body}` : body;
 }
 
 // Returns null if the file doesn't exist - callers treat a missing Opis.txt as "no

@@ -1642,6 +1642,26 @@ main { padding: 1.25rem 1.5rem 3rem; }
   border-bottom-color: var(--gold);
 }
 
+/* .content-section li/li::before above (the "▸" bullet used for hand-authored prose lists)
+   also matches list items inside #doc-content, since it's a plain descendant selector with no
+   awareness of this container - stacking Docs' own inline list padding on top of ours, and
+   painting its accent-red bullet color over Docs' own counter-generated numbering (which only
+   ever sets `content`, never `color`, so ours was the only color rule actually applying).
+   #doc-content's higher specificity (id beats class) lets a bare reset here win without
+   !important, while Docs' own more specific per-list rules (scoped in drive.ts's exportDocHtml)
+   still override `content` back to its real counter for lists that have one - native browser
+   numbering/bullets show through for any that don't. */
+#doc-content li {
+  padding: 0;
+  position: static;
+}
+
+#doc-content li::before {
+  content: normal;
+  color: inherit;
+  position: static;
+}
+
 /* Category pages (Blachowi, Kandydaci, ...) render their intro paragraph directly in <main>
    rather than inside .content-section, so links there need the same treatment repeated here. */
 .category-intro a {
