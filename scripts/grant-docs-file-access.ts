@@ -3,11 +3,13 @@
  * Docs, via the Google Picker API - without ever consenting to drive.readonly (whole-Drive
  * read access). See upload-service/src/config.ts's wojownicyDocs comment for the full picture.
  *
- * Must use a "Web application" type OAuth client with an Authorized JavaScript origin matching
- * where this page is served from (http://localhost:8092) - Picker's underlying grant-registration
- * call validates against that origin, which a "Desktop" type client (DRIVE_CLIENT_ID) has no way
- * to satisfy (confirmed: Desktop-client Picker grants silently don't take effect - files.get
- * keeps 404ing afterwards even though the picker UI itself completes normally).
+ * The load-bearing line is PickerBuilder.setAppId(GCP_PROJECT_NUMBER) below - without it, Picker
+ * lets you select files and the callback fires normally, but the actual drive.file grant this is
+ * for silently never registers (confirmed: files.get kept 404ing afterwards, twice, until this
+ * was added). Uses a dedicated "Web application" type OAuth client (not DRIVE_CLIENT_ID, which
+ * is "Desktop" type) with an Authorized JavaScript origin matching where this page is served
+ * from (http://localhost:8092) - that may also be required; wasn't isolated from the setAppId
+ * fix, so kept out of caution rather than re-tested away.
  *
  * Gets its OAuth access token entirely in-browser via Google Identity Services' token client
  * (google.accounts.oauth2.initTokenClient) - no client secret involved in this step at all,
@@ -76,6 +78,9 @@ function renderPage(clientId: string, pickerApiKey: string): string {
       const picker = new google.picker.PickerBuilder()
         .setOAuthToken(accessToken)
         .setDeveloperKey(PICKER_API_KEY)
+        // GCP project number (krucze-galery-upload) - required for Picker to actually register
+        // the drive.file grant, not just show the file-selection UI. See the file header.
+        .setAppId('895090213384')
         .addView(view)
         .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
         .setCallback(pickerCallback)
