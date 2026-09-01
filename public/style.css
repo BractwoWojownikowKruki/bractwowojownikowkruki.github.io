@@ -2651,22 +2651,22 @@ main { padding: 1.25rem 1.5rem 3rem; }
 }
 
 /* Nasze osiągnięcia's Wolin tournament timeline (public/o-nas/nasze-osiagniecia/). Entries are
-   positioned with a hand-picked `top` percentage between the latest (2026, top: 0%) and earliest
-   (2003, top: 100%) win, proportional to their actual year - not evenly spaced - so the visual
-   gaps reflect real gaps in the record (e.g. the dense 2003-2006 cluster vs. the quiet 2016-2020
-   stretch). Gold (I miejsce) entries sit left of the central axis, silver (II miejsce) sit right,
-   each badge touching the axis via flex ordering rather than separate absolute placement. A year
-   with both a gold and a silver win just gets the same `top` on both - they sit on opposite sides
-   of the axis, so unlike two same-side entries they don't need any vertical separation to avoid
-   overlapping. Height is trimmed to the practical minimum: the tightest same-side gap in the data
-   is 4.35% (adjacent years both with a gold, or both with a silver, e.g. 2022/2021), and at this
-   height that's just barely enough room for the larger, 34px gold badge to clear its neighbor
-   without touching - going shorter would start overlapping those. */
+   positioned with a hand-picked `top` percentage, one evenly-spaced step per distinct year (14
+   of them, latest at top: 0% through earliest at top: 100%, i.e. multiples of 100/13) - not
+   proportional to the actual year gaps, so a quiet multi-year stretch (e.g. 2016-2020) doesn't
+   inflate the timeline's height the way it used to. Gold (I miejsce) entries sit left of the
+   central axis, silver (II miejsce) sit right, each badge touching the axis via flex ordering
+   rather than separate absolute placement. A year with both a gold and a silver win just gets
+   the same `top` on both - they sit on opposite sides of the axis, so unlike two same-side
+   entries they don't need any vertical separation to avoid overlapping. Height is trimmed to the
+   practical minimum: every step is now the same 100/13 (~7.69%), so the binding constraint is
+   just clearing the larger, 34px gold badge at that step size - going shorter would start
+   overlapping same-side neighbors a step apart. */
 .achievements-timeline {
   position: relative;
   max-width: 640px;
   margin: 0 auto 2.5rem;
-  height: 830px;
+  height: 480px;
 }
 
 .achievements-timeline-axis {
@@ -2748,11 +2748,11 @@ main { padding: 1.25rem 1.5rem 3rem; }
 /* Each entry is only ever "year + one short name", so the same left/right axis layout still
    fits at phone width - just scaled down (smaller badges, smaller text, tighter gap/padding),
    with the container shrunk to match. Minimum height follows the same rule as the desktop rule
-   above: the tightest same-side gap in the data is 4.35%, which needs to clear the largest
-   (gold) badge on this scale. */
+   above: every step is 100/13 (~7.69%), which needs to clear the largest (gold) badge on this
+   scale. */
 @media (max-width: 768px) {
   .achievements-timeline {
-    height: 680px;
+    height: 380px;
   }
 
   .tl-entry {
