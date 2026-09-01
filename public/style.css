@@ -2658,12 +2658,15 @@ main { padding: 1.25rem 1.5rem 3rem; }
    each badge touching the axis via flex ordering rather than separate absolute placement. A year
    with both a gold and a silver win just gets the same `top` on both - they sit on opposite sides
    of the axis, so unlike two same-side entries they don't need any vertical separation to avoid
-   overlapping. */
+   overlapping. Height is trimmed to the practical minimum: the tightest same-side gap in the data
+   is 4.35% (adjacent years both with a gold, or both with a silver, e.g. 2022/2021), and at this
+   height that's just barely enough room for the larger, 34px gold badge to clear its neighbor
+   without touching - going shorter would start overlapping those. */
 .achievements-timeline {
   position: relative;
   max-width: 640px;
   margin: 0 auto 2.5rem;
-  height: 1050px;
+  height: 830px;
 }
 
 .achievements-timeline-axis {
