@@ -1366,13 +1366,14 @@ main { padding: 1.25rem 1.5rem 3rem; }
    shape mask (mask-image), so it renders as a solid, exactly-on-brand gold silhouette regardless
    of the source art's original color. Requires a plain element (a <span>, not an <img>) since
    mask only recolors an element's own background/border, not a replaced element's bitmap content.
-   Desktop height matches .logo's 60px so the two emblems read as a matched pair; the mobile
-   override below keeps its own, separately-tuned size. aspect-ratio (matching the source PNG's
-   4:3 ratio) derives the width instead of hardcoding it, so it stays correct if the art is
-   swapped for a source with the same proportions again. */
+   Desktop height (40px) sits between the original 22px and a full 60px logo-match, which read as
+   too large in practice; the mobile override below keeps its own, separately-tuned size.
+   aspect-ratio (matching the source PNG's 4:3 ratio) derives the width instead of hardcoding it,
+   so it stays correct if the art is swapped for a source with the same proportions again - the
+   .members-zone box has no fixed height of its own, so it shrinks/grows to match automatically. */
 .members-zone-icon {
   display: inline-block;
-  height: 60px;
+  height: 40px;
   aspect-ratio: 4 / 3;
   flex-shrink: 0;
   background-color: var(--gold);
