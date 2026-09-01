@@ -2651,34 +2651,19 @@ main { padding: 1.25rem 1.5rem 3rem; }
 }
 
 /* Nasze osiągnięcia's Wolin tournament timeline (public/o-nas/nasze-osiagniecia/). Entries are
-   positioned with a hand-picked `top` percentage between the earliest (2003, top: 0%) and latest
-   (2026, top: 100%) win, proportional to their actual year - not evenly spaced - so the visual
+   positioned with a hand-picked `top` percentage between the latest (2026, top: 0%) and earliest
+   (2003, top: 100%) win, proportional to their actual year - not evenly spaced - so the visual
    gaps reflect real gaps in the record (e.g. the dense 2003-2006 cluster vs. the quiet 2016-2020
    stretch). Gold (I miejsce) entries sit left of the central axis, silver (II miejsce) sit right,
-   each badge touching the axis via flex ordering rather than separate absolute placement. When a
-   year has both a gold and a silver win, the pair gets a manual +/-10px nudge (or the top row's
-   asymmetric +14px, since a symmetric -10px there would push it above the container) so the two
-   badges don't sit exactly on top of each other. */
-.tl-legend {
-  display: flex;
-  gap: 1.5rem;
-  justify-content: center;
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
-  color: var(--text-muted);
-}
-
-.tl-legend-item {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
+   each badge touching the axis via flex ordering rather than separate absolute placement. A year
+   with both a gold and a silver win just gets the same `top` on both - they sit on opposite sides
+   of the axis, so unlike two same-side entries they don't need any vertical separation to avoid
+   overlapping. */
 .achievements-timeline {
   position: relative;
   max-width: 640px;
   margin: 0 auto 2.5rem;
-  height: 1200px;
+  height: 1050px;
 }
 
 .achievements-timeline-axis {
