@@ -1421,6 +1421,20 @@ main { padding: 1.25rem 1.5rem 3rem; }
   border-bottom-color: var(--gold);
 }
 
+/* Publiczne materiały has no page of its own - a <button>, not <a>, so it's still keyboard-
+   focusable (preserving .nav-item-dropdown's :focus-within reveal below) without implying a
+   click destination. Resets the UA button chrome .nav-item doesn't already cover; border-bottom
+   stays untouched so the shared hover/active underline still works. */
+button.nav-item {
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  font: inherit;
+  margin: 0;
+  text-align: left;
+}
+
 .nav-item--active {
   color: var(--text);
   border-bottom-color: var(--accent);
