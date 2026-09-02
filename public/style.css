@@ -1763,17 +1763,23 @@ button.nav-item {
   border-bottom-color: var(--gold);
 }
 
-/* Pushed down to line up with the first Facebook post tile, not with the "Aktualności"
-   heading above it - matches the h1's own rendered height + margin-bottom (measured, since
-   the two columns are independent grid items with no shared row to align them automatically).
-   flex+gap (not a margin on one specific child) keeps the spacing between the two embeds
-   correct regardless of which one comes first. */
+/* On every other content-section page, .content-left is now its own box (see .content-section
+   above) with no separate h1 sitting outside it, so .content-right should just align with that
+   box's top edge - margin-top: 0. Only the homepage pushes it down, to line up with the first
+   Facebook post tile rather than the "Aktualności" heading above it (matches the h1's own
+   rendered height + margin-bottom, measured, since the two columns are independent grid items
+   with no shared row to align them automatically). flex+gap (not a margin on one specific
+   child) keeps the spacing between the two embeds correct regardless of which one comes first. */
 .content-right {
   min-width: 0;
-  margin-top: 70px;
+  margin-top: 0;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+.main-content:has(#facebook-feed) .content-right {
+  margin-top: 70px;
 }
 
 .instagram-embed {
