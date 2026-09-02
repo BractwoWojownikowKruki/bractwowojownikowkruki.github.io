@@ -2869,3 +2869,35 @@ button.nav-item {
   background: var(--surface-deep);
 }
 
+/* Archiwalna wersja strony's single "Wchodzę" CTA (public/publiczne-materialy/
+   archiwalna-wersja-strony/) - a one-off, deliberately oversized button since the whole page
+   exists to lead to this one link (the archived old site, a separate static subsite at
+   kruki.org/stara-strona - not part of this build, hence the full absolute URL). Qualified with
+   the .content-section ancestor (rather than a bare .btn-time-travel) to out-specificity
+   .content-section a above, which otherwise wins the cascade on color (class+type beats a single
+   class) and would render the label the same red as its own background. */
+.time-travel-cta {
+  text-align: center;
+  margin: 2.5rem 0;
+}
+
+.content-section .btn-time-travel {
+  display: inline-block;
+  padding: 1.1rem 3rem;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: 'Cinzel', serif;
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-decoration: none;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.content-section .btn-time-travel:hover {
+  background: var(--accent-dark);
+  transform: translateY(-2px);
+}
+
