@@ -127,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const feedContainer = document.getElementById('instagram-feed');
   if (feedContainer && !window.matchMedia('(max-width: 768px)').matches) {
     const backendUrl = feedContainer.dataset.backendUrl;
-    const feed = new InstagramFeed('instagram-feed', backendUrl ? { backendUrl } : {});
+    const feed = new InstagramFeed('instagram-feed', { postsLimit: 12, ...(backendUrl && { backendUrl }) });
     feed.load();
   }
 });
