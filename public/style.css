@@ -1591,6 +1591,16 @@ button.nav-item {
   max-width: 900px;
 }
 
+/* Experimental: matches .fb-post's card look (same background/border/radius) so plain prose
+   reads as consistent with the boxed Facebook posts above it on the homepage, instead of
+   floating directly on the page background like every other page's content used to. */
+.content-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2rem 2.5rem;
+}
+
 .content-section .content-image {
   display: block;
   max-width: 100%;
@@ -2234,6 +2244,13 @@ button.nav-item {
     padding: 1.5rem 0.75rem;
   }
 
+  /* The card padding (2rem 2.5rem) is fine on desktop but its 40px sides eat too much of a
+     phone's width - e.g. it was leaving the achievements timeline/photo mosaic noticeably
+     narrower than intended. */
+  .content-section {
+    padding: 1.5rem 1.25rem;
+  }
+
   .content-section h1 {
     font-size: 1.75rem;
   }
@@ -2665,22 +2682,24 @@ button.nav-item {
 }
 
 /* Nasze osiągnięcia's Wolin tournament timeline (public/o-nas/nasze-osiagniecia/). Entries are
-   positioned with a hand-picked `top` percentage, one evenly-spaced step per distinct year (14
-   of them, latest at top: 0% through earliest at top: 100%, i.e. multiples of 100/13) - not
-   proportional to the actual year gaps, so a quiet multi-year stretch (e.g. 2016-2020) doesn't
+   positioned with a hand-picked `top` percentage, one evenly-spaced step per distinct year (15
+   of them, latest at top: 0% through earliest at top: 100%, i.e. multiples of 100/14) - not
+   proportional to the actual year gaps, so a quiet multi-year stretch (e.g. 2016-2018) doesn't
    inflate the timeline's height the way it used to. Gold (I miejsce) entries sit left of the
    central axis, silver (II miejsce) sit right, each badge touching the axis via flex ordering
    rather than separate absolute placement. A year with both a gold and a silver win just gets
    the same `top` on both - they sit on opposite sides of the axis, so unlike two same-side
    entries they don't need any vertical separation to avoid overlapping. Height is trimmed to the
-   practical minimum: every step is now the same 100/13 (~7.69%), so the binding constraint is
+   practical minimum: every step is now the same 100/14 (~7.14%), so the binding constraint is
    just clearing the larger, 34px gold badge at that step size - going shorter would start
-   overlapping same-side neighbors a step apart. */
+   overlapping same-side neighbors a step apart. Recompute this height (and the 768px override
+   below) whenever a distinct year is added/removed - the step size changes for every entry, not
+   just the new one. */
 .achievements-timeline {
   position: relative;
   max-width: 640px;
   margin: 0 auto 2.5rem;
-  height: 480px;
+  height: 510px;
 }
 
 .achievements-timeline-axis {
@@ -2762,11 +2781,11 @@ button.nav-item {
 /* Each entry is only ever "year + one short name", so the same left/right axis layout still
    fits at phone width - just scaled down (smaller badges, smaller text, tighter gap/padding),
    with the container shrunk to match. Minimum height follows the same rule as the desktop rule
-   above: every step is 100/13 (~7.69%), which needs to clear the largest (gold) badge on this
+   above: every step is 100/14 (~7.14%), which needs to clear the largest (gold) badge on this
    scale. */
 @media (max-width: 768px) {
   .achievements-timeline {
-    height: 380px;
+    height: 400px;
   }
 
   .tl-entry {
