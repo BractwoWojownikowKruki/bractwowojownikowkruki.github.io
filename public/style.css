@@ -2806,8 +2806,9 @@ button.nav-item {
    layout, not the site's own JS-computed row-span masonry (used by galerie/app.js's albums),
    since each tile's height already varies both with the photo's own aspect ratio and with its
    caption's line count; column-based flow handles that naturally with no measurement needed.
-   column-width lets the browser pick the column count per viewport - narrow screens collapse to
-   a single column on their own, no media query required. */
+   column-width lets the browser pick the column count per viewport. At 260px it collapses to a
+   single column below ~600px, which read as one long photo strip rather than a mosaic - the
+   768px override below drops the column width so phones still get a 2-column mosaic. */
 .achievements-gallery {
   margin-top: 3rem;
 }
@@ -2815,6 +2816,22 @@ button.nav-item {
 .achievements-gallery-grid {
   column-width: 260px;
   column-gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .achievements-gallery-grid {
+    column-width: 140px;
+    column-gap: 0.6rem;
+  }
+
+  .achievements-gallery-tile {
+    margin-bottom: 0.6rem;
+  }
+
+  .achievements-gallery-caption {
+    padding: 0.5rem 0.6rem;
+    font-size: 0.75rem;
+  }
 }
 
 .achievements-gallery-tile {
