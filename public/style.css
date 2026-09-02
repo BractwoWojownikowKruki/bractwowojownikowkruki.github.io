@@ -2788,3 +2788,53 @@ main { padding: 1.25rem 1.5rem 3rem; }
   }
 }
 
+/* Nasze osiągnięcia's photo mosaic (public/achievements-gallery.js) - a plain CSS multi-column
+   layout, not the site's own JS-computed row-span masonry (used by galerie/app.js's albums),
+   since each tile's height already varies both with the photo's own aspect ratio and with its
+   caption's line count; column-based flow handles that naturally with no measurement needed.
+   column-width lets the browser pick the column count per viewport - narrow screens collapse to
+   a single column on their own, no media query required. */
+.achievements-gallery {
+  margin-top: 3rem;
+}
+
+.achievements-gallery-grid {
+  column-width: 260px;
+  column-gap: 1rem;
+}
+
+.achievements-gallery-tile {
+  display: block;
+  width: 100%;
+  break-inside: avoid;
+  margin: 0 0 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.achievements-gallery-tile:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.achievements-gallery-tile img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.achievements-gallery-caption {
+  display: block;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  background: var(--surface-deep);
+}
+
