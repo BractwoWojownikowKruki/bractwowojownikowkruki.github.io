@@ -1815,10 +1815,14 @@ button.nav-item {
   color: var(--accent);
 }
 
+/* 2 columns, not Instagram's own 3 - at the sidebar's ~316px width, 3 columns squeezed each
+   photo down to ~103px CSS pixels, which read as "compressed"/mushy even though the source
+   images are full-resolution: at that size there just isn't room to perceive any detail in a
+   busy action photo. 2 columns roughly doubles each tile's width. */
 .ig-posts-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
   margin-bottom: 1rem;
 }
 
