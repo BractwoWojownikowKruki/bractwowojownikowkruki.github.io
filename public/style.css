@@ -1591,10 +1591,12 @@ button.nav-item {
   max-width: 900px;
 }
 
-/* Experimental: matches .fb-post's card look (same background/border/radius) so plain prose
-   reads as consistent with the boxed Facebook posts above it on the homepage, instead of
-   floating directly on the page background like every other page's content used to. */
-.content-section {
+/* Matches .fb-post's card look (same background/border/radius) so plain prose reads as
+   consistent with the rest of the site instead of floating directly on the page background.
+   Excludes the homepage's own content-section: it already holds the Facebook feed's own boxed
+   post cards, so this outer box would just frame a frame - a nested-box look that (confirmed by
+   eye) reads worse than the plain background it replaced. */
+.content-section:not(:has(#facebook-feed)) {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1763,10 +1765,15 @@ button.nav-item {
 
 /* Pushed down to line up with the first Facebook post tile, not with the "Aktualności"
    heading above it - matches the h1's own rendered height + margin-bottom (measured, since
-   the two columns are independent grid items with no shared row to align them automatically). */
+   the two columns are independent grid items with no shared row to align them automatically).
+   flex+gap (not a margin on one specific child) keeps the spacing between the two embeds
+   correct regardless of which one comes first. */
 .content-right {
   min-width: 0;
   margin-top: 70px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
 .instagram-embed {
@@ -1864,7 +1871,6 @@ button.nav-item {
   border-radius: 8px;
   overflow: hidden;
   padding: 1rem;
-  margin-top: 1.5rem;
 }
 
 .yt-header {
@@ -2246,8 +2252,8 @@ button.nav-item {
 
   /* The card padding (2rem 2.5rem) is fine on desktop but its 40px sides eat too much of a
      phone's width - e.g. it was leaving the achievements timeline/photo mosaic noticeably
-     narrower than intended. */
-  .content-section {
+     narrower than intended. Same homepage exclusion as the desktop rule above. */
+  .content-section:not(:has(#facebook-feed)) {
     padding: 1.5rem 1.25rem;
   }
 
