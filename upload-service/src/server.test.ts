@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { AuthError } from './auth.ts';
-import { createRequestListener, type ServerDeps } from './server.ts';
+import { createRequestListener, readSessionCookie, type ServerDeps } from './server.ts';
+import { verifySessionToken } from './session.ts';
+import type { IncomingMessage } from 'node:http';
 import type { DriveClient, DriveFileInfo } from './drive.ts';
 import type { GithubClient } from './github.ts';
 import { resetAboutUsBootstrapForTests } from './about-us.ts';
@@ -74,6 +76,11 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     authenticateAdmin: async () => ({ sub: 'admin-1', email: 'admin@gmail.com' }),
     authenticateWojownicyUpload: async () => ({ sub: 'wojownik-1', email: 'wojownik@gmail.com' }),
     authenticateModerator: async () => ({ sub: 'moderator-1', email: 'moderator@gmail.com' }),
+    authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
+    sessionSigningKeys: [{ v: 'v1', secret: 'test-session-secret' }],
+    sessionSlidingWindowMs: 14 * 24 * 60 * 60 * 1000,
+    sessionMaxLifetimeMs: 30 * 24 * 60 * 60 * 1000,
+    reauthFreshnessWindowMs: 30 * 60 * 1000,
     submissionTokenSecret: 'test-secret',
     driveParentFolderId: 'parent-1',
     wojownicyDocs: { 'zasady-bractwa': 'doc-zasady-1', 'poradnik-walki': 'doc-poradnik-1' },
@@ -110,6 +117,19 @@ test('OPTIONS returns 204 with CORS headers', async () => {
     const res = await fetch(`${baseUrl}/start`, { method: 'OPTIONS' });
     assert.equal(res.status, 204);
     assert.equal(res.headers.get('access-control-allow-origin'), 'https://example.test');
+  });
+});
+
+// Required for the browser to actually send/receive the session cookie on a credentials:
+// "include" fetch (KRKG-0036 Phase 1) - without this header a credentialed cross-origin request
+// is rejected by the browser regardless of Access-Control-Allow-Origin being correct.
+test('every response advertises Access-Control-Allow-Credentials: true', async () => {
+  await withServer(makeDeps(), async baseUrl => {
+    const preflight = await fetch(`${baseUrl}/start`, { method: 'OPTIONS' });
+    assert.equal(preflight.headers.get('access-control-allow-credentials'), 'true');
+
+    const actual = await fetch(`${baseUrl}/whoami`);
+    assert.equal(actual.headers.get('access-control-allow-credentials'), 'true');
   });
 });
 
@@ -241,6 +261,150 @@ test('GET /about-us rejects an unknown category', async () => {
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/about-us?category=NieIstnieje`);
     assert.equal(res.status, 400);
+  });
+});
+
+function fakeRequestWithCookieHeader(cookie: string | undefined): IncomingMessage {
+  return { headers: { cookie } } as unknown as IncomingMessage;
+}
+
+test('readSessionCookie extracts __Host-session from among several cookies', () => {
+  const req = fakeRequestWithCookieHeader('other=1; __Host-session=abc.def; another=2');
+  assert.equal(readSessionCookie(req), 'abc.def');
+});
+
+test('readSessionCookie returns null when the cookie header is missing', () => {
+  assert.equal(readSessionCookie(fakeRequestWithCookieHeader(undefined)), null);
+});
+
+test('readSessionCookie returns null when __Host-session is not among the cookies present', () => {
+  assert.equal(readSessionCookie(fakeRequestWithCookieHeader('other=1; another=2')), null);
+});
+
+const ALLOWED_ORIGIN_HEADER = { Origin: 'https://example.test' }; // matches makeDeps()'s allowedOrigin
+
+test('POST /session/login issues a session cookie for a caller authenticateSessionLogin accepts', async () => {
+  const deps = makeDeps({ authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...ALLOWED_ORIGIN_HEADER },
+      body: JSON.stringify({ idToken: 'fake-google-id-token' }),
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { email: 'alice@gmail.com' });
+
+    const setCookie = res.headers.get('set-cookie');
+    assert.ok(setCookie);
+    assert.match(setCookie!, /^__Host-session=/);
+    assert.match(setCookie!, /HttpOnly/);
+    assert.match(setCookie!, /Secure/);
+    assert.match(setCookie!, /SameSite=Lax/);
+    assert.match(setCookie!, /Path=\//);
+    assert.doesNotMatch(setCookie!, /Domain=/);
+
+    const token = setCookie!.match(/^__Host-session=([^;]+)/)![1];
+    const claims = verifySessionToken(token, deps.sessionSigningKeys, Date.now(), deps.sessionMaxLifetimeMs);
+    assert.equal(claims.sub, 'sub-1');
+    assert.equal(claims.email, 'alice@gmail.com');
+    assert.equal(claims.iat, claims.reauthAt);
+  });
+});
+
+test('POST /session/login rejects a body with no idToken', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...ALLOWED_ORIGIN_HEADER },
+      body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 400);
+    assert.equal(res.headers.get('set-cookie'), null);
+  });
+});
+
+test('POST /session/login passes through an AuthError from authenticateSessionLogin (e.g. not on the allowlist)', async () => {
+  const deps = makeDeps({
+    authenticateSessionLogin: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...ALLOWED_ORIGIN_HEADER },
+      body: JSON.stringify({ idToken: 'fake-google-id-token' }),
+    });
+    assert.equal(res.status, 403);
+    assert.equal(res.headers.get('set-cookie'), null);
+  });
+});
+
+// Login-CSRF: a cross-origin POST with a CORS-safelisted Content-Type (e.g. text/plain) never
+// triggers a preflight, so CORS alone would not stop an attacker's page from POSTing their own
+// valid idToken and having it silently accepted, setting the *attacker's* session in the
+// victim's browser - this is what requireAllowedOrigin exists to block.
+test('POST /session/login rejects a request with no Origin header', async () => {
+  const deps = makeDeps({ authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'fake-google-id-token' }),
+    });
+    assert.equal(res.status, 403);
+    assert.equal(res.headers.get('set-cookie'), null);
+  });
+});
+
+test('POST /session/login rejects a request from a different Origin', async () => {
+  const deps = makeDeps({ authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+      body: JSON.stringify({ idToken: 'fake-google-id-token' }),
+    });
+    assert.equal(res.status, 403);
+    assert.equal(res.headers.get('set-cookie'), null);
+  });
+});
+
+test('POST /session/logout clears the session cookie', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/logout`, { method: 'POST', headers: { ...ALLOWED_ORIGIN_HEADER } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true });
+    const setCookie = res.headers.get('set-cookie');
+    assert.ok(setCookie);
+    assert.match(setCookie!, /^__Host-session=;/);
+    assert.match(setCookie!, /Max-Age=0/);
+  });
+});
+
+test('POST /session/logout succeeds even with no prior session (idempotent)', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/logout`, { method: 'POST', headers: { ...ALLOWED_ORIGIN_HEADER } });
+    assert.equal(res.status, 200);
+  });
+});
+
+test('POST /session/logout rejects a request with no Origin header', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/logout`, { method: 'POST' });
+    assert.equal(res.status, 403);
+  });
+});
+
+test('POST /session/logout rejects a request from a different Origin', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/logout`, { method: 'POST', headers: { Origin: 'https://evil.example' } });
+    assert.equal(res.status, 403);
   });
 });
 

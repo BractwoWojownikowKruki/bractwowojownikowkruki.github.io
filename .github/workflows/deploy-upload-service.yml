@@ -44,6 +44,7 @@ jobs:
             -e DRIVE_PARENT_FOLDER_ID=dummy \
             -e GITHUB_TOKEN=dummy \
             -e SUBMISSION_TOKEN_SECRET=dummy \
+            -e SESSION_TOKEN_SECRET=dummy \
             upload-service-smoke
           sleep 2
           RESPONSE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/whoami)
@@ -101,6 +102,7 @@ jobs:
             DRIVE_CLIENT_SECRET=drive-oauth-client-secret:latest
             GITHUB_TOKEN=github-pat:latest
             SUBMISSION_TOKEN_SECRET=submission-token-secret:latest
+            SESSION_TOKEN_SECRET=session-token-secret:latest
             FACEBOOK_PAGE_ACCESS_TOKEN=facebook-page-access-token:latest
             YOUTUBE_API_KEY=youtube-api-key:latest
             DOCS_CLIENT_ID=docs-oauth-client-id:latest

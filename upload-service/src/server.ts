@@ -1,9 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { AuthError, fetchGoogleJwks, verifyUploader, type VerifiedIdentity } from './auth.ts';
+import { AuthError, checkAllowlist, fetchGoogleJwks, verifyGoogleIdToken, verifyUploader, type VerifiedIdentity } from './auth.ts';
 import { createAppsScriptAllowlist, createEmptyAllowlist, createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
+import { issueSessionToken, type SessionSigningKey } from './session.ts';
 import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, isValidRedirectPath, isValidRedirectTarget, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
@@ -50,6 +51,15 @@ export interface ServerDeps {
   // config.ts's moderatorGroupUrl for why this fails closed (denies everyone) until that group
   // actually exists.
   authenticateModerator: (req: IncomingMessage) => Promise<VerifiedIdentity>;
+  // Verifies a raw Google ID token (from POST /session/login's body, not an Authorization
+  // header - that's the whole exchange this endpoint performs) against the same general kruki
+  // allowlist as `authenticate`. Kept as its own dep function, matching the authenticate*
+  // pattern above, rather than exposing the raw allowlist/OAuth client id on ServerDeps.
+  authenticateSessionLogin: (idToken: string) => Promise<VerifiedIdentity>;
+  sessionSigningKeys: SessionSigningKey[];
+  sessionSlidingWindowMs: number;
+  sessionMaxLifetimeMs: number;
+  reauthFreshnessWindowMs: number;
   submissionTokenSecret: string;
   driveParentFolderId: string;
   // Maps a doc "key" (the ?key= query param on GET /wojownicy-docs) to its Google Doc file ID -
@@ -165,6 +175,58 @@ function setCors(res: ServerResponse, allowedOrigin: string): void {
   res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Submission-Token');
+  // Required for the browser to send/receive the session cookie on a credentials: "include"
+  // fetch from www.kruki.org to api.kruki.org (cross-origin, though same-site) - safe alongside
+  // an exact single origin above, never a wildcard (the spec forbids combining the two anyway).
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+}
+
+// __Host- is a browser-enforced guarantee that this cookie can only have been set by this exact
+// host over HTTPS with Path=/ and no Domain attribute - see design-v2.md Phase 1 point 5 for why
+// that's preferable to a broader Domain=kruki.org cookie. SameSite=Lax rather than Strict: same-
+// site fetches (www.kruki.org -> api.kruki.org) get the cookie either way since only genuinely
+// cross-site requests are restricted, and Lax also covers a top-level navigation landing here.
+const SESSION_COOKIE_NAME = '__Host-session';
+
+function setSessionCookie(res: ServerResponse, token: string, maxAgeMs: number): void {
+  const maxAgeSeconds = Math.max(0, Math.floor(maxAgeMs / 1000));
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}`);
+}
+
+function clearSessionCookie(res: ServerResponse): void {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
+}
+
+// CSRF defense for cookie-authenticated endpoints (design-v2.md "CSRF - one mandatory rule").
+// Applied here first, since /session/login and /session/logout are the only endpoints that
+// set/clear the session cookie so far - a request authenticated by a bearer header an
+// attacker's page can neither read nor attach isn't CSRF-exploitable the way an auto-sent
+// cookie is, so the rest of the state-changing routes only need this once they move off
+// bearer-token auth onto the cookie (batch 4/5). A cross-origin POST with a CORS-safelisted
+// Content-Type (e.g. text/plain) never triggers a preflight, so CORS alone does not block it -
+// this is a separate, mandatory check, not redundant with setCors above.
+function requireAllowedOrigin(req: IncomingMessage, allowedOrigin: string): void {
+  const origin = req.headers.origin;
+  // Neither endpoint this guards is ever meant to be reached by a top-level navigation or
+  // classic form submit (both are fetch() calls from the frontend's own JS, which always sends
+  // Origin on a state-changing request) - fail closed on a missing header rather than treat it
+  // as same-origin.
+  if (!origin || origin !== allowedOrigin) {
+    throw new AuthError('Żądanie z niedozwolonego źródła.', 403);
+  }
+}
+
+export function readSessionCookie(req: IncomingMessage): string | null {
+  const header = req.headers.cookie;
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === SESSION_COOKIE_NAME) {
+      return part.slice(eq + 1).trim();
+    }
+  }
+  return null;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -248,6 +310,30 @@ async function* validatedUploadStream(
 async function handleWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req);
   sendJson(res, 200, { email: identity.email });
+}
+
+// Exchanges a raw Google ID token (verified once, here) for a first-party session cookie -
+// see design-v2.md Phase 1 points 1-6. Not yet used by any route's authentication (that's the
+// Phase 1 cutover batch): existing routes still check the Authorization header exactly as
+// before this endpoint existed.
+async function handleSessionLogin(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  requireAllowedOrigin(req, deps.allowedOrigin);
+  const { idToken } = await readJsonBody<{ idToken?: string }>(req, deps.maxJsonBodyBytes);
+  if (!idToken) throw new AuthError('Brak tokenu Google ID.', 400);
+  const identity = await deps.authenticateSessionLogin(idToken);
+  const now = Date.now();
+  const token = issueSessionToken(identity, deps.sessionSigningKeys[0], now, deps.sessionSlidingWindowMs);
+  setSessionCookie(res, token, deps.sessionSlidingWindowMs);
+  sendJson(res, 200, { email: identity.email });
+}
+
+// Stateless design (see design-v2.md Phase 1 point 10) - this clears the cookie on this device
+// only, it does not revoke the token server-side. Idempotent and unauthenticated on purpose:
+// calling it with no session, or an already-invalid one, is still a successful logout.
+async function handleSessionLogout(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  requireAllowedOrigin(req, deps.allowedOrigin);
+  clearSessionCookie(res);
+  sendJson(res, 200, { ok: true });
 }
 
 export interface GalleryListItem {
@@ -1022,6 +1108,10 @@ export function createRequestListener(deps: ServerDeps) {
     try {
       if (req.method === 'GET' && url.pathname === '/whoami') {
         await handleWhoami(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/session/login') {
+        await handleSessionLogin(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/session/logout') {
+        await handleSessionLogout(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/galleries') {
         await handleGalleries(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/about-us') {
@@ -1148,6 +1238,15 @@ async function startProductionServer(): Promise<void> {
     authenticateAdmin: req => verifyUploader(req, config.googleOAuthClientId, adminAllowlist),
     authenticateWojownicyUpload: req => verifyUploader(req, config.googleOAuthClientId, groupAllowlist),
     authenticateModerator: req => verifyUploader(req, config.googleOAuthClientId, moderatorAllowlist),
+    authenticateSessionLogin: async idToken => {
+      const identity = await verifyGoogleIdToken(idToken, config.googleOAuthClientId);
+      const allowedEmails = await groupAllowlist.getEmails();
+      return checkAllowlist(identity, allowedEmails);
+    },
+    sessionSigningKeys: config.sessionSigningKeys,
+    sessionSlidingWindowMs: config.sessionSlidingWindowMs,
+    sessionMaxLifetimeMs: config.sessionMaxLifetimeMs,
+    reauthFreshnessWindowMs: config.reauthFreshnessWindowMs,
     submissionTokenSecret: config.submissionTokenSecret,
     driveParentFolderId: config.driveParentFolderId,
     wojownicyDocs: config.wojownicyDocs,

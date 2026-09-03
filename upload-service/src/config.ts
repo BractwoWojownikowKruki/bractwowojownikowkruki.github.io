@@ -1,3 +1,5 @@
+import type { SessionSigningKey } from './session.ts';
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Brak wymaganej zmiennej środowiskowej: ${name}`);
@@ -68,6 +70,17 @@ export const config = {
   // from that origin anymore and it doesn't need to stay in the CORS allowlist too.
   allowedOrigin: process.env.ALLOWED_ORIGIN ?? 'https://www.kruki.org',
   submissionTokenSecret: requireEnv('SUBMISSION_TOKEN_SECRET'),
+  // A single key today ("v1") - the array shape is what lets a rotated-out secret keep
+  // verifying already-issued sessions during a bounded overlap window later, without changing
+  // how session.ts is called (see KRKG-0036 design-v2.md, Phase 1 point 4). Nothing to rotate
+  // yet, so there's no second env var here until a rotation is actually needed.
+  sessionSigningKeys: [{ v: 'v1', secret: requireEnv('SESSION_TOKEN_SECRET') }] as SessionSigningKey[],
+  // 14-day sliding renewal window / 30-day absolute cap / 30-minute step-up freshness window -
+  // see design-v2.md's "Decisions" section for why these specific numbers. Configurable via env
+  // var (matching this file's existing TTL pattern) without needing a code change to adjust.
+  sessionSlidingWindowMs: Number(process.env.SESSION_SLIDING_WINDOW_MS ?? 14 * 24 * 60 * 60 * 1000),
+  sessionMaxLifetimeMs: Number(process.env.SESSION_MAX_LIFETIME_MS ?? 30 * 24 * 60 * 60 * 1000),
+  reauthFreshnessWindowMs: Number(process.env.REAUTH_FRESHNESS_WINDOW_MS ?? 30 * 60 * 1000),
   // 20 MB per photo - comfortably under Cloud Run's 32 MiB HTTP/1 request body limit,
   // with headroom for the multipart wrapper this service adds around each file.
   maxFileBytes: Number(process.env.MAX_FILE_BYTES ?? 20 * 1024 * 1024),
