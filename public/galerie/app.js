@@ -305,12 +305,11 @@ let currentIndex = -1;
 let photoUploaderByFileId = {};
 
 // GET /gallery-photos/uploaders requires the same kruki-group sign-in as the rest of this page
-// (KRKG-0031) - guarded by isIdTokenValid() rather than apiFetch's usual ensureFreshIdToken/
-// showReauthUI dance, since attribution is a nice-to-have, not core to viewing the gallery: if
-// the token has expired mid-session, this silently omits attribution rather than interrupting
-// the visitor with a reauth prompt just to show who uploaded a photo.
+// (KRKG-0031) - no-op reauth handlers rather than apiFetch's usual showReauthUI dance, since
+// attribution is a nice-to-have, not core to viewing the gallery: if the session has lapsed
+// mid-visit, this silently omits attribution (caught by the outer try/catch below) rather than
+// interrupting the visitor with a reauth prompt just to show who uploaded a photo.
 async function fetchPhotoUploaders(folderId) {
-  if (typeof isIdTokenValid === 'function' && !isIdTokenValid()) return {};
   try {
     const { uploaders } = await apiFetch(
       `/gallery-photos/uploaders?folderId=${encodeURIComponent(folderId)}`,
@@ -822,16 +821,14 @@ function showGalerieForbidden() {
   document.getElementById('galerie-forbidden').hidden = false;
 }
 
-// A returning member already has a locally-stored, still-valid token (see auth.js's
-// restoreIdToken) - swap the "please sign in" prompt for a neutral spinner instead, so they
-// don't see a sign-in button flash before the real, server-verified whoami check (which can
-// take a real 1-3s+, see auth.js) resolves a moment later via onSignedIn/onForbidden below.
-// A genuinely signed-out visitor has no stored token, so isIdTokenValid() is false and the
-// default sign-in button (already in the markup) stays exactly as it was.
-if (typeof isIdTokenValid === 'function' && isIdTokenValid()) {
-  document.getElementById('galerie-signin').hidden = true;
-  document.getElementById('galerie-checking').hidden = false;
-}
+// Always show a neutral spinner first, never the sign-in button - there's no local signal left
+// to tell a returning, still-signed-in member apart from a genuinely signed-out visitor (the
+// session cookie is HttpOnly, unreadable by design; see auth.js's top comment), so guessing
+// "signed out" up front would wrongly flash the sign-in button at every returning member. The
+// real, server-verified whoami check (which can take a real 1-3s+, see auth.js) resolves a
+// moment later via onSignedIn/onForbidden below and corrects this either way.
+document.getElementById('galerie-signin').hidden = true;
+document.getElementById('galerie-checking').hidden = false;
 
 // Replaces the old "sign-in only on demand, for deleting a gallery" flow - the whole page is
 // now behind the same kruki-group check (KRKG-0031), so galerie-reauth-button doubles as both

@@ -3,19 +3,18 @@
 // sign-in state very differently - a persistent panel vs. an on-demand modal shown only when
 // deleting a gallery - so each page supplies its own UI hooks rather than this module owning
 // any DOM beyond the sign-in buttons themselves.
+//
+// KRKG-0036: session state now lives entirely in a first-party, HttpOnly __Host-session cookie
+// on api.kruki.org - the browser sends/receives it automatically on every fetch below via
+// credentials: "include". There is nothing here for this script to read, store, or restore:
+// no localStorage token, no client-side expiry tracking. That's deliberate - it's exactly what
+// closes the localStorage-token-is-XSS-extractable risk this story exists to fix. The one
+// consequence worth naming: since this module can no longer answer "am I signed in?" locally,
+// every page asks the server once on load (see initGoogleSignIn below) rather than painting an
+// instant guess from a decoded token.
 const UPLOAD_SERVICE_URL = 'https://api.kruki.org';
 const GOOGLE_OAUTH_CLIENT_ID = '895090213384-cqac9v2tvmjhkkertjjj5q4h8qf41g3d.apps.googleusercontent.com';
-// Refresh a little before the token's real expiry, not exactly at it, so an in-flight
-// request never straddles the boundary between "was valid" and "just expired".
-const ID_TOKEN_EXPIRY_SAFETY_MARGIN_SECONDS = 30;
-// Persisting the token is what lets sign-in survive navigating to a new page (each page load
-// is a fresh JS context, so without this the user would have to re-click "Zaloguj" on every
-// single page). localStorage rather than sessionStorage so it also survives opening a link in
-// a new tab - the token's own short expiry already bounds how long it stays usable either way.
-const ID_TOKEN_STORAGE_KEY = 'kruki_id_token';
 
-let idToken = null;
-let idTokenExp = 0;
 let pendingReauth = null;
 let pendingReauthHide = null;
 // Google Identity Services only keeps ONE active initialize() config per page - calling it
@@ -31,54 +30,16 @@ function decodeJwtPayload(token) {
   return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
 }
 
-function isIdTokenValid() {
-  return Boolean(idToken) && idTokenExp - ID_TOKEN_EXPIRY_SAFETY_MARGIN_SECONDS > Date.now() / 1000;
-}
-
-function persistIdToken() {
-  try {
-    localStorage.setItem(ID_TOKEN_STORAGE_KEY, JSON.stringify({ token: idToken, exp: idTokenExp }));
-  } catch {
-    // localStorage can throw (private browsing, disabled storage) - falling back to
-    // in-memory-only just means sign-in won't survive navigation, not a hard failure.
-  }
-}
-
-// Restores a still-valid token saved by an earlier page (see persistIdToken) so this page
-// starts already signed in instead of showing "Zaloguj" again. Runs once at load time.
-(function restoreIdToken() {
-  try {
-    const raw = localStorage.getItem(ID_TOKEN_STORAGE_KEY);
-    if (!raw) return;
-    const stored = JSON.parse(raw);
-    if (stored?.token && stored?.exp - ID_TOKEN_EXPIRY_SAFETY_MARGIN_SECONDS > Date.now() / 1000) {
-      idToken = stored.token;
-      idTokenExp = stored.exp;
-    } else {
-      localStorage.removeItem(ID_TOKEN_STORAGE_KEY);
-    }
-  } catch {
-    // Same as above - just means this page starts signed out.
-  }
-})();
-
-// Pauses the caller and invokes showReauthUI() if the current Google ID token has expired, is
-// about to, or was never obtained. Resolves (after calling hideReauthUI()) once a sign-in
-// completes. Deliberately explicit/visible rather than a silent background refresh - Identity
-// Services doesn't offer a reliable silent-refresh path across third-party-cookie-restricted
-// browsers.
-async function ensureFreshIdToken(showReauthUI, hideReauthUI) {
-  if (isIdTokenValid()) return;
-  pendingReauthHide = hideReauthUI;
-  showReauthUI();
-  await new Promise(resolve => { pendingReauth = resolve; });
-}
-
-async function apiFetch(path, options, showReauthUI, hideReauthUI) {
-  await ensureFreshIdToken(showReauthUI, hideReauthUI);
-  const res = await fetch(`${UPLOAD_SERVICE_URL}${path}`, {
-    ...options,
-    headers: { ...(options?.headers ?? {}), Authorization: `Bearer ${idToken}` },
+// Exchanges a Google ID token for the first-party session cookie (POST /session/login). The raw
+// token only ever lives in a local variable for the duration of this call and the one that calls
+// it - never assigned to a module-level variable, stored, logged, or placed in a URL/error
+// report (see design-v2.md Phase 1 point 1's hygiene requirement).
+async function exchangeForSession(googleIdToken) {
+  const res = await fetch(`${UPLOAD_SERVICE_URL}/session/login`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken: googleIdToken }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -87,13 +48,61 @@ async function apiFetch(path, options, showReauthUI, hideReauthUI) {
   return res.json();
 }
 
+function promptReauth(showReauthUI, hideReauthUI) {
+  return new Promise(resolve => {
+    pendingReauth = resolve;
+    pendingReauthHide = hideReauthUI;
+    showReauthUI();
+  });
+}
+
+// credentials: "include" sends the session cookie automatically - no Authorization header, the
+// browser manages the credential entirely, this code never sees it. A 401 means either no
+// session at all, or (for a destructive action) a session past the step-up freshness window -
+// either way the fix is the same from here: prompt a fresh Google sign-in and retry exactly
+// once. This replaces the old proactive "is my locally-tracked token about to expire" check
+// with a reactive one driven by what the server actually says, which is the only option once
+// there's no local token to inspect - and is simpler besides.
+async function apiFetch(path, options = {}, showReauthUI, hideReauthUI) {
+  const doFetch = () => fetch(`${UPLOAD_SERVICE_URL}${path}`, { ...options, credentials: 'include' });
+  let res = await doFetch();
+  if (res.status === 401 && showReauthUI && hideReauthUI) {
+    await promptReauth(showReauthUI, hideReauthUI);
+    res = await doFetch();
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(body.error ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// Ends the session on this device (design-v2.md Phase 1 point 10 - stateless by design, so this
+// is not server-side revocation, just clearing the cookie here; a member being removed from the
+// club is enforced separately, live, by the allowlist check on every privileged call). Reloads
+// afterwards so every piece of signed-in UI across the page - nav avatar, member-only links,
+// page-specific panels - resets through its own normal signed-out path instead of each needing
+// a bespoke logout handler.
+async function logout() {
+  try {
+    await fetch(`${UPLOAD_SERVICE_URL}/session/logout`, { method: 'POST', credentials: 'include' });
+  } finally {
+    window.location.reload();
+  }
+}
+
 async function handleCredentialResponse(response) {
-  idToken = response.credential;
-  const payload = decodeJwtPayload(idToken);
-  idTokenExp = payload.exp;
-  persistIdToken();
+  const googleIdToken = response.credential;
+  const payload = decodeJwtPayload(googleIdToken);
 
   if (pendingReauth) {
+    // A step-up/reauth prompt needs the exchange to actually succeed before resolving the
+    // paused caller - failing here should leave the prompt up, not resolve as if it worked.
+    try {
+      await exchangeForSession(googleIdToken);
+    } catch {
+      return;
+    }
     const resolve = pendingReauth;
     pendingReauth = null;
     if (pendingReauthHide) {
@@ -104,59 +113,66 @@ async function handleCredentialResponse(response) {
     return;
   }
 
+  // Fresh, unprompted sign-in (a page's own button, not a reauth prompt). onIdentity fires here,
+  // synchronously from the locally-decoded payload, independent of whether the exchange below
+  // succeeds - for cosmetic UI with no allowlist of its own to wait on (e.g. /logowanie/, which
+  // greets any Google account, member or not). Safe: nothing privileged ever depends on this,
+  // only onSignedIn/onForbidden below (driven by the real server-verified exchange/whoami) does.
   for (const listener of signedInListeners) {
     listener.onIdentity?.(payload);
+  }
+
+  try {
+    await exchangeForSession(googleIdToken);
+  } catch {
+    for (const listener of signedInListeners) {
+      listener.onForbidden?.();
+    }
+    return;
+  }
+
+  for (const listener of signedInListeners) {
     if (!listener.onSignedIn && !listener.onForbidden) continue;
     try {
-      await apiFetch(listener.whoamiPath, { method: 'GET' }, () => {}, () => {});
-      listener.onSignedIn?.(payload);
+      const identity = await apiFetch(listener.whoamiPath, { method: 'GET' });
+      listener.onSignedIn?.(identity);
     } catch {
-      listener.onForbidden?.(payload);
+      listener.onForbidden?.();
     }
   }
 }
 
 // Wires up Google Identity Services for the current page. `buttonIds` are the DOM ids of every
 // container GIS should render a sign-in button into (a page may need more than one, e.g. an
-// initial sign-in button and a separate reauth-prompt button). `onSignedIn(payload)` and
-// `onForbidden(payload)` are optional and fire only after a genuine first sign-in - not one
-// triggered by ensureFreshIdToken's reauth prompt, which just resolves the paused caller
-// instead. Pages that only ever need reauth (nothing to proactively show on initial sign-in)
-// can omit both. `buttonConfig` overrides GIS's renderButton options (theme/size/text/shape)
-// for just this call's buttons. Safe to call more than once per page (see signedInListeners
-// above) - each call independently verifies its own whoamiPath against the one shared token.
+// initial sign-in button and a separate reauth-prompt button). `onSignedIn(identity)` and
+// `onForbidden()` are optional, called with the server-verified result of `whoamiPath` -
+// `identity` is whatever that endpoint returns (at least `{email}`, plus `name`/`picture` where
+// available). Safe to call more than once per page (see signedInListeners above) - each call
+// independently verifies its own whoamiPath against the one shared session cookie.
 //
-// `onRestoredIdentity(payload)` is a separate, optional, *unverified* fast path: if a page load
-// restores a still-valid token (see restoreIdToken), this fires immediately, synchronously,
-// from the token's own locally-decoded payload - no network round trip. onSignedIn/onForbidden
-// still run afterwards once the real whoamiPath check resolves; they're what anything
-// privilege-gated (an admin link, an upload button) must wait for. onRestoredIdentity exists so
-// purely cosmetic, non-privileged UI (e.g. the nav's avatar) can update at once instead of
-// sitting blank for however long that check takes - which can be a real 1-3s+ on this service's
-// end, especially a cold Cloud Run instance or a slow allowlist check (see the Apps Script
-// allowlist comment in upload-service/src/allowlist.ts). Safe to "trust" cosmetically: a forged
-// payload here can't grant anything, since every actual privileged action still goes through
-// the server-verified token on the real API calls.
+// `onIdentity(payload)` is different: it fires on every *fresh* sign-in (not a reauth prompt),
+// synchronously from the locally-decoded Google JWT, before/regardless of whether the session
+// exchange behind it succeeds. For a page with no privilege gate of its own (e.g. /logowanie/,
+// which just wants to greet "Zalogowano jako ..." for any Google account, member or not) this is
+// the only callback needed - it never waits on or depends on any allowlist. A forged payload
+// here can't grant anything, since every actual privileged action still goes through
+// onSignedIn/onForbidden's server-verified check.
 //
-// `onIdentity(payload)` is the live-sign-in counterpart to onRestoredIdentity: it fires on
-// *every* credential response (including a fresh button click), unconditionally, before any
-// whoamiPath check. For a page with no privilege gate of its own (e.g. a plain login page that
-// just wants to greet "Zalogowano jako ...") this is the only callback needed - it never waits
-// on or depends on any particular allowlist.
-function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, onRestoredIdentity, onIdentity, whoamiPath = '/whoami', buttonConfig = {} }) {
+// There is no "restored session" fast path anymore (see this file's top comment) - every
+// onSignedIn/onForbidden call asks the server once, on load, via `whoamiPath`. That's a real
+// trade-off: this can take a real 1-3s+ (a cold Cloud Run instance, or a slow allowlist check -
+// see the Apps Script allowlist comment in upload-service/src/allowlist.ts), so purely cosmetic
+// UI (the nav avatar) pays that same latency now instead of painting instantly from a locally-
+// decoded token. What's gone in exchange is the hourly Google reauth popup this whole redesign
+// exists to remove - sessions now last up to 14 days sliding, so this one-time-per-page-load
+// check is a fair trade.
+function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, onIdentity, whoamiPath = '/whoami', buttonConfig = {} }) {
   signedInListeners.push({ whoamiPath, onSignedIn, onForbidden, onIdentity });
 
-  // A token restored from an earlier page (see restoreIdToken) means this page should start
-  // already signed in, without waiting for GSI to load or for a fresh button click.
-  if (isIdTokenValid()) {
-    const payload = decodeJwtPayload(idToken);
-    onRestoredIdentity?.(payload);
-    onIdentity?.(payload);
-    if (onSignedIn || onForbidden) {
-      apiFetch(whoamiPath, { method: 'GET' }, () => {}, () => {})
-        .then(() => onSignedIn?.(payload))
-        .catch(() => onForbidden?.(payload));
-    }
+  if (onSignedIn || onForbidden) {
+    apiFetch(whoamiPath, { method: 'GET' })
+      .then(identity => onSignedIn?.(identity))
+      .catch(() => onForbidden?.());
   }
 
   function render() {

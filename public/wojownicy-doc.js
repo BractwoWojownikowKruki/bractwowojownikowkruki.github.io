@@ -42,10 +42,6 @@ async function showContent() {
   }
 }
 
-if (!isIdTokenValid()) {
-  showSignedOut();
-}
-
 initGoogleSignIn({
   buttonIds: [],
   whoamiPath: '/wojownicy-upload/whoami',

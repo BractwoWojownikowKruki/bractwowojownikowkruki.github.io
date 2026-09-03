@@ -1,6 +1,4 @@
 import { createPublicKey, verify as cryptoVerify } from 'node:crypto';
-import type { IncomingMessage } from 'node:http';
-import type { SheetAllowlist } from './allowlist.ts';
 
 export class AuthError extends Error {
   status: number;
@@ -8,12 +6,6 @@ export class AuthError extends Error {
     super(message);
     this.status = status;
   }
-}
-
-export function extractBearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const match = header.match(/^Bearer (.+)$/);
-  return match ? match[1] : null;
 }
 
 function base64UrlToBuffer(input: string): Buffer {
@@ -130,19 +122,4 @@ export async function verifyGoogleIdToken(
     throw new AuthError('Nieprawidłowy podpis tokenu.', 401);
   }
   return checkClaims(decoded.payload, expectedAudience);
-}
-
-export async function verifyUploader(
-  req: IncomingMessage,
-  expectedAudience: string,
-  allowlist: SheetAllowlist,
-  jwksProvider: JwksProvider = fetchGoogleJwks,
-): Promise<VerifiedIdentity> {
-  const token = extractBearerToken(req.headers.authorization);
-  if (!token) {
-    throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
-  }
-  const identity = await verifyGoogleIdToken(token, expectedAudience, jwksProvider);
-  const allowedEmails = await allowlist.getEmails();
-  return checkAllowlist(identity, allowedEmails);
 }

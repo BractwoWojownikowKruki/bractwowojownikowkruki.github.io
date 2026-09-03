@@ -223,9 +223,9 @@ document.getElementById('register-form').addEventListener('submit', async e => {
   submitButton.disabled = true;
   try {
     // Registers an existing gallery directly - requires being signed in with an allowlisted
-    // account (see /register in upload-service), which apiFetch's ensureFreshIdToken prompts
-    // for if the user hasn't signed in yet. Committed to albums.json and picked up by the CI
-    // pipeline, same as before - not instant.
+    // account (see /register in upload-service), which apiFetch prompts for via showReauth if
+    // there's no valid session yet. Committed to albums.json and picked up by the CI pipeline,
+    // same as before - not instant.
     await apiFetch('/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

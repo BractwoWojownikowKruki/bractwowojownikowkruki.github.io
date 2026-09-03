@@ -14,6 +14,12 @@ export interface SessionClaims {
   v: string;
   sub: string;
   email: string;
+  // Captured once at login from the verified Google ID token (auth.ts's VerifiedIdentity
+  // already carries these) and frozen across renewals, same as sub/email - used only for the
+  // upload-attribution "Dodane przez" display, so a slightly stale name/photo across a long
+  // sliding session is an acceptable trade against re-deriving them from Google on every call.
+  name?: string;
+  picture?: string;
   iat: number;
   reauthAt: number;
   exp: number;
@@ -43,7 +49,7 @@ function signClaims(claims: SessionClaims, secret: string): string {
 }
 
 export function issueSessionToken(
-  identity: { sub: string; email: string },
+  identity: { sub: string; email: string; name?: string; picture?: string },
   key: SessionSigningKey,
   now: number,
   slidingWindowMs: number,
@@ -52,6 +58,8 @@ export function issueSessionToken(
     v: key.v,
     sub: identity.sub,
     email: identity.email,
+    ...(identity.name ? { name: identity.name } : {}),
+    ...(identity.picture ? { picture: identity.picture } : {}),
     iat: now,
     reauthAt: now,
     exp: now + slidingWindowMs,
@@ -69,6 +77,8 @@ function isSessionClaims(value: unknown): value is SessionClaims {
     c.sub.length > 0 &&
     typeof c.email === 'string' &&
     c.email.length > 0 &&
+    (c.name === undefined || typeof c.name === 'string') &&
+    (c.picture === undefined || typeof c.picture === 'string') &&
     typeof c.iat === 'number' &&
     typeof c.reauthAt === 'number' &&
     typeof c.exp === 'number' &&

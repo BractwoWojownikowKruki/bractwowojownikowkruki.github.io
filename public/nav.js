@@ -110,37 +110,46 @@ document.addEventListener('DOMContentLoaded', () => {
 /**
  * Site-wide sign-in status: the user's Google avatar in the always-visible top bar next to the
  * hamburger (#nav-auth-slot) once signed in, plus a "Zaloguj się" link (to /logowanie/) when
- * signed out (#nav-login-link) or the "Panel admina" links (.admin-zone-link, in both Strefa
- * Członków containers) once the /admin/whoami check passes. Keeping the login link and admin
- * links out of the top bar avoids crowding it (logo + avatar + hamburger/trigger already fill it
- * on mobile) - they only need to be reachable, not always visible. The actual Google sign-in
- * button itself is no longer rendered in the nav - it lives on /logowanie/ (see logowanie.js) -
- * #nav-login-link is a plain link there, same as any other nav item.
+ * signed out (#nav-login-link), a "Wyloguj się" button when signed in (#nav-logout-link), or the
+ * "Panel admina" links (.admin-zone-link, in both Strefa Członków containers) once the
+ * /admin/whoami check passes. Keeping the login/logout controls and admin links out of the top
+ * bar avoids crowding it (logo + avatar + hamburger/trigger already fill it on mobile) - they
+ * only need to be reachable, not always visible. The actual Google sign-in button itself is no
+ * longer rendered in the nav - it lives on /logowanie/ (see logowanie.js) - #nav-login-link is a
+ * plain link there, same as any other nav item.
  *
  * Reuses initGoogleSignIn from auth.js, which is safe to call alongside a page's own sign-in
  * flow (e.g. the Wojownicy group-membership check below) - see the shared-listener comment in
  * auth.js. Only runs on pages that carry this markup; the admin panel's own page deliberately
  * omits it since it already has a richer sign-in UI in its main content.
+ *
+ * No "restored session" fast path anymore (see auth.js's top comment - the session cookie is
+ * HttpOnly, unreadable by JS by design) - the avatar starts empty and the login link starts
+ * visible until the real, server-verified /admin/whoami check resolves a moment later, for every
+ * visitor alike, signed in or not.
  */
 document.addEventListener('DOMContentLoaded', () => {
   const avatarSlot = document.getElementById('nav-auth-slot');
   const loginLink = document.getElementById('nav-login-link');
+  const logoutLink = document.getElementById('nav-logout-link');
   if (!avatarSlot || typeof initGoogleSignIn !== 'function') return;
 
-  // Split in two so the avatar can update the instant a restored token is found - locally,
-  // from the token's own payload, no network wait - while the admin link still only ever
-  // reflects the real, server-verified /admin/whoami result (see onRestoredIdentity's comment
-  // in auth.js for why that split is safe).
-  function renderAvatar(payload) {
-    if (!payload) {
+  function renderAvatar(identity) {
+    if (!identity) {
       avatarSlot.innerHTML = '';
       if (loginLink) loginLink.hidden = false;
+      if (logoutLink) logoutLink.hidden = true;
       return;
     }
-    const email = payload.email ? payload.email.replace(/"/g, '&quot;') : '';
-    const picture = payload.picture ? payload.picture.replace(/"/g, '&quot;') : '';
-    avatarSlot.innerHTML = `<img src="${picture}" alt="${email}" title="${email}" class="nav-avatar" />`;
+    const email = identity.email ? identity.email.replace(/"/g, '&quot;') : '';
+    if (identity.picture) {
+      const picture = identity.picture.replace(/"/g, '&quot;');
+      avatarSlot.innerHTML = `<img src="${picture}" alt="${email}" title="${email}" class="nav-avatar" />`;
+    } else {
+      avatarSlot.innerHTML = '';
+    }
     if (loginLink) loginLink.hidden = true;
+    if (logoutLink) logoutLink.hidden = false;
   }
 
   function renderAdminLink(isAdmin) {
@@ -148,23 +157,19 @@ document.addEventListener('DOMContentLoaded', () => {
     updateMembersZoneVisibility();
   }
 
-  // Only show the "Zaloguj się" link right away if there's definitely no restorable session to
-  // check first (see the equivalent comment further below) - otherwise leave everything as-is
-  // for onRestoredIdentity below to resolve immediately instead of flashing a misleading
-  // "you're signed out" link for an already-signed-in visitor.
-  if (typeof isIdTokenValid !== 'function' || !isIdTokenValid()) {
-    renderAvatar(null);
+  if (logoutLink && typeof logout === 'function') {
+    logoutLink.addEventListener('click', () => logout());
   }
+
   initGoogleSignIn({
     buttonIds: [],
     whoamiPath: '/admin/whoami',
-    onRestoredIdentity: payload => renderAvatar(payload),
-    onSignedIn: payload => {
-      renderAvatar(payload);
+    onSignedIn: identity => {
+      renderAvatar(identity);
       renderAdminLink(true);
     },
-    onForbidden: payload => {
-      renderAvatar(payload);
+    onForbidden: () => {
+      renderAvatar(null);
       renderAdminLink(false);
     },
   });
@@ -182,35 +187,14 @@ document.addEventListener('DOMContentLoaded', () => {
  * membership-gated, same as every other item here is cosmetic-only (see nav.js's other auth
  * block for why none of this is a real security boundary).
  *
- * Remembers the last confirmed membership result per email, so a returning member sees these
- * immediately (onRestoredIdentity, below) instead of waiting out the Apps Script check again on
- * every single page load. Purely a perceived-speed optimization: the real endpoints behind each
- * link still re-verify group membership server-side regardless of what this cache says, so a
- * stale "true" here can't grant anything - onSignedIn/onForbidden always correct it once the
- * real check resolves, a moment later.
+ * These links start hidden (their markup default) and stay that way until the real, server-
+ * verified check resolves - no more instant optimistic guess from a cached-by-email localStorage
+ * result, since there's no locally-decoded token anymore to read an email from before that
+ * network response arrives (see auth.js's top comment).
  */
 document.addEventListener('DOMContentLoaded', () => {
   const memberOnlyLinks = Array.from(document.querySelectorAll('.member-zone-link'));
   if (!memberOnlyLinks.length || typeof initGoogleSignIn !== 'function') return;
-
-  const MEMBER_CACHE_KEY = 'kruki_wojownicy_member';
-
-  function loadCachedMembership(email) {
-    try {
-      const cached = JSON.parse(localStorage.getItem(MEMBER_CACHE_KEY));
-      return cached?.email === email ? cached.isMember : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function saveCachedMembership(email, isMember) {
-    try {
-      localStorage.setItem(MEMBER_CACHE_KEY, JSON.stringify({ email, isMember }));
-    } catch {
-      // Storage can be unavailable (private browsing) - just means no optimistic guess next time.
-    }
-  }
 
   function setHidden(hidden) {
     memberOnlyLinks.forEach(link => { link.hidden = hidden; });
@@ -220,18 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initGoogleSignIn({
     buttonIds: [],
     whoamiPath: '/wojownicy-upload/whoami',
-    onRestoredIdentity: payload => {
-      if (loadCachedMembership(payload.email) === true) {
-        setHidden(false);
-      }
-    },
-    onSignedIn: payload => {
-      saveCachedMembership(payload.email, true);
-      setHidden(false);
-    },
-    onForbidden: payload => {
-      if (payload?.email) saveCachedMembership(payload.email, false);
-      setHidden(true);
-    },
+    onSignedIn: () => setHidden(false),
+    onForbidden: () => setHidden(true),
   });
 });

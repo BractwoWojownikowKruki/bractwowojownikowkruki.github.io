@@ -1,10 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { AuthError, checkAllowlist, fetchGoogleJwks, verifyGoogleIdToken, verifyUploader, type VerifiedIdentity } from './auth.ts';
+import { AuthError, checkAllowlist, fetchGoogleJwks, verifyGoogleIdToken, type VerifiedIdentity } from './auth.ts';
 import { createAppsScriptAllowlist, createEmptyAllowlist, createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
-import { issueSessionToken, maybeRenewSessionToken, verifySessionToken, type SessionClaims, type SessionSigningKey } from './session.ts';
+import { checkReauthFreshness, issueSessionToken, maybeRenewSessionToken, verifySessionToken, type SessionClaims, type SessionSigningKey } from './session.ts';
 import type { SheetAllowlist } from './allowlist.ts';
 import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, isValidRedirectPath, isValidRedirectTarget, type GithubClient } from './github.ts';
@@ -37,21 +37,41 @@ const SUBMISSION_TTL_MS = 6 * 60 * 60 * 1000;
 export interface ServerDeps {
   drive: DriveClient;
   github: GithubClient;
-  authenticate: (req: IncomingMessage) => Promise<VerifiedIdentity>;
-  // Same Google-ID-token verification as `authenticate`, checked against a separate,
-  // smaller allowlist (Task 1) - kept as its own function rather than a second parameter
-  // to `authenticate` so route handlers can't accidentally mix the two up.
-  authenticateAdmin: (req: IncomingMessage) => Promise<VerifiedIdentity>;
+  // Cookie-based (verifySessionRequest under the hood, KRKG-0036 Phase 1 cutover): verifies the
+  // session cookie, re-checks the live general-kruki allowlist, and renews the cookie on `res`
+  // if the sliding window is due. Returns the full SessionClaims (a superset of the old
+  // VerifiedIdentity - existing `.email`/`.sub` usages are unaffected) so a *WithStepUp variant
+  // can read `.reauthAt` without a second cookie verification.
+  authenticate: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
+  // Same, but also requires a fresh (<= reauthFreshnessWindowMs) real Google sign-in and forces
+  // a live allowlist re-check bypassing its cache - for the one member-level action that's
+  // step-up-gated per design-v2.md Phase 1 point 9: adding photos to a gallery the caller didn't
+  // create (KRKG-0028's gap - requireExistingGalleryFolder never checked ownership).
+  authenticateWithStepUp: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
+  // Same cookie verification as `authenticate`, checked against a separate, smaller allowlist
+  // (Task 1) - kept as its own function rather than a second parameter to `authenticate` so
+  // route handlers can't accidentally mix the two up.
+  authenticateAdmin: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
+  // authenticateAdmin plus the step-up freshness + forced allowlist refresh described above -
+  // required on every *mutating* admin route (14 of the 18 authenticateAdmin call sites; the 4
+  // read-only admin/whoami|redirects|people|settings GETs use plain authenticateAdmin, since
+  // there's no destructive side effect to gate).
+  authenticateAdminWithStepUp: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
   // Same shape again, checked against the kruki Google Group's live membership (via an Apps
   // Script Web App, see createAppsScriptAllowlist) instead of a Sheet - gates the self-service
-  // "Wrzucam swoje zdjęcie" flow in the Wojownicy section.
-  authenticateWojownicyUpload: (req: IncomingMessage) => Promise<VerifiedIdentity>;
+  // "Wrzucam swoje zdjęcie" flow in the Wojownicy section. No step-up variant: every route
+  // gated by this creates/uploads-to-its-own-just-created folder, never someone else's.
+  authenticateWojownicyUpload: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
   // Gates destructive gallery actions (/delete-drive-gallery, /unregister) - a narrower,
   // purpose-specific allowlist than the general kruki `authenticate`, so any allowlisted member
   // can no longer delete or unregister a gallery they don't moderate (KRKG-0027). See
   // config.ts's moderatorGroupUrl for why this fails closed (denies everyone) until that group
   // actually exists.
-  authenticateModerator: (req: IncomingMessage) => Promise<VerifiedIdentity>;
+  authenticateModerator: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
+  // authenticateModerator plus step-up - both of its two mutating routes (/delete-drive-gallery,
+  // /unregister) are destructive, so both use this rather than the plain variant; unlike admin
+  // there's no read-only moderator route besides /moderator/whoami.
+  authenticateModeratorWithStepUp: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
   // Verifies a raw Google ID token (from POST /session/login's body, not an Authorization
   // header - that's the whole exchange this endpoint performs) against the same general kruki
   // allowlist as `authenticate`. Kept as its own dep function, matching the authenticate*
@@ -276,6 +296,18 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+// Every /*whoami endpoint's response shape - name/picture included whenever the identity has
+// them so the frontend's nav avatar (previously read straight off the locally-decoded Google
+// JWT) has something to render from a page-load session check too, now that there's no
+// client-readable token to decode any of this from directly.
+function identityResponseBody(identity: { email: string; name?: string; picture?: string }): Record<string, string> {
+  return {
+    email: identity.email,
+    ...(identity.name ? { name: identity.name } : {}),
+    ...(identity.picture ? { picture: identity.picture } : {}),
+  };
+}
+
 async function readJsonBody<T>(req: IncomingMessage, maxBytes: number): Promise<T> {
   const chunks: Buffer[] = [];
   let total = 0;
@@ -350,8 +382,8 @@ async function* validatedUploadStream(
 }
 
 async function handleWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticate(req);
-  sendJson(res, 200, { email: identity.email });
+  const identity = await deps.authenticate(req, res);
+  sendJson(res, 200, identityResponseBody(identity));
 }
 
 // Exchanges a raw Google ID token (verified once, here) for a first-party session cookie -
@@ -365,7 +397,7 @@ async function handleSessionLogin(req: IncomingMessage, res: ServerResponse, dep
   const now = Date.now();
   const token = issueSessionToken(identity, deps.sessionSigningKeys[0], now, deps.sessionSlidingWindowMs);
   setSessionCookie(res, token, deps.sessionSlidingWindowMs);
-  sendJson(res, 200, { email: identity.email });
+  sendJson(res, 200, identityResponseBody(identity));
 }
 
 // Stateless design (see design-v2.md Phase 1 point 10) - this clears the cookie on this device
@@ -415,7 +447,7 @@ async function buildGalleryList(deps: ServerDeps): Promise<GalleryListItem[]> {
 // that to signed-in kruki-group members, who already know each other. The cache above is what
 // keeps this from becoming a live-Drive-call-per-request once a caller is past that gate.
 async function handleGalleries(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticate(req);
+  await deps.authenticate(req, res);
   const now = Date.now();
   if (!galleriesCache || galleriesCache.expiresAt <= now) {
     const data = await buildGalleryList(deps);
@@ -449,47 +481,47 @@ async function handleAboutUs(res: ServerResponse, url: URL, deps: ServerDeps): P
 }
 
 async function handleAdminWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateAdmin(req);
-  sendJson(res, 200, { email: identity.email });
+  const identity = await deps.authenticateAdmin(req, res);
+  sendJson(res, 200, identityResponseBody(identity));
 }
 
 // Lets a caller (or an operator, via curl) confirm they pass the moderator gate (KRKG-0027)
 // without needing to actually delete or unregister a gallery just to find out - the two
 // destructive endpoints were previously the only way to test this.
 async function handleModeratorWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateModerator(req);
-  sendJson(res, 200, { email: identity.email });
+  const identity = await deps.authenticateModerator(req, res);
+  sendJson(res, 200, identityResponseBody(identity));
 }
 
 // Not scoped to About Us specifically - clears the Instagram/Facebook posts cache so the
 // homepage's Aktualności feed picks up new posts immediately, instead of waiting out the 6h TTL.
 async function handleAdminRefreshSocialCache(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   clearSocialMediaCache();
   sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminGetSettings(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdmin(req, res);
   const settings = await getFacebookSettings(deps.drive);
   sendJson(res, 200, settings);
 }
 
 async function handleAdminUpdateSettings(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const { liveFetchPostCount } = await readJsonBody<{ liveFetchPostCount?: number }>(req, deps.maxJsonBodyBytes);
   await setFacebookSettings(deps.drive, { liveFetchPostCount: Number(liveFetchPostCount) });
   sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminListRedirects(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdmin(req, res);
   const redirects = await deps.github.listRedirects();
   sendJson(res, 200, { redirects });
 }
 
 async function handleAdminCreateRedirect(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const { path, target } = await readJsonBody<{ path?: string; target?: string }>(req, deps.maxJsonBodyBytes);
   const trimmedPath = (path ?? '').trim().toLowerCase();
   const trimmedTarget = (target ?? '').trim();
@@ -507,7 +539,7 @@ async function handleAdminCreateRedirect(req: IncomingMessage, res: ServerRespon
 }
 
 async function handleAdminDeleteRedirect(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const path = url.searchParams.get('path');
   if (!path) throw new AuthError('Brak aliasu.', 400);
   await deps.github.removeRedirectFromMain(path);
@@ -526,7 +558,7 @@ function rejectIfRateLimited(req: IncomingMessage, res: ServerResponse): boolean
 }
 
 async function handleAdminCreatePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const { category, name, order, description } = await readJsonBody<{
     category?: string;
     name?: string;
@@ -547,7 +579,7 @@ async function handleAdminCreatePerson(req: IncomingMessage, res: ServerResponse
 }
 
 async function handleAdminUpdateDescription(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const folderId = url.searchParams.get('folderId');
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   const { description } = await readJsonBody<{ description?: string }>(req, deps.maxJsonBodyBytes);
@@ -557,7 +589,7 @@ async function handleAdminUpdateDescription(req: IncomingMessage, res: ServerRes
 }
 
 async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const folderId = url.searchParams.get('folderId');
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   await deps.drive.deleteFolder(folderId);
@@ -566,7 +598,7 @@ async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse
 }
 
 async function handleAdminListPeople(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdmin(req, res);
   const department = parseAdminDepartment(url.searchParams.get('category'));
   const folders = await bootstrapAboutUsStructure(deps.drive);
   const people = await fetchCategoryPeople(deps.drive, departmentFolderId(folders, department));
@@ -577,7 +609,7 @@ async function handleAdminListPeople(req: IncomingMessage, res: ServerResponse, 
 // together (see buildPersonFolderName) so the admin panel sends both, even when only one
 // actually changed, rather than this handler needing to fetch the current folder name first.
 async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, name, order } = await readJsonBody<{ folderId?: string; name?: string; order?: number | null }>(
     req,
     deps.maxJsonBodyBytes,
@@ -600,7 +632,7 @@ async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerRes
 // which prepends instead - by design, not something the admin panel asks for explicitly.
 // "upload"/"deleted" skip this entirely since order is meaningless there.
 async function handleAdminMovePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, category } = await readJsonBody<{ folderId?: string; category?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   const department = parseAdminDepartment(category ?? null);
@@ -623,7 +655,7 @@ async function handleAdminMovePerson(req: IncomingMessage, res: ServerResponse, 
 }
 
 async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const folderId = url.searchParams.get('folderId');
   const fileName = url.searchParams.get('fileName');
   const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
@@ -640,7 +672,7 @@ async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse,
 }
 
 async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const fileId = url.searchParams.get('fileId');
   if (!fileId) throw new AuthError('Brak fileId.', 400);
   await deps.drive.deleteFolder(fileId);
@@ -653,7 +685,7 @@ async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse,
 // handleWojownicyUploadPhoto below for why "!" specifically) - strips the prefix from whatever
 // other file currently has it first, so exactly one photo is ever marked main at a time.
 async function handleAdminSetMainPhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, fileId } = await readJsonBody<{ folderId?: string; fileId?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId || !fileId) throw new AuthError('Brak folderId lub fileId.', 400);
   const images = await deps.drive.listImageFiles(folderId);
@@ -673,7 +705,7 @@ async function handleAdminSetMainPhoto(req: IncomingMessage, res: ServerResponse
 // Moves a single photo into a different person's folder - see moveFile in drive.ts for why
 // (reviewing an upload-staging submission for someone who already has an existing profile).
 async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const { fileId, targetFolderId } = await readJsonBody<{ fileId?: string; targetFolderId?: string }>(
     req,
     deps.maxJsonBodyBytes,
@@ -687,7 +719,7 @@ async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerRespons
 // Toggles the "Oznacz jako in memoriam" marker (see IN_MEMORIAM_FILE_NAME in about-us.ts) - the
 // public site renders this person's photos grayscale with a black diagonal ribbon once set.
 async function handleAdminSetInMemoriam(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req);
+  await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, inMemoriam } = await readJsonBody<{ folderId?: string; inMemoriam?: boolean }>(req, deps.maxJsonBodyBytes);
   if (!folderId || typeof inMemoriam !== 'boolean') throw new AuthError('Brak folderId lub inMemoriam.', 400);
   await deps.drive.writeTextFile(folderId, IN_MEMORIAM_FILE_NAME, inMemoriam ? 'true' : 'false');
@@ -708,8 +740,8 @@ function extensionForMimeType(mimeType: string): string {
 }
 
 async function handleWojownicyUploadWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateWojownicyUpload(req);
-  sendJson(res, 200, { email: identity.email });
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  sendJson(res, 200, identityResponseBody(identity));
 }
 
 // Serves the live HTML export of one of the two Wojownicy-only Google Docs (Zasady Bractwa,
@@ -718,7 +750,7 @@ async function handleWojownicyUploadWhoami(req: IncomingMessage, res: ServerResp
 // comment on why that matters here), so editing the Doc in Google is all it takes to update
 // the page.
 async function handleWojownicyDoc(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateWojownicyUpload(req);
+  await deps.authenticateWojownicyUpload(req, res);
   const key = url.searchParams.get('key');
   const fileId = key ? deps.wojownicyDocs[key] : undefined;
   if (!fileId) throw new AuthError('Nieznany dokument.', 404);
@@ -731,7 +763,7 @@ async function handleWojownicyDoc(req: IncomingMessage, res: ServerResponse, url
 // endpoints below require it, so one group member can't upload into another's (or an admin
 // category's) folder just by guessing/reusing a folderId.
 async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateWojownicyUpload(req);
+  const identity = await deps.authenticateWojownicyUpload(req, res);
   const { name } = await readJsonBody<{ name?: string }>(req, deps.maxJsonBodyBytes);
   if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
 
@@ -755,7 +787,7 @@ async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResp
 // category. "!" sorts before every digit and letter, so this file always wins regardless of
 // what the other photos happen to be named.
 async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateWojownicyUpload(req);
+  const identity = await deps.authenticateWojownicyUpload(req, res);
   const folderId = url.searchParams.get('folderId');
   const fileName = url.searchParams.get('fileName');
   const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
@@ -802,7 +834,7 @@ function logDestructiveAction(action: string, actorEmail: string, target: string
 // Only for galleries this service itself created (drive.file scope can't touch anything else -
 // see KRKG-0025's design.md) - a folder registered by URL instead goes through /unregister.
 async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateModerator(req);
+  const identity = await deps.authenticateModeratorWithStepUp(req, res);
   const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   try {
@@ -819,7 +851,7 @@ async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerRespons
 }
 
 async function handleStart(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticate(req);
+  const identity = await deps.authenticate(req, res);
   const { name, date } = await readJsonBody<{ name?: string; date: string }>(req, deps.maxJsonBodyBytes);
   if (!date) throw new AuthError('Brak daty albumu.', 400);
   const folderName = name ? `${date} ${name}` : date;
@@ -832,7 +864,7 @@ async function handleStart(req: IncomingMessage, res: ServerResponse, deps: Serv
 }
 
 async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticate(req);
+  const identity = await deps.authenticate(req, res);
   const folderId = url.searchParams.get('folderId');
   const fileName = url.searchParams.get('fileName');
   const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
@@ -879,7 +911,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
 }
 
 async function handleStatus(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticate(req);
+  const identity = await deps.authenticate(req, res);
   const folderId = url.searchParams.get('folderId');
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
@@ -889,7 +921,7 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, url: URL,
 }
 
 async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticate(req);
+  const identity = await deps.authenticate(req, res);
   const { folderId, name, date } = await readJsonBody<{ folderId: string; name?: string; date: string }>(
     req,
     deps.maxJsonBodyBytes,
@@ -944,7 +976,7 @@ async function requireExistingGalleryFolder(drive: DriveClient, driveParentFolde
 // the rest of the flow (/upload, then /gallery-photos/finalize below) can reuse the exact same
 // per-file upload endpoint and token-ownership machinery as creating a new one.
 async function handleGalleryPhotosStart(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticate(req);
+  const identity = await deps.authenticateWithStepUp(req, res);
   const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   await requireExistingGalleryFolder(deps.drive, deps.driveParentFolderId, folderId);
@@ -960,7 +992,7 @@ async function handleGalleryPhotosStart(req: IncomingMessage, res: ServerRespons
 // overwrites name/date, and never re-publishes) rather than writing a fresh manifest from
 // scratch.
 async function handleGalleryPhotosFinalize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticate(req);
+  const identity = await deps.authenticate(req, res);
   const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
@@ -982,7 +1014,7 @@ async function handleGalleryPhotosFinalize(req: IncomingMessage, res: ServerResp
 // (avatar/name/timestamp) for each photo to signed-in kruki-group members, without handing
 // uploader emails/names/photos to anonymous visitors.
 async function handleGalleryPhotoUploaders(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticate(req);
+  await deps.authenticate(req, res);
   const folderId = url.searchParams.get('folderId');
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   const uploaders = await readUploadLog(deps.drive, folderId);
@@ -1025,7 +1057,7 @@ function canonicalizeGalleryUrl(rawUrl: string): string {
 // scope (see KRKG-0025's design.md), which can never write into a folder it didn't create, so
 // there is no faster path for Drive URLs than the same albums.json + CI pipeline Photos uses.
 async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticate(req);
+  await deps.authenticate(req, res);
   const { url, name, date } = await readJsonBody<{ url?: string; name?: string; date: string }>(req, deps.maxJsonBodyBytes);
   if (!url || !date) throw new AuthError('Brak adresu URL galerii lub daty.', 400);
   const canonicalUrl = canonicalizeGalleryUrl(url);
@@ -1042,7 +1074,7 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: S
 // albums.json entry, see handleRegister above) by removing that entry, same auth gate as
 // everything else. An app-owned Drive folder is deleted via /delete-drive-gallery instead.
 async function handleUnregister(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateModerator(req);
+  const identity = await deps.authenticateModeratorWithStepUp(req, res);
   const { url } = await readJsonBody<{ url?: string }>(req, deps.maxJsonBodyBytes);
   if (!url) throw new AuthError('Brak adresu URL galerii.', 400);
   try {
@@ -1280,13 +1312,32 @@ async function startProductionServer(): Promise<void> {
   const moderatorAllowlist = config.moderatorGroupUrl
     ? createAppsScriptAllowlist({ url: config.moderatorGroupUrl })
     : createEmptyAllowlist();
+  const sessionVerifyConfig: SessionVerifyConfig = {
+    sessionSigningKeys: config.sessionSigningKeys,
+    sessionSlidingWindowMs: config.sessionSlidingWindowMs,
+    sessionMaxLifetimeMs: config.sessionMaxLifetimeMs,
+  };
+  // Every *WithStepUp variant does the same two things on top of the plain cookie check: force
+  // a live (non-cached) allowlist re-check, then require reauthAt within the last
+  // reauthFreshnessWindowMs - see design-v2.md Phase 1 point 9 for why that has to be a
+  // separate, non-renewable field rather than derived from the (sliding-renewed) session itself.
+  function withStepUp(allowlist: SheetAllowlist) {
+    return async (req: IncomingMessage, res: ServerResponse): Promise<SessionClaims> => {
+      const claims = await verifySessionRequest(req, res, sessionVerifyConfig, allowlist, { forceRefresh: true });
+      checkReauthFreshness(claims, Date.now(), config.reauthFreshnessWindowMs);
+      return claims;
+    };
+  }
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps, docsDriveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
-    authenticate: req => verifyUploader(req, config.googleOAuthClientId, groupAllowlist),
-    authenticateAdmin: req => verifyUploader(req, config.googleOAuthClientId, adminAllowlist),
-    authenticateWojownicyUpload: req => verifyUploader(req, config.googleOAuthClientId, groupAllowlist),
-    authenticateModerator: req => verifyUploader(req, config.googleOAuthClientId, moderatorAllowlist),
+    authenticate: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, groupAllowlist),
+    authenticateWithStepUp: withStepUp(groupAllowlist),
+    authenticateAdmin: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, adminAllowlist),
+    authenticateAdminWithStepUp: withStepUp(adminAllowlist),
+    authenticateWojownicyUpload: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, groupAllowlist),
+    authenticateModerator: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, moderatorAllowlist),
+    authenticateModeratorWithStepUp: withStepUp(moderatorAllowlist),
     authenticateSessionLogin: async idToken => {
       const identity = await verifyGoogleIdToken(idToken, config.googleOAuthClientId);
       const allowedEmails = await groupAllowlist.getEmails();

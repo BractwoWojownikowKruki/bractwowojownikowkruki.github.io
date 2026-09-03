@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { AuthError } from './auth.ts';
 import { createRequestListener, readSessionCookie, verifySessionRequest, type ServerDeps, type SessionVerifyConfig } from './server.ts';
-import { issueSessionToken, verifySessionToken, type SessionSigningKey } from './session.ts';
+import { issueSessionToken, verifySessionToken, type SessionClaims, type SessionSigningKey } from './session.ts';
 import type { SheetAllowlist } from './allowlist.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { DriveClient, DriveFileInfo } from './drive.ts';
@@ -87,14 +87,30 @@ function makeFakeGithub(overrides: Partial<GithubClient> = {}): GithubClient {
   };
 }
 
+function fakeSessionClaims(overrides: Partial<SessionClaims> = {}): SessionClaims {
+  return {
+    v: 'v1',
+    sub: 'sub-1',
+    email: 'alice@gmail.com',
+    iat: Date.now(),
+    reauthAt: Date.now(),
+    exp: Date.now() + 14 * 24 * 60 * 60 * 1000,
+    jti: 'test-jti',
+    ...overrides,
+  };
+}
+
 function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
   return {
     drive: makeFakeDrive(),
     github: makeFakeGithub(),
-    authenticate: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
-    authenticateAdmin: async () => ({ sub: 'admin-1', email: 'admin@gmail.com' }),
-    authenticateWojownicyUpload: async () => ({ sub: 'wojownik-1', email: 'wojownik@gmail.com' }),
-    authenticateModerator: async () => ({ sub: 'moderator-1', email: 'moderator@gmail.com' }),
+    authenticate: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
+    authenticateWithStepUp: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
+    authenticateAdmin: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'wojownik-1', email: 'wojownik@gmail.com' }),
+    authenticateModerator: async () => fakeSessionClaims({ sub: 'moderator-1', email: 'moderator@gmail.com' }),
+    authenticateModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'moderator-1', email: 'moderator@gmail.com' }),
     authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
     sessionSigningKeys: [{ v: 'v1', secret: 'test-session-secret' }],
     sessionSlidingWindowMs: 14 * 24 * 60 * 60 * 1000,
@@ -537,9 +553,9 @@ test('POST /session/logout rejects a request from a different Origin', async () 
 test('POST /admin/social-media/refresh rejects a request with no Origin header, before authenticateAdmin ever runs', async () => {
   let authenticateAdminCalled = false;
   const deps = makeDeps({
-    authenticateAdmin: async () => {
+    authenticateAdminWithStepUp: async () => {
       authenticateAdminCalled = true;
-      return { sub: 'a1', email: 'admin@gmail.com' };
+      return fakeSessionClaims({ sub: 'a1', email: 'admin@gmail.com' });
     },
   });
   await withServer(deps, async baseUrl => {
@@ -561,7 +577,7 @@ test('DELETE /admin/redirects rejects a request from a different Origin', async 
 });
 
 test('GET /admin/whoami returns the admin email when authenticateAdmin succeeds', async () => {
-  const deps = makeDeps({ authenticateAdmin: async () => ({ sub: 'a1', email: 'admin@gmail.com' }) });
+  const deps = makeDeps({ authenticateAdmin: async () => fakeSessionClaims({ sub: 'a1', email: 'admin@gmail.com' }) });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/whoami`);
     assert.equal(res.status, 200);
@@ -569,8 +585,21 @@ test('GET /admin/whoami returns the admin email when authenticateAdmin succeeds'
   });
 });
 
+// The frontend's nav avatar used to read name/picture off the locally-decoded Google JWT - now
+// that a page-load session check only ever gets whatever a whoami-style endpoint returns, every
+// one of them needs to include these (identityResponseBody) for that to keep working at all.
+test('GET /whoami includes name/picture when the session claims carry them', async () => {
+  const deps = makeDeps({
+    authenticate: async () => fakeSessionClaims({ sub: 's1', email: 'alice@gmail.com', name: 'Alice', picture: 'https://example.com/a.jpg' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/whoami`);
+    assert.deepEqual(await res.json(), { email: 'alice@gmail.com', name: 'Alice', picture: 'https://example.com/a.jpg' });
+  });
+});
+
 test('GET /moderator/whoami returns the moderator email when authenticateModerator succeeds', async () => {
-  const deps = makeDeps({ authenticateModerator: async () => ({ sub: 'm1', email: 'moderator@gmail.com' }) });
+  const deps = makeDeps({ authenticateModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@gmail.com' }) });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/moderator/whoami`);
     assert.equal(res.status, 200);
@@ -593,9 +622,9 @@ test('GET /moderator/whoami rejects a caller who is not a moderator', async () =
 test('POST /admin/social-media/refresh requires admin auth and returns ok', async () => {
   let authenticatedAsAdmin = false;
   const deps = makeDeps({
-    authenticateAdmin: async () => {
+    authenticateAdminWithStepUp: async () => {
       authenticatedAsAdmin = true;
-      return { sub: 'a1', email: 'admin@gmail.com' };
+      return fakeSessionClaims({ sub: 'a1', email: 'admin@gmail.com' });
     },
   });
   await withServer(deps, async baseUrl => {
@@ -608,7 +637,7 @@ test('POST /admin/social-media/refresh requires admin auth and returns ok', asyn
 
 test('POST /admin/social-media/refresh rejects when authenticateAdmin fails', async () => {
   const deps = makeDeps({
-    authenticateAdmin: async () => {
+    authenticateAdminWithStepUp: async () => {
       throw new AuthError('Brak uprawnień.', 403);
     },
   });
@@ -1396,7 +1425,7 @@ test('/register commits a Google Photos URL to albums.json identically', async (
 test('/unregister rejects an unauthenticated caller before touching GitHub', async () => {
   let githubCalled = false;
   const deps = makeDeps({
-    authenticateModerator: async () => {
+    authenticateModeratorWithStepUp: async () => {
       throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
     },
     github: makeFakeGithub({ removeAlbumFromMain: async () => { githubCalled = true; } }),
@@ -1416,8 +1445,8 @@ test('/unregister rejects an unauthenticated caller before touching GitHub', asy
 test('/unregister rejects a caller who passes the general allowlist but not the moderator one', async () => {
   let githubCalled = false;
   const deps = makeDeps({
-    authenticate: async () => ({ sub: 'member-1', email: 'member@gmail.com' }),
-    authenticateModerator: async () => {
+    authenticate: async () => fakeSessionClaims({ sub: 'member-1', email: 'member@gmail.com' }),
+    authenticateModeratorWithStepUp: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
     github: makeFakeGithub({ removeAlbumFromMain: async () => { githubCalled = true; } }),
@@ -1493,7 +1522,7 @@ test('GET /admin/redirects returns the current list of redirects', async () => {
 test('POST /admin/redirects rejects an unauthenticated caller before touching GitHub', async () => {
   let githubCalled = false;
   const deps = makeDeps({
-    authenticateAdmin: async () => {
+    authenticateAdminWithStepUp: async () => {
       throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
     },
     github: makeFakeGithub({ appendRedirectToMain: async () => { githubCalled = true; } }),
@@ -1562,7 +1591,7 @@ test('POST /admin/redirects commits the new alias to redirects.json', async () =
 test('DELETE /admin/redirects rejects an unauthenticated caller before touching GitHub', async () => {
   let githubCalled = false;
   const deps = makeDeps({
-    authenticateAdmin: async () => {
+    authenticateAdminWithStepUp: async () => {
       throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
     },
     github: makeFakeGithub({ removeRedirectFromMain: async () => { githubCalled = true; } }),
@@ -1591,7 +1620,7 @@ test('DELETE /admin/redirects removes the matching redirects.json entry', async 
 test('/delete-drive-gallery rejects an unauthenticated caller before touching Drive', async () => {
   let driveCalled = false;
   const deps = makeDeps({
-    authenticateModerator: async () => {
+    authenticateModeratorWithStepUp: async () => {
       throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
     },
     drive: makeFakeDrive({ deleteFolder: async () => { driveCalled = true; } }),
@@ -1613,8 +1642,8 @@ test('/delete-drive-gallery rejects an unauthenticated caller before touching Dr
 test('/delete-drive-gallery rejects a caller who passes the general allowlist but not the moderator one', async () => {
   let driveCalled = false;
   const deps = makeDeps({
-    authenticate: async () => ({ sub: 'member-1', email: 'member@gmail.com' }),
-    authenticateModerator: async () => {
+    authenticate: async () => fakeSessionClaims({ sub: 'member-1', email: 'member@gmail.com' }),
+    authenticateModeratorWithStepUp: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
     drive: makeFakeDrive({ deleteFolder: async () => { driveCalled = true; } }),
@@ -1934,7 +1963,7 @@ test('/upload records who uploaded the file and when', async () => {
   let writtenTo: string | undefined;
   let writtenContent: string | undefined;
   const deps = makeDeps({
-    authenticate: async () => ({ sub: 'sub-1', email: 'alice@gmail.com', name: 'Alice', picture: 'https://example.com/a.jpg' }),
+    authenticate: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com', name: 'Alice', picture: 'https://example.com/a.jpg' }),
     drive: makeFakeDrive({
       readTextFile: async () => null,
       writeTextFile: async (folderId, fileName, content) => {
@@ -2026,7 +2055,7 @@ test('POST /gallery-photos/start rejects a folderId that is not an existing gall
 test('POST /gallery-photos/finalize adds the uploader to contributors without duplicating or touching name/date', async () => {
   let writtenManifest: unknown;
   const deps = makeDeps({
-    authenticate: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
+    authenticate: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
     drive: makeFakeDrive({
       readManifest: async () => ({ name: 'Wolin', date: '2026-01-01', contributors: ['bob@gmail.com', 'alice@gmail.com'] }),
       writeManifest: async (_folderId, manifest) => {
@@ -2050,7 +2079,7 @@ test('POST /gallery-photos/finalize adds the uploader to contributors without du
 test('POST /gallery-photos/finalize adds a new contributor when the gallery has no manifest yet', async () => {
   let writtenManifest: { name?: string; date: string; contributors: string[] } | undefined;
   const deps = makeDeps({
-    authenticate: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
+    authenticate: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
     drive: makeFakeDrive({
       readManifest: async () => null,
       writeManifest: async (_folderId, manifest) => {
@@ -2228,7 +2257,7 @@ test('/wojownicy-upload/whoami rejects a caller not on the group allowlist', asy
 
 test('/wojownicy-upload/whoami returns the caller\'s email once authenticated', async () => {
   const deps = makeDeps({
-    authenticateWojownicyUpload: async () => ({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/wojownicy-upload/whoami`);
@@ -2301,7 +2330,7 @@ test('/wojownicy-upload/submit creates a folder named "Imię - email - data" und
   let createdParent: string | undefined;
   let createdName: string | undefined;
   const deps = makeDeps({
-    authenticateWojownicyUpload: async () => ({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
     drive: makeFakeDrive({
       ensureFolder: async (parent, name) => (name === 'upload' ? 'upload-root' : `ensured-${name}`),
       createAlbumFolder: async (parent, name) => {
@@ -2355,7 +2384,7 @@ test('/wojownicy-upload/photo rejects a submission token minted for a different 
 test('/wojownicy-upload/photo with isMain=true uploads the file as !main.<ext>, ignoring the original filename', async () => {
   let uploadedName: string | undefined;
   const deps = makeDeps({
-    authenticateWojownicyUpload: async () => ({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
     drive: makeFakeDrive({
       listFiles: async () => [],
       uploadFileStream: async (_f, fileName, _m, stream) => {
@@ -2382,7 +2411,7 @@ test('/wojownicy-upload/photo with isMain=true uploads the file as !main.<ext>, 
 test('/wojownicy-upload/photo without isMain keeps the original filename', async () => {
   let uploadedName: string | undefined;
   const deps = makeDeps({
-    authenticateWojownicyUpload: async () => ({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
     drive: makeFakeDrive({
       listFiles: async () => [],
       uploadFileStream: async (_f, fileName, _m, stream) => {
@@ -2405,3 +2434,69 @@ test('/wojownicy-upload/photo without isMain keeps the original filename', async
     assert.equal(uploadedName, 'IMG_1234.jpg');
   });
 });
+
+// KRKG-0036 Phase 1 cutover audit: design-v2.md requires reauthAt step-up on every
+// authenticateAdmin/authenticateModerator-gated *mutation*, plus the one member-level case
+// (adding photos to a gallery the caller didn't create) - "enumerate all of them in the test,
+// not a sample". Every handler checks auth before touching the request body/query/any service
+// (an established, consistently-followed pattern in this file, confirmed by grep against
+// server.ts), so overriding just the auth dep to throw and hitting the route with no real
+// payload is enough to prove which dep function actually gates it, without needing full
+// realistic request bodies for all 17 routes.
+const STEP_UP_GATED_ROUTES: { method: string; path: string; stepUpDep: keyof ServerDeps }[] = [
+  { method: 'POST', path: '/admin/social-media/refresh', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'POST', path: '/admin/redirects', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'DELETE', path: '/admin/redirects', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'POST', path: '/admin/people', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'PUT', path: '/admin/people/description', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'PUT', path: '/admin/people/order', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'PUT', path: '/admin/people/category', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'DELETE', path: '/admin/people', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'POST', path: '/admin/people/photo', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'DELETE', path: '/admin/people/photo', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'PUT', path: '/admin/people/photo/main', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'PUT', path: '/admin/people/photo/transfer', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'PUT', path: '/admin/people/in-memoriam', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'POST', path: '/admin/settings', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'POST', path: '/delete-drive-gallery', stepUpDep: 'authenticateModeratorWithStepUp' },
+  { method: 'POST', path: '/unregister', stepUpDep: 'authenticateModeratorWithStepUp' },
+  { method: 'POST', path: '/gallery-photos/start', stepUpDep: 'authenticateWithStepUp' },
+];
+
+// The read-only counterparts - must keep working even when the step-up variant would reject,
+// proving they call the plain (non-step-up) dep and aren't accidentally over-gated.
+const READ_ONLY_ROUTES_SHARING_A_ROLE: { method: string; path: string; stepUpDep: keyof ServerDeps }[] = [
+  { method: 'GET', path: '/admin/whoami', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'GET', path: '/admin/redirects', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'GET', path: '/admin/people', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'GET', path: '/admin/settings', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'GET', path: '/moderator/whoami', stepUpDep: 'authenticateModeratorWithStepUp' },
+];
+
+for (const { method, path, stepUpDep } of STEP_UP_GATED_ROUTES) {
+  test(`${method} ${path} is gated by ${stepUpDep} (step-up required)`, async () => {
+    const deps = makeDeps({
+      [stepUpDep]: async () => {
+        throw new AuthError('Ta czynność wymaga ponownego zalogowania.', 401);
+      },
+    } as Partial<ServerDeps>);
+    await withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}${path}`, { method });
+      assert.equal(res.status, 401, `expected ${method} ${path} to be rejected by ${stepUpDep}`);
+    });
+  });
+}
+
+for (const { method, path, stepUpDep } of READ_ONLY_ROUTES_SHARING_A_ROLE) {
+  test(`${method} ${path} does not require step-up (still succeeds when ${stepUpDep} would reject)`, async () => {
+    const deps = makeDeps({
+      [stepUpDep]: async () => {
+        throw new AuthError('Ta czynność wymaga ponownego zalogowania.', 401);
+      },
+    } as Partial<ServerDeps>);
+    await withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}${path}`, { method });
+      assert.notEqual(res.status, 401, `expected ${method} ${path} to succeed via the plain (non-step-up) dep`);
+    });
+  });
+}

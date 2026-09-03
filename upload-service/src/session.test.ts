@@ -28,6 +28,8 @@ test('issueSessionToken and verifySessionToken round-trip the same identity', ()
   assert.equal(claims.exp, now + SLIDING_WINDOW_MS);
   assert.equal(typeof claims.jti, 'string');
   assert.ok(claims.jti.length > 0);
+  assert.equal(claims.name, undefined);
+  assert.equal(claims.picture, undefined);
 });
 
 test('verifySessionToken accepts an old key still present in the rotation list', () => {
@@ -194,4 +196,25 @@ test('checkReauthFreshness stays keyed to reauthAt, not exp, so sliding renewal 
     () => checkReauthFreshness(claims, now + 31 * 60 * 1000, 30 * 60 * 1000),
     (err: unknown) => err instanceof AuthError && err.status === 401,
   );
+});
+
+// name/picture are carried for the upload-attribution "Dodane przez" display (handleUpload) -
+// optional since a hand-issued or older token might omit them, not because Google ever does.
+test('issueSessionToken carries name/picture when the identity has them, preserved through renewal', () => {
+  const now = 1_000_000;
+  const token = issueSessionToken(
+    { sub: 's1', email: 'a@example.com', name: 'Alice', picture: 'https://example.com/a.jpg' },
+    KEY,
+    now,
+    SLIDING_WINDOW_MS,
+  );
+  const claims = verifySessionToken(token, [KEY], now, MAX_LIFETIME_MS);
+  assert.equal(claims.name, 'Alice');
+  assert.equal(claims.picture, 'https://example.com/a.jpg');
+
+  const renewAt = now + SLIDING_WINDOW_MS / 2 + 1;
+  const renewed = maybeRenewSessionToken(claims, KEY, renewAt, SLIDING_WINDOW_MS, MAX_LIFETIME_MS);
+  const renewedClaims = verifySessionToken(renewed!.token, [KEY], renewAt, MAX_LIFETIME_MS);
+  assert.equal(renewedClaims.name, 'Alice');
+  assert.equal(renewedClaims.picture, 'https://example.com/a.jpg');
 });
