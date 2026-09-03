@@ -34,10 +34,10 @@
       </div>
     </nav>
     <div class="header-actions">
-      <span class="nav-auth-slot" id="nav-auth-slot"></span>
       <!-- Strefa Członków's mobile home: an independent expand/collapse trigger, separate from
-           the hamburger below - tapping it opens/closes only this panel, never the public menu.
-           Desktop instead shows the equivalent box in the sidebar (see social_sidebar.html). -->
+           the hamburger further along - tapping it opens/closes only this panel, never the
+           public menu. Desktop instead shows the equivalent box in the sidebar (see
+           social_sidebar.html). Comes before the avatar/hamburger, per the requested order. -->
       <div class="members-zone-mobile members-zone-container" id="members-zone-mobile" hidden>
         <button type="button" class="members-zone-trigger" id="members-zone-trigger" aria-expanded="false" aria-controls="members-zone-panel">
           <span class="members-zone-icon" aria-hidden="true"></span>
@@ -52,6 +52,7 @@
           <a href="/admin/" class="nav-item nav-subitem admin-zone-link" hidden>Panel admina</a>
         </div>
       </div>
+      <span class="nav-auth-slot" id="nav-auth-slot"></span>
       <button id="nav-toggle" class="nav-toggle" aria-label="Otwórz menu" aria-expanded="false" aria-controls="main-nav">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
