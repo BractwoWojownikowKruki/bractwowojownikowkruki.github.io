@@ -15,7 +15,11 @@ export function parseAllowlistCsv(csv: string): string[] {
 }
 
 export interface SheetAllowlist {
-  getEmails(): Promise<string[]>;
+  // forceRefresh bypasses the cache even if it's still warm - for step-up-gated destructive/
+  // admin routes (KRKG-0036 Phase 1), which need the actual current allowlist rather than up to
+  // ttlMs-stale data. A forced fetch that fails still fails closed (empty list), same as an
+  // ordinary one - see createCachedAllowlist below.
+  getEmails(options?: { forceRefresh?: boolean }): Promise<string[]>;
 }
 
 export interface SheetAllowlistOptions {
@@ -43,8 +47,8 @@ function createCachedAllowlist(
   let cache: { emails: string[]; fetchedAt: number } | null = null;
 
   return {
-    async getEmails(): Promise<string[]> {
-      if (cache && now() - cache.fetchedAt < ttlMs) {
+    async getEmails(options: { forceRefresh?: boolean } = {}): Promise<string[]> {
+      if (!options.forceRefresh && cache && now() - cache.fetchedAt < ttlMs) {
         return cache.emails;
       }
       try {

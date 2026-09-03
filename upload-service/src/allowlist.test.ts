@@ -95,6 +95,62 @@ test('getEmails fails closed on refetch failure even though a previous fetch had
   assert.deepEqual(await allowlist.getEmails(), []);
 });
 
+test('getEmails with forceRefresh bypasses a still-warm cache', async () => {
+  let calls = 0;
+  let now = 1000;
+  const allowlist = createSheetAllowlist({
+    url: 'https://example.com/csv',
+    ttlMs: 5000,
+    now: () => now,
+    fetchImpl: async () => {
+      calls += 1;
+      return fakeResponse(200, 'Email\nalice@gmail.com\n');
+    },
+  });
+
+  assert.deepEqual(await allowlist.getEmails(), ['alice@gmail.com']);
+  now += 1000; // well within ttlMs
+  assert.deepEqual(await allowlist.getEmails({ forceRefresh: true }), ['alice@gmail.com']);
+  assert.equal(calls, 2);
+});
+
+test('getEmails with forceRefresh still refreshes the cache for subsequent ordinary calls', async () => {
+  let calls = 0;
+  let now = 1000;
+  const allowlist = createSheetAllowlist({
+    url: 'https://example.com/csv',
+    ttlMs: 5000,
+    now: () => now,
+    fetchImpl: async () => {
+      calls += 1;
+      return fakeResponse(200, 'Email\nalice@gmail.com\n');
+    },
+  });
+
+  await allowlist.getEmails({ forceRefresh: true });
+  await allowlist.getEmails();
+  assert.equal(calls, 1);
+});
+
+test('getEmails with forceRefresh fails closed (not stale-cache-fallback) when the forced fetch fails', async () => {
+  let now = 1000;
+  let shouldFail = false;
+  const allowlist = createSheetAllowlist({
+    url: 'https://example.com/csv',
+    ttlMs: 5000,
+    now: () => now,
+    fetchImpl: async () => {
+      if (shouldFail) throw new Error('transient outage');
+      return fakeResponse(200, 'Email\nalice@gmail.com\n');
+    },
+  });
+
+  assert.deepEqual(await allowlist.getEmails(), ['alice@gmail.com']);
+  now += 1000; // still within ttlMs - an ordinary call would have returned the cached, non-empty list
+  shouldFail = true;
+  assert.deepEqual(await allowlist.getEmails({ forceRefresh: true }), []);
+});
+
 test('createAppsScriptAllowlist parses {"emails": [...]}, trimming and lowercasing', async () => {
   const allowlist = createAppsScriptAllowlist({
     url: 'https://script.google.com/macros/s/xyz/exec',
