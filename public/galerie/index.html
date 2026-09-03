@@ -54,9 +54,14 @@
        upload/register (KRKG-0031) - shown instead of <main> until that check passes. -->
   <div class="add-album-card galerie-gate" id="galerie-gate">
     <p class="add-album-intro">Tylko dla Bractwa.</p>
+    <!-- Default state for a first-time/signed-out visitor - app.js hides this in favor of
+         #galerie-checking as soon as it finds an already-valid stored token, so a returning
+         member never sees this "please sign in" prompt flash while the real, server-verified
+         check (which can take a real 1-3s+, see auth.js) is still in flight. -->
     <div class="upload-signin" id="galerie-signin">
       <div id="galerie-google-signin-button"></div>
     </div>
+    <div class="page-spinner" id="galerie-checking" hidden><span class="spinner"></span></div>
     <p class="upload-forbidden" id="galerie-forbidden" hidden>To konto Google nie ma uprawnień do przeglądania galerii.</p>
     <div class="upload-reauth" id="galerie-reauth" hidden>
       <p>Twoja sesja logowania wygasła. Zaloguj się ponownie, aby zobaczyć galerie.</p>

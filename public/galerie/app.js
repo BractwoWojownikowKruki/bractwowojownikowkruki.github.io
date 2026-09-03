@@ -817,8 +817,20 @@ function showGalerieMain() {
 }
 
 function showGalerieForbidden() {
+  document.getElementById('galerie-checking').hidden = true;
   document.getElementById('galerie-signin').hidden = true;
   document.getElementById('galerie-forbidden').hidden = false;
+}
+
+// A returning member already has a locally-stored, still-valid token (see auth.js's
+// restoreIdToken) - swap the "please sign in" prompt for a neutral spinner instead, so they
+// don't see a sign-in button flash before the real, server-verified whoami check (which can
+// take a real 1-3s+, see auth.js) resolves a moment later via onSignedIn/onForbidden below.
+// A genuinely signed-out visitor has no stored token, so isIdTokenValid() is false and the
+// default sign-in button (already in the markup) stays exactly as it was.
+if (typeof isIdTokenValid === 'function' && isIdTokenValid()) {
+  document.getElementById('galerie-signin').hidden = true;
+  document.getElementById('galerie-checking').hidden = false;
 }
 
 // Replaces the old "sign-in only on demand, for deleting a gallery" flow - the whole page is
