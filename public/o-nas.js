@@ -7,6 +7,12 @@
 const ICON_CHEVRON_LEFT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
 const ICON_CHEVRON_RIGHT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
 
+// GET /about-us is public and unauthenticated, so - like the social feed widgets - it stays on
+// Cloud Run's own default URL rather than auth.js's UPLOAD_SERVICE_URL (api.kruki.org): that
+// domain mapping is Preview-status infrastructure accepted only for the login/session flow,
+// and this page shouldn't go down with it if it ever has a bad day.
+const ABOUT_US_BACKEND_URL = 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
+
 let people = [];
 let lightboxPersonIndex = -1;
 let lightboxPhotoIndex = -1;
@@ -17,7 +23,7 @@ async function loadAboutUsCategory() {
   if (!category || !grid) return;
 
   try {
-    const res = await fetch(`${UPLOAD_SERVICE_URL}/about-us?category=${encodeURIComponent(category)}`);
+    const res = await fetch(`${ABOUT_US_BACKEND_URL}/about-us?category=${encodeURIComponent(category)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     renderPeople(data.people || []);

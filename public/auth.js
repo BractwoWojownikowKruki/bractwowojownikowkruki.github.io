@@ -3,7 +3,7 @@
 // sign-in state very differently - a persistent panel vs. an on-demand modal shown only when
 // deleting a gallery - so each page supplies its own UI hooks rather than this module owning
 // any DOM beyond the sign-in buttons themselves.
-const UPLOAD_SERVICE_URL = 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
+const UPLOAD_SERVICE_URL = 'https://api.kruki.org';
 const GOOGLE_OAUTH_CLIENT_ID = '895090213384-cqac9v2tvmjhkkertjjj5q4h8qf41g3d.apps.googleusercontent.com';
 // Refresh a little before the token's real expiry, not exactly at it, so an in-flight
 // request never straddles the boundary between "was valid" and "just expired".
