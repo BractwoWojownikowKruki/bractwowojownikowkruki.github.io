@@ -123,9 +123,10 @@ test('maybeRenewSessionToken renews past the halfway point, extending exp but pr
   const token = issueSessionToken({ sub: 's1', email: 'a@example.com' }, KEY, now, SLIDING_WINDOW_MS);
   const claims = verifySessionToken(token, [KEY], now, MAX_LIFETIME_MS);
   const renewAt = now + SLIDING_WINDOW_MS / 2 + 1;
-  const renewedToken = maybeRenewSessionToken(claims, KEY, renewAt, SLIDING_WINDOW_MS, MAX_LIFETIME_MS);
-  assert.ok(renewedToken);
-  const renewedClaims = verifySessionToken(renewedToken!, [KEY], renewAt, MAX_LIFETIME_MS);
+  const renewed = maybeRenewSessionToken(claims, KEY, renewAt, SLIDING_WINDOW_MS, MAX_LIFETIME_MS);
+  assert.ok(renewed);
+  assert.equal(renewed!.exp, renewAt + SLIDING_WINDOW_MS);
+  const renewedClaims = verifySessionToken(renewed!.token, [KEY], renewAt, MAX_LIFETIME_MS);
   assert.equal(renewedClaims.iat, now);
   assert.equal(renewedClaims.reauthAt, now);
   assert.equal(renewedClaims.jti, claims.jti);
@@ -137,9 +138,10 @@ test('maybeRenewSessionToken caps exp at iat + maxLifetimeMs, never past the abs
   const token = issueSessionToken({ sub: 's1', email: 'a@example.com' }, KEY, now, SLIDING_WINDOW_MS);
   const claims = verifySessionToken(token, [KEY], now, MAX_LIFETIME_MS);
   const renewAt = now + MAX_LIFETIME_MS - DAY_MS;
-  const renewedToken = maybeRenewSessionToken(claims, KEY, renewAt, SLIDING_WINDOW_MS, MAX_LIFETIME_MS);
-  assert.ok(renewedToken);
-  const renewedClaims = verifySessionToken(renewedToken!, [KEY], renewAt, MAX_LIFETIME_MS);
+  const renewed = maybeRenewSessionToken(claims, KEY, renewAt, SLIDING_WINDOW_MS, MAX_LIFETIME_MS);
+  assert.ok(renewed);
+  assert.equal(renewed!.exp, now + MAX_LIFETIME_MS);
+  const renewedClaims = verifySessionToken(renewed!.token, [KEY], renewAt, MAX_LIFETIME_MS);
   assert.equal(renewedClaims.exp, now + MAX_LIFETIME_MS);
 });
 
@@ -163,8 +165,8 @@ test('maybeRenewSessionToken re-signs with the current key, migrating a session 
   const token = issueSessionToken({ sub: 's1', email: 'a@example.com' }, OTHER_KEY, now, SLIDING_WINDOW_MS);
   const claims = verifySessionToken(token, [KEY, OTHER_KEY], now, MAX_LIFETIME_MS);
   const renewAt = now + SLIDING_WINDOW_MS / 2 + 1;
-  const renewedToken = maybeRenewSessionToken(claims, KEY, renewAt, SLIDING_WINDOW_MS, MAX_LIFETIME_MS);
-  const renewedClaims = verifySessionToken(renewedToken!, [KEY], renewAt, MAX_LIFETIME_MS);
+  const renewed = maybeRenewSessionToken(claims, KEY, renewAt, SLIDING_WINDOW_MS, MAX_LIFETIME_MS);
+  const renewedClaims = verifySessionToken(renewed!.token, [KEY], renewAt, MAX_LIFETIME_MS);
   assert.equal(renewedClaims.v, 'k1');
 });
 

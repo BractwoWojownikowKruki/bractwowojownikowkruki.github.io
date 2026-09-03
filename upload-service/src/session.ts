@@ -125,13 +125,16 @@ export function verifySessionToken(token: string, keys: SessionSigningKey[], now
 // `iat + maxLifetimeMs` - see design-v2.md "Sliding renewal" (14-day window, 30-day cap).
 // Returns null when no renewal is due (including once the absolute cap has been reached, at
 // which point the session is left to expire naturally rather than kept alive indefinitely).
+// Returns `exp` alongside the token so an HTTP-level caller can compute the cookie's Max-Age
+// without duplicating this function's cap-computation formula or re-verifying the token it just
+// issued.
 export function maybeRenewSessionToken(
   claims: SessionClaims,
   key: SessionSigningKey,
   now: number,
   slidingWindowMs: number,
   maxLifetimeMs: number,
-): string | null {
+): { token: string; exp: number } | null {
   const windowStart = claims.exp - slidingWindowMs;
   const halfway = windowStart + slidingWindowMs / 2;
   if (now < halfway) {
@@ -142,7 +145,7 @@ export function maybeRenewSessionToken(
     return null;
   }
   const renewed: SessionClaims = { ...claims, v: key.v, exp: cappedExp };
-  return signClaims(renewed, key.secret);
+  return { token: signClaims(renewed, key.secret), exp: cappedExp };
 }
 
 // Step-up freshness for privileged routes (authenticateAdmin/authenticateModerator, and the

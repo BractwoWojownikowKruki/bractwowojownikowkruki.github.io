@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { AuthError, checkAllowlist, fetchGoogleJwks, verifyGoogleIdToken, verifyUploader, type VerifiedIdentity } from './auth.ts';
 import { createAppsScriptAllowlist, createEmptyAllowlist, createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
-import { issueSessionToken, type SessionSigningKey } from './session.ts';
+import { issueSessionToken, maybeRenewSessionToken, verifySessionToken, type SessionClaims, type SessionSigningKey } from './session.ts';
+import type { SheetAllowlist } from './allowlist.ts';
 import { createDriveClient, type DriveClient } from './drive.ts';
 import { createGithubClient, isValidRedirectPath, isValidRedirectTarget, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
@@ -227,6 +228,47 @@ export function readSessionCookie(req: IncomingMessage): string | null {
     }
   }
   return null;
+}
+
+export interface SessionVerifyConfig {
+  sessionSigningKeys: SessionSigningKey[];
+  sessionSlidingWindowMs: number;
+  sessionMaxLifetimeMs: number;
+}
+
+// The cookie-based counterpart to auth.ts's verifyUploader: verify identity from the session
+// cookie, apply the same live allowlist check every bearer-token route already does today, and
+// only then renew the cookie on the response if the sliding window is due (design-v2.md Phase 1
+// point 7-8) - in that order deliberately, so a revoked member's 403 never carries an extended
+// Set-Cookie alongside it. Not yet wired into ServerDeps or the route dispatch - this is the
+// composition a route handler will call once the Phase 1 cutover replaces authenticate*
+// (KRKG-0036), built and tested standalone first like every earlier Phase 1 piece.
+//
+// Returns the full SessionClaims (a superset of VerifiedIdentity) rather than narrowing to
+// {sub, email), so a caller that also needs the step-up guard (checkReauthFreshness, from
+// session.ts) has reauthAt available without a second cookie read/verify.
+export async function verifySessionRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  config: SessionVerifyConfig,
+  allowlist: SheetAllowlist,
+  options: { forceRefresh?: boolean } = {},
+): Promise<SessionClaims> {
+  const token = readSessionCookie(req);
+  if (!token) {
+    throw new AuthError('Brak sesji. Zaloguj się ponownie.', 401);
+  }
+  const now = Date.now();
+  const claims = verifySessionToken(token, config.sessionSigningKeys, now, config.sessionMaxLifetimeMs);
+  // Authorization before renewal, deliberately: a revoked member must not receive an extended
+  // Set-Cookie on the very same 403 that rejects them.
+  const allowedEmails = await allowlist.getEmails(options);
+  checkAllowlist({ sub: claims.sub, email: claims.email }, allowedEmails);
+  const renewed = maybeRenewSessionToken(claims, config.sessionSigningKeys[0], now, config.sessionSlidingWindowMs, config.sessionMaxLifetimeMs);
+  if (renewed) {
+    setSessionCookie(res, renewed.token, renewed.exp - now);
+  }
+  return claims;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
