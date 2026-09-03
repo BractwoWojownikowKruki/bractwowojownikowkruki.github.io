@@ -317,7 +317,6 @@ async function handleWhoami(req: IncomingMessage, res: ServerResponse, deps: Ser
 // Phase 1 cutover batch): existing routes still check the Authorization header exactly as
 // before this endpoint existed.
 async function handleSessionLogin(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  requireAllowedOrigin(req, deps.allowedOrigin);
   const { idToken } = await readJsonBody<{ idToken?: string }>(req, deps.maxJsonBodyBytes);
   if (!idToken) throw new AuthError('Brak tokenu Google ID.', 400);
   const identity = await deps.authenticateSessionLogin(idToken);
@@ -330,8 +329,7 @@ async function handleSessionLogin(req: IncomingMessage, res: ServerResponse, dep
 // Stateless design (see design-v2.md Phase 1 point 10) - this clears the cookie on this device
 // only, it does not revoke the token server-side. Idempotent and unauthenticated on purpose:
 // calling it with no session, or an already-invalid one, is still a successful logout.
-async function handleSessionLogout(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  requireAllowedOrigin(req, deps.allowedOrigin);
+async function handleSessionLogout(_req: IncomingMessage, res: ServerResponse): Promise<void> {
   clearSessionCookie(res);
   sendJson(res, 200, { ok: true });
 }
@@ -1106,12 +1104,21 @@ export function createRequestListener(deps: ServerDeps) {
     }
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     try {
+      // Enforced once, centrally, for every state-changing request rather than per-handler -
+      // see design-v2.md "CSRF - one mandatory rule": a route added later inherits this
+      // automatically instead of silently shipping without it. GET/OPTIONS are exempt (no side
+      // effects to protect, and OPTIONS never reaches this point anyway). Safe to enforce today,
+      // ahead of the Phase 1 cutover: every legitimate call already crosses the www.kruki.org ->
+      // api.kruki.org origin boundary since Phase 0, and cross-origin fetches always send Origin.
+      if (req.method !== 'GET') {
+        requireAllowedOrigin(req, deps.allowedOrigin);
+      }
       if (req.method === 'GET' && url.pathname === '/whoami') {
         await handleWhoami(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/session/login') {
         await handleSessionLogin(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/session/logout') {
-        await handleSessionLogout(req, res, deps);
+        await handleSessionLogout(req, res);
       } else if (req.method === 'GET' && url.pathname === '/galleries') {
         await handleGalleries(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/about-us') {

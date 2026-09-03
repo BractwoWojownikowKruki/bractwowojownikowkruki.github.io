@@ -12,6 +12,24 @@ import { resetAboutUsBootstrapForTests } from './about-us.ts';
 import { resetSettingsBootstrapForTests } from './settings.ts';
 import { resetRateLimitForTests } from './rate-limit.ts';
 
+// Every real caller has sent Origin on every state-changing request since Phase 0 made
+// www.kruki.org -> api.kruki.org cross-origin (cross-origin fetches always include it) - the
+// central requireAllowedOrigin guard in server.ts relies on that. Defaulting it here means the
+// ~150 test call sites written before that guard existed don't each need updating individually;
+// `rawFetch` is the escape hatch for the handful of tests that specifically exercise the guard
+// itself (missing Origin) - a test that sets its own Origin header (e.g. a wrong one) doesn't
+// need it, since an explicit header is never overridden below.
+const rawFetch = globalThis.fetch;
+const ALLOWED_ORIGIN_FOR_TESTS = 'https://example.test'; // matches makeDeps()'s allowedOrigin
+
+async function fetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(options.headers);
+  if (!headers.has('Origin')) {
+    headers.set('Origin', ALLOWED_ORIGIN_FOR_TESTS);
+  }
+  return rawFetch(url, { ...options, headers });
+}
+
 const VALID_JPEG_BYTES = Buffer.concat([
   Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01]),
   Buffer.alloc(100, 0x42),
@@ -281,14 +299,12 @@ test('readSessionCookie returns null when __Host-session is not among the cookie
   assert.equal(readSessionCookie(fakeRequestWithCookieHeader('other=1; another=2')), null);
 });
 
-const ALLOWED_ORIGIN_HEADER = { Origin: 'https://example.test' }; // matches makeDeps()'s allowedOrigin
-
 test('POST /session/login issues a session cookie for a caller authenticateSessionLogin accepts', async () => {
   const deps = makeDeps({ authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }) });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/session/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...ALLOWED_ORIGIN_HEADER },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken: 'fake-google-id-token' }),
     });
     assert.equal(res.status, 200);
@@ -316,7 +332,7 @@ test('POST /session/login rejects a body with no idToken', async () => {
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/session/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...ALLOWED_ORIGIN_HEADER },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     });
     assert.equal(res.status, 400);
@@ -333,7 +349,7 @@ test('POST /session/login passes through an AuthError from authenticateSessionLo
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/session/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...ALLOWED_ORIGIN_HEADER },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken: 'fake-google-id-token' }),
     });
     assert.equal(res.status, 403);
@@ -344,11 +360,12 @@ test('POST /session/login passes through an AuthError from authenticateSessionLo
 // Login-CSRF: a cross-origin POST with a CORS-safelisted Content-Type (e.g. text/plain) never
 // triggers a preflight, so CORS alone would not stop an attacker's page from POSTing their own
 // valid idToken and having it silently accepted, setting the *attacker's* session in the
-// victim's browser - this is what requireAllowedOrigin exists to block.
+// victim's browser - this is what requireAllowedOrigin exists to block. Uses rawFetch since this
+// specific test needs to send no Origin at all, unlike every other test in this file.
 test('POST /session/login rejects a request with no Origin header', async () => {
   const deps = makeDeps({ authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }) });
   await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/session/login`, {
+    const res = await rawFetch(`${baseUrl}/session/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken: 'fake-google-id-token' }),
@@ -374,7 +391,7 @@ test('POST /session/login rejects a request from a different Origin', async () =
 test('POST /session/logout clears the session cookie', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/session/logout`, { method: 'POST', headers: { ...ALLOWED_ORIGIN_HEADER } });
+    const res = await fetch(`${baseUrl}/session/logout`, { method: 'POST' });
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { ok: true });
     const setCookie = res.headers.get('set-cookie');
@@ -387,7 +404,7 @@ test('POST /session/logout clears the session cookie', async () => {
 test('POST /session/logout succeeds even with no prior session (idempotent)', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/session/logout`, { method: 'POST', headers: { ...ALLOWED_ORIGIN_HEADER } });
+    const res = await fetch(`${baseUrl}/session/logout`, { method: 'POST' });
     assert.equal(res.status, 200);
   });
 });
@@ -395,7 +412,7 @@ test('POST /session/logout succeeds even with no prior session (idempotent)', as
 test('POST /session/logout rejects a request with no Origin header', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/session/logout`, { method: 'POST' });
+    const res = await rawFetch(`${baseUrl}/session/logout`, { method: 'POST' });
     assert.equal(res.status, 403);
   });
 });
@@ -404,6 +421,35 @@ test('POST /session/logout rejects a request from a different Origin', async () 
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/session/logout`, { method: 'POST', headers: { Origin: 'https://evil.example' } });
+    assert.equal(res.status, 403);
+  });
+});
+
+// The origin guard is enforced once, centrally, for every non-GET request (see
+// createRequestListener) rather than per-handler - these two spot-check that it actually covers
+// routes far from /session/*, not just the ones it was added alongside.
+test('POST /admin/social-media/refresh rejects a request with no Origin header, before authenticateAdmin ever runs', async () => {
+  let authenticateAdminCalled = false;
+  const deps = makeDeps({
+    authenticateAdmin: async () => {
+      authenticateAdminCalled = true;
+      return { sub: 'a1', email: 'admin@gmail.com' };
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await rawFetch(`${baseUrl}/admin/social-media/refresh`, { method: 'POST' });
+    assert.equal(res.status, 403);
+    assert.equal(authenticateAdminCalled, false);
+  });
+});
+
+test('DELETE /admin/redirects rejects a request from a different Origin', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/redirects?path=%2Fold`, {
+      method: 'DELETE',
+      headers: { Origin: 'https://evil.example' },
+    });
     assert.equal(res.status, 403);
   });
 });
