@@ -140,11 +140,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /**
  * Gates the rest of the "Strefa Członków" box (Galerie, Zasady Bractwa, Poradnik Walki, Wrzucam
- * swoje zdjęcie) against kruki Google Group membership, GET /wojownicy-upload/whoami, checked
- * server-side - see upload-service/src/allowlist.ts's createAppsScriptAllowlist - independently
- * of Panel admina's own admin-allowlist check above. One shared check for the whole group since
- * they're all behind the identical membership gate - lives in the shared nav partial, so it
- * shows up from any page once a member signs in, not just from /wojownicy/.
+ * swoje zdjęcie, Forum/Discord) against kruki Google Group membership, GET
+ * /wojownicy-upload/whoami, checked server-side - see upload-service/src/allowlist.ts's
+ * createAppsScriptAllowlist - independently of Panel admina's own admin-allowlist check above.
+ * One shared check for the whole group since they're all behind the identical membership gate -
+ * lives in the shared nav partial, so it shows up from any page once a member signs in, not just
+ * from /wojownicy/. Forum/Discord's own target (/discord, a static redirect to the real invite
+ * link) is publicly reachable regardless of this gate - only the nav link's visibility is
+ * membership-gated, same as every other item here is cosmetic-only (see nav.js's other auth
+ * block for why none of this is a real security boundary).
  *
  * Remembers the last confirmed membership result per email, so a returning member sees these
  * immediately (onRestoredIdentity, below) instead of waiting out the Apps Script check again on
@@ -154,7 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
  * real check resolves, a moment later.
  */
 document.addEventListener('DOMContentLoaded', () => {
-  const memberOnlyLinks = ['nav-members-galerie-link', 'nav-zasady-bractwa-link', 'nav-poradnik-walki-link', 'wrzuc-link']
+  const memberOnlyLinks = ['nav-members-galerie-link', 'nav-zasady-bractwa-link', 'nav-poradnik-walki-link', 'wrzuc-link', 'nav-discord-link']
     .map(id => document.getElementById(id))
     .filter(Boolean);
   if (!memberOnlyLinks.length || typeof initGoogleSignIn !== 'function') return;
