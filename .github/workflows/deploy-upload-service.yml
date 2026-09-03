@@ -86,7 +86,7 @@ jobs:
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: krucze-galery-upload
-          region: europe-central2
+          region: europe-west1
           project_id: krucze-galery-upload
           source: ./upload-service
           flags: --max-instances=1 --concurrency=10 --timeout=300 --memory=512Mi --allow-unauthenticated --service-account=${{ secrets.CLOUD_RUN_RUNTIME_SA }}
@@ -113,7 +113,7 @@ jobs:
       # the last deploy).
       - name: Verify deployed runtime identity matches expected
         run: |
-          ACTUAL_SA=$(gcloud run services describe krucze-galery-upload --region=europe-central2 --project=krucze-galery-upload --format="value(spec.template.spec.serviceAccountName)")
+          ACTUAL_SA=$(gcloud run services describe krucze-galery-upload --region=europe-west1 --project=krucze-galery-upload --format="value(spec.template.spec.serviceAccountName)")
           if [ "$ACTUAL_SA" != "${{ secrets.CLOUD_RUN_RUNTIME_SA }}" ]; then
             echo "::error::Live Cloud Run runtime service account does not match the expected CLOUD_RUN_RUNTIME_SA secret."
             exit 1
