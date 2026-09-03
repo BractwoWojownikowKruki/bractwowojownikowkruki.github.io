@@ -30,19 +30,26 @@
         </div>
       </div>
       <div class="nav-account-area">
-        <div class="members-zone" id="nav-members-zone" hidden>
-          <span class="members-zone-label"><span class="members-zone-icon" aria-hidden="true"></span>Strefa Członków:</span>
-          <a href="/zasady-bractwa/" class="nav-item" id="nav-zasady-bractwa-link" hidden>Zasady Bractwa</a>
-          <a href="/poradnik-walki/" class="nav-item" id="nav-poradnik-walki-link" hidden>Poradnik Walki</a>
-          <a href="/wojownicy/wrzuc/" class="nav-item" id="wrzuc-link" hidden>Wrzucam swoje zdjęcie</a>
-          <a href="/discord" class="nav-item" id="nav-discord-link" hidden target="_blank" rel="noopener noreferrer">Forum/Discord</a>
-          <a href="/admin/" class="nav-item" id="nav-admin-link" hidden>Panel admina</a>
-        </div>
         <a href="/logowanie/" class="nav-item" id="nav-login-link" hidden>Zaloguj się</a>
       </div>
     </nav>
     <div class="header-actions">
       <span class="nav-auth-slot" id="nav-auth-slot"></span>
+      <!-- No self-link to Galerie here - same reasoning as nav.html, this is already the
+           Galerie page. See nav.html for the full comment on this trigger/panel pair. -->
+      <div class="members-zone-mobile members-zone-container" id="members-zone-mobile" hidden>
+        <button type="button" class="members-zone-trigger" id="members-zone-trigger" aria-expanded="false" aria-controls="members-zone-panel">
+          <span class="members-zone-icon" aria-hidden="true"></span>
+          <span class="members-zone-trigger-label">Strefa Członków</span>
+        </button>
+        <div class="members-zone-panel" id="members-zone-panel" hidden>
+          <a href="/zasady-bractwa/" class="nav-item nav-subitem member-zone-link" hidden>Zasady Bractwa</a>
+          <a href="/poradnik-walki/" class="nav-item nav-subitem member-zone-link" hidden>Poradnik Walki</a>
+          <a href="/wojownicy/wrzuc/" class="nav-item nav-subitem member-zone-link" hidden>Wrzucam swoje zdjęcie</a>
+          <a href="/discord" class="nav-item nav-subitem member-zone-link" hidden target="_blank" rel="noopener noreferrer">Forum/Discord</a>
+          <a href="/admin/" class="nav-item nav-subitem admin-zone-link" hidden>Panel admina</a>
+        </div>
+      </div>
       <button id="nav-toggle" class="nav-toggle" aria-label="Otwórz menu" aria-expanded="false" aria-controls="main-nav">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>

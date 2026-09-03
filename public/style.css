@@ -1324,56 +1324,29 @@ main { padding: 1.25rem 1.5rem 3rem; }
   flex: 1 1 auto;
 }
 
-/* Always present (unlike its two children, which toggle independently) so margin-left:auto
-   reliably pushes whichever one is actually showing - the members-zone box or "Zaloguj się" -
-   to the row's right edge, right next to the avatar/hamburger in .header-actions. Public nav
-   items stay left-aligned next to the logo, exactly as before. */
+/* Just holds "Zaloguj się" now (Strefa Członków moved out to the sidebar box/mobile trigger
+   below) - margin-left:auto pushes it to the row's right edge, next to the avatar/hamburger in
+   .header-actions, when it's the only thing showing. Public nav items stay left-aligned next to
+   the logo, exactly as before. */
 .nav-account-area {
   display: flex;
   align-items: center;
   margin-left: auto;
 }
 
-/* A framed, tinted group rather than a dropdown - these are separate destinations a member
-   might jump to directly, not a hierarchy to drill into (unlike My, Wojownicy's subcategories),
-   so a flat inline list reads better than another hover menu. */
-.members-zone {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.35rem 0.75rem;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.members-zone[hidden] {
-  display: none;
-}
-
-.members-zone-label {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: var(--gold);
-  font-weight: 600;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-/* The source PNG is solid dark-brown line art, which disappears against this dark box - filled
-   with a background-color instead of shown as-is, using the PNG's own alpha channel purely as a
-   shape mask (mask-image), so it renders as a solid, exactly-on-brand gold silhouette regardless
-   of the source art's original color. Requires a plain element (a <span>, not an <img>) since
-   mask only recolors an element's own background/border, not a replaced element's bitmap content.
-   Desktop height (40px) sits between the original 22px and a full 60px logo-match, which read as
-   too large in practice; the mobile override below keeps its own, separately-tuned size.
+/* The source PNG is solid dark-brown line art, which disappears against a dark background -
+   filled with a background-color instead of shown as-is, using the PNG's own alpha channel
+   purely as a shape mask (mask-image), so it renders as a solid, exactly-on-brand gold
+   silhouette regardless of the source art's original color. Requires a plain element (a <span>,
+   not an <img>) since mask only recolors an element's own background/border, not a replaced
+   element's bitmap content. One size everywhere it's used now (the sidebar box label and the
+   mobile trigger button) - both are small "icon next to a label" contexts, unlike the old
+   top-nav pill which needed two different tuned sizes for two very different layouts.
    aspect-ratio (matching the source PNG's 4:3 ratio) derives the width instead of hardcoding it,
-   so it stays correct if the art is swapped for a source with the same proportions again - the
-   .members-zone box has no fixed height of its own, so it shrinks/grows to match automatically. */
+   so it stays correct if the art is swapped for a source with the same proportions again. */
 .members-zone-icon {
   display: inline-block;
-  height: 40px;
+  height: 22px;
   aspect-ratio: 4 / 3;
   flex-shrink: 0;
   background-color: var(--gold);
@@ -1387,21 +1360,95 @@ main { padding: 1.25rem 1.5rem 3rem; }
   mask-size: contain;
 }
 
-.members-zone a.nav-item {
-  padding: 0;
-  font-size: 13px;
+/* ── Strefa Członków: desktop sidebar box (public/templates/social_sidebar.html) ── */
+/* Same card look as .instagram-embed/.youtube-embed below it, so the three read as one
+   consistent sidebar system, but with an accent border (rather than the embeds' neutral one) to
+   still read as visually distinct - a members-only area, not just more content. Hidden entirely
+   (membership-gated, see nav.js) unlike the embeds, which show regardless of sign-in state. */
+.members-zone-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.members-zone-sidebar[hidden] {
+  display: none;
+}
+
+.members-zone-sidebar-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+  color: var(--gold);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.members-zone-sidebar-link {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 14px;
+  transition: color 0.15s;
+}
+
+.members-zone-sidebar-link:hover {
+  color: var(--gold);
+}
+
+/* ── Strefa Członków: mobile header trigger + panel (templates/nav.html) ── */
+/* An independent expand/collapse control, separate from the hamburger next to it - tapping this
+   opens/closes only its own panel (see nav.js), never the public menu, and vice versa. Hidden on
+   desktop (min-width query below the 768px block) - the sidebar box above is used there instead.
+   Hidden by default AND only ever unhidden inside the mobile media query via :not([hidden]),
+   rather than an unconditional `display: flex` at the base rule that the query would need to
+   re-override - avoids the classic display-vs-[hidden] cascade fight (a later, higher-
+   specificity `display` always beats the UA [hidden] rule) that this codebase has hit before
+   wherever an author style set `display` unconditionally on a JS-toggled [hidden] element. */
+.members-zone-mobile {
+  display: none;
+  position: relative;
+}
+
+.members-zone-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: none;
+  border: none;
+  padding: 4px;
+  margin: 0;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.members-zone-trigger-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gold);
   white-space: nowrap;
 }
 
-/* Sibling combinator, not a static " · " in the markup: matches purely on DOM order regardless
-   of which items are actually hidden (Panel admina toggles on a separate, admin-only check from
-   the other four), so a dot never dangles before/after whichever items happen to be hidden for
-   a given visitor - bar the rare edge case of an admin who isn't also a tracked group member,
-   where a stray leading dot is an acceptable trade-off for not needing a CSS :has()-based
-   first-visible-child trick. */
-.members-zone a.nav-item + a.nav-item::before {
-  content: ' · ';
-  color: var(--text-muted);
+.members-zone-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.5rem;
+  min-width: 200px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.4rem 0;
+  z-index: 30;
+}
+
+.members-zone-panel[hidden] {
+  display: none;
 }
 
 .nav-item {
@@ -1489,16 +1536,15 @@ button.nav-item {
 }
 
 /* Lives in .header-actions (top bar, next to the hamburger) - holds only the avatar once
-   signed in, nothing while signed out. The "Zaloguj się" link and "Panel admina" link live in
-   the menu itself instead (#nav-login-link / #nav-admin-link below), not here - see nav.js. */
+   signed in, nothing while signed out. The "Zaloguj się" link and "Panel admina" links live
+   elsewhere instead (#nav-login-link / .admin-zone-link, see nav.js), not here. */
 .nav-auth-slot {
   display: flex;
   align-items: center;
 }
 
-/* Bumped up from the original 28px so it doesn't look tiny next to the header's other now-larger
-   emblems (.logo, .members-zone-icon); the mobile override below keeps the original, already-
-   confirmed-fine size since header space is tighter there. */
+/* Bumped up from the original 28px so it doesn't look tiny next to .logo; the mobile override
+   below keeps the original, already-confirmed-fine size since header space is tighter there. */
 .nav-avatar {
   width: 40px;
   height: 40px;
@@ -2181,43 +2227,18 @@ button.nav-item {
     width: 100%;
   }
 
-  /* The desktop pill (border + tinted background, inline links) doesn't fit a narrow screen -
-     stacks into its own bordered card instead: label on top, each link its own full-width row
-     below, keeping the same "visually separate from the public menu" framing the desktop
-     version has. */
-  .members-zone {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0;
-    padding: 0.5rem 0.75rem;
-    margin: 0.4rem 0;
-  }
-
-  .members-zone-label {
-    padding: 0.35rem 0;
-    font-size: 15px;
-  }
-
-  .members-zone-icon {
-    height: 26px;
-  }
-
   /* Keeps the pre-bump 28px size on mobile - the 40px desktop size (see .nav-avatar) is there to
-     balance against the header's larger logo/icon, but mobile's header has no such neighbors. */
+     balance against the header's larger .logo, but mobile's header has no such neighbor. */
   .nav-avatar {
     width: 28px;
     height: 28px;
   }
 
-  .members-zone a.nav-item {
-    padding: 0.6rem 0 0.6rem 1rem;
-    font-size: 15px;
-  }
-
-  /* The desktop " · " separators only make sense inline - stacked vertically they'd just be a
-     stray dot at the start of each row. */
-  .members-zone a.nav-item + a.nav-item::before {
-    content: none;
+  /* Strefa Członków's mobile trigger only ever appears at this breakpoint - see the base
+     .members-zone-mobile rule for why this is :not([hidden]) rather than an unconditional
+     display, which the membership-gated [hidden] attribute would then need to fight with. */
+  .members-zone-mobile:not([hidden]) {
+    display: flex;
   }
 
   /* .nav-item-dropdown is display:flex (row, centered) for desktop's single-line nav bar -

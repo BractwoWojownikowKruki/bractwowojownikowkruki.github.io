@@ -1,4 +1,19 @@
     <aside class="content-right">
+      <!-- Strefa Członków's desktop home - hidden entirely (membership-gated, see nav.js)
+           unlike the embeds below, which show regardless of sign-in state. Mobile shows the
+           equivalent as its own header trigger/panel instead (see nav.html). -->
+      <div class="members-zone-sidebar members-zone-container" id="members-zone-sidebar" hidden>
+        <div class="members-zone-sidebar-label">
+          <span class="members-zone-icon" aria-hidden="true"></span>
+          Strefa Członków
+        </div>
+        <a href="/galerie/" class="members-zone-sidebar-link member-zone-link" hidden>Galerie</a>
+        <a href="/zasady-bractwa/" class="members-zone-sidebar-link member-zone-link" hidden>Zasady Bractwa</a>
+        <a href="/poradnik-walki/" class="members-zone-sidebar-link member-zone-link" hidden>Poradnik Walki</a>
+        <a href="/wojownicy/wrzuc/" class="members-zone-sidebar-link member-zone-link" hidden>Wrzucam swoje zdjęcie</a>
+        <a href="/discord" class="members-zone-sidebar-link member-zone-link" hidden target="_blank" rel="noopener noreferrer">Forum/Discord</a>
+        <a href="/admin/" class="members-zone-sidebar-link admin-zone-link" hidden>Panel admina</a>
+      </div>
       <div class="youtube-embed">
         <div id="youtube-feed">
           <div class="loading-spinner">

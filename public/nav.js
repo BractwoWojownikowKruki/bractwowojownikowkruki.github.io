@@ -60,29 +60,62 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
- * #nav-members-zone (the "Strefa Członków" box) holds links gated by two different, independent
- * checks - Panel admina (admin allowlist) alongside Galerie/Zasady Bractwa/Poradnik Walki/
- * Wrzucam swoje zdjęcie (kruki group membership) - so the box itself has no single gate of its
- * own. It shows whenever at least one of its links does; called after either gate below changes
- * any link's hidden state.
+ * "Strefa Członków" exists twice in the DOM - the desktop sidebar box (#members-zone-sidebar,
+ * see social_sidebar.html) and the mobile header trigger/panel (#members-zone-mobile, see
+ * nav.html) - each holding its own copy of the same links (.member-zone-link/.admin-zone-link),
+ * shown/hidden by CSS media query rather than JS, so only one is ever visible at a time. Both
+ * are gated by two different, independent checks - Panel admina (admin allowlist) alongside
+ * Galerie/Zasady Bractwa/Poradnik Walki/Wrzucam swoje zdjęcie/Forum/Discord (kruki group
+ * membership) - so neither container has a single gate of its own; each shows whenever at least
+ * one of ITS OWN links does. Called after either gate below changes any link's hidden state.
  */
 function updateMembersZoneVisibility() {
-  const zone = document.getElementById('nav-members-zone');
-  if (!zone) return;
-  const anyLinkVisible = Array.from(zone.querySelectorAll('a.nav-item')).some(link => !link.hidden);
-  zone.hidden = !anyLinkVisible;
+  document.querySelectorAll('.members-zone-container').forEach(zone => {
+    const anyLinkVisible = Array.from(zone.querySelectorAll('.member-zone-link, .admin-zone-link')).some(link => !link.hidden);
+    zone.hidden = !anyLinkVisible;
+  });
 }
 
 /**
+ * The mobile trigger (#members-zone-trigger) opens/closes its own panel independently of the
+ * main hamburger menu - tapping it never touches #main-nav's own open/closed state, and vice
+ * versa. No-ops on pages without the trigger (desktop-only pages, or pages missing the partial).
+ */
+document.addEventListener('DOMContentLoaded', () => {
+  const trigger = document.getElementById('members-zone-trigger');
+  const panel = document.getElementById('members-zone-panel');
+  if (!trigger || !panel) return;
+
+  function setOpen(isOpen) {
+    panel.hidden = !isOpen;
+    trigger.setAttribute('aria-expanded', String(isOpen));
+  }
+
+  trigger.addEventListener('click', () => setOpen(panel.hidden));
+
+  // Closes after following a link, same as the main hamburger menu does.
+  panel.addEventListener('click', event => {
+    if (event.target.closest('a')) setOpen(false);
+  });
+
+  // Closes on an outside tap/click - trigger's own click is handled above and never reaches
+  // here as an "outside" click, since contains() is true for the trigger itself.
+  document.addEventListener('click', event => {
+    if (!panel.hidden && !trigger.contains(event.target) && !panel.contains(event.target)) {
+      setOpen(false);
+    }
+  });
+});
+
+/**
  * Site-wide sign-in status: the user's Google avatar in the always-visible top bar next to the
- * hamburger (#nav-auth-slot) once signed in, plus - inside the collapsible menu itself, not the
- * top bar - a "Zaloguj się" link (to /logowanie/) when signed out (#nav-login-link) or a "Panel
- * admina" link inside the Strefa Członków box when the /admin/whoami check passes
- * (#nav-admin-link). Keeping the login link and admin link out of the top bar avoids crowding it
- * (logo + avatar + hamburger already fill it on mobile) - they only need to be reachable, not
- * always visible. The actual Google sign-in button itself is no longer rendered in the nav - it
- * lives on /logowanie/ (see logowanie.js) - #nav-login-link is a plain link there, same as any
- * other nav item.
+ * hamburger (#nav-auth-slot) once signed in, plus a "Zaloguj się" link (to /logowanie/) when
+ * signed out (#nav-login-link) or the "Panel admina" links (.admin-zone-link, in both Strefa
+ * Członków containers) once the /admin/whoami check passes. Keeping the login link and admin
+ * links out of the top bar avoids crowding it (logo + avatar + hamburger/trigger already fill it
+ * on mobile) - they only need to be reachable, not always visible. The actual Google sign-in
+ * button itself is no longer rendered in the nav - it lives on /logowanie/ (see logowanie.js) -
+ * #nav-login-link is a plain link there, same as any other nav item.
  *
  * Reuses initGoogleSignIn from auth.js, which is safe to call alongside a page's own sign-in
  * flow (e.g. the Wojownicy group-membership check below) - see the shared-listener comment in
@@ -92,7 +125,6 @@ function updateMembersZoneVisibility() {
 document.addEventListener('DOMContentLoaded', () => {
   const avatarSlot = document.getElementById('nav-auth-slot');
   const loginLink = document.getElementById('nav-login-link');
-  const adminLink = document.getElementById('nav-admin-link');
   if (!avatarSlot || typeof initGoogleSignIn !== 'function') return;
 
   // Split in two so the avatar can update the instant a restored token is found - locally,
@@ -112,7 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderAdminLink(isAdmin) {
-    if (adminLink) adminLink.hidden = !isAdmin;
+    document.querySelectorAll('.admin-zone-link').forEach(link => { link.hidden = !isAdmin; });
     updateMembersZoneVisibility();
   }
 
@@ -158,9 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
  * real check resolves, a moment later.
  */
 document.addEventListener('DOMContentLoaded', () => {
-  const memberOnlyLinks = ['nav-members-galerie-link', 'nav-zasady-bractwa-link', 'nav-poradnik-walki-link', 'wrzuc-link', 'nav-discord-link']
-    .map(id => document.getElementById(id))
-    .filter(Boolean);
+  const memberOnlyLinks = Array.from(document.querySelectorAll('.member-zone-link'));
   if (!memberOnlyLinks.length || typeof initGoogleSignIn !== 'function') return;
 
   const MEMBER_CACHE_KEY = 'kruki_wojownicy_member';
