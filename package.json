@@ -10,6 +10,7 @@
     "dev": "npm run build && npx serve dist"
   },
   "devDependencies": {
+    "sharp": "^0.35.4",
     "tsx": "latest",
     "typescript": "latest"
   }
