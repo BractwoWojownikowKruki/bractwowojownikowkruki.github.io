@@ -1,6 +1,14 @@
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { isEligiblePublicDocument } from './pwa-policy.ts';
+import { isEligiblePublicDocument, isPwaExcludedPath } from './pwa-policy.ts';
+
+/** Categorizes a known static document so new pages cannot silently skip PWA policy review. */
+export function classifyPwaPage(pathname: string): 'eligible' | 'excluded' | 'non-entry' {
+  if (isEligiblePublicDocument(pathname)) return 'eligible';
+  if (isPwaExcludedPath(pathname)) return 'excluded';
+  if (pathname === '/404.html' || pathname === '/offline.html') return 'non-entry';
+  throw new Error(`Unclassified PWA document: ${pathname}`);
+}
 
 /** Adds install metadata only to the explicitly approved public document set. */
 export function injectPwaMarkup(html: string): string {
@@ -25,7 +33,7 @@ function pathnameFor(distDir: string, file: string): string {
 function main(): void {
   const distDir = new URL('../dist', import.meta.url).pathname;
   for (const file of visit(distDir)) {
-    if (!isEligiblePublicDocument(pathnameFor(distDir, file))) continue;
+    if (classifyPwaPage(pathnameFor(distDir, file)) !== 'eligible') continue;
     const html = readFileSync(file, 'utf8');
     writeFileSync(file, injectPwaMarkup(html));
   }

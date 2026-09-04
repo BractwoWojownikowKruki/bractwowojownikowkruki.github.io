@@ -5,6 +5,12 @@ Drive) oraz panelem administracyjnym sekcji "O nas".
 Strona dostępna pod adresem: **https://bractwowojownikowkruki.github.io/**
 Galerie: **https://bractwowojownikowkruki.github.io/galerie/**
 
+## PWA
+
+Publiczne strony można zainstalować jako aplikację PWA. Jej cache offline zawiera wyłącznie mały, jawnie wskazany shell; nie zapisuje galerii, miniatur, zdjęć z mediów społecznościowych, uploadów, danych członków ani odpowiedzi z usług zewnętrznych. Strony członkowskie (`/admin/`, `/galerie/`, `/logowanie/`, `/wojownicy/wrzuc/`) nie są obsługiwane offline.
+
+Na GitHub Pages cache ma identyfikator oparty o standardowe `GITHUB_SHA`; lokalny build używa deterministycznego hasha zawartości shella. W Chromium i Android Chrome użyj instalacji z przeglądarki. W iOS Safari wybierz **Udostępnij → Dodaj do ekranu początkowego**. W Firefox weryfikuj nawigację i stronę offline, bez oczekiwania desktopowego przycisku instalacji.
+
 ---
 
 ## Jak dodać album
