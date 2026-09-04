@@ -37,6 +37,7 @@ test('member-zone partials provide initially hidden accessible PWA install contr
   assert.ok(mobilePanel, 'members-zone-mobile panel must exist');
   assertInstallControl(mobilePanel, 'members-zone-panel', '');
   assertInstallControl(sidebar, 'members-zone-sidebar', '</aside>');
+  assertInstallControl(nav, 'members-zone-nav', '<div class="nav-account-area">');
   assert.match(footer, /<script\s+src="\/pwa-install\.js"><\/script>/);
 });
 

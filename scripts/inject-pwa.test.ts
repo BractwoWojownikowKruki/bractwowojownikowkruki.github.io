@@ -40,9 +40,10 @@ test('build emits PWA markup and a bounded worker into an isolated output direct
     }
 
     const home = readFileSync(join(outputDir, 'index.html'), 'utf8');
-    assert.equal([...home.matchAll(/\bdata-pwa-install(?:\s|=|>)/g)].length, 2);
+    assert.equal([...home.matchAll(/\bdata-pwa-install(?:\s|=|>)/g)].length, 3);
     assertInstallControlInZone(home, 'members-zone-mobile');
     assertInstallControlInZone(home, 'members-zone-sidebar');
+    assertInstallControlInZone(home, 'members-zone-nav');
     assert.equal(readFileSync(join(outputDir, 'pwa-install.js'), 'utf8').length > 0, true);
     assert.equal([...home.matchAll(/src="\/pwa-install\.js"/g)].length, 1);
 

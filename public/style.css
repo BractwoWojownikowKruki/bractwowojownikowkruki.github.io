@@ -2284,6 +2284,19 @@ button.nav-item {
     display: flex;
   }
 
+  /* .site-header--main is position:sticky, which pins it to the viewport's top edge for as
+     long as any part of its own box remains below that edge - normally harmless since the
+     collapsed header is short, but once the menu is open its box (logo row + the whole nav
+     list) can be taller than the viewport, and a sticky box isn't itself a scroll container:
+     the page scrolls, but the pinned header just keeps showing its own top portion, making
+     everything below the fold inside it (the Strefa Członków box, "Zainstaluj", etc.)
+     unreachable no matter how far you scroll. Un-sticking the header only while the menu is
+     open turns it into an ordinary tall block instead, so the page's normal scroll reveals the
+     rest of the open menu like any other content. */
+  .site-header--main:has(.main-nav.is-open) {
+    position: static;
+  }
+
   .banner-section {
     aspect-ratio: 16 / 9;
     max-height: 280px;
