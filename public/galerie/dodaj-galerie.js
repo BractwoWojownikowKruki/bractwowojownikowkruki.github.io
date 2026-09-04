@@ -56,14 +56,20 @@ function clearUploadState(key) {
   localStorage.removeItem(key);
 }
 
-function fileKey(name, size) {
-  return `${name}:${size}`;
+// lastModifiedMs mirrors the server's own identity check (see fileKeyFor in server.ts) - name
+// and size alone would treat a corrected/re-exported image re-selected under the same filename
+// and byte length as "already uploaded" and silently drop it from a retry, even though it's a
+// genuinely different file the server was never told about. Rounded to whole seconds, matching
+// the server, since Drive doesn't guarantee to echo back the exact millisecond it was given.
+function fileKey(name, size, lastModifiedMs) {
+  const modifiedPart = lastModifiedMs !== undefined && lastModifiedMs !== null ? `:${Math.floor(lastModifiedMs / 1000)}` : '';
+  return `${name}:${size}${modifiedPart}`;
 }
 
 async function uploadOneFile(folderId, submissionToken, file, attempt = 1) {
   try {
     await apiFetch(
-      `/upload?folderId=${encodeURIComponent(folderId)}&fileName=${encodeURIComponent(file.name)}&mimeType=${encodeURIComponent(file.type || 'application/octet-stream')}`,
+      `/upload?folderId=${encodeURIComponent(folderId)}&fileName=${encodeURIComponent(file.name)}&mimeType=${encodeURIComponent(file.type || 'application/octet-stream')}&lastModifiedMs=${file.lastModified}`,
       { method: 'POST', body: file, headers: { 'X-Submission-Token': submissionToken } },
       showReauth,
       hideReauth,
@@ -144,8 +150,10 @@ async function submitViaUpload(name, date, files) {
       method: 'GET',
       headers: { 'X-Submission-Token': submissionToken },
     }, showReauth, hideReauth);
-    const uploadedKeys = new Set(uploadedFiles.map(f => fileKey(f.name, f.size)));
-    files = files.filter(f => !uploadedKeys.has(fileKey(f.name, f.size)));
+    const uploadedKeys = new Set(
+      uploadedFiles.map(f => fileKey(f.name, f.size, f.modifiedTime ? Date.parse(f.modifiedTime) : undefined)),
+    );
+    files = files.filter(f => !uploadedKeys.has(fileKey(f.name, f.size, f.lastModified)));
   } else {
     ({ folderId, submissionToken } = await apiFetch('/start', {
       method: 'POST',

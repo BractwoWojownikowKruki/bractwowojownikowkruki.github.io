@@ -211,15 +211,27 @@ export function buildMultipartParts(
 // a whole file twice. Returns the created file's id (the request already asked Drive for
 // `fields=id`) so callers can attribute the upload to whoever made it - see the
 // gallery-photos upload-attribution log in server.ts.
+//
+// originalModifiedMs, when given, is the source file's own last-modified time (the browser's
+// File.lastModified, in epoch ms - not "when this request was made"), stored as Drive's native
+// modifiedTime instead of a custom `properties` entry. It exists purely as a second, still
+// cheap-to-check signal for upload-duplicate detection (see fileKeyFor in server.ts) - reading
+// it back later needs no more than the same metadata-only Drive listing already done for the
+// name+size check.
 export async function uploadFileStream(
   deps: DriveDeps,
   folderId: string,
   fileName: string,
   mimeType: string,
   bodyStream: AsyncIterable<Buffer>,
+  originalModifiedMs?: number,
 ): Promise<{ id: string }> {
   const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
-  const { prefix, suffix, boundary } = buildMultipartParts({ name: fileName, parents: [folderId] }, mimeType);
+  const metadata: Record<string, unknown> = { name: fileName, parents: [folderId] };
+  if (originalModifiedMs !== undefined) {
+    metadata.modifiedTime = new Date(originalModifiedMs).toISOString();
+  }
+  const { prefix, suffix, boundary } = buildMultipartParts(metadata, mimeType);
 
   async function* multipartBody(): AsyncGenerator<Buffer> {
     yield prefix;
@@ -247,6 +259,10 @@ export async function uploadFileStream(
 export interface DriveFileInfo {
   name: string;
   size: number;
+  // ISO 8601 - Drive's own modifiedTime, which uploadFileStream may have set from the source
+  // file's original File.lastModified rather than left as "upload time". Undefined for files
+  // uploaded before that existed, or without a modifiedTime override.
+  modifiedTime?: string;
 }
 
 export async function listFiles(deps: DriveDeps, folderId: string): Promise<DriveFileInfo[]> {
@@ -255,14 +271,14 @@ export async function listFiles(deps: DriveDeps, folderId: string): Promise<Driv
   let pageToken: string | undefined;
   do {
     const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
-    let path = `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(name,size)&pageSize=1000`;
+    let path = `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(name,size,modifiedTime)&pageSize=1000`;
     if (pageToken) path += `&pageToken=${encodeURIComponent(pageToken)}`;
     const res = await fetch(path, { headers: { Authorization: `Bearer ${accessToken}` } });
     if (!res.ok) {
       throw new Error(`Nie udało się pobrać listy plików z Drive: HTTP ${res.status}`);
     }
-    const data = (await res.json()) as { files: { name: string; size?: string }[]; nextPageToken?: string };
-    files.push(...data.files.map(f => ({ name: f.name, size: Number(f.size ?? 0) })));
+    const data = (await res.json()) as { files: { name: string; size?: string; modifiedTime?: string }[]; nextPageToken?: string };
+    files.push(...data.files.map(f => ({ name: f.name, size: Number(f.size ?? 0), modifiedTime: f.modifiedTime })));
     pageToken = data.nextPageToken;
   } while (pageToken);
   return files;
@@ -519,7 +535,13 @@ export function resizeThumbnailUrl(thumbnailLink: string, size: number): string 
 
 export interface DriveClient {
   createAlbumFolder(parentFolderId: string, folderName: string): Promise<string>;
-  uploadFileStream(folderId: string, fileName: string, mimeType: string, bodyStream: AsyncIterable<Buffer>): Promise<{ id: string }>;
+  uploadFileStream(
+    folderId: string,
+    fileName: string,
+    mimeType: string,
+    bodyStream: AsyncIterable<Buffer>,
+    originalModifiedMs?: number,
+  ): Promise<{ id: string }>;
   listFiles(folderId: string): Promise<DriveFileInfo[]>;
   setFolderPublic(folderId: string): Promise<void>;
   deleteFolder(folderId: string): Promise<void>;
@@ -545,8 +567,8 @@ export interface DriveClient {
 export function createDriveClient(deps: DriveDeps, docsDeps: DriveDeps = deps): DriveClient {
   return {
     createAlbumFolder: (parentFolderId, folderName) => createAlbumFolder(deps, parentFolderId, folderName),
-    uploadFileStream: (folderId, fileName, mimeType, bodyStream) =>
-      uploadFileStream(deps, folderId, fileName, mimeType, bodyStream),
+    uploadFileStream: (folderId, fileName, mimeType, bodyStream, originalModifiedMs) =>
+      uploadFileStream(deps, folderId, fileName, mimeType, bodyStream, originalModifiedMs),
     listFiles: folderId => listFiles(deps, folderId),
     setFolderPublic: folderId => setFolderPublic(deps, folderId),
     deleteFolder: folderId => deleteFolder(deps, folderId),

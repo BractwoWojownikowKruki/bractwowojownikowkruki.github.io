@@ -108,19 +108,34 @@ export interface ServerDeps {
 // own upload concurrency as if that were an enforceable boundary, which it wasn't: nothing
 // stops a valid caller from issuing far more concurrent requests directly.
 const activeSubmissionCounts = new Map<string, number>();
+// Keyed by plain folderId for reserveUploadSlot's own lock, and by a more specific
+// `dup:<folderId>:<name>:<size>:<mtime>` key for the per-file dedupe lock further below - an
+// unbounded key space (one entry per photo ever uploaded, for the lifetime of a long-lived Cloud
+// Run instance) unless each entry is removed once it's no longer needed, which is exactly what
+// the cleanup at the end of withFolderLock does.
 const folderLocks = new Map<string, Promise<unknown>>();
 
-function withFolderLock<T>(folderId: string, fn: () => Promise<T>): Promise<T> {
-  const previous = folderLocks.get(folderId) ?? Promise.resolve();
+function withFolderLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const previous = folderLocks.get(key) ?? Promise.resolve();
   const next = previous.then(fn, fn);
-  folderLocks.set(
-    folderId,
-    next.then(
-      () => undefined,
-      () => undefined,
-    ),
+  const queued = next.then(
+    () => undefined,
+    () => undefined,
   );
+  folderLocks.set(key, queued);
+  // Only removed if this is still the most recently queued entry for `key` - a call made while
+  // this one was in flight would have already replaced it with its own, still-pending entry,
+  // which must be left alone.
+  queued.then(() => {
+    if (folderLocks.get(key) === queued) {
+      folderLocks.delete(key);
+    }
+  });
   return next;
+}
+
+export function getFolderLockKeyCountForTests(): number {
+  return folderLocks.size;
 }
 
 // Reserves one slot for folderId if the folder is under the cap, seeding the counter from a
@@ -153,6 +168,32 @@ function releaseUploadSlot(folderId: string): void {
   if (current !== undefined && current > 0) {
     activeSubmissionCounts.set(folderId, current - 1);
   }
+}
+
+// Same in-process, single-instance approach as activeSubmissionCounts above, this time tracking
+// exact (name, size, original-mtime) triples already in the folder - so an upload of a file
+// that's already there can be skipped outright, without ever reading its body. /status already
+// does an equivalent check client-side, but only within one submission the browser still
+// remembers via localStorage; this closes the same gap server-side for every other case too (a
+// second submission with no local upload-state - a different device, cleared storage, or someone
+// re-selecting the same files) - Drive itself happily keeps two files with an identical name, so
+// without this a repeat submission would just double every photo it repeats.
+//
+// EXPLICIT SCOPE DECISION: identity here is metadata (name, size, and the source file's own
+// last-modified time - see uploadFileStream's originalModifiedMs), never the file's actual
+// bytes. Two genuinely different files could in theory share all three and get de-duplicated
+// wrongly; reading/hashing every uploaded file's content to rule that out was considered and
+// rejected as too costly for what this guards against (accidental re-submission of the same
+// batch), not a security boundary. If that trade-off ever stops being acceptable, a content hash
+// is the fix - not a fourth metadata field.
+const folderKnownFileKeys = new Map<string, Set<string>>();
+
+// modifiedMs is the source file's own last-modified time in epoch ms (undefined when the client
+// or a pre-existing Drive file doesn't have one) - rounded to whole seconds since Drive doesn't
+// guarantee to echo back the exact millisecond it was given.
+function fileKeyFor(name: string, size: number, modifiedMs: number | undefined): string {
+  const modifiedPart = modifiedMs !== undefined ? `:${Math.floor(modifiedMs / 1000)}` : '';
+  return `${name}:${size}${modifiedPart}`;
 }
 
 // Who uploaded which photo, and when - shown as "Dodane przez" in the gallery's detail/lightbox
@@ -332,6 +373,19 @@ function requireAllowedMimeType(mimeType: string, allowedMimeTypes: string[]): v
   if (!allowedMimeTypes.includes(mimeType)) {
     throw new AuthError(`Niedozwolony typ pliku: ${mimeType}.`, 400);
   }
+}
+
+// Discards a request body nothing is going to read (the duplicate-upload skip path below never
+// calls validatedUploadStream) - without this, the still-incoming bytes sit unread on the
+// connection, which can retain buffered data and stall reuse of a keep-alive socket under
+// repeated duplicate uploads.
+function drainRequestBody(req: IncomingMessage): Promise<void> {
+  return new Promise((resolve, reject) => {
+    req.on('data', () => {});
+    req.on('end', resolve);
+    req.on('error', reject);
+    req.resume();
+  });
 }
 
 // Reads the request stream, sniffs the first bytes against the declared MIME type before
@@ -856,6 +910,13 @@ async function handleStart(req: IncomingMessage, res: ServerResponse, deps: Serv
   if (!date) throw new AuthError('Brak daty albumu.', 400);
   const folderName = name ? `${date} ${name}` : date;
   const folderId = await deps.drive.createAlbumFolder(deps.driveParentFolderId, folderName);
+  // Made public right away, not deferred to /finalize: the gallery detail view fetches photos
+  // client-side straight from Drive's public API (see app.js's DRIVE_API_KEY_PUBLIC), so any
+  // file already uploaded needs to be visible even if the submission never reaches /finalize -
+  // e.g. some files fail and the uploader never retries. Previously this only happened in
+  // /finalize, which left the folder permanently private (Drive shows nothing to that public
+  // API key) whenever the very first upload attempt for a new gallery had any failures.
+  await deps.drive.setFolderPublic(folderId);
   const submissionToken = issueSubmissionToken(
     { folderId, sub: identity.sub, exp: Date.now() + SUBMISSION_TTL_MS },
     deps.submissionTokenSecret,
@@ -873,26 +934,73 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
 
+  const decodedFileName = decodeURIComponent(fileName);
+  // Only possible when the client sent Content-Length (a real File body always does) and/or
+  // lastModifiedMs (the browser's File.lastModified - both dodaj-galerie.js and
+  // dodaj-zdjecia.js send it); skip duplicate detection entirely rather than guess if missing.
+  const contentLength = Number(req.headers['content-length']);
+  const sizeKnown = Number.isFinite(contentLength);
+  const lastModifiedParam = url.searchParams.get('lastModifiedMs');
+  const lastModifiedMs =
+    lastModifiedParam !== null && Number.isFinite(Number(lastModifiedParam)) ? Number(lastModifiedParam) : undefined;
+
   // Reserved exactly, in-process, before every write - not an approximation. See the comment
   // above reserveUploadSlot for why this is correct (single Cloud Run instance + a per-folder
   // lock) where the earlier margin-based check wasn't. /finalize's own count check remains as
   // an unconditional backstop regardless.
-  const reserved = await reserveUploadSlot(deps.drive, folderId, deps.maxFilesPerSubmission);
-  if (!reserved) {
-    throw new AuthError(`Zgłoszenie osiągnęło maksymalną liczbę zdjęć (${deps.maxFilesPerSubmission}).`, 400);
+  async function uploadNow(): Promise<{ id: string }> {
+    const reserved = await reserveUploadSlot(deps.drive, folderId as string, deps.maxFilesPerSubmission);
+    if (!reserved) {
+      throw new AuthError(`Zgłoszenie osiągnęło maksymalną liczbę zdjęć (${deps.maxFilesPerSubmission}).`, 400);
+    }
+    try {
+      return await deps.drive.uploadFileStream(
+        folderId as string,
+        decodedFileName,
+        mimeType,
+        validatedUploadStream(req, deps.maxFileBytes, mimeType),
+        lastModifiedMs,
+      );
+    } catch (err) {
+      releaseUploadSlot(folderId as string);
+      throw err;
+    }
   }
 
   let uploaded: { id: string };
-  try {
-    uploaded = await deps.drive.uploadFileStream(
-      folderId,
-      decodeURIComponent(fileName),
-      mimeType,
-      validatedUploadStream(req, deps.maxFileBytes, mimeType),
-    );
-  } catch (err) {
-    releaseUploadSlot(folderId);
-    throw err;
+  if (sizeKnown) {
+    // A file with this exact (name, size, mtime) already sits in the folder - skip outright
+    // rather than writing a second copy (not even counted against maxFilesPerSubmission, since
+    // nothing new is being added). The whole check-and-upload for this one key is serialized by
+    // dedupeKey - a lock distinct from reserveUploadSlot's own folderId-keyed one, so this never
+    // blocks (or gets blocked by) uploads of any *other* file in the same folder - so a
+    // concurrent request for the exact same file has to wait for this one's real Drive outcome
+    // instead of being told "duplicate" while that outcome is still unknown and could still
+    // fail. If it does fail, the waiting request finds the key still unclaimed and uploads for
+    // real itself, same as a solo retry would. See fileKeyFor's comment for what "duplicate"
+    // does and doesn't mean here.
+    const dedupeKey = `dup:${folderId}:${fileKeyFor(decodedFileName, contentLength, lastModifiedMs)}`;
+    const result = await withFolderLock(dedupeKey, async () => {
+      let known = folderKnownFileKeys.get(folderId as string);
+      if (!known) {
+        const existing = await deps.drive.listFiles(folderId as string);
+        known = new Set(existing.map(f => fileKeyFor(f.name, f.size, f.modifiedTime ? Date.parse(f.modifiedTime) : undefined)));
+        folderKnownFileKeys.set(folderId as string, known);
+      }
+      const key = fileKeyFor(decodedFileName, contentLength, lastModifiedMs);
+      if (known.has(key)) return null;
+      const uploadResult = await uploadNow();
+      known.add(key);
+      return uploadResult;
+    });
+    if (result === null) {
+      await drainRequestBody(req);
+      sendJson(res, 200, { ok: true, skipped: true });
+      return;
+    }
+    uploaded = result;
+  } else {
+    uploaded = await uploadNow();
   }
   // Best-effort: a failure here shouldn't fail an otherwise-successful upload (the photo is
   // already safely in Drive), just leave it unattributed in the detail view's "Dodane przez".
@@ -941,8 +1049,9 @@ async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: S
     );
   }
 
-  // Written while the folder is still private, before anything public-facing happens - a
-  // failure here simply fails /finalize with no compensating action needed.
+  // The folder was already made public by /start (see its comment) - nothing to do here for
+  // that. A failure writing the manifest below simply fails /finalize with no compensating
+  // action needed.
   await deps.drive.writeManifest(folderId, {
     ...(name ? { name } : {}),
     date,
@@ -953,7 +1062,6 @@ async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: S
   // GET /galleries already discovers it live via the manifest just written above. Registering
   // a folder the app did NOT create (an existing external gallery) goes through /register
   // instead, which commits to albums.json for the pipeline-based sync to pick up.
-  await deps.drive.setFolderPublic(folderId);
   // Invalidated so the new gallery shows up on the next /galleries call instead of waiting out
   // galleriesCacheTtlMs - same reasoning as handleGalleryPhotosFinalize's cache clear below.
   galleriesCache = null;
@@ -987,10 +1095,18 @@ async function handleGalleryPhotosStart(req: IncomingMessage, res: ServerRespons
   sendJson(res, 200, { folderId, submissionToken });
 }
 
-// Counterpart to /finalize for the same flow - the gallery is already public and already has a
-// manifest with its own name/date, so this only ever adds the uploader to `contributors` (never
-// overwrites name/date, and never re-publishes) rather than writing a fresh manifest from
-// scratch.
+// Counterpart to /finalize for the same flow - the gallery already has a manifest with its own
+// name/date, so this only ever adds the uploader to `contributors` (never overwrites name/date)
+// rather than writing a fresh manifest from scratch.
+//
+// setFolderPublic is called here too (idempotent - see its own comment in drive.ts), even though
+// /start already makes every new gallery's folder public up front. This is a self-healing
+// backstop for galleries created before that existed: their folder was only ever made public in
+// /finalize, so a first upload attempt with any failed files left it private forever - a cover
+// thumbnail still shows (read server-side with the app's own Drive credentials), but every photo
+// is invisible in the gallery detail view, which fetches the file list from the public Drive API
+// with an anonymous key that can't see a private folder. Each successful "add photos" round
+// re-asserts public sharing, closing that gap for good the first time someone adds more photos.
 async function handleGalleryPhotosFinalize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
   const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
@@ -998,6 +1114,7 @@ async function handleGalleryPhotosFinalize(req: IncomingMessage, res: ServerResp
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
 
+  await deps.drive.setFolderPublic(folderId);
   const existing = await deps.drive.readManifest(folderId);
   const contributors = new Set(existing?.contributors ?? []);
   contributors.add(identity.email);

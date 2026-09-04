@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { AuthError } from './auth.ts';
-import { createRequestListener, readSessionCookie, verifySessionRequest, type ServerDeps, type SessionVerifyConfig } from './server.ts';
+import {
+  createRequestListener,
+  getFolderLockKeyCountForTests,
+  readSessionCookie,
+  verifySessionRequest,
+  type ServerDeps,
+  type SessionVerifyConfig,
+} from './server.ts';
 import { issueSessionToken, verifySessionToken, type SessionClaims, type SessionSigningKey } from './session.ts';
 import type { SheetAllowlist } from './allowlist.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -1753,6 +1760,28 @@ test('/start creates a folder and returns a submission token bound to the caller
   });
 });
 
+test('/start makes the new folder public immediately, before any files are uploaded', async () => {
+  let madePublicFolderId: string | undefined;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      createAlbumFolder: async () => 'folder-created-by-start',
+      setFolderPublic: async folderId => { madePublicFolderId = folderId; },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: '2026-08-09', name: 'Wolin' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  // Not deferred to /finalize: any file that does get uploaded must be visible in the gallery
+  // detail view (which reads Drive with a public, anonymous key) even if the submission never
+  // reaches /finalize at all.
+  assert.equal(madePublicFolderId, 'folder-created-by-start');
+});
+
 test('/upload rejects a request with no X-Submission-Token', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
@@ -1837,6 +1866,262 @@ test('/upload accepts a correctly labeled, correctly sized JPEG under the cap', 
   });
 });
 
+test('/upload skips a file that already exists in the folder with the same name and size, without writing it again', async () => {
+  let uploadFileStreamCalled = false;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listFiles: async () => [{ name: 'a.jpg', size: VALID_JPEG_BYTES.length }],
+      uploadFileStream: async () => {
+        uploadFileStreamCalled = true;
+        return { id: 'should-not-be-reached' };
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body, { ok: true, skipped: true });
+  });
+  assert.equal(uploadFileStreamCalled, false);
+});
+
+test('/upload does not skip a same-named file whose size differs from what is already in the folder', async () => {
+  let uploadFileStreamCalled = false;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listFiles: async () => [{ name: 'a.jpg', size: VALID_JPEG_BYTES.length + 1 }],
+      uploadFileStream: async (_f, _n, _m, stream) => {
+        for await (const _chunk of stream) {
+          // drain
+        }
+        uploadFileStreamCalled = true;
+        return { id: 'fake-uploaded-file-id' };
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(uploadFileStreamCalled, true);
+});
+
+test('/upload releases its reserved duplicate key when the write fails, so a retry of that same file is not wrongly skipped', async () => {
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listFiles: async () => [],
+      uploadFileStream: async () => {
+        throw new Error('Drive write failed');
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const firstAttempt = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    });
+    assert.equal(firstAttempt.status, 500);
+
+    let retryReachedUpload = false;
+    deps.drive.uploadFileStream = async (_f, _n, _m, stream) => {
+      for await (const _chunk of stream) {
+        // drain
+      }
+      retryReachedUpload = true;
+      return { id: 'fake-uploaded-file-id' };
+    };
+    const retry = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    });
+    assert.equal(retry.status, 200);
+    // Confirms the retry actually re-uploaded rather than being skipped as a "duplicate" of the
+    // failed first attempt, which never made it into the folder.
+    assert.equal(retryReachedUpload, true);
+  });
+});
+
+test('/upload does not skip a same-named, same-sized file whose original last-modified time differs', async () => {
+  let uploadFileStreamCalled = false;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listFiles: async () => [{ name: 'a.jpg', size: VALID_JPEG_BYTES.length, modifiedTime: '2026-01-01T00:00:00.000Z' }],
+      uploadFileStream: async (_f, _n, _m, stream) => {
+        for await (const _chunk of stream) {
+          // drain
+        }
+        uploadFileStreamCalled = true;
+        return { id: 'fake-uploaded-file-id' };
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const differentMoment = Date.parse('2026-02-02T00:00:00.000Z');
+    const res = await fetch(
+      `${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg&lastModifiedMs=${differentMoment}`,
+      { method: 'POST', headers: { 'X-Submission-Token': token }, body: VALID_JPEG_BYTES },
+    );
+    assert.equal(res.status, 200);
+  });
+  assert.equal(uploadFileStreamCalled, true);
+});
+
+test('/upload does not tell a concurrent duplicate request "skipped" while the original upload could still fail', async () => {
+  let uploadCalls = 0;
+  let resolveFirstUpload: (() => void) | undefined;
+  const firstUploadGate = new Promise<void>(resolve => {
+    resolveFirstUpload = resolve;
+  });
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listFiles: async () => [],
+      uploadFileStream: async (_f, _n, _m, stream) => {
+        uploadCalls++;
+        if (uploadCalls === 1) {
+          await firstUploadGate;
+          throw new Error('Drive write failed');
+        }
+        for await (const _chunk of stream) {
+          // drain
+        }
+        return { id: 'fake-uploaded-file-id' };
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const requestOptions = {
+      method: 'POST' as const,
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    };
+    const uploadUrl = `${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`;
+    const firstRequest = fetch(uploadUrl, requestOptions);
+    // Gives the first request time to reach and start waiting inside uploadFileStream before
+    // the second fires, so this exercises the concurrent-duplicate path (the second request
+    // finding the dedupe lock already held) rather than a plain sequential retry.
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const secondRequest = fetch(uploadUrl, requestOptions);
+    resolveFirstUpload?.();
+
+    const [firstRes, secondRes] = await Promise.all([firstRequest, secondRequest]);
+    assert.equal(firstRes.status, 500);
+    assert.equal(secondRes.status, 200);
+    // Must not be "skipped" - the file the second request would be a duplicate of never
+    // actually made it into Drive (the first attempt failed), so it has to upload for real.
+    assert.deepEqual(await secondRes.json(), { ok: true });
+  });
+  assert.equal(uploadCalls, 2);
+});
+
+test('/upload drains an unread duplicate-upload request body, so a later request on the same connection still works', async () => {
+  // Large enough that leaving it unread on the connection would actually matter - the small
+  // VALID_JPEG_BYTES body used elsewhere comfortably fits in socket buffers even left unread,
+  // so this needs its own, much bigger body to give an undrained body a real chance to wedge
+  // the connection Node's fetch (undici) keeps alive and reuses across requests to the same
+  // origin. A plain Buffer (rather than a stream) so `fetch` computes Content-Length itself,
+  // same as every other test here - the duplicate check never reads the body regardless of size.
+  const LARGE_DUPLICATE_BODY = Buffer.alloc(32 * 1024 * 1024, 0x42);
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listFiles: async () => [{ name: 'a.jpg', size: LARGE_DUPLICATE_BODY.length }],
+      uploadFileStream: async (_f, _n, _m, stream) => {
+        for await (const _chunk of stream) {
+          // drain
+        }
+        return { id: 'fake-uploaded-file-id' };
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const timeout = () =>
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('request stalled - a prior duplicate body was left unread')), 5000),
+      );
+
+    const dupRes = await Promise.race([
+      fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+        method: 'POST',
+        headers: { 'X-Submission-Token': token },
+        body: LARGE_DUPLICATE_BODY,
+      }),
+      timeout(),
+    ]);
+    assert.equal(dupRes.status, 200);
+    assert.deepEqual(await dupRes.json(), { ok: true, skipped: true });
+
+    // If the response above left its own request body unread, this next request on the same
+    // keep-alive connection would stall or fail instead of completing normally.
+    const followUpRes = await Promise.race([
+      fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=b.jpg&mimeType=image/jpeg`, {
+        method: 'POST',
+        headers: { 'X-Submission-Token': token },
+        body: VALID_JPEG_BYTES,
+      }),
+      timeout(),
+    ]);
+    assert.equal(followUpRes.status, 200);
+  });
+});
+
+test('/upload does not leak a per-file dedupe lock entry once the request settles', async () => {
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listFiles: async () => [],
+      uploadFileStream: async (_f, _n, _m, stream) => {
+        for await (const _chunk of stream) {
+          // drain
+        }
+        return { id: 'fake-uploaded-file-id' };
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const before = getFolderLockKeyCountForTests();
+
+    const res = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 200);
+
+    // The lock's own cleanup runs in a microtask chained off its settlement, which the fetch
+    // response (real I/O) has already outlasted by the time it resolves - this extra tick is
+    // just cheap insurance.
+    await new Promise(resolve => setImmediate(resolve));
+    // Without cleanup, this per-file (name, size, mtime) key - and reserveUploadSlot's own
+    // folderId key - would sit in the module-level lock map for the rest of the process
+    // lifetime, one entry per photo ever uploaded on a long-lived Cloud Run instance.
+    assert.equal(getFolderLockKeyCountForTests(), before);
+  });
+});
+
 test('/finalize rejects a folder with no uploaded files', async () => {
   const deps = makeDeps({ drive: makeFakeDrive({ listFiles: async () => [] }) });
   const folderId = uniqueFolderId();
@@ -1877,37 +2162,11 @@ test('/finalize writes a gallery manifest with name, date, and the uploader as c
   });
 });
 
-test('/finalize fails before granting public access when writing the manifest fails', async () => {
-  let madePublic = false;
-  const deps = makeDeps({
-    drive: makeFakeDrive({
-      listFiles: async () => [{ name: 'a.jpg', size: 10 }],
-      writeManifest: async () => {
-        throw new Error('Drive is down');
-      },
-      setFolderPublic: async () => { madePublic = true; },
-    }),
-  });
-  const folderId = uniqueFolderId();
-  await withServer(deps, async baseUrl => {
-    const token = await issueTestSubmissionToken(deps, folderId);
-    const res = await fetch(`${baseUrl}/finalize`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Submission-Token': token },
-      body: JSON.stringify({ folderId, date: '2026-08-09' }),
-    });
-    assert.equal(res.status, 500);
-    assert.equal(madePublic, false);
-  });
-});
-
-test('/finalize succeeds, publishes the folder, and does not touch GitHub', async () => {
-  let madePublic = false;
+test('/finalize succeeds and does not touch GitHub', async () => {
   let githubCalled = false;
   const deps = makeDeps({
     drive: makeFakeDrive({
       listFiles: async () => [{ name: 'a.jpg', size: 10 }],
-      setFolderPublic: async () => { madePublic = true; },
     }),
     github: makeFakeGithub({ appendAlbumToMain: async () => { githubCalled = true; } }),
   });
@@ -1920,7 +2179,6 @@ test('/finalize succeeds, publishes the folder, and does not touch GitHub', asyn
       body: JSON.stringify({ folderId, date: '2026-08-09' }),
     });
     assert.equal(res.status, 200);
-    assert.equal(madePublic, true);
     // The app owns this folder (it created it), so GET /galleries already discovers it live -
     // no albums.json/CI commit needed, unlike /register's path for externally-created folders.
     assert.equal(githubCalled, false);
@@ -2074,6 +2332,28 @@ test('POST /gallery-photos/finalize adds the uploader to contributors without du
     assert.equal(res.status, 200);
   });
   assert.deepEqual(writtenManifest, { name: 'Wolin', date: '2026-01-01', contributors: ['bob@gmail.com', 'alice@gmail.com'] });
+});
+
+test('POST /gallery-photos/finalize re-asserts public sharing, healing a gallery whose original /finalize was never reached', async () => {
+  let madePublic = false;
+  const deps = makeDeps({
+    authenticate: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
+    drive: makeFakeDrive({
+      readManifest: async () => ({ name: 'Wolin', date: '2026-01-01', contributors: [] }),
+      setFolderPublic: async () => { madePublic = true; },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/gallery-photos/finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Submission-Token': token },
+      body: JSON.stringify({ folderId }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(madePublic, true);
 });
 
 test('POST /gallery-photos/finalize adds a new contributor when the gallery has no manifest yet', async () => {
