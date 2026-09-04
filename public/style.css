@@ -1418,6 +1418,44 @@ main { padding: 1.25rem 1.5rem 3rem; }
   color: var(--gold);
 }
 
+/* The install action is intentionally a small member-zone utility, not a second primary CTA.
+   It starts hidden and the PWA controller reveals it only when installation remains meaningful. */
+.members-zone-install {
+  align-self: flex-start;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gold);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.members-zone-install:hover:not(:disabled),
+.members-zone-install:focus-visible {
+  background: var(--gold);
+  color: var(--surface);
+}
+
+.members-zone-install:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.members-zone-install-message {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.members-zone-install-message[hidden],
+.members-zone-install[hidden] {
+  display: none;
+}
+
 /* ── Strefa Członków: mobile header trigger + panel (templates/nav.html) ── */
 /* An independent expand/collapse control, separate from the hamburger next to it - tapping this
    opens/closes only its own panel (see nav.js), never the public menu, and vice versa. Hidden on
@@ -2255,8 +2293,27 @@ button.nav-item {
   /* Strefa Członków's mobile trigger only ever appears at this breakpoint - see the base
      .members-zone-mobile rule for why this is :not([hidden]) rather than an unconditional
      display, which the membership-gated [hidden] attribute would then need to fight with. */
-  .members-zone-mobile:not([hidden]) {
+.members-zone-mobile:not([hidden]) {
     display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .members-zone-mobile .members-zone-install {
+    padding: 0.25rem 0.45rem;
+    font-size: 11px;
+  }
+
+  .members-zone-mobile .members-zone-install-message {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    width: min(240px, 80vw);
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    background: var(--surface);
+    z-index: 30;
   }
 
   /* .nav-item-dropdown is display:flex (row, centered) for desktop's single-line nav bar -
@@ -2970,4 +3027,3 @@ button.nav-item {
   background: var(--accent-dark);
   transform: translateY(-2px);
 }
-

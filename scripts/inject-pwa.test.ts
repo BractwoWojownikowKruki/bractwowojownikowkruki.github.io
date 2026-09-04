@@ -39,6 +39,13 @@ test('build emits PWA markup and a bounded worker into an isolated output direct
       assert.equal([...html.matchAll(/src="\/pwa-register\.js"/g)].length, 1, pathname);
     }
 
+    const home = readFileSync(join(outputDir, 'index.html'), 'utf8');
+    assert.equal([...home.matchAll(/\bdata-pwa-install(?:\s|=|>)/g)].length, 2);
+    assertInstallControlInZone(home, 'members-zone-mobile');
+    assertInstallControlInZone(home, 'members-zone-sidebar');
+    assert.equal(readFileSync(join(outputDir, 'pwa-install.js'), 'utf8').length > 0, true);
+    assert.equal([...home.matchAll(/src="\/pwa-install\.js"/g)].length, 1);
+
     for (const pathname of ['/admin/', '/galerie/', '/logowanie/', '/wojownicy/wrzuc/']) {
       const html = readFileSync(join(outputDir, pathname, 'index.html'), 'utf8');
       assert.doesNotMatch(html, /rel="manifest"/, pathname);
@@ -53,3 +60,11 @@ test('build emits PWA markup and a bounded worker into an isolated output direct
     rmSync(outputDir, { recursive: true, force: true });
   }
 });
+
+function assertInstallControlInZone(html: string, zoneId: string): void {
+  assert.match(
+    html,
+    new RegExp(`<div[^>]*\\bid="${zoneId}"[^>]*>[\\s\\S]*?<button\\b[^>]*\\bdata-pwa-install(?:\\s|=|>)[^>]*>`),
+    `${zoneId} must contain an install control`,
+  );
+}
