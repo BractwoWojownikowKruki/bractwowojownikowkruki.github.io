@@ -17,7 +17,7 @@ const INDEX_JSON = join(DATA_DIR, 'index.json');
 // The Cloud Run service's public URL - same default facebook-feed.js falls back to. Calling
 // this existing public endpoint (rather than the Graph API directly) means this CI job never
 // needs its own copy of FACEBOOK_PAGE_ACCESS_TOKEN (see KRKG-0035 design.md).
-const BACKEND_URL = process.env.FACEBOOK_SYNC_BACKEND_URL ?? 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
+const BACKEND_URL = process.env.FACEBOOK_SYNC_BACKEND_URL ?? 'https://krucze-galery-upload-x6mr6ilyha-ew.a.run.app';
 
 // Forward-only by design (KRKG-0035): only ever looks at the newest 5 live posts and syncs
 // whichever aren't already in the index. No historical backfill.

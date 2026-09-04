@@ -12,7 +12,7 @@
 class FacebookFeed {
   constructor(containerId, options = {}) {
     this.container = document.getElementById(containerId);
-    this.backendUrl = options.backendUrl || 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
+    this.backendUrl = options.backendUrl || 'https://krucze-galery-upload-x6mr6ilyha-ew.a.run.app';
     this.pageSize = options.pageSize || 5;
     this.index = [];
     this.offset = 0;
@@ -247,7 +247,7 @@ class FacebookFeed {
 document.addEventListener('DOMContentLoaded', () => {
   const feedContainer = document.getElementById('facebook-feed');
   if (feedContainer) {
-    const backendUrl = feedContainer.dataset.backendUrl || 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
+    const backendUrl = feedContainer.dataset.backendUrl || 'https://krucze-galery-upload-x6mr6ilyha-ew.a.run.app';
     const pageSize = parseInt(feedContainer.dataset.pageSize || '5');
 
     const feed = new FacebookFeed('facebook-feed', {

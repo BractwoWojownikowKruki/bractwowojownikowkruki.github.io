@@ -10,7 +10,7 @@ const INSTAGRAM_PROFILE_URL = 'https://www.instagram.com/kruki.brotherhood/';
 class InstagramFeed {
   constructor(containerId, options = {}) {
     this.container = document.getElementById(containerId);
-    this.backendUrl = options.backendUrl || 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
+    this.backendUrl = options.backendUrl || 'https://krucze-galery-upload-x6mr6ilyha-ew.a.run.app';
     // Compact mode: a single scrollable row of thumbnails, no header/"see more" chrome - used
     // when this widget is inlined between Facebook posts on mobile instead of shown in the
     // (now hidden-on-mobile) sidebar.

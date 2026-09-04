@@ -11,7 +11,7 @@ const ICON_CHEVRON_RIGHT = '<svg viewBox="0 0 24 24" fill="none" stroke="current
 // Cloud Run's own default URL rather than auth.js's UPLOAD_SERVICE_URL (api.kruki.org): that
 // domain mapping is Preview-status infrastructure accepted only for the login/session flow,
 // and this page shouldn't go down with it if it ever has a bad day.
-const ABOUT_US_BACKEND_URL = 'https://krucze-galery-upload-x6mr6ilyha-lm.a.run.app';
+const ABOUT_US_BACKEND_URL = 'https://krucze-galery-upload-x6mr6ilyha-ew.a.run.app';
 
 let people = [];
 let lightboxPersonIndex = -1;
