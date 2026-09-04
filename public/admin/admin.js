@@ -274,10 +274,10 @@ function renderManageList(people, transferTargets) {
         ? allPhotos.map(photo => photoItemHtml(p.folderId, photo, photo.isMain, transferTargets)).join('')
         : '<p style="color:var(--text-muted); font-size:13px;">Brak zdjęć.</p>';
       return `
-    <div style="border:1px solid var(--border); border-radius:6px; padding:1rem; margin-bottom:1rem;">
+    <div style="border:1px solid var(--border); border-radius:6px; padding:1rem;">
       <strong>${escapeHtml(p.name)}</strong>
       <div style="margin:0.5rem 0;">${photosHtml}</div>
-      <textarea class="edit-description" data-folder-id="${p.folderId}" rows="3" style="width:100%; margin:0.5rem 0;">${escapeHtml(p.description)}</textarea>
+      <textarea class="edit-description" data-folder-id="${p.folderId}" rows="6" style="width:100%; margin:0.5rem 0;">${escapeHtml(p.description)}</textarea>
       <button class="save-description" data-folder-id="${p.folderId}">Zapisz opis</button>
 
       <div style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap; margin:0.75rem 0;">

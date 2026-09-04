@@ -1566,6 +1566,13 @@ button.nav-item {
   align-items: center;
 }
 
+/* Strefa Członków's top-nav dropdown reuses .nav-item-dropdown's unconditional display:flex
+   above, so - same fight as .members-zone-sidebar/.members-zone-panel - its own [hidden]
+   attribute (set by nav.js's membership gate) needs an explicit override to actually hide it. */
+.nav-item-dropdown.members-zone-container[hidden] {
+  display: none;
+}
+
 .nav-dropdown-menu {
   display: none;
   position: absolute;
@@ -3025,4 +3032,29 @@ button.nav-item {
 .content-section .btn-time-travel:hover {
   background: var(--accent-dark);
   transform: translateY(-2px);
+}
+
+/* ── Panel Admina: manage-people list (public/admin/admin.js) ── */
+/* Two columns, filled row-by-row (grid's default auto-flow) so the existing top-to-bottom
+   order from the API response reads left-to-right, top-to-bottom - same order as the old
+   single-column list, just wrapped into two side-by-side columns instead of one long one.
+   Stacks back to a single column on narrow screens (below the shared 768px breakpoint). */
+#manage-people-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  #manage-people-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Bumped from the old rows="3" - the description is often the longest field in the card and
+   was clipping to a tiny box that needed constant internal scrolling to review or edit. */
+.edit-description {
+  min-height: 8rem;
+  resize: vertical;
 }

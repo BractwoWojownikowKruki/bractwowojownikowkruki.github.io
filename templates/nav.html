@@ -29,6 +29,24 @@
           <a href="/publiczne-materialy/archiwalna-wersja-strony/" class="nav-item nav-subitem">Archiwalna wersja strony</a>
         </div>
       </div>
+      <!-- Strefa Członków's top-nav home: shown on desktop as a folded dropdown (like "O nas"
+           above) alongside whatever the page's own sidebar/mobile-trigger copies show, and on
+           mobile it becomes the always-static nested list inside the hamburger (.nav-item-dropdown
+           mobile override), independent of the separate header trigger in .members-zone-mobile
+           above. Same members-zone-container/member-zone-link/admin-zone-link markup as the other
+           two copies, so nav.js's existing generic visibility gating (querySelectorAll across the
+           whole DOM) shows/hides this copy the same way with no JS changes. -->
+      <div class="nav-item-dropdown members-zone-container" id="members-zone-nav" hidden>
+        <button type="button" class="nav-item">Strefa Członków</button>
+        <div class="nav-dropdown-menu">
+          <a href="/galerie/" class="nav-item nav-subitem member-zone-link" hidden>Galerie</a>
+          <a href="/zasady-bractwa/" class="nav-item nav-subitem member-zone-link" hidden>Zasady Bractwa</a>
+          <a href="/poradnik-walki/" class="nav-item nav-subitem member-zone-link" hidden>Poradnik Walki</a>
+          <a href="/wojownicy/wrzuc/" class="nav-item nav-subitem member-zone-link" hidden>Mój profil</a>
+          <a href="/discord" class="nav-item nav-subitem member-zone-link" hidden target="_blank" rel="noopener noreferrer">Forum/Discord</a>
+          <a href="/admin/" class="nav-item nav-subitem admin-zone-link" hidden>Panel admina</a>
+        </div>
+      </div>
       <div class="nav-account-area">
         <a href="/logowanie/" class="nav-item" id="nav-login-link" hidden>Zaloguj się</a>
         <button type="button" class="nav-item" id="nav-logout-link" hidden>Wyloguj się</button>
@@ -50,7 +68,7 @@
           <a href="/galerie/" class="nav-item nav-subitem member-zone-link" hidden>Galerie</a>
           <a href="/zasady-bractwa/" class="nav-item nav-subitem member-zone-link" hidden>Zasady Bractwa</a>
           <a href="/poradnik-walki/" class="nav-item nav-subitem member-zone-link" hidden>Poradnik Walki</a>
-          <a href="/wojownicy/wrzuc/" class="nav-item nav-subitem member-zone-link" hidden>Wrzucam swoje zdjęcie</a>
+          <a href="/wojownicy/wrzuc/" class="nav-item nav-subitem member-zone-link" hidden>Mój profil</a>
           <a href="/discord" class="nav-item nav-subitem member-zone-link" hidden target="_blank" rel="noopener noreferrer">Forum/Discord</a>
           <a href="/admin/" class="nav-item nav-subitem admin-zone-link" hidden>Panel admina</a>
         </div>
