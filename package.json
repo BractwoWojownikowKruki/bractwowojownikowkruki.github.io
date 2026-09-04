@@ -6,7 +6,7 @@
     "sync-albums": "tsx scripts/sync-albums.ts",
     "sync-facebook": "tsx scripts/sync-facebook.ts",
     "test": "tsx --test scripts/*.test.ts",
-    "build": "mkdir -p dist && cp -r public/* dist/ && tsx scripts/inject-partials.ts && tsx scripts/generate-redirects.ts",
+    "build": "rm -rf dist && mkdir -p dist && cp -r public/* dist/ && tsx scripts/inject-partials.ts && tsx scripts/inject-pwa.ts && tsx scripts/build-pwa.ts && tsx scripts/generate-redirects.ts",
     "dev": "npm run build && npx serve dist"
   },
   "devDependencies": {
