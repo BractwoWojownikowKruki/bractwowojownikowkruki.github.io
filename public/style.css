@@ -1573,6 +1573,25 @@ button.nav-item {
   display: none;
 }
 
+/* Same card look as .members-zone-sidebar (surface fill, accent border) so this copy still
+   reads as the same "members-only area" regardless of which of the three places it appears in -
+   just boxed into the nav row's height instead of a full-height sidebar block. */
+.nav-item-dropdown.members-zone-container {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.3rem 0.75rem;
+}
+
+.nav-item-dropdown.members-zone-container > .nav-item {
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.nav-item-dropdown.members-zone-container .nav-dropdown-menu {
+  border-color: var(--accent);
+}
+
 .nav-dropdown-menu {
   display: none;
   position: absolute;
