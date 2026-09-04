@@ -6,7 +6,7 @@
     "sync-albums": "tsx scripts/sync-albums.ts",
     "sync-facebook": "tsx scripts/sync-facebook.ts",
     "test": "tsx --test scripts/*.test.ts",
-    "build": "rm -rf dist && mkdir -p dist && cp -r public/* dist/ && tsx scripts/inject-partials.ts && tsx scripts/inject-pwa.ts && tsx scripts/build-pwa.ts && tsx scripts/generate-redirects.ts",
+    "build": "BUILD_OUTPUT_DIR=\"${BUILD_OUTPUT_DIR:-dist}\"; export BUILD_OUTPUT_DIR; rm -rf \"$BUILD_OUTPUT_DIR\" && mkdir -p \"$BUILD_OUTPUT_DIR\" && cp -r public/* \"$BUILD_OUTPUT_DIR\" && tsx scripts/inject-partials.ts && tsx scripts/inject-pwa.ts && tsx scripts/build-pwa.ts && tsx scripts/generate-redirects.ts",
     "dev": "npm run build && npx serve dist"
   },
   "devDependencies": {

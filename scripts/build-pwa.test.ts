@@ -17,5 +17,5 @@ test('generates a deployment-versioned worker from approved built assets', () =>
   buildPwa(distDir, 'deployment-sha');
   const worker = readFileSync(join(distDir, 'service-worker.js'), 'utf8');
   assert.match(worker, /kruki-pwa-deployment-sha/);
-  assert.doesNotMatch(worker, /galerie\/thumbs/);
+  assert.doesNotMatch(worker, /galerie\/(?:covers|thumbs)|facebook\/images|api\.kruki\.org/);
 });

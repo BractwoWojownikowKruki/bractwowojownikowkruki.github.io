@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 
 export interface RedirectEntry {
   path: string;
@@ -58,7 +58,7 @@ export function renderRedirectPage(target: string): string {
 
 function main(): void {
   const root = new URL('..', import.meta.url).pathname;
-  const distDir = join(root, 'dist');
+  const distDir = process.env.BUILD_OUTPUT_DIR ? resolve(process.env.BUILD_OUTPUT_DIR) : join(root, 'dist');
   const redirectsPath = join(root, 'redirects.json');
   const entries: RedirectEntry[] = JSON.parse(readFileSync(redirectsPath, 'utf8'));
 

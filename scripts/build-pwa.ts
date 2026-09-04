@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { cacheNameForDeployment, PRECACHE_PATHS, renderServiceWorker, validatePrecacheAsset } from './pwa-policy.ts';
 
 /** Generates the deployment-specific browser worker from the final static output. */
@@ -17,5 +17,8 @@ export function buildPwa(distDir: string, deploymentId = process.env.GITHUB_SHA)
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  buildPwa(new URL('../dist', import.meta.url).pathname);
+  const distDir = process.env.BUILD_OUTPUT_DIR
+    ? resolve(process.env.BUILD_OUTPUT_DIR)
+    : new URL('../dist', import.meta.url).pathname;
+  buildPwa(distDir);
 }

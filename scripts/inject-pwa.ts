@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { isEligiblePublicDocument, isPwaExcludedPath } from './pwa-policy.ts';
 
 /** Categorizes a known static document so new pages cannot silently skip PWA policy review. */
@@ -31,7 +31,9 @@ function pathnameFor(distDir: string, file: string): string {
 }
 
 function main(): void {
-  const distDir = new URL('../dist', import.meta.url).pathname;
+  const distDir = process.env.BUILD_OUTPUT_DIR
+    ? resolve(process.env.BUILD_OUTPUT_DIR)
+    : new URL('../dist', import.meta.url).pathname;
   for (const file of visit(distDir)) {
     if (classifyPwaPage(pathnameFor(distDir, file)) !== 'eligible') continue;
     const html = readFileSync(file, 'utf8');

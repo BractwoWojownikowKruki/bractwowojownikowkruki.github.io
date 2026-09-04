@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 
 export function injectPartials(html: string, partials: Record<string, string>): string {
   return html.replace(/^[ \t]*<!--\s*PARTIAL:(\w+)\s*-->/gm, (match, name: string) => {
@@ -28,7 +28,7 @@ function findHtmlFiles(dir: string): string[] {
 function main(): void {
   const root = new URL('..', import.meta.url).pathname;
   const templatesDir = join(root, 'templates');
-  const distDir = join(root, 'dist');
+  const distDir = process.env.BUILD_OUTPUT_DIR ? resolve(process.env.BUILD_OUTPUT_DIR) : join(root, 'dist');
 
   const partials: Record<string, string> = {};
   for (const file of readdirSync(templatesDir)) {

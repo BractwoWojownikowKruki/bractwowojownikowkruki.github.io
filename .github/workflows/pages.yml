@@ -64,6 +64,7 @@ jobs:
           fi
 
       - name: Build site
+        # scripts/build-pwa.ts consumes the standard GitHub Actions GITHUB_SHA for cache versioning.
         run: npm run build
 
       - name: Setup Pages
