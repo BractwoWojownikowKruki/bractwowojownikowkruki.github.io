@@ -2295,25 +2295,24 @@ button.nav-item {
      display, which the membership-gated [hidden] attribute would then need to fight with. */
 .members-zone-mobile:not([hidden]) {
     display: flex;
-    align-items: center;
-    gap: 0.35rem;
   }
 
+  /* The install control and its message live inside #members-zone-panel (see
+     templates/nav.html), not beside the trigger - they're part of the dropdown's normal
+     flow, not a floating overlay, so they get the same horizontal inset as .nav-subitem
+     below them rather than absolute positioning. */
   .members-zone-mobile .members-zone-install {
+    margin: 0.3rem 1rem;
     padding: 0.25rem 0.45rem;
     font-size: 11px;
   }
 
   .members-zone-mobile .members-zone-install-message {
-    position: absolute;
-    top: calc(100% + 0.5rem);
-    right: 0;
-    width: min(240px, 80vw);
+    margin: 0 1rem 0.5rem;
     padding: 0.45rem 0.6rem;
     border: 1px solid var(--accent);
     border-radius: 4px;
     background: var(--surface);
-    z-index: 30;
   }
 
   /* .nav-item-dropdown is display:flex (row, centered) for desktop's single-line nav bar -
