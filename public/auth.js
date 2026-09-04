@@ -15,6 +15,15 @@
 const UPLOAD_SERVICE_URL = 'https://api.kruki.org';
 const GOOGLE_OAUTH_CLIENT_ID = '895090213384-cqac9v2tvmjhkkertjjj5q4h8qf41g3d.apps.googleusercontent.com';
 
+// One-time cleanup: pre-KRKG-0036 browsers may still carry the old bearer-token/membership
+// cache keys in localStorage. Nothing reads them anymore, so this just tidies them away.
+try {
+  localStorage.removeItem('kruki_id_token');
+  localStorage.removeItem('kruki_wojownicy_member');
+} catch {
+  // localStorage can throw in some privacy modes - nothing to clean up in that case either.
+}
+
 let pendingReauth = null;
 let pendingReauthHide = null;
 // Google Identity Services only keeps ONE active initialize() config per page - calling it
