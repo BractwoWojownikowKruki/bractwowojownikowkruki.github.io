@@ -1,0 +1,49 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createInMemoryFirestoreClient } from './firestore.ts';
+import { AuthError } from './auth.ts';
+import { getGrantedRoles, satisfiesRole, requireRole } from './roles.ts';
+
+test('getGrantedRoles returns [] when no userRoles doc exists', async () => {
+  const client = createInMemoryFirestoreClient();
+  const roles = await getGrantedRoles(client, 'plain@example.test');
+  assert.deepEqual(roles, []);
+});
+
+test('getGrantedRoles returns the stored roles array', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('userRoles', 'acc@example.test', { roles: ['accountant'] });
+  const roles = await getGrantedRoles(client, 'acc@example.test');
+  assert.deepEqual(roles, ['accountant']);
+});
+
+test('satisfiesRole: member requirement is always satisfied', () => {
+  assert.equal(satisfiesRole([], 'member'), true);
+  assert.equal(satisfiesRole(['accountant'], 'member'), true);
+});
+
+test('satisfiesRole: accountant requirement needs accountant or admin', () => {
+  assert.equal(satisfiesRole([], 'accountant'), false);
+  assert.equal(satisfiesRole(['accountant'], 'accountant'), true);
+  assert.equal(satisfiesRole(['admin'], 'accountant'), true);
+  assert.equal(satisfiesRole(['moderator'], 'accountant'), false);
+});
+
+test('satisfiesRole: admin requirement needs admin specifically', () => {
+  assert.equal(satisfiesRole(['accountant'], 'admin'), false);
+  assert.equal(satisfiesRole(['admin'], 'admin'), true);
+});
+
+test('requireRole resolves silently when satisfied', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('userRoles', 'admin@example.test', { roles: ['admin'] });
+  await requireRole(client, 'admin@example.test', 'accountant');
+});
+
+test('requireRole throws 403 AuthError when not satisfied', async () => {
+  const client = createInMemoryFirestoreClient();
+  await assert.rejects(
+    () => requireRole(client, 'plain@example.test', 'accountant'),
+    (err: unknown) => err instanceof AuthError && err.status === 403,
+  );
+});
