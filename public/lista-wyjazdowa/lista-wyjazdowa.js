@@ -43,6 +43,19 @@ function loadLookupLists() {
   return apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth);
 }
 
+// Same escapeHtml/escapeAttr pair as person-tile.js - the established pattern in this codebase
+// for interpolating user-controlled strings into an innerHTML template. Needed here because
+// equipment/companion name+description are member-entered free text, round-tripped straight back
+// into value="..." attributes on page load (initForm's prefill calls these same functions with
+// the member's own saved profile data) - unescaped, a stored `"><...` value becomes live markup.
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeAttr(str) {
+  return escapeHtml(str).replace(/"/g, '&quot;');
+}
+
 function populateSectionSelect(select, sections) {
   select.innerHTML = sections.map((s) => `<option value="${s.id}">${s.label}</option>`).join('');
 }
@@ -57,9 +70,9 @@ function addEquipmentRow(container, item = { id: '', name: '', description: '' }
   const row = document.createElement('div');
   row.className = 'equipment-row';
   row.innerHTML = `
-    <input type="hidden" class="equipment-id" value="${item.id}" />
-    <input type="text" class="equipment-name" placeholder="Nazwa" value="${item.name}" />
-    <input type="text" class="equipment-description" placeholder="Opis" value="${item.description}" />
+    <input type="hidden" class="equipment-id" value="${escapeAttr(item.id)}" />
+    <input type="text" class="equipment-name" placeholder="Nazwa" value="${escapeAttr(item.name)}" />
+    <input type="text" class="equipment-description" placeholder="Opis" value="${escapeAttr(item.description)}" />
     <button type="button" class="remove-row">Usuń</button>
   `;
   row.querySelector('.remove-row').addEventListener('click', () => row.remove());
@@ -70,8 +83,8 @@ function addCompanionRow(container, companion = { id: '', name: '' }) {
   const row = document.createElement('div');
   row.className = 'companion-row';
   row.innerHTML = `
-    <input type="hidden" class="companion-id" value="${companion.id}" />
-    <input type="text" class="companion-name" placeholder="Imię" value="${companion.name}" />
+    <input type="hidden" class="companion-id" value="${escapeAttr(companion.id)}" />
+    <input type="text" class="companion-name" placeholder="Imię" value="${escapeAttr(companion.name)}" />
     <button type="button" class="remove-row">Usuń</button>
   `;
   row.querySelector('.remove-row').addEventListener('click', () => row.remove());
