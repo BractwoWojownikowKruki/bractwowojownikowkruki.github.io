@@ -26,6 +26,10 @@ import {
   type AboutUsCategory,
   type AdminDepartment,
 } from './about-us.ts';
+import { createFirestoreClient, type FirestoreLikeClient } from './firestore.ts';
+import { getMember, saveMember, type MemberWritableFields } from './members.ts';
+import { getProfile, saveProfile, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
+import { getAllLookupLists } from './lookup-lists.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -37,6 +41,10 @@ const SUBMISSION_TTL_MS = 6 * 60 * 60 * 1000;
 export interface ServerDeps {
   drive: DriveClient;
   github: GithubClient;
+  // Lista Wyjazdowa's own document store (Task 1) - Firestore rather than a Sheet/Drive file,
+  // since these routes read/write structured per-member records (member profile, equipment,
+  // lookup lists) keyed by email, not a flat list a human edits directly.
+  firestore: FirestoreLikeClient;
   // Cookie-based (verifySessionRequest under the hood, KRKG-0036 Phase 1 cutover): verifies the
   // session cookie, re-checks the live general-kruki allowlist, and renews the cookie on `res`
   // if the sliding window is due. Returns the full SessionClaims (a superset of the old
@@ -871,6 +879,54 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
   sendJson(res, 200, { ok: true });
 }
 
+// Lista Wyjazdowa (KRKG's trip-roster feature, Plan A) - same authenticateWojownicyUpload gate
+// as the rest of this cluster (live kruki Google Group membership), since every route here
+// reads or writes only the caller's own member/profile record, keyed by their session email.
+async function handleListaWyjazdowaGetMember(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const member = await getMember(deps.firestore, identity.email);
+  sendJson(res, 200, { member });
+}
+
+async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Partial<MemberWritableFields>>(req, deps.maxJsonBodyBytes);
+  if (!body.fullName || !body.sectionId) {
+    throw new AuthError('Imię i nazwisko oraz sekcja są wymagane.', 400);
+  }
+  const fields: MemberWritableFields = {
+    fullName: body.fullName,
+    nickname: body.nickname ?? null,
+    sectionId: body.sectionId,
+  };
+  const member = await saveMember(deps.firestore, identity.email, fields);
+  sendJson(res, 200, { member });
+}
+
+async function handleListaWyjazdowaGetProfile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const profile = await getProfile(deps.firestore, identity.email);
+  sendJson(res, 200, { profile });
+}
+
+async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Partial<ProfileWritableFields>>(req, deps.maxJsonBodyBytes);
+  const fields: ProfileWritableFields = {
+    weaponIds: body.weaponIds ?? [],
+    equipment: body.equipment ?? [],
+    companions: body.companions ?? [],
+  };
+  const profile = await saveProfile(deps.firestore, identity.email, fields);
+  sendJson(res, 200, { profile });
+}
+
+async function handleListaWyjazdowaLookupLists(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req, res);
+  const lists = await getAllLookupLists(deps.firestore);
+  sendJson(res, 200, lists);
+}
+
 // Structured console log for every destructive gallery action (KRKG-0027's audit requirement) -
 // actor, target, outcome, and a correlation id tying a single request's attempt/result together
 // in Cloud Run's log output. No dedicated logging store exists in this project; console.log is
@@ -1356,6 +1412,16 @@ export function createRequestListener(deps: ServerDeps) {
         await handleWojownicyUploadPhoto(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/wojownicy-docs') {
         await handleWojownicyDoc(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/member') {
+        await handleListaWyjazdowaGetMember(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/member') {
+        await handleListaWyjazdowaPutMember(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/profile') {
+        await handleListaWyjazdowaGetProfile(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/profile') {
+        await handleListaWyjazdowaPutProfile(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/lookup-lists') {
+        await handleListaWyjazdowaLookupLists(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
         if (!rejectIfRateLimited(req, res)) await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {
@@ -1448,6 +1514,7 @@ async function startProductionServer(): Promise<void> {
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps, docsDriveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
+    firestore: createFirestoreClient(config.firestoreProjectId),
     authenticate: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, groupAllowlist),
     authenticateWithStepUp: withStepUp(groupAllowlist),
     authenticateAdmin: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, adminAllowlist),

@@ -19,6 +19,7 @@ import type { GithubClient } from './github.ts';
 import { resetAboutUsBootstrapForTests } from './about-us.ts';
 import { resetSettingsBootstrapForTests } from './settings.ts';
 import { resetRateLimitForTests } from './rate-limit.ts';
+import { createInMemoryFirestoreClient } from './firestore.ts';
 
 // Every real caller has sent Origin on every state-changing request since Phase 0 made
 // www.kruki.org -> api.kruki.org cross-origin (cross-origin fetches always include it) - the
@@ -94,6 +95,10 @@ function makeFakeGithub(overrides: Partial<GithubClient> = {}): GithubClient {
   };
 }
 
+function makeFakeFirestore() {
+  return createInMemoryFirestoreClient();
+}
+
 function fakeSessionClaims(overrides: Partial<SessionClaims> = {}): SessionClaims {
   return {
     v: 'v1',
@@ -111,6 +116,7 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
   return {
     drive: makeFakeDrive(),
     github: makeFakeGithub(),
+    firestore: overrides.firestore ?? makeFakeFirestore(),
     authenticate: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
     authenticateWithStepUp: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
     authenticateAdmin: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
@@ -2780,3 +2786,63 @@ for (const { method, path, stepUpDep } of READ_ONLY_ROUTES_SHARING_A_ROLE) {
     });
   });
 }
+
+test('GET /lista-wyjazdowa/member returns null when the caller has no record yet', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/member`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { member: null });
+  });
+});
+
+test('PUT /lista-wyjazdowa/member creates the caller\'s own record, ignoring categoryId in the body', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/member`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fullName: 'Ala Kowalska',
+        nickname: 'Alka',
+        sectionId: 'krakow',
+        categoryId: 'blacha', // must be ignored — not member-writable
+      }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.member.fullName, 'Ala Kowalska');
+    assert.equal(body.member.categoryId, null);
+  });
+});
+
+test('GET /lista-wyjazdowa/lookup-lists returns seeded lists', async () => {
+  const firestore = makeFakeFirestore();
+  firestore.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/lookup-lists`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.sections.length, 1);
+  });
+});
+
+test('PUT /lista-wyjazdowa/profile creates the caller\'s own profile', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        weaponIds: ['tarczownik'],
+        equipment: [],
+        companions: [],
+      }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.profile.weaponIds, ['tarczownik']);
+    assert.equal(body.profile.wpisowePaid, false);
+  });
+});

@@ -48,6 +48,11 @@ export const config = {
   docsClientId: process.env.DOCS_CLIENT_ID,
   docsClientSecret: process.env.DOCS_CLIENT_SECRET,
   docsRefreshToken: process.env.DOCS_REFRESH_TOKEN,
+  // Firestore project for Lista Wyjazdowa's member/profile/lookup-list data (Tasks 1-6) -
+  // optional/undefined until that one-time setup is done, same convention as docsClientId above:
+  // undefined lets @google-cloud/firestore fall back to ADC's default project rather than
+  // failing the whole service's boot over a not-yet-provisioned Firestore database.
+  firestoreProjectId: process.env.FIRESTORE_PROJECT_ID,
   // Same Apps Script pattern as wojownicyUploadGroupUrl above, but for a moderator group that
   // does not exist yet (see KRKG-0027) - gates destructive gallery actions (/delete-drive-gallery,
   // /unregister). Deliberately optional and undefined by default: until this is set to a real
