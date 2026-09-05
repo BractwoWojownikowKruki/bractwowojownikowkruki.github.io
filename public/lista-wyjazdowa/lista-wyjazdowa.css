@@ -1,0 +1,149 @@
+/* Lista Wyjazdowa profile form - layout for the pieces style.css doesn't already cover
+   (.field, .add-album-*, .upload-*, .crop-modal* are all shared and reused unchanged). */
+
+.lw-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.lw-fieldset legend {
+  font-family: 'Cinzel', serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--gold);
+  padding: 0 0.4rem;
+}
+
+.lw-category-readout {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: -0.5rem 0 1.5rem;
+}
+
+.lw-hint {
+  color: var(--text-faint);
+  font-size: 12px;
+  margin: -0.4rem 0 0.75rem;
+}
+
+.lw-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.5rem 1rem;
+}
+
+.lw-checkbox-grid label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.lw-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.equipment-row,
+.companion-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.companion-row {
+  grid-template-columns: 1fr auto;
+}
+
+.equipment-row input[type="text"],
+.companion-row input[type="text"] {
+  padding: 9px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+
+.equipment-row input[type="text"]:focus,
+.companion-row input[type="text"]:focus {
+  border-color: var(--accent);
+}
+
+.equipment-row .remove-row,
+.companion-row .remove-row {
+  padding: 8px 0.9rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.equipment-row .remove-row:hover,
+.companion-row .remove-row:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.lw-photo-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.lw-photo-thumb {
+  width: 120px;
+  text-align: center;
+}
+
+.lw-photo-thumb img {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: block;
+}
+
+.lw-photo-thumb p {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0.35rem 0;
+}
+
+.lw-photo-thumb .lw-crop-btn {
+  width: 100%;
+  padding: 6px 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.lw-photo-thumb .lw-crop-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+@media (max-width: 600px) {
+  .equipment-row {
+    grid-template-columns: 1fr;
+  }
+  .companion-row {
+    grid-template-columns: 1fr;
+  }
+}

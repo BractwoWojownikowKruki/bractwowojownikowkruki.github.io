@@ -36,7 +36,15 @@ export const PUBLIC_PWA_PATHS = new Set([
 ]);
 
 /** Paths whose documents and responses must never receive offline handling. */
-export const GATED_PATH_PREFIXES = ['/admin/', '/galerie/', '/logowanie/', '/wojownicy/wrzuc/'] as const;
+export const GATED_PATH_PREFIXES = [
+  '/admin/',
+  '/galerie/',
+  '/logowanie/',
+  '/wojownicy/wrzuc/',
+  // KRKG-0037: replaces /wojownicy/wrzuc/ and carries the same personal-data/photo-upload
+  // sensitivity (plus member profile fields wrzuc.js never had) - same exclusion.
+  '/lista-wyjazdowa/',
+] as const;
 
 /** Returns whether a pathname belongs to the intentionally public PWA entry-point set. */
 export function isEligiblePublicDocument(pathname: string): boolean {
