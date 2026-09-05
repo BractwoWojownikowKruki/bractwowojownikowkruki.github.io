@@ -7,14 +7,22 @@ import { createFirestoreClient } from '../src/firestore.ts';
 
 const client = createFirestoreClient();
 
+function slugify(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/ł/g, 'l')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+}
+
 const sections = ['Bydgoszcz', 'Czukcze', 'Kraków', 'Poznań', 'Warszawa', 'Wrocław'].map((label) => ({
-  id: label.toLowerCase(),
+  id: slugify(label),
   label,
   retired: false,
 }));
 
 const categories = ['Brokuł', 'Kandydat', 'Blacha', 'Thing', 'Niewiasta', 'Bobo', 'Inne'].map((label) => ({
-  id: label.toLowerCase(),
+  id: slugify(label),
   label,
   retired: false,
 }));
