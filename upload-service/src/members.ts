@@ -22,6 +22,15 @@ export async function getMember(client: FirestoreLikeClient, email: string): Pro
   return client.getDoc<MemberDoc>(COLLECTION, email.toLowerCase());
 }
 
+/**
+ * Self-service write of the caller's own identity record.
+ *
+ * Only the member-writable fields are sent to Firestore; `categoryId` and `driveFolderId` are
+ * admin-owned (design.md §7) and are never named in the update, so the merging write
+ * (`FirestoreLikeClient.setDoc`) leaves whatever the admin set there - including a value written
+ * concurrently with this save, and including fields this codebase does not model - untouched.
+ * They are only written on first creation, to give a brand-new document its complete shape.
+ */
 export async function saveMember(
   client: FirestoreLikeClient,
   email: string,
@@ -29,15 +38,21 @@ export async function saveMember(
 ): Promise<MemberDoc> {
   const id = email.toLowerCase();
   const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
-  const doc: MemberDoc = {
+  const writable = {
     fullName: fields.fullName,
     nickname: fields.nickname,
     sectionId: fields.sectionId,
-    categoryId: existing?.categoryId ?? null,
-    driveFolderId: existing?.driveFolderId ?? null,
     updatedAt: new Date().toISOString(),
     updatedBy: id,
   };
-  await client.setDoc(COLLECTION, id, doc);
-  return doc;
+  await client.setDoc(
+    COLLECTION,
+    id,
+    existing ? writable : { ...writable, categoryId: null, driveFolderId: null },
+  );
+  return {
+    ...writable,
+    categoryId: existing?.categoryId ?? null,
+    driveFolderId: existing?.driveFolderId ?? null,
+  };
 }

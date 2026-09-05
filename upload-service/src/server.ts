@@ -882,6 +882,50 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
 // Lista Wyjazdowa (KRKG's trip-roster feature, Plan A) - same authenticateWojownicyUpload gate
 // as the rest of this cluster (live kruki Google Group membership), since every route here
 // reads or writes only the caller's own member/profile record, keyed by their session email.
+
+// Free-text length caps. maxJsonBodyBytes already bounds a request as a whole; these keep a
+// single field from being the thing that fills it, and keep the roster/summary views (Plan B)
+// renderable.
+const LW_MAX_NAME_LENGTH = 120;
+const LW_MAX_DESCRIPTION_LENGTH = 500;
+
+// The PUT bodies are untrusted JSON, not the typed shapes TypeScript's `Partial<...>` annotation
+// pretends they are: without these guards a `{"equipment": "x"}` reaches saveProfile's `.map()`
+// and surfaces as an uncaught 500 rather than a clean, Polish-language 400.
+function requireTrimmedString(value: unknown, maxLength: number, message: string): string {
+  if (typeof value !== 'string') throw new AuthError(message, 400);
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maxLength) throw new AuthError(message, 400);
+  return trimmed;
+}
+
+function optionalTrimmedString(value: unknown, maxLength: number, message: string): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  return requireTrimmedString(value, maxLength, message);
+}
+
+// Absent means "nothing of this kind", which is a legitimate profile (no weapons yet, no camp
+// equipment); anything present but non-array is a malformed request.
+function requireArray(value: unknown, message: string): unknown[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new AuthError(message, 400);
+  return value;
+}
+
+function requireObject(value: unknown, message: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new AuthError(message, 400);
+  return value as Record<string, unknown>;
+}
+
+// Referential integrity against lookupLists, which Firestore itself cannot enforce (no foreign
+// keys - design.md §5). Without this a member can persist a sectionId that resolves to nothing,
+// which would silently break Plan B's roster grouping by Sekcja. Retired items are accepted on
+// purpose: "retired" withdraws a value from *new* selection in the UI, it does not invalidate
+// the profiles already referencing it, so someone whose section was retired can still re-save.
+function requireKnownLookupId(items: { id: string }[], id: string, message: string): void {
+  if (!items.some((item) => item.id === id)) throw new AuthError(message, 400);
+}
+
 async function handleListaWyjazdowaGetMember(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const member = await getMember(deps.firestore, identity.email);
@@ -890,15 +934,22 @@ async function handleListaWyjazdowaGetMember(req: IncomingMessage, res: ServerRe
 
 async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  const body = await readJsonBody<Partial<MemberWritableFields>>(req, deps.maxJsonBodyBytes);
-  if (!body.fullName || !body.sectionId) {
-    throw new AuthError('Imię i nazwisko oraz sekcja są wymagane.', 400);
-  }
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const fields: MemberWritableFields = {
-    fullName: body.fullName,
-    nickname: body.nickname ?? null,
-    sectionId: body.sectionId,
+    fullName: requireTrimmedString(
+      body.fullName,
+      LW_MAX_NAME_LENGTH,
+      `Imię i nazwisko jest wymagane (maks. ${LW_MAX_NAME_LENGTH} znaków).`,
+    ),
+    nickname: optionalTrimmedString(
+      body.nickname,
+      LW_MAX_NAME_LENGTH,
+      `Ksywa może mieć najwyżej ${LW_MAX_NAME_LENGTH} znaków.`,
+    ),
+    sectionId: requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.'),
   };
+  const lookupLists = await getAllLookupLists(deps.firestore);
+  requireKnownLookupId(lookupLists.sections, fields.sectionId, 'Wybrana sekcja nie istnieje.');
   const member = await saveMember(deps.firestore, identity.email, fields);
   sendJson(res, 200, { member });
 }
@@ -911,12 +962,51 @@ async function handleListaWyjazdowaGetProfile(req: IncomingMessage, res: ServerR
 
 async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  const body = await readJsonBody<Partial<ProfileWritableFields>>(req, deps.maxJsonBodyBytes);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  // wpisowePaid is accountant/admin-only (design.md §7a) and is simply never read out of the
+  // body here - saveProfile carries the stored value forward, so sending it has no effect.
   const fields: ProfileWritableFields = {
-    weaponIds: body.weaponIds ?? [],
-    equipment: body.equipment ?? [],
-    companions: body.companions ?? [],
+    weaponIds: requireArray(body.weaponIds, 'Lista broni ma nieprawidłowy format.').map((id) =>
+      requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista broni ma nieprawidłowy format.'),
+    ),
+    equipment: requireArray(body.equipment, 'Lista sprzętu obozowego ma nieprawidłowy format.').map((raw) => {
+      const item = requireObject(raw, 'Lista sprzętu obozowego ma nieprawidłowy format.');
+      return {
+        id: optionalTrimmedString(item.id, LW_MAX_NAME_LENGTH, 'Lista sprzętu obozowego ma nieprawidłowy format.') ?? '',
+        name: requireTrimmedString(
+          item.name,
+          LW_MAX_NAME_LENGTH,
+          `Nazwa sprzętu jest wymagana (maks. ${LW_MAX_NAME_LENGTH} znaków).`,
+        ),
+        description:
+          optionalTrimmedString(
+            item.description,
+            LW_MAX_DESCRIPTION_LENGTH,
+            `Opis sprzętu może mieć najwyżej ${LW_MAX_DESCRIPTION_LENGTH} znaków.`,
+          ) ?? '',
+      };
+    }),
+    companions: requireArray(body.companions, 'Lista osób towarzyszących ma nieprawidłowy format.').map((raw) => {
+      const companion = requireObject(raw, 'Lista osób towarzyszących ma nieprawidłowy format.');
+      return {
+        id:
+          optionalTrimmedString(
+            companion.id,
+            LW_MAX_NAME_LENGTH,
+            'Lista osób towarzyszących ma nieprawidłowy format.',
+          ) ?? '',
+        name: requireTrimmedString(
+          companion.name,
+          LW_MAX_NAME_LENGTH,
+          `Imię osoby towarzyszącej jest wymagane (maks. ${LW_MAX_NAME_LENGTH} znaków).`,
+        ),
+      };
+    }),
   };
+  const lookupLists = await getAllLookupLists(deps.firestore);
+  for (const weaponId of fields.weaponIds) {
+    requireKnownLookupId(lookupLists.weapons, weaponId, 'Wybrana broń nie istnieje.');
+  }
   const profile = await saveProfile(deps.firestore, identity.email, fields);
   sendJson(res, 200, { profile });
 }

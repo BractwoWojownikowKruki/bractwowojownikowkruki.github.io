@@ -56,13 +56,27 @@ function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
-function populateSectionSelect(select, sections) {
-  select.innerHTML = sections.map((s) => `<option value="${s.id}">${s.label}</option>`).join('');
+// A retired lookup item (design.md §5) is withdrawn from *new* use, but must keep resolving for
+// profiles that already reference it - so it is offered only to the member who already has it
+// selected. Filtering blindly would silently blank out their saved Sekcja/Broń on the next save
+// (and, for Sekcja, produce a value the server now rejects as unknown), which is exactly the
+// breakage "retired instead of deleted" exists to avoid.
+function selectableLookupItems(items, selectedIds) {
+  return items.filter((item) => !item.retired || selectedIds.includes(item.id));
 }
 
-function populateWeaponCheckboxes(container, weapons) {
-  container.innerHTML = weapons
-    .map((w) => `<label><input type="checkbox" name="weaponIds" value="${w.id}" /> ${w.label}</label>`)
+function populateSectionSelect(select, sections, currentSectionId) {
+  select.innerHTML = selectableLookupItems(sections, currentSectionId ? [currentSectionId] : [])
+    .map((s) => `<option value="${escapeAttr(s.id)}">${escapeHtml(s.label)}</option>`)
+    .join('');
+}
+
+function populateWeaponCheckboxes(container, weapons, currentWeaponIds) {
+  container.innerHTML = selectableLookupItems(weapons, currentWeaponIds)
+    .map(
+      (w) =>
+        `<label><input type="checkbox" name="weaponIds" value="${escapeAttr(w.id)}" /> ${escapeHtml(w.label)}</label>`,
+    )
     .join('');
 }
 
@@ -91,19 +105,26 @@ function addCompanionRow(container, companion = { id: '', name: '' }) {
   container.appendChild(row);
 }
 
+// Rows left completely blank (added with "Dodaj sprzęt"/"Dodaj osobę" and then abandoned) are
+// dropped rather than submitted: the server rejects a nameless entry with a 400, and failing the
+// whole save over an empty leftover row would be a poor trade for a form this long.
 function readEquipmentRows(container) {
-  return Array.from(container.querySelectorAll('.equipment-row')).map((row) => ({
-    id: row.querySelector('.equipment-id').value,
-    name: row.querySelector('.equipment-name').value,
-    description: row.querySelector('.equipment-description').value,
-  }));
+  return Array.from(container.querySelectorAll('.equipment-row'))
+    .map((row) => ({
+      id: row.querySelector('.equipment-id').value,
+      name: row.querySelector('.equipment-name').value,
+      description: row.querySelector('.equipment-description').value,
+    }))
+    .filter((item) => item.name.trim());
 }
 
 function readCompanionRows(container) {
-  return Array.from(container.querySelectorAll('.companion-row')).map((row) => ({
-    id: row.querySelector('.companion-id').value,
-    name: row.querySelector('.companion-name').value,
-  }));
+  return Array.from(container.querySelectorAll('.companion-row'))
+    .map((row) => ({
+      id: row.querySelector('.companion-id').value,
+      name: row.querySelector('.companion-name').value,
+    }))
+    .filter((companion) => companion.name.trim());
 }
 
 // ── Photo selection + crop modal (ported from wojownicy/wrzuc/wrzuc.js) ─────────────────────
@@ -247,11 +268,22 @@ async function uploadPhoto(folderId, submissionToken, entry, isMain) {
 
 // ── Form ────────────────────────────────────────────────────────────────────────────────────
 
+// Clears the photo picker after a successful upload so a follow-up edit (see the "Edytuj profil"
+// button below) doesn't re-submit the same photos into a second Drive folder.
+function resetPhotoSelection() {
+  photoEntries = [];
+  document.getElementById('lw-main-photo').value = '';
+  document.getElementById('lw-extra-photos').value = '';
+  renderPhotoPreview();
+}
+
+function fillRows(container, items, addRow) {
+  container.innerHTML = '';
+  for (const item of items) addRow(container, item);
+}
+
 async function initForm(lookupLists) {
   const form = document.getElementById('profile-form');
-  populateSectionSelect(form.sectionId, lookupLists.sections);
-  populateWeaponCheckboxes(document.getElementById('weapons-checkboxes'), lookupLists.weapons);
-
   const equipmentContainer = document.getElementById('equipment-rows');
   const companionContainer = document.getElementById('companion-rows');
   document.getElementById('add-equipment-row').addEventListener('click', () => addEquipmentRow(equipmentContainer));
@@ -288,7 +320,7 @@ async function initForm(lookupLists) {
         hideReauth,
       );
 
-      await apiFetch(
+      const { profile: savedProfile } = await apiFetch(
         '/lista-wyjazdowa/profile',
         {
           method: 'PUT',
@@ -331,6 +363,17 @@ async function initForm(lookupLists) {
         }
       }
 
+      // Re-seed the rows from the server's response so the ids it just generated for brand-new
+      // equipment/companions are carried by the form: without this, editing and re-saving would
+      // send blank ids again and mint a duplicate id for the same item on every save.
+      fillRows(equipmentContainer, savedProfile.equipment, addEquipmentRow);
+      fillRows(companionContainer, savedProfile.companions, addCompanionRow);
+      resetPhotoSelection();
+
+      // The form stays fully populated and re-submittable behind the confirmation panel - the
+      // "Edytuj profil" button on it just switches back (design.md §8 point 4).
+      progressEl.hidden = true;
+      submitBtn.disabled = false;
       showOnly(panels.saved);
     } catch (err) {
       errorEl.textContent = `Błąd: ${err.message}`;
@@ -340,45 +383,58 @@ async function initForm(lookupLists) {
     }
   });
 
+  // The lookup dropdown/checkboxes are populated *after* this fetch, not before it, because
+  // whether a retired Sekcja/Broń may be offered depends on what this member already has saved
+  // (see selectableLookupItems). A failed fetch falls through with null member/profile, which
+  // still renders every non-retired option - a usable blank form.
+  let member = null;
+  let profile = null;
+  let loadError = null;
   try {
-    const [{ member }, { profile }] = await Promise.all([
+    const [memberResponse, profileResponse] = await Promise.all([
       apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
       apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
     ]);
-
-    // A member+profile pair already exists: this is Plan A's deliberate onboarding-once flow
-    // (see #profile-saved-panel's note in index.html) - Plan B replaces this end state with the
-    // real events list. Returning here re-shows the placeholder rather than an editable form.
-    if (member && profile) {
-      showOnly(panels.saved);
-      return;
-    }
-
-    if (member) {
-      form.fullName.value = member.fullName;
-      form.nickname.value = member.nickname ?? '';
-      form.sectionId.value = member.sectionId;
-      document.getElementById('category-readout').textContent =
-        lookupLists.categories.find((c) => c.id === member.categoryId)?.label ?? '—';
-    }
-    if (profile) {
-      for (const cb of form.querySelectorAll('input[name="weaponIds"]')) {
-        cb.checked = profile.weaponIds.includes(cb.value);
-      }
-      for (const item of profile.equipment) addEquipmentRow(equipmentContainer, item);
-      for (const c of profile.companions) addCompanionRow(companionContainer, c);
-    }
+    member = memberResponse.member;
+    profile = profileResponse.profile;
   } catch (err) {
-    // The form itself is already fully wired at this point (dropdown/checkboxes populated,
-    // submit handler attached above) - a failure here just means we couldn't confirm/prefill
-    // existing data, not that the form is unusable, so keep it visible rather than block on it.
+    loadError = err;
+  }
+
+  populateSectionSelect(form.sectionId, lookupLists.sections, member?.sectionId ?? null);
+  populateWeaponCheckboxes(document.getElementById('weapons-checkboxes'), lookupLists.weapons, profile?.weaponIds ?? []);
+
+  // An existing member/profile prefills the same form rather than locking it: a member must
+  // always be able to come back and fix a typo, change section/weapons, or add equipment
+  // (design.md §8 point 4) - this page replaced the always-editable /wojownicy/wrzuc/.
+  if (member) {
+    form.fullName.value = member.fullName;
+    form.nickname.value = member.nickname ?? '';
+    form.sectionId.value = member.sectionId;
+    document.getElementById('category-readout').textContent =
+      lookupLists.categories.find((c) => c.id === member.categoryId)?.label ?? '—';
+  }
+  if (profile) {
+    for (const cb of form.querySelectorAll('input[name="weaponIds"]')) {
+      cb.checked = profile.weaponIds.includes(cb.value);
+    }
+    fillRows(equipmentContainer, profile.equipment, addEquipmentRow);
+    fillRows(companionContainer, profile.companions, addCompanionRow);
+  }
+
+  if (loadError) {
+    // The form is fully usable at this point (options rendered, submit handler attached) - the
+    // failure only means we couldn't confirm/prefill existing data, so show it as a warning on
+    // the form instead of blocking on it.
     const errorEl = document.getElementById('profile-form-error');
-    errorEl.textContent = `Nie udało się wczytać zapisanych danych: ${err.message}`;
+    errorEl.textContent = `Nie udało się wczytać zapisanych danych: ${loadError.message}`;
     errorEl.hidden = false;
   }
 
   showOnly(panels.form);
 }
+
+document.getElementById('back-to-profile-form').addEventListener('click', () => showOnly(panels.form));
 
 initGoogleSignIn({
   buttonIds: ['google-signin-button', 'google-reauth-button'],

@@ -36,6 +36,14 @@ export async function getProfile(
   return client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, email.toLowerCase());
 }
 
+/**
+ * Self-service write of the caller's own Lista Wyjazdowa profile.
+ *
+ * `wpisowePaid` is accountant/admin-only (design.md §7a/§9), so - exactly like `members.categoryId`
+ * in `saveMember` - it is deliberately left out of the update payload and relies on the merging
+ * write in `FirestoreLikeClient.setDoc` to survive untouched; it is only written on first creation,
+ * to give a brand-new document its complete shape.
+ */
 export async function saveProfile(
   client: FirestoreLikeClient,
   email: string,
@@ -43,14 +51,13 @@ export async function saveProfile(
 ): Promise<ListaWyjazdowaProfileDoc> {
   const id = email.toLowerCase();
   const existing = await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id);
-  const doc: ListaWyjazdowaProfileDoc = {
+  const writable = {
     weaponIds: fields.weaponIds,
     equipment: fields.equipment.map((e) => ({ ...e, id: e.id || randomUUID() })),
     companions: fields.companions.map((c) => ({ ...c, id: c.id || randomUUID() })),
-    wpisowePaid: existing?.wpisowePaid ?? false,
     updatedAt: new Date().toISOString(),
     updatedBy: id,
   };
-  await client.setDoc(COLLECTION, id, doc);
-  return doc;
+  await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, wpisowePaid: false });
+  return { ...writable, wpisowePaid: existing?.wpisowePaid ?? false };
 }

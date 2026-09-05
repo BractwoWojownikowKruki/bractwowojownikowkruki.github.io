@@ -2787,6 +2787,35 @@ for (const { method, path, stepUpDep } of READ_ONLY_ROUTES_SHARING_A_ROLE) {
   });
 }
 
+// Both Lista Wyjazdowa PUTs validate the submitted sectionId/weaponIds against lookupLists
+// (Firestore has no foreign keys — design.md §5), so every write test needs the lists seeded.
+// 'czukcze' is seeded as retired on purpose: retired means "not offered for new selection in the
+// UI", not "rejected by the server", so members already in it can still re-save.
+function makeListaWyjazdowaFirestore() {
+  const firestore = makeFakeFirestore();
+  firestore.seed('lookupLists', 'sections', {
+    items: [
+      { id: 'krakow', label: 'Kraków', retired: false },
+      { id: 'czukcze', label: 'Czukcze', retired: true },
+    ],
+  });
+  firestore.seed('lookupLists', 'weapons', {
+    items: [
+      { id: 'tarczownik', label: 'Tarczownik', retired: false },
+      { id: 'wlocznik', label: 'Włócznik', retired: false },
+    ],
+  });
+  return firestore;
+}
+
+function putListaWyjazdowa(baseUrl: string, path: string, body: unknown): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 test('GET /lista-wyjazdowa/member returns null when the caller has no record yet', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
@@ -2796,23 +2825,69 @@ test('GET /lista-wyjazdowa/member returns null when the caller has no record yet
   });
 });
 
-test('PUT /lista-wyjazdowa/member creates the caller\'s own record, ignoring categoryId in the body', async () => {
+test('GET /lista-wyjazdowa/profile returns null when the caller has no profile yet', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/lista-wyjazdowa/member`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fullName: 'Ala Kowalska',
-        nickname: 'Alka',
-        sectionId: 'krakow',
-        categoryId: 'blacha', // must be ignored — not member-writable
-      }),
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { profile: null });
+  });
+});
+
+test('PUT /lista-wyjazdowa/member creates the caller\'s own record, ignoring categoryId in the body', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', {
+      fullName: 'Ala Kowalska',
+      nickname: 'Alka',
+      sectionId: 'krakow',
+      categoryId: 'blacha', // must be ignored — not member-writable
     });
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.member.fullName, 'Ala Kowalska');
     assert.equal(body.member.categoryId, null);
+  });
+});
+
+for (const [label, body] of [
+  ['a missing fullName', { sectionId: 'krakow' }],
+  ['a whitespace-only fullName', { fullName: '   ', sectionId: 'krakow' }],
+  ['a missing sectionId', { fullName: 'Ala Kowalska' }],
+  ['a whitespace-only sectionId', { fullName: 'Ala Kowalska', sectionId: ' ' }],
+  ['a non-string fullName', { fullName: 42, sectionId: 'krakow' }],
+] as const) {
+  test(`PUT /lista-wyjazdowa/member rejects ${label} with 400`, async () => {
+    const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+    await withServer(deps, async baseUrl => {
+      const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', body);
+      assert.equal(res.status, 400);
+    });
+  });
+}
+
+test('PUT /lista-wyjazdowa/member rejects a sectionId that is not in lookupLists', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', {
+      fullName: 'Ala Kowalska',
+      sectionId: 'atlantyda',
+    });
+    assert.equal(res.status, 400);
+    const stored = await (await fetch(`${baseUrl}/lista-wyjazdowa/member`)).json();
+    assert.equal(stored.member, null, 'a rejected write must not have been persisted');
+  });
+});
+
+test('PUT /lista-wyjazdowa/member still accepts a retired section the member is already in', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', {
+      fullName: 'Ala Kowalska',
+      sectionId: 'czukcze',
+    });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).member.sectionId, 'czukcze');
   });
 });
 
@@ -2829,20 +2904,77 @@ test('GET /lista-wyjazdowa/lookup-lists returns seeded lists', async () => {
 });
 
 test('PUT /lista-wyjazdowa/profile creates the caller\'s own profile', async () => {
-  const deps = makeDeps();
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
   await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        weaponIds: ['tarczownik'],
-        equipment: [],
-        companions: [],
-      }),
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
+      weaponIds: ['tarczownik'],
+      equipment: [],
+      companions: [],
     });
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.deepEqual(body.profile.weaponIds, ['tarczownik']);
     assert.equal(body.profile.wpisowePaid, false);
+  });
+});
+
+// wpisowePaid is the accountant/admin-only field (design.md §7a/§9); the module-level
+// "preserved on update" test would still pass if the HTTP handler started trusting the request
+// body, so the ignore-the-body invariant is asserted here, at the edge that receives it.
+test('PUT /lista-wyjazdowa/profile ignores wpisowePaid sent in the body', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const created = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
+      weaponIds: ['tarczownik'],
+      equipment: [],
+      companions: [],
+      wpisowePaid: true, // must be ignored — accountant/admin-only
+    });
+    assert.equal(created.status, 200);
+    assert.equal((await created.json()).profile.wpisowePaid, false);
+
+    // ...and again on an update, where the stored value is what has to win.
+    const updated = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
+      weaponIds: ['wlocznik'],
+      equipment: [],
+      companions: [],
+      wpisowePaid: true,
+    });
+    assert.equal(updated.status, 200);
+    assert.equal((await updated.json()).profile.wpisowePaid, false);
+
+    const stored = await (await fetch(`${baseUrl}/lista-wyjazdowa/profile`)).json();
+    assert.equal(stored.profile.wpisowePaid, false, 'the stored document must not have been flipped either');
+  });
+});
+
+for (const [label, body] of [
+  ['a non-array equipment', { weaponIds: [], equipment: 'x', companions: [] }],
+  ['a non-array companions', { weaponIds: [], equipment: [], companions: { name: 'Jaś' } }],
+  ['a non-array weaponIds', { weaponIds: 'tarczownik', equipment: [], companions: [] }],
+  ['a non-object equipment entry', { weaponIds: [], equipment: [null], companions: [] }],
+  ['a nameless equipment entry', { weaponIds: [], equipment: [{ id: '', name: '  ', description: '' }], companions: [] }],
+  ['a nameless companion entry', { weaponIds: [], equipment: [], companions: [{ id: '', name: '' }] }],
+] as const) {
+  test(`PUT /lista-wyjazdowa/profile rejects ${label} with 400 rather than crashing`, async () => {
+    const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+    await withServer(deps, async baseUrl => {
+      const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', body);
+      assert.equal(res.status, 400, `expected 400, got ${res.status}`);
+    });
+  });
+}
+
+test('PUT /lista-wyjazdowa/profile rejects a weaponId that is not in lookupLists', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
+      weaponIds: ['tarczownik', 'miotacz-ognia'],
+      equipment: [],
+      companions: [],
+    });
+    assert.equal(res.status, 400);
+    const stored = await (await fetch(`${baseUrl}/lista-wyjazdowa/profile`)).json();
+    assert.equal(stored.profile, null, 'a rejected write must not have been persisted');
   });
 });

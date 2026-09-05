@@ -15,6 +15,24 @@ test('in-memory client: setDoc then getDoc round-trips', async () => {
   assert.deepEqual(doc, { name: 'Ala' });
 });
 
+// Matches the real client's set(..., { merge: true }) - the structural guarantee that a
+// self-service write can't delete admin-owned fields it never mentions (design.md §7/§7a).
+test('in-memory client: setDoc merges into an existing doc instead of overwriting it', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'a@example.test', { name: 'Ala', categoryId: 'blacha', someAdminOnlyField: 7 });
+  await client.setDoc('members', 'a@example.test', { name: 'Ala Nowak' });
+  const doc = await client.getDoc<Record<string, unknown>>('members', 'a@example.test');
+  assert.deepEqual(doc, { name: 'Ala Nowak', categoryId: 'blacha', someAdminOnlyField: 7 });
+});
+
+test('in-memory client: setDoc replaces array fields wholesale, as Firestore merge does', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('listaWyjazdowaProfile', 'a@example.test', { weaponIds: ['tarcza', 'topor'] });
+  await client.setDoc('listaWyjazdowaProfile', 'a@example.test', { weaponIds: ['tarcza'] });
+  const doc = await client.getDoc<{ weaponIds: string[] }>('listaWyjazdowaProfile', 'a@example.test');
+  assert.deepEqual(doc, { weaponIds: ['tarcza'] });
+});
+
 test('in-memory client: listDocs returns all docs in a collection with ids', async () => {
   const client = createInMemoryFirestoreClient();
   await client.setDoc('members', 'a@example.test', { name: 'Ala' });
