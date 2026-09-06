@@ -3418,6 +3418,20 @@ test('PUT /lista-wyjazdowa/wpisowe requires accountant and 404s without a profil
   });
 });
 
+test('PUT /lista-wyjazdowa/wpisowe succeeds for accountant against an existing profile', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    // makeDepsWithRole's caller (wojownik@gmail.com) is itself the accountant here, so it can
+    // create its own listaWyjazdowaProfile via the self-service PUT before targeting that same
+    // email with the accountant-only wpisowe toggle.
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).profile.wpisowePaid, true);
+  });
+});
+
 test('PUT /lista-wyjazdowa/dues requires accountant, validates member exists, and GET reflects it for the right year', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   await withServer(makeDeps({ firestore }), async baseUrl => {
