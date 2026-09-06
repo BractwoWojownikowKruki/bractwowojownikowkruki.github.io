@@ -52,7 +52,9 @@ async function exchangeForSession(googleIdToken) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(body.error ?? `HTTP ${res.status}`);
+    const error = new Error(body.error ?? `HTTP ${res.status}`);
+    error.status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -81,9 +83,22 @@ async function apiFetch(path, options = {}, showReauthUI, hideReauthUI) {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(body.error ?? `HTTP ${res.status}`);
+    const error = new Error(body.error ?? `HTTP ${res.status}`);
+    error.status = res.status;
+    throw error;
   }
   return res.json();
+}
+
+// A failed connection or a 5xx response says nothing about the visitor's authorization. Keep
+// the caller's neutral checking state intact in that case; only the two deliberate auth results
+// may change it into a sign-in or denied state.
+function notifyAuthFailure(listener, err) {
+  if (err.status === 401) {
+    listener.onSignedOut?.();
+  } else if (err.status === 403) {
+    listener.onForbidden?.();
+  }
 }
 
 // Ends the session on this device (design-v2.md Phase 1 point 10 - stateless by design, so this
@@ -133,20 +148,20 @@ async function handleCredentialResponse(response) {
 
   try {
     await exchangeForSession(googleIdToken);
-  } catch {
+  } catch (err) {
     for (const listener of signedInListeners) {
-      listener.onForbidden?.();
+      notifyAuthFailure(listener, err);
     }
     return;
   }
 
   for (const listener of signedInListeners) {
-    if (!listener.onSignedIn && !listener.onForbidden) continue;
+    if (!listener.onSignedIn && !listener.onSignedOut && !listener.onForbidden) continue;
     let identity;
     try {
       identity = await apiFetch(listener.whoamiPath, { method: 'GET' });
-    } catch {
-      listener.onForbidden?.();
+    } catch (err) {
+      notifyAuthFailure(listener, err);
       continue;
     }
     // Deliberately outside the try above (same reasoning as initGoogleSignIn's two-argument
@@ -160,16 +175,20 @@ async function handleCredentialResponse(response) {
 
 // Wires up Google Identity Services for the current page. `buttonIds` are the DOM ids of every
 // container GIS should render a sign-in button into (a page may need more than one, e.g. an
-// initial sign-in button and a separate reauth-prompt button). `onSignedIn(identity)` and
-// `onForbidden()` are optional, called with the server-verified result of `whoamiPath` -
-// `identity` is whatever that endpoint returns (at least `{email}`, plus `name`/`picture` where
-// available). Safe to call more than once per page (see signedInListeners above) - each call
-// independently verifies its own whoamiPath against the one shared session cookie.
+// initial sign-in button and a separate reauth-prompt button). `onSignedIn(identity)`,
+// `onSignedOut()`, and `onForbidden()` are optional, called with the server-verified result of
+// `whoamiPath`: 200, 401 (no session), and 403 (session lacks the required membership) are
+// intentionally distinct UI states. `identity` is whatever the successful endpoint returns (at
+// least `{email}`, plus `name`/`picture` where available). Safe to call more than once per page
+// (see signedInListeners above) - each call independently verifies its own shared session cookie.
 //
-// onForbidden means exactly one thing: the whoamiPath check itself failed. Anything onSignedIn's
-// own body throws is the caller's problem to catch and report through the caller's own error UI -
-// it is never funnelled into onForbidden, because "your /roster fetch failed" is not "you are not
-// a member" and telling the user the latter is actively misleading (see the fetch below).
+// onForbidden means the server rejected the session's required membership (403). A missing cookie
+// is instead onSignedOut (401), so protected pages can reveal a login control only after that
+// explicit result. Network and other server failures leave the neutral checking state intact.
+// Anything onSignedIn's own body throws is the caller's problem to catch and report through the
+// caller's own error UI - it is never funnelled into an authorization callback, because "your
+// /roster fetch failed" is not "you are not a member" and telling the user the latter is actively
+// misleading (see the fetch below).
 //
 // `onIdentity(payload)` is different: it fires on every *fresh* sign-in (not a reauth prompt),
 // synchronously from the locally-decoded Google JWT, before/regardless of whether the session
@@ -187,10 +206,10 @@ async function handleCredentialResponse(response) {
 // decoded token. What's gone in exchange is the hourly Google reauth popup this whole redesign
 // exists to remove - sessions now last up to 14 days sliding, so this one-time-per-page-load
 // check is a fair trade.
-function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, onIdentity, whoamiPath = '/whoami', buttonConfig = {} }) {
-  signedInListeners.push({ whoamiPath, onSignedIn, onForbidden, onIdentity });
+function initGoogleSignIn({ buttonIds, onSignedIn, onSignedOut, onForbidden, onIdentity, whoamiPath = '/whoami', buttonConfig = {} }) {
+  signedInListeners.push({ whoamiPath, onSignedIn, onSignedOut, onForbidden, onIdentity });
 
-  if (onSignedIn || onForbidden) {
+  if (onSignedIn || onSignedOut || onForbidden) {
     // Two-argument .then, NOT .then(...).catch(...): only a rejected `whoamiPath` check itself
     // (no session, or a session that isn't allowlisted) may map to onForbidden. A trailing
     // .catch() also catches whatever onSignedIn's own body throws - and on the Lista Wyjazdowa
@@ -201,7 +220,7 @@ function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, onIdentity, whoa
     // calling page's job, since only it knows where its own error UI lives.
     apiFetch(whoamiPath, { method: 'GET' }).then(
       identity => onSignedIn?.(identity),
-      () => onForbidden?.(),
+      err => notifyAuthFailure({ onSignedOut, onForbidden }, err),
     );
   }
 

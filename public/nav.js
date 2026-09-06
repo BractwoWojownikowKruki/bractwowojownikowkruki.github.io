@@ -109,44 +109,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /**
  * Site-wide sign-in status: the user's Google avatar in the always-visible top bar next to the
- * hamburger (#nav-auth-slot) once signed in, plus a "Zaloguj się" link (to /logowanie/) when
- * signed out (#nav-login-link), a "Wyloguj się" button when signed in (#nav-logout-link), or the
- * "Panel admina" links (.admin-zone-link, in both Strefa Członków containers) once the
- * /admin/whoami check passes. Keeping the login/logout controls and admin links out of the top
- * bar avoids crowding it (logo + avatar + hamburger/trigger already fill it on mobile) - they
- * only need to be reachable, not always visible. The actual Google sign-in button itself is no
- * longer rendered in the nav - it lives on /logowanie/ (see logowanie.js) - #nav-login-link is a
- * plain link there, same as any other nav item.
+ * hamburger (#nav-auth-slot) once a member session is verified, plus a "Zaloguj się" link (to
+ * /logowanie/) when no member session exists (#nav-login-link), a "Wyloguj się" button when one
+ * does (#nav-logout-link), and the "Panel admina" links (.admin-zone-link, in both Strefa
+ * Członków containers) only once the separate /admin/whoami check passes. Keeping the
+ * login/logout controls and admin links out of the top bar avoids crowding it (logo + avatar +
+ * hamburger/trigger already fill it on mobile) - they only need to be reachable, not always
+ * visible. The actual Google sign-in button itself is no longer rendered in the nav - it lives on
+ * /logowanie/ (see logowanie.js) - #nav-login-link is a plain link there, same as any other nav
+ * item.
  *
  * Reuses initGoogleSignIn from auth.js, which is safe to call alongside a page's own sign-in
- * flow (e.g. the Wojownicy group-membership check below) - see the shared-listener comment in
- * auth.js. Only runs on pages that carry this markup; the admin panel's own page deliberately
- * omits it since it already has a richer sign-in UI in its main content.
+ * flow - see the shared-listener comment in auth.js. Only runs on pages that carry this markup.
  *
- * No "restored session" fast path anymore (see auth.js's top comment - the session cookie is
- * HttpOnly, unreadable by JS by design) - the avatar starts empty and the login link starts
- * visible until the real, server-verified /admin/whoami check resolves a moment later, for every
- * visitor alike, signed in or not.
+ * No "restored session" fast path exists anymore (see auth.js's top comment - the session cookie
+ * is HttpOnly, unreadable by JS by design). The initial state is therefore a neutral status
+ * indicator, not a misleading login link, until the real member check resolves.
  */
 document.addEventListener('DOMContentLoaded', () => {
   const avatarSlot = document.getElementById('nav-auth-slot');
   const loginLink = document.getElementById('nav-login-link');
   const logoutLink = document.getElementById('nav-logout-link');
+  const checking = document.getElementById('nav-auth-checking');
   if (!avatarSlot || typeof initGoogleSignIn !== 'function') return;
 
   function renderAvatar(identity) {
+    if (checking) checking.hidden = true;
     if (!identity) {
       avatarSlot.innerHTML = '';
       if (loginLink) loginLink.hidden = false;
       if (logoutLink) logoutLink.hidden = true;
       return;
     }
-    const email = identity.email ? identity.email.replace(/"/g, '&quot;') : '';
+    const email = identity.email ?? '';
     if (identity.picture) {
-      const picture = identity.picture.replace(/"/g, '&quot;');
-      avatarSlot.innerHTML = `<img src="${picture}" alt="${email}" title="${email}" class="nav-avatar" />`;
+      const avatar = document.createElement('img');
+      avatar.src = identity.picture;
+      avatar.alt = email;
+      avatar.title = email;
+      avatar.className = 'nav-avatar';
+      avatarSlot.replaceChildren(avatar);
     } else {
-      avatarSlot.innerHTML = '';
+      const fallback = document.createElement('span');
+      fallback.className = 'nav-avatar nav-avatar--fallback';
+      fallback.title = email;
+      fallback.setAttribute('aria-label', email);
+      fallback.textContent = email.slice(0, 1).toUpperCase() || '?';
+      avatarSlot.replaceChildren(fallback);
     }
     if (loginLink) loginLink.hidden = true;
     if (logoutLink) logoutLink.hidden = false;
@@ -157,54 +166,37 @@ document.addEventListener('DOMContentLoaded', () => {
     updateMembersZoneVisibility();
   }
 
+  function renderMemberLinks(isMember) {
+    document.querySelectorAll('.member-zone-link').forEach(link => { link.hidden = !isMember; });
+    updateMembersZoneVisibility();
+  }
+
   if (logoutLink && typeof logout === 'function') {
     logoutLink.addEventListener('click', () => logout());
   }
 
   initGoogleSignIn({
     buttonIds: [],
-    whoamiPath: '/admin/whoami',
+    whoamiPath: '/wojownicy-upload/whoami',
     onSignedIn: identity => {
       renderAvatar(identity);
-      renderAdminLink(true);
+      renderMemberLinks(true);
+    },
+    onSignedOut: () => {
+      renderAvatar(null);
+      renderMemberLinks(false);
     },
     onForbidden: () => {
       renderAvatar(null);
-      renderAdminLink(false);
+      renderMemberLinks(false);
     },
   });
-});
-
-/**
- * Gates the rest of the "Strefa Członków" box (Galerie, Zasady Bractwa, Poradnik Walki, Wrzucam
- * swoje zdjęcie, Forum/Discord) against kruki Google Group membership, GET
- * /wojownicy-upload/whoami, checked server-side - see upload-service/src/allowlist.ts's
- * createAppsScriptAllowlist - independently of Panel admina's own admin-allowlist check above.
- * One shared check for the whole group since they're all behind the identical membership gate -
- * lives in the shared nav partial, so it shows up from any page once a member signs in, not just
- * from /wojownicy/. Forum/Discord's own target (/discord, a static redirect to the real invite
- * link) is publicly reachable regardless of this gate - only the nav link's visibility is
- * membership-gated, same as every other item here is cosmetic-only (see nav.js's other auth
- * block for why none of this is a real security boundary).
- *
- * These links start hidden (their markup default) and stay that way until the real, server-
- * verified check resolves - no more instant optimistic guess from a cached-by-email localStorage
- * result, since there's no locally-decoded token anymore to read an email from before that
- * network response arrives (see auth.js's top comment).
- */
-document.addEventListener('DOMContentLoaded', () => {
-  const memberOnlyLinks = Array.from(document.querySelectorAll('.member-zone-link'));
-  if (!memberOnlyLinks.length || typeof initGoogleSignIn !== 'function') return;
-
-  function setHidden(hidden) {
-    memberOnlyLinks.forEach(link => { link.hidden = hidden; });
-    updateMembersZoneVisibility();
-  }
 
   initGoogleSignIn({
     buttonIds: [],
-    whoamiPath: '/wojownicy-upload/whoami',
-    onSignedIn: () => setHidden(false),
-    onForbidden: () => setHidden(true),
+    whoamiPath: '/admin/whoami',
+    onSignedIn: () => renderAdminLink(true),
+    onSignedOut: () => renderAdminLink(false),
+    onForbidden: () => renderAdminLink(false),
   });
 });

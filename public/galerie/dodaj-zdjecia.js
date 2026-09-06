@@ -33,6 +33,7 @@ if (galleryName) {
 }
 
 if (!folderId) {
+  document.getElementById('upload-checking').hidden = true;
   document.getElementById('upload-signin').hidden = true;
   showError('upload-error', 'Brak wskazanej galerii - wróć do listy galerii i wybierz „Dodaj zdjęcia” z widoku konkretnej galerii.');
   document.getElementById('upload-submit-button').disabled = true;
@@ -40,11 +41,17 @@ if (!folderId) {
   initGoogleSignIn({
     buttonIds: ['google-signin-button', 'google-reauth-button'],
     onSignedIn: payload => {
+      document.getElementById('upload-checking').hidden = true;
       document.getElementById('upload-signin').hidden = true;
       document.getElementById('upload-signed-in-email').textContent = payload.email;
       document.getElementById('upload-signed-in').hidden = false;
     },
+    onSignedOut: () => {
+      document.getElementById('upload-checking').hidden = true;
+      document.getElementById('upload-signin').hidden = false;
+    },
     onForbidden: () => {
+      document.getElementById('upload-checking').hidden = true;
       document.getElementById('upload-signin').hidden = true;
       document.getElementById('upload-forbidden').hidden = false;
     },

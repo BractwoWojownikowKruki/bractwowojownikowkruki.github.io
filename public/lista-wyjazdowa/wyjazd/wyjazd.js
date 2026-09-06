@@ -25,6 +25,7 @@ function showReauth() {} // no reauth banner on this page yet - matches lista-wy
 function hideReauth() {}
 
 const panels = {
+  checking: document.getElementById('lw-checking'),
   signedOut: document.getElementById('signed-out-panel'),
   forbidden: document.getElementById('forbidden-panel'),
 };
@@ -34,7 +35,7 @@ function showOnly(panel) {
   document.getElementById('main-content').hidden = panel !== null;
 }
 
-showOnly(panels.signedOut);
+showOnly(panels.checking);
 
 const eventId = new URLSearchParams(window.location.search).get('eventId');
 
@@ -313,5 +314,6 @@ initGoogleSignIn({
       showError(`Nie udało się wczytać wyjazdu: ${err.message}`);
     }
   },
+  onSignedOut: () => showOnly(panels.signedOut),
   onForbidden: () => showOnly(panels.forbidden),
 });

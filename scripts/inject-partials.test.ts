@@ -41,6 +41,45 @@ test('member-zone partials provide initially hidden accessible PWA install contr
   assert.match(footer, /<script\s+src="\/pwa-install\.js"><\/script>/);
 });
 
+test('protected entry points begin with the shared session-checking message, not a login control', async () => {
+  const protectedPages = [
+    '../public/logowanie/index.html',
+    '../public/wojownicy/wrzuc/index.html',
+    '../public/galerie/dodaj-galerie.html',
+    '../public/galerie/dodaj-zdjecia.html',
+    '../public/galerie/index.html',
+    '../public/zasady-bractwa/index.html',
+    '../public/poradnik-walki/index.html',
+    '../public/profil/index.html',
+    '../public/lista-wyjazdowa/index.html',
+    '../public/lista-wyjazdowa/wyjazd/index.html',
+    '../public/lista-wyjazdowa/skladki/index.html',
+    '../public/admin/index.html',
+  ];
+
+  for (const page of protectedPages) {
+    const html = await readFile(new URL(page, import.meta.url), 'utf8');
+    assert.match(html, /class="auth-checking"[^>]*role="status"/);
+    assert.match(html, /Please hold the line\.\.\./);
+  }
+});
+
+test('both shared navigation partials start with an account-status indicator', async () => {
+  for (const partial of ['../templates/nav.html', '../templates/nav_galerie.html']) {
+    const html = await readFile(new URL(partial, import.meta.url), 'utf8');
+    assert.match(html, /id="nav-auth-checking"/);
+    assert.match(html, /Please hold the line\.\.\./);
+  }
+});
+
+test('shared sign-in routing distinguishes a missing session from denied membership', async () => {
+  const auth = await readFile(new URL('../public/auth.js', import.meta.url), 'utf8');
+  assert.match(auth, /onSignedOut/);
+  assert.match(auth, /err\.status === 401/);
+  assert.match(auth, /err\.status === 403/);
+  assert.match(auth, /function notifyAuthFailure/);
+});
+
 function assertInstallControl(source: string, zoneId: string, zoneEnd: string) {
   const zoneStart = zoneEnd ? source.indexOf(`id="${zoneId}"`) : 0;
   const zoneEndIndex = zoneEnd ? source.indexOf(zoneEnd, zoneStart) : source.length;

@@ -23,12 +23,18 @@ initGoogleSignIn({
   buttonIds: ['google-signin-button', 'google-reauth-button'],
   whoamiPath: '/wojownicy-upload/whoami',
   onSignedIn: payload => {
+    document.getElementById('upload-checking').hidden = true;
     document.getElementById('upload-signin').hidden = true;
     document.getElementById('upload-signed-in-email').textContent = payload.email;
     document.getElementById('upload-signed-in').hidden = false;
     document.getElementById('wrzuc-form').hidden = false;
   },
+  onSignedOut: () => {
+    document.getElementById('upload-checking').hidden = true;
+    document.getElementById('upload-signin').hidden = false;
+  },
   onForbidden: () => {
+    document.getElementById('upload-checking').hidden = true;
     document.getElementById('upload-signin').hidden = true;
     document.getElementById('upload-forbidden').hidden = false;
   },

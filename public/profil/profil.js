@@ -28,6 +28,7 @@ function hideReauth() {
 }
 
 const panels = {
+  checking: document.getElementById('profile-checking'),
   signedOut: document.getElementById('signed-out-panel'),
   forbidden: document.getElementById('forbidden-panel'),
   form: document.getElementById('profile-form-panel'),
@@ -40,7 +41,7 @@ function showOnly(panel) {
 
 // Default state until the server-verified whoami check (inside initGoogleSignIn, below) resolves
 // one way or the other.
-showOnly(panels.signedOut);
+showOnly(panels.checking);
 
 function loadLookupLists() {
   return apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth);
@@ -464,5 +465,6 @@ initGoogleSignIn({
       errorEl.hidden = false;
     }
   },
+  onSignedOut: () => showOnly(panels.signedOut),
   onForbidden: () => showOnly(panels.forbidden),
 });

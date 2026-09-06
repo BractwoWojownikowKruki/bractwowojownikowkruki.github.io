@@ -9,6 +9,7 @@ initGoogleSignIn({
   buttonIds: ['google-signin-button', 'google-reauth-button'],
   whoamiPath: '/admin/whoami',
   onSignedIn: payload => {
+    document.getElementById('admin-checking').hidden = true;
     document.getElementById('admin-signin').hidden = true;
     document.getElementById('admin-email').textContent = payload.email;
     document.getElementById('admin-panel').hidden = false;
@@ -16,7 +17,12 @@ initGoogleSignIn({
     loadFacebookSettings();
     loadRedirects();
   },
+  onSignedOut: () => {
+    document.getElementById('admin-checking').hidden = true;
+    document.getElementById('admin-signin').hidden = false;
+  },
   onForbidden: () => {
+    document.getElementById('admin-checking').hidden = true;
     document.getElementById('admin-signin').hidden = true;
     document.getElementById('admin-forbidden').hidden = false;
   },

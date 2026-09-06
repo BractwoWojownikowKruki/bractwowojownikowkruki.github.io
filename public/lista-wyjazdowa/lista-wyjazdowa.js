@@ -17,6 +17,7 @@ function escapeHtml(str) {
 }
 
 const panels = {
+  checking: document.getElementById('lw-checking'),
   signedOut: document.getElementById('signed-out-panel'),
   forbidden: document.getElementById('forbidden-panel'),
   noProfile: document.getElementById('no-profile-panel'),
@@ -27,7 +28,7 @@ function showOnly(panel) {
   for (const p of Object.values(panels)) p.hidden = p !== panel;
 }
 
-showOnly(panels.signedOut);
+showOnly(panels.checking);
 
 function showReauth() {} // no reauth banner on this page yet - matches the placeholder's scope; add one if apiFetch calls start failing with 401 in practice
 function hideReauth() {}
@@ -192,5 +193,6 @@ initGoogleSignIn({
       errorEl.hidden = false;
     }
   },
+  onSignedOut: () => showOnly(panels.signedOut),
   onForbidden: () => showOnly(panels.forbidden),
 });

@@ -1334,6 +1334,35 @@ main { padding: 1.25rem 1.5rem 3rem; }
   margin-left: auto;
 }
 
+/* A session cookie is intentionally unreadable from JavaScript, so protected UI must wait for
+   its server-side check rather than briefly claiming the visitor is signed out. */
+.auth-checking {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-muted);
+}
+
+.auth-spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  flex: 0 0 auto;
+  border: 2px solid color-mix(in srgb, var(--gold) 30%, transparent);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: auth-spinner-rotate 0.8s linear infinite;
+}
+
+@keyframes auth-spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
+.nav-auth-checking {
+  margin: 0;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
 /* The source PNG is solid dark-brown line art, which disappears against a dark background -
    filled with a background-color instead of shown as-is, using the PNG's own alpha channel
    purely as a shape mask (mask-image), so it renders as a solid, exactly-on-brand gold
@@ -1648,6 +1677,15 @@ button.nav-item {
   display: block;
   object-fit: cover;
   border: 1px solid var(--border);
+}
+
+.nav-avatar--fallback {
+  display: grid;
+  place-items: center;
+  background: var(--gold);
+  color: var(--bg);
+  font-weight: 700;
+  text-decoration: none;
 }
 
 /* ── Banner Carousel ── */

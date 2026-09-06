@@ -821,6 +821,12 @@ function showGalerieForbidden() {
   document.getElementById('galerie-forbidden').hidden = false;
 }
 
+function showGalerieSignedOut() {
+  document.getElementById('galerie-checking').hidden = true;
+  document.getElementById('galerie-forbidden').hidden = true;
+  document.getElementById('galerie-signin').hidden = false;
+}
+
 // Always show a neutral spinner first, never the sign-in button - there's no local signal left
 // to tell a returning, still-signed-in member apart from a genuinely signed-out visitor (the
 // session cookie is HttpOnly, unreadable by design; see auth.js's top comment), so guessing
@@ -839,6 +845,9 @@ initGoogleSignIn({
   onSignedIn: () => {
     showGalerieMain();
     loadGalleries();
+  },
+  onSignedOut: () => {
+    showGalerieSignedOut();
   },
   onForbidden: () => {
     showGalerieForbidden();

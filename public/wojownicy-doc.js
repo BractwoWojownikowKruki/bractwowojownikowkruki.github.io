@@ -8,12 +8,14 @@
  * state auth.js/nav.js already established (or restored from an earlier page).
  */
 function showSignedOut() {
+  document.getElementById('doc-checking').hidden = true;
   document.getElementById('doc-signin').hidden = false;
   document.getElementById('doc-forbidden').hidden = true;
   document.getElementById('doc-content').hidden = true;
 }
 
 function showForbidden() {
+  document.getElementById('doc-checking').hidden = true;
   document.getElementById('doc-signin').hidden = true;
   document.getElementById('doc-forbidden').hidden = false;
   document.getElementById('doc-content').hidden = true;
@@ -28,6 +30,7 @@ function hideReauth() {
 }
 
 async function showContent() {
+  document.getElementById('doc-checking').hidden = true;
   document.getElementById('doc-signin').hidden = true;
   document.getElementById('doc-forbidden').hidden = true;
   try {
@@ -46,5 +49,6 @@ initGoogleSignIn({
   buttonIds: [],
   whoamiPath: '/wojownicy-upload/whoami',
   onSignedIn: () => showContent(),
+  onSignedOut: () => showSignedOut(),
   onForbidden: () => showForbidden(),
 });
