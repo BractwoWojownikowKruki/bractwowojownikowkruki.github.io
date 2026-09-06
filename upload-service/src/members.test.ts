@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
-import { getMember, saveMember } from './members.ts';
+import { getMember, listAllMembers, saveMember } from './members.ts';
 
 test('getMember returns null when no record exists', async () => {
   const client = createInMemoryFirestoreClient();
@@ -91,4 +91,16 @@ test('saveMember ignores categoryId/driveFolderId even if present on the input o
     categoryId: 'blacha',
   });
   assert.equal(member.categoryId, null);
+});
+
+test('listAllMembers returns every member with email populated from the doc id', async () => {
+  const client = createInMemoryFirestoreClient();
+  await saveMember(client, 'ala@example.test', { fullName: 'Ala Kowalska', nickname: null, sectionId: 'krakow' });
+  await saveMember(client, 'basia@example.test', { fullName: 'Basia Nowak', nickname: null, sectionId: 'wroclaw' });
+
+  const all = await listAllMembers(client);
+  assert.equal(all.length, 2);
+  const byEmail = new Map(all.map((m) => [m.email, m]));
+  assert.equal(byEmail.get('ala@example.test')?.fullName, 'Ala Kowalska');
+  assert.equal(byEmail.get('basia@example.test')?.fullName, 'Basia Nowak');
 });

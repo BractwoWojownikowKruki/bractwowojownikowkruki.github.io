@@ -61,3 +61,10 @@ export async function saveProfile(
   await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, wpisowePaid: false });
   return { ...writable, wpisowePaid: existing?.wpisowePaid ?? false };
 }
+
+// Plan B (roster join, GET /lista-wyjazdowa/roster): unlike getProfile, callers here need the
+// email too, since ListaWyjazdowaProfileDoc itself doesn't carry it - it's only known via the doc id.
+export async function listAllProfiles(client: FirestoreLikeClient): Promise<Array<ListaWyjazdowaProfileDoc & { email: string }>> {
+  const docs = await client.listDocs<ListaWyjazdowaProfileDoc>(COLLECTION);
+  return docs.map((d) => ({ email: d.id, ...d.data }));
+}

@@ -27,9 +27,19 @@ import {
   type AdminDepartment,
 } from './about-us.ts';
 import { createFirestoreClient, type FirestoreLikeClient } from './firestore.ts';
-import { getMember, saveMember, type MemberWritableFields } from './members.ts';
-import { getProfile, saveProfile, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
+import { getMember, listAllMembers, saveMember, type MemberWritableFields } from './members.ts';
+import { getProfile, listAllProfiles, saveProfile, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 import { getAllLookupLists } from './lookup-lists.ts';
+import { listEvents, getEvent, createEvent, updateEvent, type EventWritableFields } from './events.ts';
+import {
+  listAllSignups,
+  listSignupsForEvent,
+  getSignup,
+  saveSignup,
+  appendAuditLogEntry,
+  listAuditLogForEvent,
+  type SignupWritableFields,
+} from './signups.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -1027,6 +1037,154 @@ async function handleListaWyjazdowaLookupLists(req: IncomingMessage, res: Server
   sendJson(res, 200, lists);
 }
 
+// Lista Wyjazdowa Plan B: events & sign-up. Same authenticateWojownicyUpload gate as Plan A above
+// - every route here is still limited to the live kruki-group membership, not open to the public.
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function requireDateString(value: unknown, message: string): string {
+  const trimmed = requireTrimmedString(value, 10, message);
+  if (!DATE_PATTERN.test(trimmed)) throw new AuthError(message, 400);
+  return trimmed;
+}
+
+async function handleListaWyjazdowaGetEvents(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const events = await listEvents(deps.firestore);
+  const allSignups = await listAllSignups(deps.firestore);
+  const attendingCountByEvent = new Map<string, number>();
+  const viewerAttendingByEvent = new Set<string>();
+  const viewerEmail = identity.email.toLowerCase();
+  for (const { data } of allSignups) {
+    if (!data.attending) continue;
+    attendingCountByEvent.set(data.eventId, (attendingCountByEvent.get(data.eventId) ?? 0) + 1);
+    if (data.memberEmail === viewerEmail) viewerAttendingByEvent.add(data.eventId);
+  }
+  const withSummary = events.map((e) => ({
+    ...e,
+    attendingCount: attendingCountByEvent.get(e.id) ?? 0,
+    viewerAttending: viewerAttendingByEvent.has(e.id),
+  }));
+  sendJson(res, 200, { events: withSummary });
+}
+
+async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const name = requireTrimmedString(body.name, LW_MAX_NAME_LENGTH, 'Nazwa wyjazdu jest wymagana.');
+  const startDate = requireDateString(body.startDate, 'Data rozpoczęcia jest wymagana (RRRR-MM-DD).');
+  const event = await createEvent(deps.firestore, { name, startDate }, identity.email);
+  sendJson(res, 200, { event });
+}
+
+async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req, res);
+  const eventId = url.searchParams.get('eventId');
+  if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const fields: EventWritableFields = {};
+  if (body.name !== undefined) fields.name = requireTrimmedString(body.name, LW_MAX_NAME_LENGTH, 'Nazwa wyjazdu nie może być pusta.');
+  if (body.startDate !== undefined) fields.startDate = requireDateString(body.startDate, 'Data rozpoczęcia jest nieprawidłowa (RRRR-MM-DD).');
+  if (body.status !== undefined) {
+    if (body.status !== 'active' && body.status !== 'cancelled') throw new AuthError('Nieprawidłowy status wyjazdu.', 400);
+    fields.status = body.status;
+  }
+  const event = await updateEvent(deps.firestore, eventId, fields);
+  if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+  sendJson(res, 200, { event });
+}
+
+async function handleListaWyjazdowaGetSignups(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req, res);
+  const eventId = url.searchParams.get('eventId');
+  if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
+  const signups = await listSignupsForEvent(deps.firestore, eventId);
+  sendJson(res, 200, { signups });
+}
+
+async function handleListaWyjazdowaGetMySignup(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const eventId = url.searchParams.get('eventId');
+  if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
+  const signup = await getSignup(deps.firestore, eventId, identity.email);
+  sendJson(res, 200, { signup });
+}
+
+async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const eventId = url.searchParams.get('eventId');
+  const memberEmail = url.searchParams.get('memberEmail');
+  if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
+  if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
+
+  const event = await getEvent(deps.firestore, eventId);
+  if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+
+  // The target member need not have a Lista Wyjazdowa profile yet - "I'm coming, no gear/
+  // companions listed yet" is a legitimate signup. A missing profile just means its
+  // equipment/companion sets are empty for the referential check below, so any *non-empty*
+  // equipmentIds/companionIds on a profile-less member are rejected the same way an id that's
+  // simply not theirs would be - not via a separate "no profile" 400.
+  const targetProfile = await getProfile(deps.firestore, memberEmail);
+
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  if (typeof body.attending !== 'boolean') throw new AuthError('Pole attending jest wymagane (true/false).', 400);
+  const equipmentIds = requireArray(body.equipmentIds, 'Lista sprzętu ma nieprawidłowy format.').map((id) =>
+    requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista sprzętu ma nieprawidłowy format.'),
+  );
+  const companionIds = requireArray(body.companionIds, 'Lista osób towarzyszących ma nieprawidłowy format.').map((id) =>
+    requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista osób towarzyszących ma nieprawidłowy format.'),
+  );
+
+  const validEquipmentIds = new Set(targetProfile?.equipment.map((e) => e.id) ?? []);
+  for (const id of equipmentIds) {
+    if (!validEquipmentIds.has(id)) throw new AuthError('Wybrany sprzęt nie należy do tego członka.', 400);
+  }
+  const validCompanionIds = new Set(targetProfile?.companions.map((c) => c.id) ?? []);
+  for (const id of companionIds) {
+    if (!validCompanionIds.has(id)) throw new AuthError('Wybrana osoba towarzysząca nie należy do tego członka.', 400);
+  }
+
+  const fields: SignupWritableFields = { attending: body.attending, equipmentIds, companionIds };
+  const signup = await saveSignup(deps.firestore, eventId, memberEmail, fields, identity.email);
+  await appendAuditLogEntry(deps.firestore, {
+    eventId,
+    targetMemberEmail: memberEmail.toLowerCase(),
+    changedBy: identity.email,
+    changeSummary: fields.attending
+      ? `Zgłoszono udział (sprzęt: ${equipmentIds.length}, osoby towarzyszące: ${companionIds.length})`
+      : 'Wycofano zgłoszenie udziału',
+  });
+  sendJson(res, 200, { signup });
+}
+
+async function handleListaWyjazdowaGetAuditLog(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req, res);
+  const eventId = url.searchParams.get('eventId');
+  if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
+  const entries = await listAuditLogForEvent(deps.firestore, eventId);
+  sendJson(res, 200, { entries });
+}
+
+async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req, res);
+  const [members, profiles] = await Promise.all([listAllMembers(deps.firestore), listAllProfiles(deps.firestore)]);
+  const profileByEmail = new Map(profiles.map((p) => [p.email, p]));
+  const roster = members.map((m) => {
+    const profile = profileByEmail.get(m.email);
+    return {
+      email: m.email,
+      fullName: m.fullName,
+      nickname: m.nickname,
+      sectionId: m.sectionId,
+      categoryId: m.categoryId,
+      weaponIds: profile?.weaponIds ?? [],
+      equipment: profile?.equipment ?? [],
+      companions: profile?.companions ?? [],
+    };
+  });
+  sendJson(res, 200, { roster });
+}
+
 // Structured console log for every destructive gallery action (KRKG-0027's audit requirement) -
 // actor, target, outcome, and a correlation id tying a single request's attempt/result together
 // in Cloud Run's log output. No dedicated logging store exists in this project; console.log is
@@ -1522,6 +1680,22 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaPutProfile(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/lookup-lists') {
         await handleListaWyjazdowaLookupLists(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/events') {
+        await handleListaWyjazdowaGetEvents(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/lista-wyjazdowa/events') {
+        await handleListaWyjazdowaPostEvent(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/events') {
+        await handleListaWyjazdowaPutEvent(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/signups') {
+        await handleListaWyjazdowaGetSignups(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/signups/mine') {
+        await handleListaWyjazdowaGetMySignup(req, res, url, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/signups') {
+        await handleListaWyjazdowaPutSignup(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/signups/audit-log') {
+        await handleListaWyjazdowaGetAuditLog(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/roster') {
+        await handleListaWyjazdowaGetRoster(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
         if (!rejectIfRateLimited(req, res)) await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {

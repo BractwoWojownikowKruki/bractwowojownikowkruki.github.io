@@ -3048,3 +3048,166 @@ test('PUT /lista-wyjazdowa/profile rejects a weaponId that is not in lookupLists
     assert.equal(stored.profile, null, 'a rejected write must not have been persisted');
   });
 });
+
+// Plan B: events & sign-up routes. Same makeListaWyjazdowaFirestore()/putListaWyjazdowa() fixtures
+// as Plan A's tests above. makeDeps()'s default authenticateWojownicyUpload identity is
+// wojownik@gmail.com (see fakeSessionClaims's caller above) - used below as the caller/viewer.
+function postListaWyjazdowa(baseUrl: string, path: string, body: unknown): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+test('POST /lista-wyjazdowa/events creates an active event', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.event.name, 'Zjazd');
+    assert.equal(body.event.status, 'active');
+  });
+});
+
+test('POST /lista-wyjazdowa/events rejects a malformed startDate with 400', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '01-05-2027' });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('GET /lista-wyjazdowa/events includes attendingCount and the caller\'s own viewerAttending', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
+      attending: true,
+      equipmentIds: [],
+      companionIds: [],
+    });
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/events`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.events[0].attendingCount, 1);
+    assert.equal(body.events[0].viewerAttending, true, 'the test identity from makeDeps() is wojownik@gmail.com — see fakeSessionClaims');
+  });
+});
+
+test('PUT /lista-wyjazdowa/events?eventId= updates only the given fields', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { status: 'cancelled' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.event.status, 'cancelled');
+    assert.equal(body.event.name, 'Zjazd');
+  });
+});
+
+test('PUT /lista-wyjazdowa/events?eventId= returns 404 for an unknown event', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events?eventId=nope', { status: 'cancelled' });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('PUT /lista-wyjazdowa/signups rejects an equipmentId that does not belong to the target member', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    // wojownik@gmail.com has no listaWyjazdowaProfile yet in this fixture, so any equipmentId is "not theirs".
+    const res = await putListaWyjazdowa(
+      baseUrl,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`,
+      { attending: true, equipmentIds: ['not-mine'], companionIds: [] },
+    );
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and logs it', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const res = await putListaWyjazdowa(
+      baseUrl,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=inny@example.test`,
+      { attending: true, equipmentIds: [], companionIds: [] },
+    );
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.signup.memberEmail, 'inny@example.test');
+    assert.equal(body.signup.lastChangedBy, 'wojownik@gmail.com', 'lastChangedBy reflects the caller, not the target member');
+
+    const auditRes = await fetch(`${baseUrl}/lista-wyjazdowa/signups/audit-log?eventId=${created.event.id}`);
+    const auditBody = await auditRes.json();
+    assert.equal(auditBody.entries.length, 1);
+    assert.equal(auditBody.entries[0].targetMemberEmail, 'inny@example.test');
+    assert.equal(auditBody.entries[0].changedBy, 'wojownik@gmail.com');
+  });
+});
+
+test('GET /lista-wyjazdowa/roster joins members with their listaWyjazdowaProfile', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Ala Kowalska', sectionId: 'krakow' });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: ['tarczownik'], equipment: [], companions: [] });
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/roster`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.roster.length, 1);
+    assert.equal(body.roster[0].fullName, 'Ala Kowalska');
+    assert.deepEqual(body.roster[0].weaponIds, ['tarczownik']);
+  });
+});
+
+test('GET /lista-wyjazdowa/signups returns the full raw roster of signups for an event', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
+      attending: true,
+      equipmentIds: [],
+      companionIds: [],
+    });
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/signups?eventId=${created.event.id}`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.signups.length, 1);
+    assert.equal(body.signups[0].memberEmail, 'wojownik@gmail.com');
+  });
+});
+
+test('GET /lista-wyjazdowa/signups/mine returns null when the caller has not signed up for the event', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/signups/mine?eventId=${created.event.id}`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { signup: null });
+  });
+});
+
+test('GET /lista-wyjazdowa/signups/mine returns the caller\'s own signup after signing up', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
+      attending: true,
+      equipmentIds: [],
+      companionIds: [],
+    });
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/signups/mine?eventId=${created.event.id}`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.signup.memberEmail, 'wojownik@gmail.com');
+    assert.equal(body.signup.attending, true);
+  });
+});

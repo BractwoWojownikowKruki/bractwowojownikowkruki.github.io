@@ -56,3 +56,10 @@ export async function saveMember(
     driveFolderId: existing?.driveFolderId ?? null,
   };
 }
+
+// Plan B (roster join, GET /lista-wyjazdowa/roster): unlike getMember, callers here need the
+// email too, since MemberDoc itself doesn't carry it - it's only known via the doc id.
+export async function listAllMembers(client: FirestoreLikeClient): Promise<Array<MemberDoc & { email: string }>> {
+  const docs = await client.listDocs<MemberDoc>(COLLECTION);
+  return docs.map((d) => ({ email: d.id, ...d.data }));
+}
