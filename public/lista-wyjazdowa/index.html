@@ -38,9 +38,15 @@
           Brak uprawnień. Ta sekcja jest dostępna tylko dla członków Bractwa.
         </p>
 
+        <!-- The Składki link is repeated in both panels on purpose: payment status is visible to
+             every signed-in member (design.md §7/§8), including members who have not filled in
+             their Lista Wyjazdowa profile yet - and those are exactly the members whose Wpisowe
+             row an accountant most often has to look up. Only #events-panel carried the link
+             before, which made the page unreachable for precisely that group. -->
         <div id="no-profile-panel" hidden>
           <p>Uzupełnij najpierw swój profil, aby zapisywać się na wyjazdy.</p>
           <a href="/profil/" class="btn-cancel">Przejdź do profilu</a>
+          <a href="skladki/" class="btn-cancel">Składki</a>
         </div>
 
         <div id="events-panel" hidden>

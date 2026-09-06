@@ -54,6 +54,16 @@ const currentYear = new Date().getFullYear();
 // renderTable() to decide whether to show toggle buttons or read-only text.
 let canManageSkladki = false;
 
+// sectionId -> label from lookupLists/sections, fetched alongside the roster. The roster carries
+// raw section ids ("krakow"); without this map the section headings read as slugs instead of the
+// names the rest of the site shows ("Kraków"). Retired sections are kept in the map on purpose -
+// members already assigned to one still have to be grouped under a readable heading.
+let sectionLabelById = new Map();
+
+function sectionLabel(sectionId) {
+  return sectionLabelById.get(sectionId) ?? sectionId;
+}
+
 function renderTable(roster, duesByEmail) {
   const bySection = new Map();
   for (const member of roster) {
@@ -65,17 +75,24 @@ function renderTable(roster, duesByEmail) {
   container.innerHTML = '';
   for (const [sectionId, members] of bySection.entries()) {
     const sectionEl = document.createElement('div');
-    sectionEl.innerHTML = `<h3>${escapeHtml(sectionId)}</h3>`;
+    sectionEl.innerHTML = `<h3>${escapeHtml(sectionLabel(sectionId))}</h3>`;
     for (const member of members) {
       const roczna = duesByEmail.get(member.email)?.paid ?? false;
       const emailAttr = escapeAttr(member.email);
       const row = document.createElement('div');
       row.className = 'lw-skladki-row';
+      // Wpisowe lives on the member's listaWyjazdowaProfile document, so a member who has not
+      // filled that profile in yet has nowhere to record it: PUT /lista-wyjazdowa/wpisowe answers
+      // 404 for them by design (it must not create a profile document with only the wpisowePaid
+      // field). Showing them as a plain "nieopłacone" with a working-looking toggle meant every
+      // click on that toggle failed with an error banner, so they get an explicit "brak profilu"
+      // and no button at all - the status is reported honestly and nothing unusable is offered.
+      // Składka roczna is unaffected: it is stored per member+year and needs no profile.
       row.innerHTML = `
         <span>${escapeHtml(member.fullName)}</span>
-        <span>Wpisowe: ${member.wpisowePaid ? 'opłacone' : 'nieopłacone'}</span>
+        <span>Wpisowe: ${member.hasProfile ? (member.wpisowePaid ? 'opłacone' : 'nieopłacone') : 'brak profilu'}</span>
         ${
-          canManageSkladki
+          canManageSkladki && member.hasProfile
             ? `<button type="button" class="lw-wpisowe-toggle" data-email="${emailAttr}" data-paid="${member.wpisowePaid ? 'true' : 'false'}">${member.wpisowePaid ? 'Oznacz jako nieopłacone' : 'Oznacz jako opłacone'}</button>`
             : ''
         }
@@ -93,12 +110,16 @@ function renderTable(roster, duesByEmail) {
 }
 
 async function loadAndRender() {
-  const [{ canManageSkladki: role }, { roster }, { dues }] = await Promise.all([
+  const [{ canManageSkladki: role }, { roster }, { dues }, lookupLists] = await Promise.all([
     apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/dues?year=${currentYear}`, { method: 'GET' }, showReauth, hideReauth),
+    // GET /lista-wyjazdowa/lookup-lists answers with the lists themselves ({ sections, categories,
+    // weapons }), not wrapped in an envelope - see handleListaWyjazdowaLookupLists.
+    apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
   ]);
   canManageSkladki = role;
+  sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
   document.getElementById('skladki-year-label').textContent = `Rok: ${currentYear}`;
   const duesByEmail = new Map(dues.map((d) => [d.email, d]));
   renderTable(roster, duesByEmail);

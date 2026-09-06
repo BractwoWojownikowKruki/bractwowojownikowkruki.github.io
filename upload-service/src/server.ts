@@ -1196,6 +1196,14 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       weaponIds: profile?.weaponIds ?? [],
       equipment: profile?.equipment ?? [],
       companions: profile?.companions ?? [],
+      // hasProfile separates "has a listaWyjazdowaProfile document and hasn't paid" from "has no
+      // such document at all", which the wpisowePaid: false fallback alone cannot express. The
+      // Składki page needs the distinction: PUT /lista-wyjazdowa/wpisowe is a 404 for a member
+      // with no profile document (setWpisowePaid deliberately refuses to create one, since a
+      // wpisowePaid-only document would be missing weaponIds/equipment/companions and would break
+      // PUT /lista-wyjazdowa/signups' targetProfile.equipment access), so a toggle button must
+      // not be offered for those members in the first place.
+      hasProfile: profile !== undefined,
       wpisowePaid: profile?.wpisowePaid ?? false,
     };
   });

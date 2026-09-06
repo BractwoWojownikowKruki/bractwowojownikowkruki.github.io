@@ -3464,5 +3464,54 @@ test('GET /lista-wyjazdowa/roster includes wpisowePaid per member', async () => 
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/roster`);
     const body = await res.json();
     assert.equal(body.roster[0].wpisowePaid, false);
+    assert.equal(body.roster[0].hasProfile, true);
+  });
+});
+
+// wpisowePaid alone cannot express "there is no profile document to record this on", and the
+// Składki page needs that distinction: PUT /lista-wyjazdowa/wpisowe is a 404 for a member with no
+// listaWyjazdowaProfile, so the page must not offer a toggle for one. Both members below report
+// wpisowePaid: false; only hasProfile tells them apart.
+test('GET /lista-wyjazdowa/roster reports hasProfile: false for a member with no listaWyjazdowaProfile', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'bezprofilu@example.test');
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Ala Kowalska', sectionId: 'krakow' });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
+
+    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
+    const withProfile = body.roster.find((r: { email: string }) => r.email === 'wojownik@gmail.com');
+    const withoutProfile = body.roster.find((r: { email: string }) => r.email === 'bezprofilu@example.test');
+    assert.equal(withProfile.hasProfile, true);
+    assert.equal(withProfile.wpisowePaid, false);
+    assert.equal(withoutProfile.hasProfile, false, 'a member with no profile document must be distinguishable');
+    assert.equal(withoutProfile.wpisowePaid, false, 'and still reports the same wpisowePaid as an unpaid member with a profile');
+
+    // The 404 that hasProfile: false exists to keep the UI from walking into.
+    const toggled = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=bezprofilu@example.test', { paid: true });
+    assert.equal(toggled.status, 404);
+
+    // And that refusal must leave no partial profile document behind: a listaWyjazdowaProfile with
+    // only wpisowePaid on it would have no equipment array for PUT /lista-wyjazdowa/signups to read.
+    const after = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
+    assert.equal(after.roster.find((r: { email: string }) => r.email === 'bezprofilu@example.test').hasProfile, false);
+  });
+});
+
+// The reason setWpisowePaid must never upsert: a signup for a profile-less member is legitimate and
+// reads targetProfile.equipment/companions. A profile document containing only wpisowePaid would
+// make that read a TypeError (500) instead of the clean 200 below.
+test('PUT /lista-wyjazdowa/signups still works for a member with no listaWyjazdowaProfile', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'bezprofilu@example.test');
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=bezprofilu@example.test', { paid: true });
+    const res = await putListaWyjazdowa(
+      baseUrl,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=bezprofilu@example.test`,
+      { attending: true, equipmentIds: [], companionIds: [] },
+    );
+    assert.equal(res.status, 200);
   });
 });
