@@ -38,6 +38,13 @@
         </p>
 
         <div id="main-content" hidden>
+          <!-- Same persistent sub-nav on every Lista Wyjazdowa page. -->
+          <nav class="lw-subnav">
+            <a href="/lista-wyjazdowa/" class="lw-subnav-link">Lista wyjazdów</a>
+            <a href="/lista-wyjazdowa/?new=1" class="lw-subnav-link">Dodaj wyjazd</a>
+            <a href="/lista-wyjazdowa/skladki/" class="lw-subnav-link lw-subnav-link--active">Składki</a>
+          </nav>
+
           <h1>Składki</h1>
           <p id="skladki-year-label"></p>
 
@@ -47,6 +54,16 @@
           <p class="add-album-error" id="skladki-error" hidden></p>
 
           <div id="skladki-content"></div>
+
+          <!-- Wpisowe/składka-roczna/event-fee changes all land in one member/event-agnostic log
+               (dues.ts's duesAuditLog) since none of them belong to a single event the way
+               signup changes do - see wyjazd.js's #audit-log-panel for the event-scoped one.
+               Collapsed by default for the same reason as that one: least-often-needed section
+               on the page. -->
+          <details id="dues-audit-log-panel">
+            <summary>Historia zmian</summary>
+            <ul id="dues-audit-log-content"></ul>
+          </details>
         </div>
       </section>
     </div>

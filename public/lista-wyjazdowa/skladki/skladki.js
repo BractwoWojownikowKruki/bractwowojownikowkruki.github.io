@@ -18,6 +18,21 @@ function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
+// Same as wyjazd.js's displayName/formatDateTime - duplicated per this codebase's existing
+// convention (escapeHtml/escapeAttr are already duplicated the same way across every Lista
+// Wyjazdowa page) rather than introducing a shared module for two small functions.
+function displayName(member) {
+  return member.nickname ? `${member.fullName} (${member.nickname})` : member.fullName;
+}
+
+function formatDateTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const date = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `${date} ${time}`;
+}
+
 const panels = {
   checking: document.getElementById('lw-checking'),
   signedOut: document.getElementById('signed-out-panel'),
@@ -90,7 +105,7 @@ function renderTable(roster, duesByEmail) {
       // and no button at all - the status is reported honestly and nothing unusable is offered.
       // Składka roczna is unaffected: it is stored per member+year and needs no profile.
       row.innerHTML = `
-        <span>${escapeHtml(member.fullName)}</span>
+        <span>${escapeHtml(displayName(member))}</span>
         <span>Wpisowe: ${member.hasProfile ? (member.wpisowePaid ? 'opłacone' : 'nieopłacone') : 'brak profilu'}</span>
         ${
           canManageSkladki && member.hasProfile
@@ -110,6 +125,21 @@ function renderTable(roster, duesByEmail) {
   }
 }
 
+async function renderDuesAuditLog() {
+  const { entries } = await apiFetch('/lista-wyjazdowa/dues/audit-log', { method: 'GET' }, showReauth, hideReauth);
+  // targetMemberEmail is null for an eventFee entry (the event's name is already baked into its
+  // changeSummary text server-side, see server.ts's handleListaWyjazdowaPutEvent) - the arrow only
+  // makes sense for wpisowe/roczna entries, which name a member but not in the summary text.
+  document.getElementById('dues-audit-log-content').innerHTML = entries
+    .slice()
+    .reverse()
+    .map((e) => {
+      const target = e.targetMemberEmail ? ` → ${escapeHtml(e.targetMemberEmail)}` : '';
+      return `<li>${escapeHtml(formatDateTime(e.changedAt))} — ${escapeHtml(e.changedBy)}${target}: ${escapeHtml(e.changeSummary)}</li>`;
+    })
+    .join('');
+}
+
 async function loadAndRender() {
   const [{ canManageSkladki: role }, { roster }, { dues }, lookupLists] = await Promise.all([
     apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth),
@@ -124,6 +154,7 @@ async function loadAndRender() {
   document.getElementById('skladki-year-label').textContent = `Rok: ${currentYear}`;
   const duesByEmail = new Map(dues.map((d) => [d.email, d]));
   renderTable(roster, duesByEmail);
+  await renderDuesAuditLog();
 }
 
 async function toggleWpisowe(email, nextPaid) {

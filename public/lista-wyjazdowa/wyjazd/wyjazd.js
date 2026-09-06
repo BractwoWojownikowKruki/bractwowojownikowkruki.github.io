@@ -21,6 +21,31 @@ function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
+// A member's Ksywa (nickname) matters more here than in most places on the site: this roster is
+// exactly the context the sheet's "Nazwisko, Imię" + Ksywa columns existed for - people who know
+// each other by nickname need to find their own row and each other's.
+function displayName(member) {
+  return member.nickname ? `${member.fullName} (${member.nickname})` : member.fullName;
+}
+
+// startDate is a bare calendar date ("2027-05-01"), not a timestamp - plain string slicing avoids
+// the UTC-vs-local skew a Date object would risk (see lista-wyjazdowa.js's todayIsoDate fix).
+function formatDate(isoDate) {
+  const [y, m, d] = isoDate.split('-');
+  return `${d}.${m}.${y}`;
+}
+
+// changedAt IS a real instant (Date.toISOString()), so converting it through Date and reading
+// local getters back out is the right move here, unlike formatDate() above - the audit log should
+// show *when this happened in the viewer's own timezone*, not the stored UTC instant verbatim.
+function formatDateTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const date = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `${date} ${time}`;
+}
+
 function showReauth() {} // no reauth banner on this page yet - matches lista-wyjazdowa.js's placeholder scope
 function hideReauth() {}
 
@@ -104,6 +129,9 @@ async function toggleSkladkaPaid(email, nextPaid) {
   }
 }
 
+// Both #summary-content (counts, near the top) and #equipment-companions-content (named lists,
+// near the bottom, per feedback on section order) are derived from the same attending/roster
+// join, so this computes both in one pass and writes each half to its own container.
 function renderSummary(roster, signups) {
   const attending = signups.filter((s) => s.attending);
   const rosterByEmail = new Map(roster.map((r) => [r.email, r]));
@@ -117,11 +145,11 @@ function renderSummary(roster, signups) {
     bySection.set(member.sectionId, (bySection.get(member.sectionId) ?? 0) + 1);
     for (const eqId of s.equipmentIds) {
       const item = member.equipment.find((e) => e.id === eqId);
-      if (item) equipmentBearers.push(`${escapeHtml(item.name)} — ${escapeHtml(member.fullName)}`);
+      if (item) equipmentBearers.push(`${escapeHtml(item.name)} — ${escapeHtml(displayName(member))}`);
     }
     for (const compId of s.companionIds) {
       const companion = member.companions.find((c) => c.id === compId);
-      if (companion) companionBearers.push(`${escapeHtml(companion.name)} (z: ${escapeHtml(member.fullName)})`);
+      if (companion) companionBearers.push(`${escapeHtml(companion.name)} (z: ${escapeHtml(displayName(member))})`);
     }
   }
 
@@ -132,6 +160,9 @@ function renderSummary(roster, signups) {
   document.getElementById('summary-content').innerHTML = `
     <p>Łącznie: ${attending.length} os.</p>
     <ul>${sectionLines}</ul>
+  `;
+
+  document.getElementById('equipment-companions-content').innerHTML = `
     <h3>Sprzęt</h3>
     <ul>${equipmentBearers.map((l) => `<li>${l}</li>`).join('') || '<li>brak</li>'}</ul>
     <h3>Osoby towarzyszące</h3>
@@ -165,7 +196,7 @@ function renderRoster(roster, signups) {
       row.innerHTML = `
         <label>
           <input type="checkbox" class="lw-attend-checkbox" data-email="${emailAttr}" ${signup?.attending ? 'checked' : ''} />
-          ${escapeHtml(member.fullName)} (${escapeHtml(member.categoryId ?? '—')}, ${member.weaponIds.map(escapeHtml).join(', ') || '—'})
+          ${escapeHtml(displayName(member))} (${escapeHtml(member.categoryId ?? '—')}, ${member.weaponIds.map(escapeHtml).join(', ') || '—'})
         </label>
         <div class="lw-picker" data-email="${emailAttr}" ${signup?.attending ? '' : 'hidden'}>
           ${member.equipment
@@ -248,7 +279,7 @@ async function renderAuditLog() {
   document.getElementById('audit-log-content').innerHTML = entries
     .slice()
     .reverse()
-    .map((e) => `<li>${escapeHtml(e.changedAt)} — ${escapeHtml(e.changedBy)} → ${escapeHtml(e.targetMemberEmail)}: ${escapeHtml(e.changeSummary)}</li>`)
+    .map((e) => `<li>${escapeHtml(formatDateTime(e.changedAt))} — ${escapeHtml(e.changedBy)} → ${escapeHtml(e.targetMemberEmail)}: ${escapeHtml(e.changeSummary)}</li>`)
     .join('');
 }
 
@@ -266,7 +297,7 @@ async function loadAll() {
     return;
   }
   document.getElementById('event-title').textContent = event.name;
-  document.getElementById('event-meta').textContent = `${event.startDate}${event.status === 'cancelled' ? ' — odwołany' : ''}`;
+  document.getElementById('event-meta').textContent = `${formatDate(event.startDate)}${event.status === 'cancelled' ? ' — odwołany' : ''}`;
   document.getElementById('cancel-event-btn').hidden = event.status === 'cancelled';
   document.getElementById('restore-event-btn').hidden = event.status !== 'cancelled';
   renderSkladkaFee(event);

@@ -3456,6 +3456,50 @@ test('PUT /lista-wyjazdowa/dues requires accountant, validates member exists, an
   });
 });
 
+test('GET /lista-wyjazdowa/dues/audit-log records wpisowe, roczna, and event-fee changes, oldest first', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { skladkaFee: '50 zł' });
+
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.entries.length, 3);
+    assert.equal(body.entries[0].context, 'wpisowe');
+    assert.equal(body.entries[0].targetMemberEmail, 'wojownik@gmail.com');
+    assert.equal(body.entries[1].context, 'roczna');
+    assert.equal(body.entries[1].year, 2027);
+    assert.equal(body.entries[2].context, 'eventFee');
+    assert.equal(body.entries[2].eventId, created.event.id);
+    assert.equal(body.entries[2].eventName, 'Zjazd');
+    assert.ok(body.entries[2].changeSummary.includes('50 zł'));
+  });
+});
+
+test('PUT /lista-wyjazdowa/events without skladkaFee in the body does not append a dues audit entry', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { name: 'Zjazd zimowy' });
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
+    assert.deepEqual((await res.json()).entries, []);
+  });
+});
+
+test('GET /lista-wyjazdowa/dues/audit-log is open to any signed-in member, not just accountants', async () => {
+  await withServer(makeDeps({ firestore: makeListaWyjazdowaFirestore() }), async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
+    assert.equal(res.status, 200);
+  });
+});
+
 test('GET /lista-wyjazdowa/roster includes wpisowePaid per member', async () => {
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
   await withServer(deps, async baseUrl => {

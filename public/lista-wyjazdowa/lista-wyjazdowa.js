@@ -44,6 +44,15 @@ function todayIsoDate() {
   return `${d.getFullYear()}-${month}-${day}`;
 }
 
+// Plain DD.MM.YYYY string manipulation, not a Date object: startDate is already a bare calendar
+// date ("2027-05-01") with no time/timezone component, so parsing it through `new Date(...)`
+// and reading local getters back out would risk exactly the UTC-vs-local skew that
+// todayIsoDate()'s own fix (above) exists to avoid.
+function formatDate(isoDate) {
+  const [y, m, d] = isoDate.split('-');
+  return `${d}.${m}.${y}`;
+}
+
 function visibleEvents() {
   if (showAll) return [...cachedEvents].sort((a, b) => a.startDate.localeCompare(b.startDate));
   return cachedEvents
@@ -63,9 +72,9 @@ function renderEvents() {
       const statusLabel = e.status === 'cancelled' ? ' (odwołany)' : '';
       return `
         <div class="lw-event-row">
-          <a href="wyjazd/?eventId=${encodeURIComponent(e.id)}">${escapeHtml(e.name)}${statusLabel}</a>
-          <span>${escapeHtml(e.startDate)}</span>
-          <span>${e.attendingCount} os.</span>
+          <a href="wyjazd/?eventId=${encodeURIComponent(e.id)}" class="lw-event-name">${escapeHtml(e.name)}${statusLabel}</a>
+          <span class="lw-event-date">${escapeHtml(formatDate(e.startDate))}</span>
+          <span class="lw-event-count">${e.attendingCount} os.</span>
           <button type="button" class="lw-attend-toggle" data-event-id="${e.id}" data-attending="${e.viewerAttending}">
             ${e.viewerAttending ? 'Nie jadę' : 'Jadę'}
           </button>
@@ -132,9 +141,25 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
   }
 });
 
-document.getElementById('toggle-add-event').addEventListener('click', () => {
+// The sub-nav's "Dodaj wyjazd" is a plain link (href="?new=1") so it still works as a normal
+// navigation from the other two Lista Wyjazdowa pages - this handler only intercepts it when
+// we're already on this page, to avoid a pointless full reload for something the page can just
+// reveal in place. openAddEventForm() is also called directly below on page load when arriving
+// via that link from elsewhere (or a bookmarked/shared ?new=1 URL).
+function openAddEventForm() {
   const form = document.getElementById('add-event-form');
-  form.hidden = !form.hidden;
+  form.hidden = false;
+  form.scrollIntoView({ block: 'center' });
+}
+
+document.getElementById('lw-subnav-add').addEventListener('click', (e) => {
+  e.preventDefault();
+  const form = document.getElementById('add-event-form');
+  if (form.hidden) {
+    openAddEventForm();
+  } else {
+    form.hidden = true;
+  }
 });
 
 document.getElementById('toggle-past-events').addEventListener('click', (e) => {
@@ -186,6 +211,11 @@ initGoogleSignIn({
       }
       await loadEvents();
       showOnly(panels.events);
+      // Arrived from the sub-nav's "Dodaj wyjazd" on another page (?new=1) - open the form the
+      // same way the in-page button does, now that #events-panel is actually visible to scroll
+      // within. A stale ?new=1 left in the address bar after this just re-opens an already-empty
+      // form on refresh, which is harmless.
+      if (new URLSearchParams(window.location.search).get('new') === '1') openAddEventForm();
     } catch (err) {
       showOnly(panels.events);
       const errorEl = document.getElementById('events-error');

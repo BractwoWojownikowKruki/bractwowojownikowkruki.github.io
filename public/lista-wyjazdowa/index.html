@@ -51,8 +51,18 @@
         </div>
 
         <div id="events-panel" hidden>
-          <a href="skladki/" class="btn-cancel">Składki</a>
-          <button type="button" class="btn-cancel" id="toggle-add-event">Dodaj wyjazd</button>
+          <!-- Same persistent sub-nav as wyjazd/index.html and skladki/index.html - "this is an
+               app within the site" means every view inside it keeps quick access back to the
+               list and to creating a new event, not just the page you happened to land on.
+               "Dodaj wyjazd" here just reveals the inline form below (see the click handler in
+               lista-wyjazdowa.js) rather than navigating, since the form already lives on this
+               page; the other two pages link to /lista-wyjazdowa/?new=1 instead, which this
+               page's own load logic detects and opens the same way. -->
+          <nav class="lw-subnav">
+            <a href="/lista-wyjazdowa/" class="lw-subnav-link lw-subnav-link--active">Lista wyjazdów</a>
+            <a href="?new=1" class="lw-subnav-link" id="lw-subnav-add">Dodaj wyjazd</a>
+            <a href="skladki/" class="lw-subnav-link">Składki</a>
+          </nav>
           <form id="add-event-form" hidden>
             <div class="field">
               <label for="new-event-name">Nazwa</label>

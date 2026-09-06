@@ -38,6 +38,15 @@
         </p>
 
         <div id="main-content" hidden>
+          <!-- Same persistent sub-nav on every Lista Wyjazdowa page - "Dodaj wyjazd" links to the
+               events list with ?new=1, which its own load logic detects and opens the add-event
+               form automatically, since this page has no form of its own to reveal in place. -->
+          <nav class="lw-subnav">
+            <a href="/lista-wyjazdowa/" class="lw-subnav-link">Lista wyjazdów</a>
+            <a href="/lista-wyjazdowa/?new=1" class="lw-subnav-link">Dodaj wyjazd</a>
+            <a href="/lista-wyjazdowa/skladki/" class="lw-subnav-link">Składki</a>
+          </nav>
+
           <h1 id="event-title">Wyjazd</h1>
           <p id="event-meta"></p>
           <div id="event-actions">
@@ -71,10 +80,22 @@
             <div id="roster-content"></div>
           </section>
 
-          <section id="audit-log-panel">
-            <h2>Historia zmian</h2>
-            <ul id="audit-log-content"></ul>
+          <!-- Sprzęt/osoby towarzyszące (the named "who's bringing what" lists, split out of
+               #summary-content) sit below the roster so a member scrolling the page reads
+               "who's coming" before "what they're bringing" - and above the audit log, which is
+               the least-often-needed section on the page. -->
+          <section id="equipment-companions-panel">
+            <h2>Sprzęt i osoby towarzyszące</h2>
+            <div id="equipment-companions-content"></div>
           </section>
+
+          <!-- <details> gives free, JS-free collapse behaviour, closed by default: the change log
+               is the least-often-needed section on this page, and an open, ever-growing list at
+               the bottom pushed everything above it down further with every entry. -->
+          <details id="audit-log-panel">
+            <summary>Historia zmian</summary>
+            <ul id="audit-log-content"></ul>
+          </details>
         </div>
       </section>
     </div>

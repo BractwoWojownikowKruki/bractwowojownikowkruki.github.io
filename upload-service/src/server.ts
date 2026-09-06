@@ -42,7 +42,7 @@ import {
   type SignupWritableFields,
 } from './signups.ts';
 import { getGrantedRoles, satisfiesRole, requireRole } from './roles.ts';
-import { listDuesForYear, setDuesPaid } from './dues.ts';
+import { listDuesForYear, setDuesPaid, appendDuesAuditEntry, listDuesAuditLog } from './dues.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -1097,6 +1097,19 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
   }
   const event = await updateEvent(deps.firestore, eventId, fields);
   if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+  if (fields.skladkaFee !== undefined) {
+    await appendDuesAuditEntry(deps.firestore, {
+      context: 'eventFee',
+      targetMemberEmail: null,
+      eventId,
+      eventName: event.name,
+      year: null,
+      changedBy: identity.email,
+      changeSummary: fields.skladkaFee
+        ? `Ustawiono składkę wyjazdu „${event.name}” na: ${fields.skladkaFee}`
+        : `Usunięto składkę wyjazdu „${event.name}”`,
+    });
+  }
   sendJson(res, 200, { event });
 }
 
@@ -1249,6 +1262,15 @@ async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerR
   if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
   const profile = await setWpisowePaid(deps.firestore, memberEmail, body.paid, identity.email);
   if (!profile) throw new AuthError('Ten członek nie ma jeszcze profilu Listy Wyjazdowej.', 404);
+  await appendDuesAuditEntry(deps.firestore, {
+    context: 'wpisowe',
+    targetMemberEmail: memberEmail.toLowerCase(),
+    eventId: null,
+    eventName: null,
+    year: null,
+    changedBy: identity.email,
+    changeSummary: body.paid ? 'Oznaczono wpisowe jako opłacone' : 'Oznaczono wpisowe jako nieopłacone',
+  });
   sendJson(res, 200, { profile });
 }
 
@@ -1276,7 +1298,24 @@ async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResp
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
   const dues = await setDuesPaid(deps.firestore, memberEmail, year, body.paid, identity.email);
+  await appendDuesAuditEntry(deps.firestore, {
+    context: 'roczna',
+    targetMemberEmail: memberEmail.toLowerCase(),
+    eventId: null,
+    eventName: null,
+    year,
+    changedBy: identity.email,
+    changeSummary: body.paid
+      ? `Oznaczono składkę roczną ${year} jako opłaconą`
+      : `Oznaczono składkę roczną ${year} jako nieopłaconą`,
+  });
   sendJson(res, 200, { dues });
+}
+
+async function handleListaWyjazdowaGetDuesAuditLog(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req, res);
+  const entries = await listDuesAuditLog(deps.firestore);
+  sendJson(res, 200, { entries });
 }
 
 // Structured console log for every destructive gallery action (KRKG-0027's audit requirement) -
@@ -1800,6 +1839,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaGetDues(req, res, url, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/dues') {
         await handleListaWyjazdowaPutDues(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/dues/audit-log') {
+        await handleListaWyjazdowaGetDuesAuditLog(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
         if (!rejectIfRateLimited(req, res)) await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {
