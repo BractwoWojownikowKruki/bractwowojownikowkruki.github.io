@@ -55,13 +55,6 @@ export async function updateEvent(
 ): Promise<EventWithId | null> {
   const existing = await client.getDoc<EventDoc>(COLLECTION, eventId);
   if (!existing) return null;
-  const updated: EventDoc = {
-    name: fields.name ?? existing.name,
-    startDate: fields.startDate ?? existing.startDate,
-    status: fields.status ?? existing.status,
-    createdBy: existing.createdBy,
-    createdAt: existing.createdAt,
-  };
-  await client.setDoc(COLLECTION, eventId, updated);
-  return { id: eventId, ...updated };
+  await client.setDoc(COLLECTION, eventId, fields);
+  return { id: eventId, ...existing, ...fields };
 }
