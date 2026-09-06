@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Składki - Lista wyjazdowa - Bractwo Wojowników Kruki</title>
+  <meta name="robots" content="noindex, nofollow" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Składki - Lista wyjazdowa - Bractwo Wojowników Kruki" />
+  <meta property="og:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+  <meta property="og:locale" content="pl_PL" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Składki - Lista wyjazdowa - Bractwo Wojowników Kruki" />
+  <meta name="twitter:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../../favicon.png" />
+  <link rel="apple-touch-icon" href="../../favicon.png" />
+  <link rel="stylesheet" href="../../style.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+    <!-- PARTIAL:nav -->
+
+  <main class="main-content">
+    <div class="content-left">
+      <section class="content-section">
+        <div class="upload-signin" id="signed-out-panel" hidden>
+          <p>Zaloguj się kontem Google, aby uzyskać dostęp do Listy wyjazdowej.</p>
+          <div id="google-signin-button"></div>
+        </div>
+        <p class="upload-forbidden" id="forbidden-panel" hidden>
+          Brak uprawnień. Ta sekcja jest dostępna tylko dla członków Bractwa.
+        </p>
+
+        <div id="main-content" hidden>
+          <h1>Składki</h1>
+          <p id="skladki-year-label"></p>
+
+          <!-- Every failed mutation on this page (wpisowe/składka toggle, initial load) reports
+               here (design.md §9: fail closed with a user-facing Polish message), same pattern as
+               wyjazd.js's #lw-error. -->
+          <p class="add-album-error" id="skladki-error" hidden></p>
+
+          <div id="skladki-content"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- PARTIAL:social_sidebar -->
+  </main>
+
+  <!-- PARTIAL:footer -->
+
+  <script src="../../auth.js"></script>
+  <script src="../../nav.js"></script>
+  <script src="../../instagram-feed.js"></script>
+  <script src="../../youtube-feed.js"></script>
+  <script src="skladki.js"></script>
+</body>
+</html>
