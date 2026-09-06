@@ -75,8 +75,9 @@ function renderEvents() {
           <a href="wyjazd/?eventId=${encodeURIComponent(e.id)}" class="lw-event-name">${escapeHtml(e.name)}${statusLabel}</a>
           <span class="lw-event-date">${escapeHtml(formatDate(e.startDate))}</span>
           <span class="lw-event-count">${e.attendingCount} os.</span>
-          <button type="button" class="lw-attend-toggle" data-event-id="${e.id}" data-attending="${e.viewerAttending}">
-            ${e.viewerAttending ? 'Nie jadę' : 'Jadę'}
+          <button type="button" class="lw-attend-toggle" data-event-id="${e.id}" data-attending="${e.viewerAttending}" aria-pressed="${e.viewerAttending}">
+            <span class="lw-attend-toggle-track" aria-hidden="true"></span>
+            ${e.viewerAttending ? 'Jadę' : 'Nie jadę'}
           </button>
         </div>
       `;

@@ -32,7 +32,6 @@ const panels = {
   signedOut: document.getElementById('signed-out-panel'),
   forbidden: document.getElementById('forbidden-panel'),
   form: document.getElementById('profile-form-panel'),
-  saved: document.getElementById('profile-saved-panel'),
 };
 
 function showOnly(panel) {
@@ -385,11 +384,12 @@ async function initForm(lookupLists) {
       form.nickname.value = savedMember.nickname ?? '';
       resetPhotoSelection();
 
-      // The form stays fully populated and re-submittable behind the confirmation panel - the
-      // "Edytuj profil" button on it just switches back (design.md §8 point 4).
+      // The form stays visible and re-submittable (design.md §8 point 4) - no panel swap, just a
+      // brief inline confirmation next to the button so re-editing and re-saving needs no extra
+      // click to "come back" to the form first.
       progressEl.hidden = true;
       submitBtn.disabled = false;
-      showOnly(panels.saved);
+      showSaved();
     } catch (err) {
       errorEl.textContent = `Błąd: ${err.message}`;
       errorEl.hidden = false;
@@ -449,7 +449,19 @@ async function initForm(lookupLists) {
   showOnly(panels.form);
 }
 
-document.getElementById('back-to-profile-form').addEventListener('click', () => showOnly(panels.form));
+let savedMessageTimeout = null;
+
+// Transient "✓ Zapisano" next to the submit button - cleared and restarted on every save so
+// several quick successive saves each get their own full-length confirmation instead of the
+// message disappearing early because an earlier save's timer fires mid-way through.
+function showSaved() {
+  const savedEl = document.getElementById('profile-form-saved');
+  clearTimeout(savedMessageTimeout);
+  savedEl.hidden = false;
+  savedMessageTimeout = setTimeout(() => {
+    savedEl.hidden = true;
+  }, 4000);
+}
 
 initGoogleSignIn({
   buttonIds: ['google-signin-button', 'google-reauth-button'],

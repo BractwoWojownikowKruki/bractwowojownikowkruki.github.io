@@ -323,6 +323,7 @@ async function setEventStatus(status, failureMessage) {
 }
 
 document.getElementById('cancel-event-btn').addEventListener('click', () => {
+  if (!window.confirm('Czy na pewno odwołać ten wyjazd?')) return;
   setEventStatus('cancelled', 'Nie udało się odwołać wyjazdu');
 });
 
