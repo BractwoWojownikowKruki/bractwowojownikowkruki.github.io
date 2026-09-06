@@ -3330,3 +3330,125 @@ test('GET /lista-wyjazdowa/signups/mine returns the caller\'s own signup after s
     assert.equal(body.signup.attending, true);
   });
 });
+
+// Plan C (składki/dues): makeDeps()'s default caller (wojownik@gmail.com) has no userRoles doc,
+// so it is a plain member for every test below unless makeDepsWithRole seeds one.
+function makeDepsWithRole(role: 'accountant' | 'admin', firestore = makeListaWyjazdowaFirestore()) {
+  firestore.seed('userRoles', 'wojownik@gmail.com', { roles: [role] });
+  return makeDeps({ firestore });
+}
+
+test('GET /lista-wyjazdowa/my-role reflects granted roles', async () => {
+  await withServer(makeDeps({ firestore: makeListaWyjazdowaFirestore() }), async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
+    assert.deepEqual(await res.json(), { canManageSkladki: false });
+  });
+  await withServer(makeDepsWithRole('accountant'), async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
+    assert.deepEqual(await res.json(), { canManageSkladki: true });
+  });
+  await withServer(makeDepsWithRole('admin'), async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
+    assert.deepEqual(await res.json(), { canManageSkladki: true });
+  });
+});
+
+test('PUT /lista-wyjazdowa/events with skladkaFee requires accountant, 403 for a plain member', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { skladkaFee: '50 zł' });
+    assert.equal(res.status, 403);
+  });
+});
+
+test('PUT /lista-wyjazdowa/events with skladkaFee succeeds for accountant and is not required for name/startDate/status edits', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { skladkaFee: '50 zł' });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).event.skladkaFee, '50 zł');
+  });
+});
+
+test('PUT /lista-wyjazdowa/signups/skladka requires accountant and 404s for a member with no signup', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, { paid: true });
+    assert.equal(res.status, 403);
+  });
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, { paid: true });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('PUT /lista-wyjazdowa/signups/skladka succeeds for accountant against an existing signup', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  // PUT /lista-wyjazdowa/signups 404s unless memberEmail names a real members/{email} document
+  // (see handleListaWyjazdowaPutSignup's targetMember check) - seed one so the signup below is
+  // actually created, matching the seedMember pattern used by the other signups tests above.
+  seedMember(firestore, 'wojownik@gmail.com');
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
+      attending: true, equipmentIds: [], companionIds: [],
+    });
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, { paid: true });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).signup.skladkaPaid, true);
+  });
+});
+
+test('PUT /lista-wyjazdowa/wpisowe requires accountant and 404s without a profile', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
+    assert.equal(res.status, 403);
+  });
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('PUT /lista-wyjazdowa/dues requires accountant, validates member exists, and GET reflects it for the right year', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
+    assert.equal(res.status, 403);
+  });
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const unknown = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=nikt@example.test&year=2027', { paid: true });
+    assert.equal(unknown.status, 404);
+
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
+    assert.equal(res.status, 200);
+
+    const getRes = await fetch(`${baseUrl}/lista-wyjazdowa/dues?year=2027`);
+    const body = await getRes.json();
+    assert.equal(body.dues.length, 1);
+    assert.equal(body.dues[0].paid, true);
+
+    const wrongYear = await fetch(`${baseUrl}/lista-wyjazdowa/dues?year=2026`);
+    assert.deepEqual((await wrongYear.json()).dues, []);
+  });
+});
+
+test('GET /lista-wyjazdowa/roster includes wpisowePaid per member', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Ala Kowalska', sectionId: 'krakow' });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/roster`);
+    const body = await res.json();
+    assert.equal(body.roster[0].wpisowePaid, false);
+  });
+});

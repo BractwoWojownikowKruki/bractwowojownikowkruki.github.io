@@ -62,6 +62,20 @@ export async function saveProfile(
   return { ...writable, wpisowePaid: existing?.wpisowePaid ?? false };
 }
 
+export async function setWpisowePaid(
+  client: FirestoreLikeClient,
+  email: string,
+  paid: boolean,
+  updatedBy: string,
+): Promise<ListaWyjazdowaProfileDoc | null> {
+  const id = email.toLowerCase();
+  const existing = await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id);
+  if (!existing) return null;
+  const writable = { wpisowePaid: paid, updatedBy, updatedAt: new Date().toISOString() };
+  await client.setDoc(COLLECTION, id, writable);
+  return { ...existing, ...writable };
+}
+
 // Plan B (roster join, GET /lista-wyjazdowa/roster): unlike getProfile, callers here need the
 // email too, since ListaWyjazdowaProfileDoc itself doesn't carry it - it's only known via the doc id.
 export async function listAllProfiles(client: FirestoreLikeClient): Promise<Array<ListaWyjazdowaProfileDoc & { email: string }>> {

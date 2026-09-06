@@ -6,6 +6,7 @@ import {
   listSignupsForEvent,
   getSignup,
   saveSignup,
+  setSkladkaPaid,
   appendAuditLogEntry,
   listAuditLogForEvent,
 } from './signups.ts';
@@ -52,6 +53,21 @@ test('saveSignup preserves skladkaPaid across an unrelated update', async () => 
   const updated = await saveSignup(client, 'event-1', 'ala@example.test', { attending: false, equipmentIds: [], companionIds: [] }, 'inny@example.test');
   assert.equal(updated.skladkaPaid, true, 'skladkaPaid must survive a self-service signup edit untouched');
   assert.equal(updated.lastChangedBy, 'inny@example.test', 'lastChangedBy always reflects who actually made this write, per the open-edit model');
+});
+
+test('setSkladkaPaid returns null when no signup exists', async () => {
+  const client = createInMemoryFirestoreClient();
+  assert.equal(await setSkladkaPaid(client, 'event-1', 'ala@example.test', true, 'accountant@example.test'), null);
+});
+
+test('setSkladkaPaid toggles paid, preserving attending/equipment/companions', async () => {
+  const client = createInMemoryFirestoreClient();
+  await saveSignup(client, 'event-1', 'ala@example.test', { attending: true, equipmentIds: ['eq-1'], companionIds: [] }, 'ala@example.test');
+  const updated = await setSkladkaPaid(client, 'event-1', 'ala@example.test', true, 'accountant@example.test');
+  assert.equal(updated?.skladkaPaid, true);
+  assert.equal(updated?.attending, true);
+  assert.deepEqual(updated?.equipmentIds, ['eq-1']);
+  assert.equal(updated?.lastChangedBy, 'accountant@example.test');
 });
 
 test('listAllSignups and listSignupsForEvent', async () => {

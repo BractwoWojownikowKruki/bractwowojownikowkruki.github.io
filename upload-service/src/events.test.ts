@@ -41,6 +41,22 @@ test('updateEvent returns null for an unknown id and does not create one', async
   assert.deepEqual(await listEvents(client), []);
 });
 
+test('createEvent defaults skladkaFee to null', async () => {
+  const client = createInMemoryFirestoreClient();
+  const event = await createEvent(client, { name: 'Zjazd', startDate: '2027-05-01' }, 'organizer@example.test');
+  assert.equal(event.skladkaFee, null);
+});
+
+test('updateEvent can set and clear skladkaFee without touching other fields', async () => {
+  const client = createInMemoryFirestoreClient();
+  const created = await createEvent(client, { name: 'Zjazd', startDate: '2027-05-01' }, 'organizer@example.test');
+  const withFee = await updateEvent(client, created.id, { skladkaFee: '50 zł' });
+  assert.equal(withFee?.skladkaFee, '50 zł');
+  assert.equal(withFee?.name, 'Zjazd');
+  const cleared = await updateEvent(client, created.id, { skladkaFee: null });
+  assert.equal(cleared?.skladkaFee, null);
+});
+
 test('updateEvent applies only the given fields, preserving the rest', async () => {
   const client = createInMemoryFirestoreClient();
   const created = await createEvent(client, { name: 'Zjazd', startDate: '2027-05-01' }, 'organizer@example.test');

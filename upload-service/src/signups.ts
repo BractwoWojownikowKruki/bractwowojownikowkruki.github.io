@@ -77,6 +77,21 @@ export async function saveSignup(
   return { ...existing, ...writable };
 }
 
+export async function setSkladkaPaid(
+  client: FirestoreLikeClient,
+  eventId: string,
+  email: string,
+  paid: boolean,
+  changedBy: string,
+): Promise<SignupDoc | null> {
+  const id = signupId(eventId, email);
+  const existing = await client.getDoc<SignupDoc>(SIGNUPS_COLLECTION, id);
+  if (!existing) return null;
+  const writable = { skladkaPaid: paid, lastChangedBy: changedBy, lastChangedAt: new Date().toISOString() };
+  await client.setDoc(SIGNUPS_COLLECTION, id, writable);
+  return { ...existing, ...writable };
+}
+
 export async function appendAuditLogEntry(client: FirestoreLikeClient, entry: Omit<AuditLogEntry, 'changedAt'>): Promise<void> {
   const id = randomUUID();
   const full: AuditLogEntry = { ...entry, changedAt: new Date().toISOString() };

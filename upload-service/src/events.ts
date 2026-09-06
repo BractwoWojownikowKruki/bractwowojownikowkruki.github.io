@@ -7,6 +7,7 @@ export interface EventDoc {
   status: 'active' | 'cancelled';
   createdBy: string;
   createdAt: string;
+  skladkaFee: string | null; // free-text fee description, accountant/admin-set — see server.ts's role check
 }
 
 export interface EventWithId extends EventDoc {
@@ -17,6 +18,7 @@ export interface EventWritableFields {
   name?: string;
   startDate?: string;
   status?: 'active' | 'cancelled';
+  skladkaFee?: string | null;
 }
 
 const COLLECTION = 'events';
@@ -43,6 +45,7 @@ export async function createEvent(
     status: 'active',
     createdBy,
     createdAt: new Date().toISOString(),
+    skladkaFee: null,
   };
   await client.setDoc(COLLECTION, id, doc);
   return { id, ...doc };

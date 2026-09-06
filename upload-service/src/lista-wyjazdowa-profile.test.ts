@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
-import { getProfile, listAllProfiles, saveProfile } from './lista-wyjazdowa-profile.ts';
+import { getProfile, listAllProfiles, saveProfile, setWpisowePaid } from './lista-wyjazdowa-profile.ts';
 
 test('getProfile returns null when no record exists', async () => {
   const client = createInMemoryFirestoreClient();
@@ -64,6 +64,25 @@ test('saveProfile leaves fields it does not know about untouched', async () => {
   const stored = await client.getDoc<Record<string, unknown>>('listaWyjazdowaProfile', 'ala@example.test');
   assert.equal(stored?.someAdminAddedField, 'ustawione ręcznie w konsoli');
   assert.deepEqual(stored?.weaponIds, ['topor']);
+});
+
+test('setWpisowePaid returns null when no profile exists', async () => {
+  const client = createInMemoryFirestoreClient();
+  assert.equal(await setWpisowePaid(client, 'ala@example.test', true, 'accountant@example.test'), null);
+});
+
+test('setWpisowePaid toggles paid, preserving weaponIds/equipment/companions', async () => {
+  const client = createInMemoryFirestoreClient();
+  await saveProfile(client, 'ala@example.test', {
+    weaponIds: ['tarcza'],
+    equipment: [{ id: '', name: 'Namiot', description: '' }],
+    companions: [],
+  });
+  const updated = await setWpisowePaid(client, 'ala@example.test', true, 'accountant@example.test');
+  assert.equal(updated?.wpisowePaid, true);
+  assert.deepEqual(updated?.weaponIds, ['tarcza']);
+  assert.equal(updated?.equipment[0].name, 'Namiot');
+  assert.equal(updated?.updatedBy, 'accountant@example.test');
 });
 
 test('listAllProfiles returns every profile with email populated from the doc id', async () => {

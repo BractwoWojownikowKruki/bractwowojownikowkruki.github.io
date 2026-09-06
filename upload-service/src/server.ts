@@ -28,7 +28,7 @@ import {
 } from './about-us.ts';
 import { createFirestoreClient, type FirestoreLikeClient } from './firestore.ts';
 import { getMember, listAllMembers, saveMember, type MemberWritableFields } from './members.ts';
-import { getProfile, listAllProfiles, saveProfile, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
+import { getProfile, listAllProfiles, saveProfile, setWpisowePaid, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 import { getAllLookupLists } from './lookup-lists.ts';
 import { listEvents, getEvent, createEvent, updateEvent, type EventWritableFields } from './events.ts';
 import {
@@ -36,10 +36,13 @@ import {
   listSignupsForEvent,
   getSignup,
   saveSignup,
+  setSkladkaPaid,
   appendAuditLogEntry,
   listAuditLogForEvent,
   type SignupWritableFields,
 } from './signups.ts';
+import { getGrantedRoles, satisfiesRole, requireRole } from './roles.ts';
+import { listDuesForYear, setDuesPaid } from './dues.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -1077,7 +1080,7 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
 }
 
 async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateWojownicyUpload(req, res);
+  const identity = await deps.authenticateWojownicyUpload(req, res);
   const eventId = url.searchParams.get('eventId');
   if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
@@ -1087,6 +1090,10 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
   if (body.status !== undefined) {
     if (body.status !== 'active' && body.status !== 'cancelled') throw new AuthError('Nieprawidłowy status wyjazdu.', 400);
     fields.status = body.status;
+  }
+  if (body.skladkaFee !== undefined) {
+    await requireRole(deps.firestore, identity.email, 'accountant');
+    fields.skladkaFee = body.skladkaFee === null ? null : requireTrimmedString(body.skladkaFee, LW_MAX_NAME_LENGTH, 'Opis składki jest nieprawidłowy.');
   }
   const event = await updateEvent(deps.firestore, eventId, fields);
   if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
@@ -1189,9 +1196,79 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       weaponIds: profile?.weaponIds ?? [],
       equipment: profile?.equipment ?? [],
       companions: profile?.companions ?? [],
+      wpisowePaid: profile?.wpisowePaid ?? false,
     };
   });
   sendJson(res, 200, { roster });
+}
+
+// Plan C (składki/dues): every route below that touches skladkaFee/skladkaPaid/wpisowePaid/
+// duesAnnual gates on the accountant role via requireRole before any read/write of that data -
+// see roles.ts. GET /lista-wyjazdowa/my-role lets the client know upfront whether to show the
+// accountant-only UI at all.
+async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const granted = await getGrantedRoles(deps.firestore, identity.email);
+  sendJson(res, 200, { canManageSkladki: satisfiesRole(granted, 'accountant') });
+}
+
+async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  await requireRole(deps.firestore, identity.email, 'accountant');
+  const eventId = url.searchParams.get('eventId');
+  const memberEmail = url.searchParams.get('memberEmail');
+  if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
+  if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
+  const signup = await setSkladkaPaid(deps.firestore, eventId, memberEmail, body.paid, identity.email);
+  if (!signup) throw new AuthError('Ten członek nie jest zapisany na ten wyjazd.', 404);
+  await appendAuditLogEntry(deps.firestore, {
+    eventId,
+    targetMemberEmail: memberEmail.toLowerCase(),
+    changedBy: identity.email,
+    changeSummary: body.paid ? 'Oznaczono składkę jako opłaconą' : 'Oznaczono składkę jako nieopłaconą',
+  });
+  sendJson(res, 200, { signup });
+}
+
+async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  await requireRole(deps.firestore, identity.email, 'accountant');
+  const memberEmail = url.searchParams.get('memberEmail');
+  if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
+  const profile = await setWpisowePaid(deps.firestore, memberEmail, body.paid, identity.email);
+  if (!profile) throw new AuthError('Ten członek nie ma jeszcze profilu Listy Wyjazdowej.', 404);
+  sendJson(res, 200, { profile });
+}
+
+function requireYear(value: string | null, message: string): number {
+  const year = Number(value);
+  if (!value || !Number.isInteger(year) || year < 2000 || year > 2100) throw new AuthError(message, 400);
+  return year;
+}
+
+async function handleListaWyjazdowaGetDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req, res);
+  const year = requireYear(url.searchParams.get('year'), 'Nieprawidłowy rok.');
+  const dues = await listDuesForYear(deps.firestore, year);
+  sendJson(res, 200, { dues });
+}
+
+async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  await requireRole(deps.firestore, identity.email, 'accountant');
+  const memberEmail = url.searchParams.get('memberEmail');
+  const year = requireYear(url.searchParams.get('year'), 'Nieprawidłowy rok.');
+  if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
+  const member = await getMember(deps.firestore, memberEmail);
+  if (!member) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
+  const dues = await setDuesPaid(deps.firestore, memberEmail, year, body.paid, identity.email);
+  sendJson(res, 200, { dues });
 }
 
 // Structured console log for every destructive gallery action (KRKG-0027's audit requirement) -
@@ -1705,6 +1782,16 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaGetAuditLog(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/roster') {
         await handleListaWyjazdowaGetRoster(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/my-role') {
+        await handleListaWyjazdowaGetMyRole(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/signups/skladka') {
+        await handleListaWyjazdowaPutSkladkaPaid(req, res, url, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/wpisowe') {
+        await handleListaWyjazdowaPutWpisowe(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/dues') {
+        await handleListaWyjazdowaGetDues(req, res, url, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/dues') {
+        await handleListaWyjazdowaPutDues(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
         if (!rejectIfRateLimited(req, res)) await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {
