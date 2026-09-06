@@ -935,17 +935,27 @@ async function handleListaWyjazdowaGetMember(req: IncomingMessage, res: ServerRe
 async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const fullNameInput = optionalTrimmedString(
+    body.fullName,
+    LW_MAX_NAME_LENGTH,
+    `Imię i nazwisko może mieć najwyżej ${LW_MAX_NAME_LENGTH} znaków.`,
+  );
+  const nicknameInput = optionalTrimmedString(
+    body.nickname,
+    LW_MAX_NAME_LENGTH,
+    `Ksywa może mieć najwyżej ${LW_MAX_NAME_LENGTH} znaków.`,
+  );
+  // Ksywa is never backfilled from Imię i nazwisko - it stays genuinely optional. Imię i
+  // nazwisko falls back to Ksywa so a member who only gives one identifier still has a
+  // non-empty fullName (used for the Drive folder name and any display that reads it
+  // directly); if neither is given there is nothing to identify the member by at all.
+  const fullName = fullNameInput ?? nicknameInput;
+  if (fullName === null) {
+    throw new AuthError('Podaj Imię i nazwisko lub Ksywę.', 400);
+  }
   const fields: MemberWritableFields = {
-    fullName: requireTrimmedString(
-      body.fullName,
-      LW_MAX_NAME_LENGTH,
-      `Imię i nazwisko jest wymagane (maks. ${LW_MAX_NAME_LENGTH} znaków).`,
-    ),
-    nickname: optionalTrimmedString(
-      body.nickname,
-      LW_MAX_NAME_LENGTH,
-      `Ksywa może mieć najwyżej ${LW_MAX_NAME_LENGTH} znaków.`,
-    ),
+    fullName,
+    nickname: nicknameInput,
     sectionId: requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.'),
   };
   const lookupLists = await getAllLookupLists(deps.firestore);

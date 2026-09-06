@@ -305,13 +305,18 @@ async function initForm(lookupLists) {
     progressEl.textContent = 'Zapisywanie profilu...';
 
     try {
-      await apiFetch(
+      // Imię i nazwisko and Ksywa are both optional (server enforces "at least one of the
+      // two"): sending '' rather than omitting the key lets the server tell an intentionally
+      // blank field apart from a field that was never touched, and it backfills fullName from
+      // nickname itself when fullName is blank - so `savedMember.fullName` below may differ
+      // from what was actually typed here.
+      const { member: savedMember } = await apiFetch(
         '/lista-wyjazdowa/member',
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            fullName: form.fullName.value,
+            fullName: form.fullName.value || null,
             nickname: form.nickname.value || null,
             sectionId: form.sectionId.value,
           }),
@@ -342,12 +347,14 @@ async function initForm(lookupLists) {
       const mainEntry = photoEntries[0];
       if (mainEntry) {
         const extraEntries = photoEntries.slice(1).filter(Boolean);
+        // savedMember.fullName, not form.fullName.value: if only Ksywa was given, the server
+        // already backfilled fullName from it, and that's the name the Drive folder should use.
         const { folderId, submissionToken } = await apiFetch(
           '/wojownicy-upload/submit',
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: form.fullName.value }),
+            body: JSON.stringify({ name: savedMember.fullName }),
           },
           showReauth,
           hideReauth,
@@ -368,6 +375,10 @@ async function initForm(lookupLists) {
       // send blank ids again and mint a duplicate id for the same item on every save.
       fillRows(equipmentContainer, savedProfile.equipment, addEquipmentRow);
       fillRows(companionContainer, savedProfile.companions, addCompanionRow);
+      // Reflect the server's fullName back into the field it may have just backfilled, so a
+      // member who only typed Ksywa sees where their name came from, not a blank field.
+      form.fullName.value = savedMember.fullName;
+      form.nickname.value = savedMember.nickname ?? '';
       resetPhotoSelection();
 
       // The form stays fully populated and re-submittable behind the confirmation panel - the

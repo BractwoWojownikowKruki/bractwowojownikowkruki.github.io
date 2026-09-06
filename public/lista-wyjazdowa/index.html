@@ -46,26 +46,6 @@
 
         <section id="profile-form-panel" hidden>
           <form id="profile-form" novalidate>
-            <div class="field">
-              <label for="lw-full-name">Imię i nazwisko</label>
-              <input type="text" id="lw-full-name" name="fullName" required />
-            </div>
-            <div class="field">
-              <label for="lw-nickname">Ksywa</label>
-              <input type="text" id="lw-nickname" name="nickname" />
-            </div>
-            <div class="field">
-              <label for="lw-section">Sekcja</label>
-              <select id="lw-section" name="sectionId" required></select>
-            </div>
-
-            <fieldset class="lw-fieldset">
-              <legend>Bronie</legend>
-              <div id="weapons-checkboxes" class="lw-checkbox-grid"></div>
-            </fieldset>
-
-            <p class="lw-category-readout">Twoja kategoria: <span id="category-readout">—</span></p>
-
             <fieldset class="lw-fieldset">
               <legend>Zdjęcie profilowe</legend>
               <div class="field">
@@ -79,6 +59,27 @@
               <p class="lw-hint">Zdjęcia trafią na dysk Drive dopiero po zapisaniu profilu.</p>
               <div id="lw-photo-preview" class="lw-photo-preview" hidden></div>
             </fieldset>
+
+            <div class="field">
+              <label for="lw-full-name">Imię i nazwisko</label>
+              <input type="text" id="lw-full-name" name="fullName" />
+            </div>
+            <div class="field">
+              <label for="lw-nickname">Ksywa</label>
+              <input type="text" id="lw-nickname" name="nickname" />
+            </div>
+            <p class="lw-hint">Podaj przynajmniej jedno z: Imię i nazwisko lub Ksywa.</p>
+            <div class="field">
+              <label for="lw-section">Sekcja</label>
+              <select id="lw-section" name="sectionId" required></select>
+            </div>
+
+            <fieldset class="lw-fieldset">
+              <legend>Bronie</legend>
+              <div id="weapons-checkboxes" class="lw-checkbox-grid"></div>
+            </fieldset>
+
+            <p class="lw-category-readout">Twoja kategoria: <span id="category-readout">—</span></p>
 
             <fieldset class="lw-fieldset">
               <legend>Sprzęt obozowy</legend>

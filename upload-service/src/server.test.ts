@@ -2900,6 +2900,42 @@ for (const [label, body] of [
   });
 }
 
+test('PUT /lista-wyjazdowa/member rejects both fullName and nickname missing with 400', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { sectionId: 'krakow' });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /lista-wyjazdowa/member backfills fullName from nickname when fullName is omitted', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', {
+      nickname: 'Wilk',
+      sectionId: 'krakow',
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.member.fullName, 'Wilk');
+    assert.equal(body.member.nickname, 'Wilk');
+  });
+});
+
+test('PUT /lista-wyjazdowa/member does not backfill nickname from fullName when nickname is omitted', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', {
+      fullName: 'Ala Kowalska',
+      sectionId: 'krakow',
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.member.fullName, 'Ala Kowalska');
+    assert.equal(body.member.nickname, null);
+  });
+});
+
 test('PUT /lista-wyjazdowa/member rejects a sectionId that is not in lookupLists', async () => {
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
   await withServer(deps, async baseUrl => {
