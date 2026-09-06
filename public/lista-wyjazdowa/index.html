@@ -59,6 +59,10 @@
           </form>
 
           <button type="button" class="btn-cancel" id="toggle-past-events">Pokaż wszystkie (w tym odwołane i przeszłe)</button>
+          <!-- Failures of the per-row "Jadę/Nie jadę" toggle land here (design.md §9: fail closed
+               with a user-facing Polish message). Deliberately outside #events-list, which
+               loadEvents() replaces wholesale on every refresh. -->
+          <p class="add-album-error" id="events-error" hidden></p>
           <div id="events-list"></div>
         </div>
       </section>

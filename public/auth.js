@@ -142,12 +142,19 @@ async function handleCredentialResponse(response) {
 
   for (const listener of signedInListeners) {
     if (!listener.onSignedIn && !listener.onForbidden) continue;
+    let identity;
     try {
-      const identity = await apiFetch(listener.whoamiPath, { method: 'GET' });
-      listener.onSignedIn?.(identity);
+      identity = await apiFetch(listener.whoamiPath, { method: 'GET' });
     } catch {
       listener.onForbidden?.();
+      continue;
     }
+    // Deliberately outside the try above (same reasoning as initGoogleSignIn's two-argument
+    // .then below): an error thrown by the listener's *own* onSignedIn body is not an
+    // authorization failure and must never be reported as one. Calling it from a resolved
+    // promise keeps one throwing listener from aborting the remaining ones, while still letting
+    // the failure surface as an unhandled rejection in the console.
+    void Promise.resolve().then(() => listener.onSignedIn?.(identity));
   }
 }
 
@@ -158,6 +165,11 @@ async function handleCredentialResponse(response) {
 // `identity` is whatever that endpoint returns (at least `{email}`, plus `name`/`picture` where
 // available). Safe to call more than once per page (see signedInListeners above) - each call
 // independently verifies its own whoamiPath against the one shared session cookie.
+//
+// onForbidden means exactly one thing: the whoamiPath check itself failed. Anything onSignedIn's
+// own body throws is the caller's problem to catch and report through the caller's own error UI -
+// it is never funnelled into onForbidden, because "your /roster fetch failed" is not "you are not
+// a member" and telling the user the latter is actively misleading (see the fetch below).
 //
 // `onIdentity(payload)` is different: it fires on every *fresh* sign-in (not a reauth prompt),
 // synchronously from the locally-decoded Google JWT, before/regardless of whether the session
@@ -179,9 +191,18 @@ function initGoogleSignIn({ buttonIds, onSignedIn, onForbidden, onIdentity, whoa
   signedInListeners.push({ whoamiPath, onSignedIn, onForbidden, onIdentity });
 
   if (onSignedIn || onForbidden) {
-    apiFetch(whoamiPath, { method: 'GET' })
-      .then(identity => onSignedIn?.(identity))
-      .catch(() => onForbidden?.());
+    // Two-argument .then, NOT .then(...).catch(...): only a rejected `whoamiPath` check itself
+    // (no session, or a session that isn't allowlisted) may map to onForbidden. A trailing
+    // .catch() also catches whatever onSignedIn's own body throws - and on the Lista Wyjazdowa
+    // pages that body goes on to make several further fetches - so a broken /roster call or a
+    // transient network error would show a fully authorized member "Brak uprawnień. Ta sekcja
+    // jest dostępna tylko dla członków Bractwa.". Errors from onSignedIn are left to reject the
+    // chained promise (visible in the console); showing the user a message for those is the
+    // calling page's job, since only it knows where its own error UI lives.
+    apiFetch(whoamiPath, { method: 'GET' }).then(
+      identity => onSignedIn?.(identity),
+      () => onForbidden?.(),
+    );
   }
 
   function render() {

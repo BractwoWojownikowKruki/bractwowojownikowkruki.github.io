@@ -44,6 +44,12 @@
             <button type="button" id="restore-event-btn" class="btn-cancel" hidden>Przywróć wyjazd</button>
           </div>
 
+          <!-- Every failed mutation on this page (signup save, cancel/restore, initial load)
+               reports here (design.md §9: fail closed with a user-facing Polish message). Sits
+               outside #roster-content, which renderRoster() replaces wholesale; showError()
+               scrolls it into view since a save button can be far down a long roster. -->
+          <p class="add-album-error" id="lw-error" hidden></p>
+
           <section id="summary-panel">
             <h2>Podsumowanie</h2>
             <div id="summary-content"></div>

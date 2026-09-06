@@ -1119,6 +1119,15 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
   const event = await getEvent(deps.firestore, eventId);
   if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
 
+  // memberEmail is open-edit (any member may sign anyone up), but it still has to name a real
+  // members/{email} document. Without this check a typo'd or invented address gets a signup doc
+  // of its own that is counted by attendingCount (the events list's "N os.") yet dropped from
+  // GET /lista-wyjazdowa/roster and the event page's per-section breakdown, both of which join
+  // against real member documents only - so the two pages would report different attendee totals
+  // for the same event, with nothing on either page explaining the difference.
+  const targetMember = await getMember(deps.firestore, memberEmail);
+  if (!targetMember) throw new AuthError('Nie znaleziono takiego członka.', 404);
+
   // The target member need not have a Lista Wyjazdowa profile yet - "I'm coming, no gear/
   // companions listed yet" is a legitimate signup. A missing profile just means its
   // equipment/companion sets are empty for the referential check below, so any *non-empty*

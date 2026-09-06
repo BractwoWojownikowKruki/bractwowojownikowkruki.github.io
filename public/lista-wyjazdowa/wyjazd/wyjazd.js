@@ -38,6 +38,21 @@ showOnly(panels.signedOut);
 
 const eventId = new URLSearchParams(window.location.search).get('eventId');
 
+// Every mutation on this page is a fire-and-forget click handler with no return value the user
+// can inspect, so a rejected apiFetch has to be turned into something visible or the click just
+// appears to do nothing (design.md §9). scrollIntoView because the save button that failed can
+// sit far below the fold on a long roster, well away from this banner.
+function showError(message) {
+  const errorEl = document.getElementById('lw-error');
+  errorEl.textContent = message;
+  errorEl.hidden = false;
+  errorEl.scrollIntoView({ block: 'center' });
+}
+
+function clearError() {
+  document.getElementById('lw-error').hidden = true;
+}
+
 function renderSummary(roster, signups) {
   const attending = signups.filter((s) => s.attending);
   const rosterByEmail = new Map(roster.map((r) => [r.email, r]));
@@ -128,17 +143,25 @@ async function saveSignupFor(email) {
   const attending = document.querySelector(`.lw-attend-checkbox[data-email="${CSS.escape(email)}"]`).checked;
   const equipmentIds = Array.from(picker.querySelectorAll('.lw-eq-checkbox:checked')).map((cb) => cb.value);
   const companionIds = Array.from(picker.querySelectorAll('.lw-comp-checkbox:checked')).map((cb) => cb.value);
-  await apiFetch(
-    `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&memberEmail=${encodeURIComponent(email)}`,
-    {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ attending, equipmentIds, companionIds }),
-    },
-    showReauth,
-    hideReauth,
-  );
-  await loadAll();
+  clearError();
+  try {
+    await apiFetch(
+      `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&memberEmail=${encodeURIComponent(email)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attending, equipmentIds, companionIds }),
+      },
+      showReauth,
+      hideReauth,
+    );
+    await loadAll();
+  } catch (err) {
+    // The checkbox the member just clicked keeps its new state even though nothing was saved (no
+    // loadAll() ran to re-render it from the server), so the message has to say the displayed
+    // state is not the stored one - otherwise a silent failure reads as a successful save.
+    showError(`Nie udało się zapisać zgłoszenia: ${err.message}. Odśwież stronę, aby zobaczyć zapisany stan.`);
+  }
 }
 
 document.getElementById('roster-content').addEventListener('change', (e) => {
@@ -184,32 +207,43 @@ async function loadAll() {
   await renderAuditLog();
 }
 
-document.getElementById('cancel-event-btn').addEventListener('click', async () => {
-  await apiFetch(
-    `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
-    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'cancelled' }) },
-    showReauth,
-    hideReauth,
-  );
-  await loadAll();
+async function setEventStatus(status, failureMessage) {
+  clearError();
+  try {
+    await apiFetch(
+      `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) },
+      showReauth,
+      hideReauth,
+    );
+    await loadAll();
+  } catch (err) {
+    showError(`${failureMessage}: ${err.message}`);
+  }
+}
+
+document.getElementById('cancel-event-btn').addEventListener('click', () => {
+  setEventStatus('cancelled', 'Nie udało się odwołać wyjazdu');
 });
 
-document.getElementById('restore-event-btn').addEventListener('click', async () => {
-  await apiFetch(
-    `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
-    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'active' }) },
-    showReauth,
-    hideReauth,
-  );
-  await loadAll();
+document.getElementById('restore-event-btn').addEventListener('click', () => {
+  setEventStatus('active', 'Nie udało się przywrócić wyjazdu');
 });
 
 initGoogleSignIn({
   buttonIds: ['google-signin-button'],
   whoamiPath: '/wojownicy-upload/whoami',
+  // auth.js routes only a failed whoami check to onForbidden, so a failure inside this body is
+  // ours to report and must not be shown as "Brak uprawnień" (see initGoogleSignIn's comment).
+  // showOnly(null) first because #lw-error lives inside #main-content, which is hidden until then.
   onSignedIn: async () => {
-    await loadAll();
-    showOnly(null);
+    try {
+      await loadAll();
+      showOnly(null);
+    } catch (err) {
+      showOnly(null);
+      showError(`Nie udało się wczytać wyjazdu: ${err.message}`);
+    }
   },
   onForbidden: () => showOnly(panels.forbidden),
 });

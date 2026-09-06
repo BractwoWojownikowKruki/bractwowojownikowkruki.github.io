@@ -80,14 +80,32 @@ async function loadEvents() {
   renderEvents();
 }
 
+// The quick toggle has no equipment/companion picker of its own (that's the event detail page's
+// job), so it round-trips whatever the existing signup already stored - but it must filter that
+// list against the member's *current* profile first. Deleting an equipment or companion row on
+// /profil/ drops its id entirely, leaving any signup that referenced it holding an orphaned id;
+// resubmitting it verbatim is then rejected outright by the server's referential check
+// ("Wybrany sprzęt nie należy do tego członka."), which would break this button permanently for
+// that member. Filtering here preserves the selections that are still real and quietly drops the
+// ones that aren't, so a normal profile edit self-heals instead of jamming the toggle.
+function stillValidIds(ids, items) {
+  const valid = new Set((items ?? []).map((item) => item.id));
+  return (ids ?? []).filter((id) => valid.has(id));
+}
+
 document.getElementById('events-list').addEventListener('click', async (e) => {
   const btn = e.target.closest('.lw-attend-toggle');
   if (!btn) return;
   const eventId = btn.dataset.eventId;
   const nextAttending = btn.dataset.attending !== 'true';
+  const errorEl = document.getElementById('events-error');
+  errorEl.hidden = true;
   btn.disabled = true;
   try {
-    const { signup: mine } = await apiFetch(`/lista-wyjazdowa/signups/mine?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth);
+    const [{ signup: mine }, { profile }] = await Promise.all([
+      apiFetch(`/lista-wyjazdowa/signups/mine?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
+      apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
+    ]);
     await apiFetch(
       `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&memberEmail=${encodeURIComponent(viewerEmail)}`,
       {
@@ -95,14 +113,19 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           attending: nextAttending,
-          equipmentIds: mine?.equipmentIds ?? [],
-          companionIds: mine?.companionIds ?? [],
+          equipmentIds: stillValidIds(mine?.equipmentIds, profile?.equipment),
+          companionIds: stillValidIds(mine?.companionIds, profile?.companions),
         }),
       },
       showReauth,
       hideReauth,
     );
     await loadEvents();
+  } catch (err) {
+    // Without this the click just silently did nothing: the button re-enabled itself and the row
+    // stayed as it was, with no way for the member to tell the change hadn't been saved.
+    errorEl.textContent = `Nie udało się zapisać zmiany: ${err.message}`;
+    errorEl.hidden = false;
   } finally {
     btn.disabled = false;
   }
@@ -145,18 +168,29 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
 initGoogleSignIn({
   buttonIds: ['google-signin-button'],
   whoamiPath: '/wojownicy-upload/whoami',
+  // auth.js only routes a failed whoami check to onForbidden - anything this body throws is ours
+  // to report, and must not be mistaken for "not a member" (see initGoogleSignIn's comment). The
+  // events panel is shown alongside the error so the member sees *why* the list is empty rather
+  // than being left staring at the "please sign in" panel they just signed in from.
   onSignedIn: async (identity) => {
     viewerEmail = identity.email;
-    const [{ member }, { profile }] = await Promise.all([
-      apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
-      apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
-    ]);
-    if (!member || !profile) {
-      showOnly(panels.noProfile);
-      return;
+    try {
+      const [{ member }, { profile }] = await Promise.all([
+        apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
+        apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
+      ]);
+      if (!member || !profile) {
+        showOnly(panels.noProfile);
+        return;
+      }
+      await loadEvents();
+      showOnly(panels.events);
+    } catch (err) {
+      showOnly(panels.events);
+      const errorEl = document.getElementById('events-error');
+      errorEl.textContent = `Nie udało się wczytać listy wyjazdów: ${err.message}`;
+      errorEl.hidden = false;
     }
-    await loadEvents();
-    showOnly(panels.events);
   },
   onForbidden: () => showOnly(panels.forbidden),
 });

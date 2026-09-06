@@ -2842,6 +2842,23 @@ function makeListaWyjazdowaFirestore() {
   return firestore;
 }
 
+// PUT /lista-wyjazdowa/signups only accepts a memberEmail that names a real members/{email}
+// document, so any test that signs somebody up has to put that document in place first. Written
+// straight through seed() rather than through PUT /lista-wyjazdowa/member because the target is
+// usually somebody other than the test's authenticated caller, and that route only ever writes
+// the caller's own record.
+function seedMember(firestore: ReturnType<typeof makeListaWyjazdowaFirestore>, email: string): void {
+  firestore.seed('members', email.toLowerCase(), {
+    fullName: email,
+    nickname: null,
+    sectionId: 'krakow',
+    categoryId: null,
+    driveFolderId: null,
+    updatedAt: '2027-01-01T00:00:00.000Z',
+    updatedBy: email.toLowerCase(),
+  });
+}
+
 function putListaWyjazdowa(baseUrl: string, path: string, body: unknown): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method: 'PUT',
@@ -3080,7 +3097,9 @@ test('POST /lista-wyjazdowa/events rejects a malformed startDate with 400', asyn
 });
 
 test('GET /lista-wyjazdowa/events includes attendingCount and the caller\'s own viewerAttending', async () => {
-  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  const deps = makeDeps({ firestore });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
@@ -3118,6 +3137,7 @@ test('PUT /lista-wyjazdowa/events?eventId= returns 404 for an unknown event', as
 
 test('PUT /lista-wyjazdowa/signups rejects an equipmentId that does not belong to the target member', async () => {
   const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
   const deps = makeDeps({ firestore });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
@@ -3133,6 +3153,7 @@ test('PUT /lista-wyjazdowa/signups rejects an equipmentId that does not belong t
 
 test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and logs it', async () => {
   const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'inny@example.test');
   const deps = makeDeps({ firestore });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
@@ -3164,6 +3185,7 @@ test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and l
 test("PUT /lista-wyjazdowa/signups validates equipment/companion ids against the target member's own profile, not the caller's", async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const targetEmail = 'inny@example.test';
+  seedMember(firestore, targetEmail);
 
   // Register the target member's own profile - acting AS the target (not the caller) via a
   // separate authenticateWojownicyUpload override, same pattern used elsewhere in this file
@@ -3223,6 +3245,30 @@ test("PUT /lista-wyjazdowa/signups validates equipment/companion ids against the
   });
 });
 
+// Open-edit lets any member sign up any *other* member, but not an address that is nobody: such a
+// signup is counted by attendingCount on the events list yet invisible to the roster/per-section
+// breakdown on the event page, leaving the two pages disagreeing about the attendee total.
+test('PUT /lista-wyjazdowa/signups returns 404 for a memberEmail with no members document, and persists nothing', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const res = await putListaWyjazdowa(
+      baseUrl,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=nikt@example.test`,
+      { attending: true, equipmentIds: [], companionIds: [] },
+    );
+    assert.equal(res.status, 404);
+    assert.equal((await res.json()).error, 'Nie znaleziono takiego członka.');
+
+    const stored = await (await fetch(`${baseUrl}/lista-wyjazdowa/signups?eventId=${created.event.id}`)).json();
+    assert.deepEqual(stored.signups, [], 'a rejected signup must not have been persisted');
+
+    const events = await (await fetch(`${baseUrl}/lista-wyjazdowa/events`)).json();
+    assert.equal(events.events[0].attendingCount, 0, 'and must not be counted towards the event total');
+  });
+});
+
 test('GET /lista-wyjazdowa/roster joins members with their listaWyjazdowaProfile', async () => {
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
   await withServer(deps, async baseUrl => {
@@ -3238,7 +3284,9 @@ test('GET /lista-wyjazdowa/roster joins members with their listaWyjazdowaProfile
 });
 
 test('GET /lista-wyjazdowa/signups returns the full raw roster of signups for an event', async () => {
-  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  const deps = makeDeps({ firestore });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
@@ -3265,7 +3313,9 @@ test('GET /lista-wyjazdowa/signups/mine returns null when the caller has not sig
 });
 
 test('GET /lista-wyjazdowa/signups/mine returns the caller\'s own signup after signing up', async () => {
-  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  const deps = makeDeps({ firestore });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
