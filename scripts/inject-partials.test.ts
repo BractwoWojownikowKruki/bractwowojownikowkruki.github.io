@@ -72,6 +72,11 @@ test('both shared navigation partials start with an account-status indicator', a
   }
 });
 
+test('session-checking indicators honor hidden after authentication resolves', async () => {
+  const css = await readFile(new URL('../public/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.auth-checking\[hidden\]\s*\{\s*display:\s*none;/);
+});
+
 test('shared sign-in routing distinguishes a missing session from denied membership', async () => {
   const auth = await readFile(new URL('../public/auth.js', import.meta.url), 'utf8');
   assert.match(auth, /onSignedOut/);

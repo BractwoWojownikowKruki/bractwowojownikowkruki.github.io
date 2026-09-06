@@ -1343,6 +1343,10 @@ main { padding: 1.25rem 1.5rem 3rem; }
   color: var(--text-muted);
 }
 
+.auth-checking[hidden] {
+  display: none;
+}
+
 .auth-spinner {
   width: 0.9rem;
   height: 0.9rem;
