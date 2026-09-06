@@ -113,6 +113,19 @@ test('does not reload on the first installation flow', async () => {
   assert.deepEqual(harness.callLog, ['register:/service-worker.js:none', 'update']);
 });
 
+test('reloads on a later controllerchange after the first installation completes', async () => {
+  const harness = createHarness();
+  await loadRegisterScript(harness);
+
+  await harness.emit('load');
+  await settle();
+  await harness.emitServiceWorker('controllerchange');
+  await harness.emitServiceWorker('controllerchange');
+
+  assert.equal(harness.reloads, 1);
+  assert.deepEqual(harness.callLog, ['register:/service-worker.js:none', 'update', 'reload']);
+});
+
 test('swallows register failures without reloading', async () => {
   const harness = createHarness({ registerRejects: true });
   await loadRegisterScript(harness);

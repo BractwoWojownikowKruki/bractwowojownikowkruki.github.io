@@ -2,11 +2,15 @@ window.addEventListener('load', () => {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
   void (async () => {
     const serviceWorker = navigator.serviceWorker;
-    const hadControllerAtStart = Boolean(serviceWorker.controller);
+    let shouldReloadOnControllerChange = Boolean(serviceWorker.controller);
     let reloaded = false;
 
     serviceWorker.addEventListener('controllerchange', () => {
-      if (!hadControllerAtStart || reloaded) return;
+      if (!shouldReloadOnControllerChange) {
+        shouldReloadOnControllerChange = true;
+        return;
+      }
+      if (reloaded) return;
       reloaded = true;
       window.location.reload();
     });
