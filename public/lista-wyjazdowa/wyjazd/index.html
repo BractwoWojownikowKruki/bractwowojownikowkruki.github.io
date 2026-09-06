@@ -44,6 +44,16 @@
             <button type="button" id="restore-event-btn" class="btn-cancel" hidden>Przywróć wyjazd</button>
           </div>
 
+          <!-- Fee display is always rendered; the edit controls are only unhidden when the signed-in
+               member's role (fetched via /lista-wyjazdowa/my-role) grants canManageSkladki. -->
+          <div id="skladka-fee-panel">
+            <span id="skladka-fee-display"></span>
+            <span id="skladka-fee-edit" hidden>
+              <input type="text" id="skladka-fee-input" placeholder="np. 50 zł / 25 zł dzieci" />
+              <button type="button" id="skladka-fee-save" class="btn-cancel">Zapisz składkę</button>
+            </span>
+          </div>
+
           <!-- Every failed mutation on this page (signup save, cancel/restore, initial load)
                reports here (design.md §9: fail closed with a user-facing Polish message). Sits
                outside #roster-content, which renderRoster() replaces wholesale; showError()

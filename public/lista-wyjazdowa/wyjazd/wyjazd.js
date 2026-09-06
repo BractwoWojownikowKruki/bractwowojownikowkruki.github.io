@@ -53,6 +53,56 @@ function clearError() {
   document.getElementById('lw-error').hidden = true;
 }
 
+// Fetched once per loadAll() alongside events/roster/signups (Task 2's GET /my-role). Read by
+// renderSkladkaFee() and renderRoster() to decide whether to show edit/toggle controls or
+// read-only text - the server re-checks the role on every mutation regardless, this only
+// controls what the UI offers.
+let canManageSkladki = false;
+
+// event.skladkaFee is a free-text field (e.g. "50 zł / 25 zł dzieci"); textContent is used below
+// so no HTML-escaping is needed for the display span, same reasoning as event-title/event-meta
+// above it in loadAll().
+function renderSkladkaFee(event) {
+  const display = document.getElementById('skladka-fee-display');
+  const editPanel = document.getElementById('skladka-fee-edit');
+  display.textContent = event.skladkaFee ? `Składka: ${event.skladkaFee}` : 'Składka: nie ustalono';
+  editPanel.hidden = !canManageSkladki;
+  if (canManageSkladki) document.getElementById('skladka-fee-input').value = event.skladkaFee ?? '';
+}
+
+async function saveSkladkaFee() {
+  clearError();
+  try {
+    const value = document.getElementById('skladka-fee-input').value.trim();
+    await apiFetch(
+      `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skladkaFee: value || null }) },
+      showReauth,
+      hideReauth,
+    );
+    await loadAll();
+  } catch (err) {
+    showError(`Nie udało się zapisać składki: ${err.message}`);
+  }
+}
+
+document.getElementById('skladka-fee-save').addEventListener('click', saveSkladkaFee);
+
+async function toggleSkladkaPaid(email, nextPaid) {
+  clearError();
+  try {
+    await apiFetch(
+      `/lista-wyjazdowa/signups/skladka?eventId=${encodeURIComponent(eventId)}&memberEmail=${encodeURIComponent(email)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: nextPaid }) },
+      showReauth,
+      hideReauth,
+    );
+    await loadAll();
+  } catch (err) {
+    showError(`Nie udało się zaktualizować składki: ${err.message}`);
+  }
+}
+
 function renderSummary(roster, signups) {
   const attending = signups.filter((s) => s.attending);
   const rosterByEmail = new Map(roster.map((r) => [r.email, r]));
@@ -131,6 +181,14 @@ function renderRoster(roster, signups) {
             .join('')}
           <button type="button" class="lw-save-signup" data-email="${emailAttr}">Zapisz</button>
         </div>
+        <div class="lw-skladka" data-email="${emailAttr}" ${signup?.attending ? '' : 'hidden'}>
+          Składka: ${signup?.skladkaPaid ? 'opłacona' : 'nieopłacona'}
+          ${
+            canManageSkladki
+              ? `<button type="button" class="lw-skladka-toggle" data-email="${emailAttr}" data-paid="${signup?.skladkaPaid ? 'true' : 'false'}">${signup?.skladkaPaid ? 'Oznacz jako nieopłaconą' : 'Oznacz jako opłaconą'}</button>`
+              : ''
+          }
+        </div>
       `;
       sectionEl.appendChild(row);
     }
@@ -169,12 +227,19 @@ document.getElementById('roster-content').addEventListener('change', (e) => {
   const email = e.target.dataset.email;
   const picker = document.querySelector(`.lw-picker[data-email="${CSS.escape(email)}"]`);
   picker.hidden = !e.target.checked;
+  const skladkaEl = document.querySelector(`.lw-skladka[data-email="${CSS.escape(email)}"]`);
+  if (skladkaEl) skladkaEl.hidden = !e.target.checked;
   if (!e.target.checked) saveSignupFor(email);
 });
 
 document.getElementById('roster-content').addEventListener('click', (e) => {
-  const btn = e.target.closest('.lw-save-signup');
-  if (btn) saveSignupFor(btn.dataset.email);
+  const saveBtn = e.target.closest('.lw-save-signup');
+  if (saveBtn) {
+    saveSignupFor(saveBtn.dataset.email);
+    return;
+  }
+  const skladkaBtn = e.target.closest('.lw-skladka-toggle');
+  if (skladkaBtn) toggleSkladkaPaid(skladkaBtn.dataset.email, skladkaBtn.dataset.paid !== 'true');
 });
 
 async function renderAuditLog() {
@@ -187,11 +252,13 @@ async function renderAuditLog() {
 }
 
 async function loadAll() {
-  const [{ events }, { roster }, { signups }] = await Promise.all([
+  const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue }] = await Promise.all([
     apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
+    apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth),
   ]);
+  canManageSkladki = roleValue;
   const event = events.find((e) => e.id === eventId);
   if (!event) {
     document.getElementById('event-title').textContent = 'Nie znaleziono wyjazdu.';
@@ -201,6 +268,7 @@ async function loadAll() {
   document.getElementById('event-meta').textContent = `${event.startDate}${event.status === 'cancelled' ? ' — odwołany' : ''}`;
   document.getElementById('cancel-event-btn').hidden = event.status === 'cancelled';
   document.getElementById('restore-event-btn').hidden = event.status !== 'cancelled';
+  renderSkladkaFee(event);
 
   renderSummary(roster, signups);
   renderRoster(roster, signups);
