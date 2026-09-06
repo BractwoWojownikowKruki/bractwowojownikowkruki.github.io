@@ -3154,6 +3154,75 @@ test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and l
   });
 });
 
+// The open-edit test above only exercises an empty equipmentIds/companionIds against a
+// profile-less target, so it can't catch a handler bug that looks up the *caller's* profile
+// instead of the *target's* (e.g. an accidental memberEmail -> identity.email swap in the
+// getProfile call) - that bug would still pass every existing test since neither identity has a
+// profile there. This test gives both a real, distinct target profile and a real, distinct
+// caller profile with different equipment/companion ids, so the referential check is actually
+// exercised against genuine data on both sides.
+test("PUT /lista-wyjazdowa/signups validates equipment/companion ids against the target member's own profile, not the caller's", async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const targetEmail = 'inny@example.test';
+
+  // Register the target member's own profile - acting AS the target (not the caller) via a
+  // separate authenticateWojownicyUpload override, same pattern used elsewhere in this file
+  // (e.g. '/wojownicy-upload/whoami returns the caller's email once authenticated') for a second
+  // test identity. Shares the same firestore instance across withServer calls so the write
+  // persists into the next session.
+  let targetEquipmentId = '';
+  let targetCompanionId = '';
+  await withServer(
+    makeDeps({ firestore, authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'target-1', email: targetEmail }) }),
+    async baseUrl => {
+      const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
+        weaponIds: [],
+        equipment: [{ id: '', name: 'Namiot', description: '' }],
+        companions: [{ id: '', name: 'Jan (syn)' }],
+      });
+      const body = await res.json();
+      targetEquipmentId = body.profile.equipment[0].id;
+      targetCompanionId = body.profile.companions[0].id;
+    },
+  );
+
+  // Register the caller's own profile (wojownik@gmail.com - makeDeps()'s default
+  // authenticateWojownicyUpload identity) with a *different* equipment item - its id is used
+  // below as the negative case: it must not validate just because it happens to belong to some
+  // real profile, only the target's.
+  let callerEquipmentId = '';
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
+      weaponIds: [],
+      equipment: [{ id: '', name: 'Plecak', description: '' }],
+      companions: [],
+    });
+    callerEquipmentId = (await res.json()).profile.equipment[0].id;
+  });
+
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+
+    // Positive case: the target's own real equipment/companion ids are accepted.
+    const ok = await putListaWyjazdowa(
+      baseUrl,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=${targetEmail}`,
+      { attending: true, equipmentIds: [targetEquipmentId], companionIds: [targetCompanionId] },
+    );
+    assert.equal(ok.status, 200, "the target member's own equipment/companion ids must be accepted");
+
+    // Negative case: the caller's own equipment id (not the target's) is rejected against that
+    // same target - the case that would catch a memberEmail-for-identity.email swap regression.
+    const rejected = await putListaWyjazdowa(
+      baseUrl,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=${targetEmail}`,
+      { attending: true, equipmentIds: [callerEquipmentId], companionIds: [] },
+    );
+    assert.equal(rejected.status, 400, "the caller's own equipment id must not validate against a different target member");
+  });
+});
+
 test('GET /lista-wyjazdowa/roster joins members with their listaWyjazdowaProfile', async () => {
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
   await withServer(deps, async baseUrl => {
