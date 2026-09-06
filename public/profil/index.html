@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mój profil - Bractwo Wojowników Kruki</title>
+  <meta name="robots" content="noindex, nofollow" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Mój profil - Bractwo Wojowników Kruki" />
+  <meta property="og:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+  <meta property="og:locale" content="pl_PL" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Mój profil - Bractwo Wojowników Kruki" />
+  <meta name="twitter:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <link rel="apple-touch-icon" href="../favicon.png" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../vendor/cropperjs/cropper.min.css" />
+  <link rel="stylesheet" href="profil.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+    <!-- PARTIAL:nav -->
+
+  <main class="main-content">
+    <div class="content-left">
+      <section class="content-section">
+        <h1>Mój profil</h1>
+
+        <div class="upload-signin" id="signed-out-panel" hidden>
+          <p>Zaloguj się kontem Google, aby uzyskać dostęp do Listy wyjazdowej.</p>
+          <div id="google-signin-button"></div>
+        </div>
+        <p class="upload-forbidden" id="forbidden-panel" hidden>
+          Brak uprawnień. Ta sekcja jest dostępna tylko dla członków Bractwa.
+        </p>
+        <div class="upload-reauth" id="lw-reauth" hidden>
+          <p>Twoja sesja logowania wygasła. Zaloguj się ponownie, aby kontynuować.</p>
+          <div id="google-reauth-button"></div>
+        </div>
+
+        <section id="profile-form-panel" hidden>
+          <form id="profile-form" novalidate>
+            <fieldset class="lw-fieldset">
+              <legend>Zdjęcie profilowe</legend>
+              <div class="field">
+                <label for="lw-main-photo">Główne zdjęcie</label>
+                <input type="file" id="lw-main-photo" name="mainPhoto" accept="image/*" />
+              </div>
+              <div class="field">
+                <label for="lw-extra-photos">Dodatkowe zdjęcia (opcjonalnie)</label>
+                <input type="file" id="lw-extra-photos" name="extraPhotos" accept="image/*" multiple />
+              </div>
+              <p class="lw-hint">Zdjęcia trafią na dysk Drive dopiero po zapisaniu profilu.</p>
+              <div id="lw-photo-preview" class="lw-photo-preview" hidden></div>
+            </fieldset>
+
+            <div class="field">
+              <label for="lw-full-name">Imię i nazwisko</label>
+              <input type="text" id="lw-full-name" name="fullName" />
+            </div>
+            <div class="field">
+              <label for="lw-nickname">Ksywa</label>
+              <input type="text" id="lw-nickname" name="nickname" />
+            </div>
+            <p class="lw-hint">Podaj przynajmniej jedno z: Imię i nazwisko lub Ksywa.</p>
+            <div class="field">
+              <label for="lw-section">Sekcja</label>
+              <select id="lw-section" name="sectionId" required></select>
+            </div>
+
+            <fieldset class="lw-fieldset">
+              <legend>Bronie</legend>
+              <div id="weapons-checkboxes" class="lw-checkbox-grid"></div>
+            </fieldset>
+
+            <p class="lw-category-readout">Twoja kategoria: <span id="category-readout">—</span></p>
+
+            <fieldset class="lw-fieldset">
+              <legend>Sprzęt obozowy</legend>
+              <div id="equipment-rows" class="lw-rows"></div>
+              <button type="button" id="add-equipment-row" class="btn-cancel">Dodaj sprzęt</button>
+            </fieldset>
+
+            <fieldset class="lw-fieldset">
+              <legend>Osoby towarzyszące / dzieci</legend>
+              <div id="companion-rows" class="lw-rows"></div>
+              <button type="button" id="add-companion-row" class="btn-cancel">Dodaj osobę</button>
+            </fieldset>
+
+            <p class="add-album-error" id="profile-form-error" hidden></p>
+            <p class="upload-progress" id="profile-form-progress" hidden></p>
+
+            <button type="submit" class="add-album-submit" id="profile-form-submit">Zapisz profil</button>
+          </form>
+        </section>
+
+        <div class="upload-success" id="profile-saved-panel" hidden>
+          <p>Profil zapisany. Wydarzenia i zapisy pojawią się tutaj w kolejnym etapie prac.</p>
+          <button type="button" class="btn-cancel" id="back-to-profile-form">Edytuj profil</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- PARTIAL:social_sidebar -->
+  </main>
+
+  <div class="crop-modal" id="crop-modal" hidden>
+    <div class="crop-modal-inner">
+      <img id="crop-target" alt="" />
+    </div>
+    <p class="crop-modal-error" id="crop-modal-error" hidden>
+      Nie udało się otworzyć tego zdjęcia do kadrowania w tej przeglądarce. Zostanie przesłane w oryginalnej wersji.
+    </p>
+    <div class="crop-modal-actions">
+      <button type="button" class="add-album-submit" id="crop-save">Zapisz</button>
+      <button type="button" class="btn-cancel" id="crop-cancel">Anuluj</button>
+    </div>
+  </div>
+
+  <!-- PARTIAL:footer -->
+
+  <script src="../auth.js"></script>
+  <script src="../nav.js"></script>
+  <script src="../instagram-feed.js"></script>
+  <script src="../youtube-feed.js"></script>
+  <script src="../vendor/cropperjs/cropper.min.js"></script>
+  <script src="profil.js"></script>
+</body>
+</html>

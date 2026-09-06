@@ -41,8 +41,11 @@ export const GATED_PATH_PREFIXES = [
   '/galerie/',
   '/logowanie/',
   '/wojownicy/wrzuc/',
-  // KRKG-0037: replaces /wojownicy/wrzuc/ and carries the same personal-data/photo-upload
-  // sensitivity (plus member profile fields wrzuc.js never had) - same exclusion.
+  // KRKG-0037: /profil/ replaces /wojownicy/wrzuc/ and carries the same personal-data/photo-
+  // upload sensitivity (plus member profile fields wrzuc.js never had) - same exclusion.
+  '/profil/',
+  // The event roster/sign-up page (design.md §8, not built yet) - gated the same way since it
+  // will hold personal/member data once it does anything beyond today's placeholder.
   '/lista-wyjazdowa/',
 ] as const;
 

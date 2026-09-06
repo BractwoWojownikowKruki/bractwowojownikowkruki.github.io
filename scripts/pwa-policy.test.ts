@@ -43,6 +43,8 @@ test('classifies public and gated page paths', () => {
   assert.equal(isPwaExcludedPath('/admin/'), true);
   assert.equal(isPwaExcludedPath('/logowanie/'), true);
   assert.equal(isPwaExcludedPath('/wojownicy/wrzuc/'), true);
+  assert.equal(isPwaExcludedPath('/profil/'), true);
+  assert.equal(isPwaExcludedPath('/lista-wyjazdowa/'), true);
 });
 
 test('uses a deployment-specific cache name', () => {
