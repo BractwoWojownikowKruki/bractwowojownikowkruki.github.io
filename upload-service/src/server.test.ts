@@ -21,22 +21,56 @@ import { resetSettingsBootstrapForTests } from './settings.ts';
 import { resetRateLimitForTests } from './rate-limit.ts';
 import { createInMemoryFirestoreClient } from './firestore.ts';
 
+const nodeFetch = globalThis.fetch;
+const ALLOWED_ORIGIN_FOR_TESTS = 'https://example.test'; // matches makeDeps()'s allowedOrigin
+
+// Response statuses that the Fetch spec forbids from carrying a body - constructing a Response
+// with a non-null body at one of these statuses throws, even if the body is zero-length.
+const NULL_BODY_STATUSES = new Set([204, 205, 304]);
+
+// Most tests here only assert on res.status/headers and never call .json()/.text(), leaving
+// undici's response body stream unconsumed. Fully draining every response ourselves -
+// regardless of what the calling test actually reads - is defensive hygiene against connections
+// being left in a half-read state across this suite's rapid server create/close cycles (see
+// withServer). Buffering it into a plain Response also means callers can still call
+// .json()/.text() exactly as before, just against the buffered bytes instead of the live socket.
+//
+// NOTE: this does not fully eliminate the intermittent "wrong response for this request" flake
+// this suite exhibits roughly 1 in 10-20 runs. Investigation (see the story's flake-fix report)
+// traced it to at least two distinct causes, neither of which is fixable from inside this file:
+// (1) other local processes on the development machine (confirmed: a Python debugpy/ptvsd
+// debug adapter in an unrelated repo) occasionally emit non-HTTP data that collides with the
+// ephemeral TCP ports Node's listen(0) hands out during this suite's ~180 rapid create/destroy
+// cycles, and (2) a smaller number of clean-but-wrong-status responses that reproduce
+// identically whether the client is undici's fetch() or a hand-rolled node:http client with no
+// connection pooling at all, meaning it isn't specific to undici's pool. Kept anyway as correct
+// practice independent of the flake.
+async function drainResponse(res: Response): Promise<Response> {
+  const buffer = await res.arrayBuffer();
+  const body = NULL_BODY_STATUSES.has(res.status) ? null : buffer;
+  return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+}
+
+// The escape hatch for the handful of tests that specifically exercise the requireAllowedOrigin
+// guard itself (missing Origin) - still drains the body like `fetch` below, just without
+// defaulting the Origin header.
+async function rawFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  return drainResponse(await nodeFetch(url, options));
+}
+
 // Every real caller has sent Origin on every state-changing request since Phase 0 made
 // www.kruki.org -> api.kruki.org cross-origin (cross-origin fetches always include it) - the
 // central requireAllowedOrigin guard in server.ts relies on that. Defaulting it here means the
 // ~150 test call sites written before that guard existed don't each need updating individually;
-// `rawFetch` is the escape hatch for the handful of tests that specifically exercise the guard
-// itself (missing Origin) - a test that sets its own Origin header (e.g. a wrong one) doesn't
-// need it, since an explicit header is never overridden below.
-const rawFetch = globalThis.fetch;
-const ALLOWED_ORIGIN_FOR_TESTS = 'https://example.test'; // matches makeDeps()'s allowedOrigin
-
+// `rawFetch` above is the escape hatch for the handful of tests that specifically exercise the
+// guard itself (missing Origin) - a test that sets its own Origin header (e.g. a wrong one)
+// doesn't need it, since an explicit header is never overridden below.
 async function fetch(url: string, options: RequestInit = {}): Promise<Response> {
   const headers = new Headers(options.headers);
   if (!headers.has('Origin')) {
     headers.set('Origin', ALLOWED_ORIGIN_FOR_TESTS);
   }
-  return rawFetch(url, { ...options, headers });
+  return drainResponse(await nodeFetch(url, { ...options, headers }));
 }
 
 const VALID_JPEG_BYTES = Buffer.concat([
