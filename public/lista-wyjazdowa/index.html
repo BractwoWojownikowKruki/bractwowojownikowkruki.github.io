@@ -38,9 +38,28 @@
           Brak uprawnień. Ta sekcja jest dostępna tylko dla członków Bractwa.
         </p>
 
-        <div id="coming-soon-panel" hidden>
-          <p>Wydarzenia i zapisy pojawią się tutaj wkrótce.</p>
-          <p>W międzyczasie swój profil (dane, bronie, sprzęt, zdjęcie) możesz uzupełnić na stronie <a href="/profil/">Mój profil</a>.</p>
+        <div id="no-profile-panel" hidden>
+          <p>Uzupełnij najpierw swój profil, aby zapisywać się na wyjazdy.</p>
+          <a href="/profil/" class="btn-cancel">Przejdź do profilu</a>
+        </div>
+
+        <div id="events-panel" hidden>
+          <button type="button" class="btn-cancel" id="toggle-add-event">Dodaj wyjazd</button>
+          <form id="add-event-form" hidden>
+            <div class="field">
+              <label for="new-event-name">Nazwa</label>
+              <input type="text" id="new-event-name" name="name" required />
+            </div>
+            <div class="field">
+              <label for="new-event-date">Data rozpoczęcia</label>
+              <input type="date" id="new-event-date" name="startDate" required />
+            </div>
+            <p class="add-album-error" id="add-event-error" hidden></p>
+            <button type="submit" class="add-album-submit">Utwórz wyjazd</button>
+          </form>
+
+          <button type="button" class="btn-cancel" id="toggle-past-events">Pokaż wszystkie (w tym odwołane i przeszłe)</button>
+          <div id="events-list"></div>
         </div>
       </section>
     </div>
