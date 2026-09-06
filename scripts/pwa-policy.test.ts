@@ -37,6 +37,8 @@ test('rejects media, external paths, and oversized assets from the precache', ()
 test('classifies public and gated page paths', () => {
   assert.equal(isEligiblePublicDocument('/'), true);
   assert.equal(isEligiblePublicDocument('/kontakt/'), true);
+  assert.equal(isEligiblePublicDocument('/grafiki/'), true);
+  assert.equal(isEligiblePublicDocument('/oferty/'), true);
   assert.equal(isEligiblePublicDocument('/galerie/'), false);
   assert.equal(isPwaExcludedPath('/galerie/'), true);
   assert.equal(isPwaExcludedPath('/galerie/dodaj-galerie.html'), true);

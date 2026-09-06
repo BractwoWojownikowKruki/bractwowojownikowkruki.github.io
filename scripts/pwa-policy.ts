@@ -20,6 +20,8 @@ export const PRECACHE_PATHS = [
 export const PUBLIC_PWA_PATHS = new Set([
   '/',
   '/kontakt/',
+  '/grafiki/',
+  '/oferty/',
   '/nabor/',
   '/o-nas/',
   '/o-nas/nasze-osiagniecia/',
