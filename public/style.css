@@ -745,6 +745,7 @@ main { padding: 1.25rem 1.5rem 3rem; }
 
 .drive-gallery-status {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 0.5rem;
   color: var(--text-muted);
@@ -1076,7 +1077,7 @@ main { padding: 1.25rem 1.5rem 3rem; }
   animation: busy-sticker-aura 1.75s ease-in-out infinite;
 }
 
-.busy-sticker-aura--compact { width: 34px; }
+.busy-sticker-aura--compact { width: 40px; }
 
 .busy-sticker {
   position: relative;
@@ -1088,7 +1089,7 @@ main { padding: 1.25rem 1.5rem 3rem; }
   animation: busy-sticker-sway 1.55s ease-in-out infinite;
 }
 
-.busy-sticker--compact { width: 34px; }
+.busy-sticker--compact { width: 40px; }
 
 @media (prefers-reduced-motion: reduce) {
   .busy-sticker { animation: none; }
@@ -1420,6 +1421,12 @@ main { padding: 1.25rem 1.5rem 3rem; }
   align-items: center;
   gap: 0.5rem;
   color: var(--text-muted);
+}
+
+/* Full-page checks present their message as a caption, while the navbar keeps its compact,
+   textless status treatment below. */
+.auth-checking:not(.nav-auth-checking) {
+  flex-direction: column;
 }
 
 .auth-checking[hidden] {
@@ -2563,6 +2570,9 @@ button.nav-item {
     width: 28px;
     height: 28px;
   }
+
+  .busy-sticker-aura--compact { width: 28px; }
+  .busy-sticker--compact { width: 28px; }
 
   /* Strefa Członków's mobile trigger only ever appears at this breakpoint - see the base
      .members-zone-mobile rule for why this is :not([hidden]) rather than an unconditional

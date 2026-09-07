@@ -37,14 +37,28 @@ test('defines an accessible, continuously animated Hold the Line loader', async 
   const css = await readFile(new URL('../public/style.css', import.meta.url), 'utf8');
 
   assert.match(css, /\.busy-sticker\s*\{[\s\S]*width:\s*116px[\s\S]*height:\s*auto/);
-  assert.match(css, /\.busy-sticker--compact\s*\{[\s\S]*width:\s*34px/);
-  assert.match(css, /\.busy-sticker-aura\s*\{[\s\S]*overflow:\s*hidden[\s\S]*width:\s*(34|116)px/);
+  assert.match(css, /\.busy-sticker--compact\s*\{[\s\S]*width:\s*40px/);
+  assert.match(css, /\.busy-sticker-aura\s*\{[\s\S]*overflow:\s*hidden[\s\S]*width:\s*(40|116)px/);
   assert.match(css, /\.busy-sticker\s*\{[\s\S]*animation:\s*busy-sticker-sway/);
   assert.match(css, /\.busy-sticker-aura::before\s*\{[\s\S]*animation:\s*busy-sticker-aura/);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*\.busy-sticker\s*\{[\s\S]*animation:\s*none/);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*\.busy-sticker-aura::before\s*\{[\s\S]*animation:\s*none/);
+  assert.match(css, /\.auth-checking:not\(\.nav-auth-checking\)\s*\{[\s\S]*flex-direction:\s*column/);
+  assert.match(css, /\.drive-gallery-status\s*\{[\s\S]*flex-direction:\s*column/);
+  assert.match(css, /@media\s*\(max-width:\s*768px\)[\s\S]*\.busy-sticker-aura--compact\s*\{[\s\S]*width:\s*28px/);
+  assert.match(css, /@media\s*\(max-width:\s*768px\)[\s\S]*\.busy-sticker--compact\s*\{[\s\S]*width:\s*28px/);
   assert.match(css, /\.sr-only\s*\{[\s\S]*position:\s*absolute/);
   assert.ok(statSync(new URL('../public/icons/hold-the-line.png', import.meta.url)).size > 0);
+});
+
+test('keeps an initial session check visible for at least one second without delaying other loading states', async () => {
+  const auth = await readFile(new URL('../public/auth.js', import.meta.url), 'utf8');
+
+  assert.match(auth, /const MINIMUM_SESSION_CHECKING_MS = 1000;/);
+  assert.match(auth, /const sessionCheckStartedAt = Date\.now\(\);/);
+  assert.match(auth, /Math\.max\(0, MINIMUM_SESSION_CHECKING_MS - \(Date\.now\(\) - sessionCheckStartedAt\)\)/);
+  assert.match(auth, /identity => afterMinimumSessionChecking\(\(\) => onSignedIn\?\.\(identity\)\)/);
+  assert.match(auth, /err => afterMinimumSessionChecking\(\(\) => notifyAuthFailure\(\{ onSignedOut, onForbidden \}, err\)\)/);
 });
 
 test('uses the Hold the Line sticker in every static loading context', async () => {
