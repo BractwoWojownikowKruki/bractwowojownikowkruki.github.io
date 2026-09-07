@@ -77,6 +77,7 @@ const MZ_ICON_PATHS = {
   swords: '<path d="M14.5 17.5 3 6V3h3l11.5 11.5"></path><path d="M9.5 6.5 13 3h3v3l-3.5 3.5"></path><path d="M3 21l6.5-6.5"></path><path d="M21 21l-6.5-6.5"></path>',
   chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>',
   tool: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>',
+  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>',
   chevron: '<polyline points="9 6 15 12 9 18"></polyline>',
 };
 
@@ -89,6 +90,7 @@ const MZ_ICON_PATHS = {
  */
 const MEMBERS_ZONE_MENU = [
   { href: '/profil/', label: 'Mój profil', icon: 'user' },
+  { href: '/czlonkowie/', label: 'Lista Członków', icon: 'users' },
   { href: '/galerie/', label: 'Galerie', icon: 'image' },
   { href: '/lista-wyjazdowa/', label: 'Lista wyjazdowa', icon: 'map' },
   { href: '/lista-wyjazdowa/skladki/', label: 'Składki', icon: 'coins' },

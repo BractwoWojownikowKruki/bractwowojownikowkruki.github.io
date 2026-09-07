@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lista Członków - Bractwo Wojowników Kruki</title>
+  <meta name="robots" content="noindex, nofollow" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Lista Członków - Bractwo Wojowników Kruki" />
+  <meta property="og:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+  <meta property="og:locale" content="pl_PL" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Lista Członków - Bractwo Wojowników Kruki" />
+  <meta name="twitter:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <link rel="apple-touch-icon" href="../favicon.png" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="czlonkowie.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+    <!-- PARTIAL:nav -->
+
+  <main class="main-content">
+    <div class="content-left">
+      <section class="content-section">
+        <h1>Lista Członków</h1>
+
+        <p class="auth-checking" id="czl-checking" role="status"><span class="busy-sticker-aura" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker" alt=""></span>Please hold the line...</p>
+        <div class="upload-signin" id="signed-out-panel" hidden>
+          <p>Zaloguj się kontem Google, aby uzyskać dostęp do Listy Członków.</p>
+          <div id="google-signin-button"></div>
+        </div>
+        <p class="upload-forbidden" id="forbidden-panel" hidden>
+          Brak uprawnień. Ta sekcja jest dostępna tylko dla członków Bractwa.
+        </p>
+
+        <div id="directory-panel" hidden>
+          <p class="add-album-error" id="directory-error" hidden></p>
+          <div class="czl-table-wrap">
+            <table class="czl-table" id="czl-table">
+              <thead>
+                <tr>
+                  <th scope="col" data-sort-key="fullName" aria-sort="none"><button type="button">Imię i nazwisko</button></th>
+                  <th scope="col" data-sort-key="nickname" aria-sort="none"><button type="button">Ksywa</button></th>
+                  <th scope="col" data-sort-key="sectionLabel" aria-sort="none"><button type="button">Sekcja</button></th>
+                  <th scope="col" data-sort-key="email" aria-sort="ascending"><button type="button">Email</button></th>
+                </tr>
+              </thead>
+              <tbody id="czl-table-body"></tbody>
+            </table>
+          </div>
+          <p class="czl-count" id="czl-count"></p>
+        </div>
+      </section>
+    </div>
+
+    <!-- PARTIAL:social_sidebar -->
+  </main>
+
+  <!-- PARTIAL:footer -->
+
+  <script src="../auth.js"></script>
+  <script src="../nav.js"></script>
+  <script src="../instagram-feed.js"></script>
+  <script src="../youtube-feed.js"></script>
+  <script src="czlonkowie.js"></script>
+</body>
+</html>

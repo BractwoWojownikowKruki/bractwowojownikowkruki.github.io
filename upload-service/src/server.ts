@@ -117,6 +117,10 @@ export interface ServerDeps {
   // (site traffic / this TTL) regardless of how many visitors load the gallery list, instead
   // of one live Drive call per page view.
   galleriesCacheTtlMs: number;
+  // The live email list behind `authenticate`/`authenticateWojownicyUpload` (both share one
+  // allowlist - see productionDeps below), for GET /members/directory to enumerate: everyone
+  // with site access, not just those who happen to have a members/{email} Firestore doc yet.
+  listMemberEmails: () => Promise<string[]>;
 }
 
 // Per-folder exact file-count reservation, in-process. This is what actually enforces
@@ -1223,6 +1227,35 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, { roster });
 }
 
+// GET /members/directory (KRKG-0045): the club-wide "Lista Członków" page. Unlike the Lista
+// Wyjazdowa roster above - which only lists members/{email} docs, i.e. people who've filled in
+// their profile - this enumerates the live kruki Google Group membership itself (the same
+// allowlist that already gates authenticateWojownicyUpload/authenticate), so someone who has site
+// access but never saved a profile still shows up, just with blank fullName/nickname/sectionId
+// rather than being missing entirely.
+async function handleMembersDirectory(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req, res);
+  const [emails, members, lookupLists] = await Promise.all([
+    deps.listMemberEmails(),
+    listAllMembers(deps.firestore),
+    getAllLookupLists(deps.firestore),
+  ]);
+  const memberByEmail = new Map(members.map((m) => [m.email, m]));
+  const sectionLabelById = new Map(lookupLists.sections.map((s) => [s.id, s.label]));
+  const directory = emails.map((email) => {
+    const member = memberByEmail.get(email);
+    return {
+      email,
+      fullName: member?.fullName ?? null,
+      nickname: member?.nickname ?? null,
+      sectionId: member?.sectionId ?? null,
+      sectionLabel: member?.sectionId ? (sectionLabelById.get(member.sectionId) ?? member.sectionId) : null,
+    };
+  });
+  directory.sort((a, b) => a.email.localeCompare(b.email));
+  sendJson(res, 200, { members: directory });
+}
+
 // Plan C (składki/dues): every route below that touches skladkaFee/skladkaPaid/wpisowePaid/
 // duesAnnual gates on the accountant role via requireRole before any read/write of that data -
 // see roles.ts. GET /lista-wyjazdowa/my-role lets the client know upfront whether to show the
@@ -1829,6 +1862,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaGetAuditLog(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/roster') {
         await handleListaWyjazdowaGetRoster(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/members/directory') {
+        await handleMembersDirectory(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/my-role') {
         await handleListaWyjazdowaGetMyRole(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/signups/skladka') {
@@ -1959,6 +1994,7 @@ async function startProductionServer(): Promise<void> {
     allowedMimeTypes: config.allowedMimeTypes,
     maxJsonBodyBytes: config.maxJsonBodyBytes,
     galleriesCacheTtlMs: config.galleriesCacheTtlMs,
+    listMemberEmails: () => groupAllowlist.getEmails(),
   };
   const server = createServer(createRequestListener(productionDeps));
   server.listen(config.port, () => {

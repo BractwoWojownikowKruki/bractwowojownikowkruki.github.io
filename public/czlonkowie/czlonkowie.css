@@ -1,0 +1,79 @@
+/* Lista Członków (KRKG-0045) - sortable member-directory table. No table library: the site has
+ * no JS dependency of that kind anywhere else (only vendored cropperjs, kept because cropping is
+ * genuinely non-trivial to hand-roll) and this table's sort is ~20 lines, see czlonkowie.js. */
+
+.czl-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.czl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.czl-table th,
+.czl-table td {
+  text-align: left;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.czl-table thead th {
+  background: var(--surface);
+  padding: 0;
+}
+
+.czl-table thead th button {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.6rem 0.9rem;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.czl-table thead th button:hover,
+.czl-table thead th button:focus-visible {
+  color: var(--gold);
+}
+
+.czl-table thead th button::after {
+  content: '';
+  width: 0.6em;
+}
+
+.czl-table thead th[aria-sort="ascending"] button::after {
+  content: '▲';
+  font-size: 0.7em;
+}
+
+.czl-table thead th[aria-sort="descending"] button::after {
+  content: '▼';
+  font-size: 0.7em;
+}
+
+.czl-table tbody tr:hover {
+  background: var(--surface);
+}
+
+.czl-table tbody td {
+  color: var(--text);
+}
+
+.czl-table tbody td.czl-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.czl-count {
+  margin-top: 0.75rem;
+  color: var(--text-faint);
+  font-size: 0.9rem;
+}

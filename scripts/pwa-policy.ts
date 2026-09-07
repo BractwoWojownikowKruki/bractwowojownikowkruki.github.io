@@ -49,6 +49,9 @@ export const GATED_PATH_PREFIXES = [
   // The event roster/sign-up page (design.md §8, not built yet) - gated the same way since it
   // will hold personal/member data once it does anything beyond today's placeholder.
   '/lista-wyjazdowa/',
+  // KRKG-0045: the member directory lists every group member's name/nickname/section/email -
+  // the same personal-data sensitivity as /profil/ above.
+  '/czlonkowie/',
 ] as const;
 
 /** Returns whether a pathname belongs to the intentionally public PWA entry-point set. */

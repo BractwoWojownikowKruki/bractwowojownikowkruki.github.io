@@ -174,6 +174,7 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     // 0 by default so /galleries' module-level cache never leaks a stale result between tests;
     // the dedicated caching test below overrides this to a real TTL to exercise the cache itself.
     galleriesCacheTtlMs: 0,
+    listMemberEmails: async () => [],
     ...overrides,
   };
 }
@@ -3539,6 +3540,62 @@ test('GET /lista-wyjazdowa/roster reports hasProfile: false for a member with no
     // only wpisowePaid on it would have no equipment array for PUT /lista-wyjazdowa/signups to read.
     const after = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
     assert.equal(after.roster.find((r: { email: string }) => r.email === 'bezprofilu@example.test').hasProfile, false);
+  });
+});
+
+// GET /members/directory (KRKG-0045).
+test('GET /members/directory requires the same gate as authenticateWojownicyUpload', async () => {
+  const deps = makeDeps({
+    authenticateWojownicyUpload: async () => {
+      throw new AuthError('Brak uprawnień.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/members/directory`);
+    assert.equal(res.status, 403);
+  });
+});
+
+// Unlike the roster above, the directory is driven by the live group allowlist, not by who has a
+// members/{email} doc - a group member who never filled in a profile must still be listed, just
+// with blank fields, instead of being absent.
+test('GET /members/directory lists every allowlisted email, filling in profile fields when present', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'zprofilem@example.test');
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['zprofilem@example.test', 'bezprofilu@example.test'],
+  });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/members/directory`)).json();
+    assert.equal(body.members.length, 2);
+    const withProfile = body.members.find((m: { email: string }) => m.email === 'zprofilem@example.test');
+    const withoutProfile = body.members.find((m: { email: string }) => m.email === 'bezprofilu@example.test');
+    assert.equal(withProfile.fullName, 'zprofilem@example.test');
+    assert.equal(withProfile.sectionId, 'krakow');
+    assert.equal(withProfile.sectionLabel, 'Kraków');
+    assert.equal(withoutProfile.fullName, null);
+    assert.equal(withoutProfile.nickname, null);
+    assert.equal(withoutProfile.sectionId, null);
+    assert.equal(withoutProfile.sectionLabel, null);
+  });
+});
+
+test('GET /members/directory falls back to the raw sectionId when it has no matching lookup-list entry', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'wojownik@gmail.com', {
+    fullName: 'Ktoś',
+    nickname: null,
+    sectionId: 'usunieta-sekcja',
+    categoryId: null,
+    driveFolderId: null,
+    updatedAt: '2027-01-01T00:00:00.000Z',
+    updatedBy: 'wojownik@gmail.com',
+  });
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/members/directory`)).json();
+    assert.equal(body.members[0].sectionLabel, 'usunieta-sekcja');
   });
 });
 
