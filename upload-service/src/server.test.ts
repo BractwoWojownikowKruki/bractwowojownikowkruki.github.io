@@ -159,6 +159,7 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     authenticateModerator: async () => fakeSessionClaims({ sub: 'moderator-1', email: 'moderator@gmail.com' }),
     authenticateModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'moderator-1', email: 'moderator@gmail.com' }),
     authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
+    authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
     sessionSigningKeys: [{ v: 'v1', secret: 'test-session-secret' }],
     sessionSlidingWindowMs: 14 * 24 * 60 * 60 * 1000,
     sessionMaxLifetimeMs: 30 * 24 * 60 * 60 * 1000,
@@ -497,6 +498,23 @@ test('POST /session/login issues a session cookie for a caller authenticateSessi
   });
 });
 
+// KRKG-0046: authenticateSessionLogin deliberately no longer checks any allowlist - a not-yet-
+// approved applicant must still get a session cookie so they can reach /membership/apply. This
+// is a regression guard for that specific decision, distinct from the generic "issues a cookie"
+// test above.
+test('POST /session/login issues a cookie even for an email with no membership record at all', async () => {
+  const deps = makeDeps({ authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'notamember@gmail.com' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'fake-google-id-token' }),
+    });
+    assert.equal(res.status, 200);
+    assert.ok(res.headers.get('set-cookie'));
+  });
+});
+
 test('POST /session/login rejects a body with no idToken', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
@@ -510,10 +528,13 @@ test('POST /session/login rejects a body with no idToken', async () => {
   });
 });
 
-test('POST /session/login passes through an AuthError from authenticateSessionLogin (e.g. not on the allowlist)', async () => {
+// KRKG-0046: authenticateSessionLogin no longer checks any allowlist (it verifies the Google ID
+// token only), so this now exercises a token-verification failure rather than a membership one -
+// still a generic pass-through check either way.
+test('POST /session/login passes through an AuthError from authenticateSessionLogin (e.g. an invalid Google ID token)', async () => {
   const deps = makeDeps({
     authenticateSessionLogin: async () => {
-      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
+      throw new AuthError('Nieprawidłowy token Google ID.', 403);
     },
   });
   await withServer(deps, async baseUrl => {
@@ -524,6 +545,115 @@ test('POST /session/login passes through an AuthError from authenticateSessionLo
     });
     assert.equal(res.status, 403);
     assert.equal(res.headers.get('set-cookie'), null);
+  });
+});
+
+// KRKG-0046: /membership/whoami and /membership/apply are the only two routes reachable by a
+// signed-in session with no membership at all - gated by authenticateSessionOnly, not
+// authenticate. Firestore doc shape mirrors membership.test.ts's fixtures.
+test("GET /membership/whoami returns the caller's own status without requiring membership", async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'pending@example.com', {
+    email: 'pending@example.com', fullName: 'P', nickname: null, sectionId: 'sekcja-1',
+    categoryId: null, driveFolderId: null, status: 'pending', appliedAt: 'x',
+    approvedAt: null, approvedBy: null, updatedAt: 'x', updatedBy: 'pending@example.com',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'pending@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/membership/whoami`, { credentials: 'include' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { email: 'pending@example.com', status: 'pending' });
+  });
+});
+
+test('GET /membership/whoami returns status null when no application exists yet', async () => {
+  const deps = makeDeps({ authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'new@example.com' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/membership/whoami`, { credentials: 'include' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { email: 'new@example.com', status: null });
+  });
+});
+
+test('POST /membership/apply creates a pending application for any signed-in identity', async () => {
+  const client = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({
+    firestore: client,
+    authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'new@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/membership/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ fullName: 'New Person', nickname: 'Newbie', sectionId: 'krakow' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.member.status, 'pending');
+    assert.equal(body.member.email, 'new@example.com');
+  });
+});
+
+test('POST /membership/apply rejects a sectionId that is not in lookupLists', async () => {
+  const client = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({
+    firestore: client,
+    authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'new@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/membership/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ fullName: 'New', nickname: null, sectionId: 'nieznana-sekcja' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('POST /membership/apply returns 409 for an already-active member', async () => {
+  const client = makeListaWyjazdowaFirestore();
+  client.seed('members', 'active@example.com', {
+    email: 'active@example.com', fullName: 'A', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x',
+    approvedAt: 'x', approvedBy: 'admin@example.com', updatedAt: 'x', updatedBy: 'active@example.com',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'active@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/membership/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ fullName: 'Active', nickname: null, sectionId: 'krakow' }),
+    });
+    assert.equal(res.status, 409);
+  });
+});
+
+// Admin-owned fields (status, categoryId, approvedAt, approvedBy) must never be settable from
+// this endpoint's request body - applyForMembership (membership.ts) only ever reads
+// fullName/nickname/sectionId off the parsed body in handleMembershipApply, so a client sending
+// extra fields has no effect regardless of their values.
+test('POST /membership/apply ignores admin-owned fields present in the request body', async () => {
+  const client = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({
+    firestore: client,
+    authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'new@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/membership/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ fullName: 'New', nickname: null, sectionId: 'krakow', status: 'active', categoryId: 'hacked' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.member.status, 'pending');
+    assert.equal(body.member.categoryId, null);
   });
 });
 

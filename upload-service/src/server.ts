@@ -28,6 +28,7 @@ import {
 } from './about-us.ts';
 import { createFirestoreClient, type FirestoreLikeClient } from './firestore.ts';
 import { getMember, listAllMembers, saveMember, type MemberWritableFields } from './members.ts';
+import { applyForMembership } from './membership.ts';
 import { getProfile, listAllProfiles, saveProfile, setWpisowePaid, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 import { getAllLookupLists } from './lookup-lists.ts';
 import { listEvents, getEvent, createEvent, updateEvent, type EventWritableFields } from './events.ts';
@@ -98,6 +99,10 @@ export interface ServerDeps {
   // allowlist as `authenticate`. Kept as its own dep function, matching the authenticate*
   // pattern above, rather than exposing the raw allowlist/OAuth client id on ServerDeps.
   authenticateSessionLogin: (idToken: string) => Promise<VerifiedIdentity>;
+  // KRKG-0046: verifies only that a signed-in session exists - no allowlist check. Used by the
+  // two membership endpoints (/membership/whoami, /membership/apply) that must be reachable by
+  // any Google identity, member or not, since establishing membership is exactly their purpose.
+  authenticateSessionOnly: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
   sessionSigningKeys: SessionSigningKey[];
   sessionSlidingWindowMs: number;
   sessionMaxLifetimeMs: number;
@@ -357,6 +362,30 @@ export async function verifySessionRequest(
   return claims;
 }
 
+// Verifies only that a signed, unexpired session cookie exists - no allowlist check at all.
+// Deliberately NOT built by delegating into verifySessionRequest with an always-true allowlist:
+// verifySessionRequest's ordering (authorize-then-renew) exists specifically so a revoked
+// member's 403 never carries an extended Set-Cookie - that invariant doesn't apply here since
+// there's nothing to authorize, so this renews unconditionally. Used only by the two KRKG-0046
+// membership endpoints reachable by a not-yet-approved applicant.
+export async function verifySessionOnly(
+  req: IncomingMessage,
+  res: ServerResponse,
+  config: SessionVerifyConfig,
+): Promise<SessionClaims> {
+  const token = readSessionCookie(req);
+  if (!token) {
+    throw new AuthError('Brak sesji. Zaloguj się ponownie.', 401);
+  }
+  const now = Date.now();
+  const claims = verifySessionToken(token, config.sessionSigningKeys, now, config.sessionMaxLifetimeMs);
+  const renewed = maybeRenewSessionToken(claims, config.sessionSigningKeys[0], now, config.sessionSlidingWindowMs, config.sessionMaxLifetimeMs);
+  if (renewed) {
+    setSessionCookie(res, renewed.token, renewed.exp - now);
+  }
+  return claims;
+}
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
@@ -463,6 +492,38 @@ async function* validatedUploadStream(
 async function handleWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
   sendJson(res, 200, identityResponseBody(identity));
+}
+
+// KRKG-0046: the only two routes reachable by a signed-in visitor who is not (yet) an active
+// member - authenticateSessionOnly checks nothing but the session cookie itself.
+async function handleMembershipWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateSessionOnly(req, res);
+  const member = await getMember(deps.firestore, identity.email);
+  sendJson(res, 200, { email: identity.email, status: member?.status ?? null });
+}
+
+async function handleMembershipApply(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateSessionOnly(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const fullNameInput = optionalTrimmedString(
+    body.fullName,
+    LW_MAX_NAME_LENGTH,
+    `Imię i nazwisko może mieć najwyżej ${LW_MAX_NAME_LENGTH} znaków.`,
+  );
+  const nicknameInput = optionalTrimmedString(
+    body.nickname,
+    LW_MAX_NAME_LENGTH,
+    `Ksywa może mieć najwyżej ${LW_MAX_NAME_LENGTH} znaków.`,
+  );
+  const fullName = fullNameInput ?? nicknameInput;
+  if (fullName === null) {
+    throw new AuthError('Podaj Imię i nazwisko lub Ksywę.', 400);
+  }
+  const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
+  const lookupLists = await getAllLookupLists(deps.firestore);
+  requireKnownLookupId(lookupLists.sections, sectionId, 'Wybrana sekcja nie istnieje.');
+  const member = await applyForMembership(deps.firestore, identity.email, { fullName, nickname: nicknameInput, sectionId });
+  sendJson(res, 200, { member });
 }
 
 // Exchanges a raw Google ID token (verified once, here) for a first-party session cookie -
@@ -1802,6 +1863,10 @@ export function createRequestListener(deps: ServerDeps) {
         await handleSessionLogin(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/session/logout') {
         await handleSessionLogout(req, res);
+      } else if (req.method === 'GET' && url.pathname === '/membership/whoami') {
+        await handleMembershipWhoami(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/membership/apply') {
+        await handleMembershipApply(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/galleries') {
         await handleGalleries(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/about-us') {
@@ -1988,11 +2053,13 @@ async function startProductionServer(): Promise<void> {
     authenticateWojownicyUpload: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, groupAllowlist),
     authenticateModerator: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, moderatorAllowlist),
     authenticateModeratorWithStepUp: withStepUp(moderatorAllowlist),
-    authenticateSessionLogin: async idToken => {
-      const identity = await verifyGoogleIdToken(idToken, config.googleOAuthClientId);
-      const allowedEmails = await groupAllowlist.getEmails();
-      return checkAllowlist(identity, allowedEmails);
-    },
+    // KRKG-0046: no longer checks any allowlist - it must succeed for any verified Google
+    // identity, member or not, so a not-yet-approved applicant can reach /membership/apply.
+    // Authorization for every actual privileged route is still enforced independently and
+    // unchanged (verifySessionRequest above) - this only changes when a non-member first
+    // receives a session, not what that session can do.
+    authenticateSessionLogin: async idToken => verifyGoogleIdToken(idToken, config.googleOAuthClientId),
+    authenticateSessionOnly: (req, res) => verifySessionOnly(req, res, sessionVerifyConfig),
     sessionSigningKeys: config.sessionSigningKeys,
     sessionSlidingWindowMs: config.sessionSlidingWindowMs,
     sessionMaxLifetimeMs: config.sessionMaxLifetimeMs,
