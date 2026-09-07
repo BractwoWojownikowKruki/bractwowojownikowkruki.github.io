@@ -77,3 +77,21 @@
   color: var(--text-faint);
   font-size: 0.9rem;
 }
+
+/* Accountant/admin-only inline edit row (KRKG-0047) - replaces a plain row in place when
+   "Edytuj" is clicked, see czlonkowie.js's renderEditRow(). */
+.czl-edit-row input,
+.czl-edit-row select {
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.35rem 0.5rem;
+  width: 100%;
+}
+
+.czl-edit-error {
+  color: var(--accent);
+  font-size: 0.85rem;
+  margin-top: 0.35rem;
+}

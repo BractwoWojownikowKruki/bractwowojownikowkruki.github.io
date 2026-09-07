@@ -46,7 +46,7 @@ import {
   type SignupWritableFields,
 } from './signups.ts';
 import { getGrantedRoles, satisfiesRole, requireRole } from './roles.ts';
-import { listDuesForYear, setDuesPaid, appendDuesAuditEntry, listDuesAuditLog } from './dues.ts';
+import { listDuesForYear, saveDues, type DuesWritableFields, appendDuesAuditEntry, listDuesAuditLog } from './dues.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -1082,8 +1082,18 @@ async function handleListaWyjazdowaGetMember(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, { member });
 }
 
-async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+// Self-service by default (targets the caller); an accountant/admin editing someone else's
+// record from the Lista Członków page (KRKG-0047) passes ?memberEmail=, gated by requireRole -
+// the same ?memberEmail= convention as the wpisowe/dues endpoints below, rather than a separate
+// admin-only route, since the validation (name/nickname length, known sectionId) is identical
+// either way.
+async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
+  const targetEmailParam = url.searchParams.get('memberEmail');
+  if (targetEmailParam) {
+    await requireRole(deps.firestore, identity.email, 'accountant');
+  }
+  const targetEmail = targetEmailParam ?? identity.email;
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const fullNameInput = optionalTrimmedString(
     body.fullName,
@@ -1110,7 +1120,7 @@ async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerRe
   };
   const lookupLists = await getAllLookupLists(deps.firestore);
   requireKnownLookupId(lookupLists.sections, fields.sectionId, 'Wybrana sekcja nie istnieje.');
-  const member = await saveMember(deps.firestore, identity.email, fields);
+  const member = await saveMember(deps.firestore, targetEmail, fields, identity.email);
   sendJson(res, 200, { member });
 }
 
@@ -1474,24 +1484,54 @@ async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResp
   const member = await getMember(deps.firestore, memberEmail);
   if (!member) throw new AuthError('Nie znaleziono takiego członka.', 404);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
-  if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
-  const dues = await setDuesPaid(deps.firestore, memberEmail, year, body.paid, identity.email);
-  await appendDuesAuditEntry(deps.firestore, {
-    context: 'roczna',
-    targetMemberEmail: memberEmail.toLowerCase(),
-    eventId: null,
-    eventName: null,
-    year,
-    changedBy: identity.email,
-    changeSummary: body.paid
-      ? `Oznaczono składkę roczną ${year} jako opłaconą`
-      : `Oznaczono składkę roczną ${year} jako nieopłaconą`,
-  });
+  // paid and amount (KRKG-0047) are independently settable - same optional-field shape as
+  // handleListaWyjazdowaPutEvent's skladkaFee, each producing its own audit entry below only
+  // when that field was actually present in the body.
+  const fields: DuesWritableFields = {};
+  if (body.paid !== undefined) {
+    if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
+    fields.paid = body.paid;
+  }
+  if (body.amount !== undefined) {
+    fields.amount =
+      body.amount === null ? null : requireTrimmedString(body.amount, LW_MAX_NAME_LENGTH, 'Kwota składki jest nieprawidłowa.');
+  }
+  const dues = await saveDues(deps.firestore, memberEmail, year, fields, identity.email);
+  if (fields.paid !== undefined) {
+    await appendDuesAuditEntry(deps.firestore, {
+      context: 'roczna',
+      targetMemberEmail: memberEmail.toLowerCase(),
+      eventId: null,
+      eventName: null,
+      year,
+      changedBy: identity.email,
+      changeSummary: fields.paid
+        ? `Oznaczono składkę roczną ${year} jako opłaconą`
+        : `Oznaczono składkę roczną ${year} jako nieopłaconą`,
+    });
+  }
+  if (fields.amount !== undefined) {
+    await appendDuesAuditEntry(deps.firestore, {
+      context: 'roczna',
+      targetMemberEmail: memberEmail.toLowerCase(),
+      eventId: null,
+      eventName: null,
+      year,
+      changedBy: identity.email,
+      changeSummary: fields.amount
+        ? `Ustawiono kwotę składki rocznej ${year} dla ${memberEmail.toLowerCase()} na: ${fields.amount}`
+        : `Usunięto kwotę składki rocznej ${year} dla ${memberEmail.toLowerCase()}`,
+    });
+  }
   sendJson(res, 200, { dues });
 }
 
+// Accountant/admin-only (KRKG-0047) - the dues audit log names who paid what and when, which is
+// more sensitive than the roster/dues themselves, so it is no longer open to every signed-in
+// member the way it was before this story.
 async function handleListaWyjazdowaGetDuesAuditLog(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateWojownicyUpload(req, res);
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  await requireRole(deps.firestore, identity.email, 'accountant');
   const entries = await listDuesAuditLog(deps.firestore);
   sendJson(res, 200, { entries });
 }
@@ -1996,7 +2036,7 @@ export function createRequestListener(deps: ServerDeps) {
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/member') {
         await handleListaWyjazdowaGetMember(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/member') {
-        await handleListaWyjazdowaPutMember(req, res, deps);
+        await handleListaWyjazdowaPutMember(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/profile') {
         await handleListaWyjazdowaGetProfile(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/profile') {

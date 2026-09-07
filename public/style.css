@@ -3627,13 +3627,29 @@ button.lw-skladka-icon:disabled {
   border-radius: 8px;
 }
 
-#skladka-fee-input {
+#skladka-fee-input,
+.lw-roczna-amount-input {
   background: var(--surface-deep);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
   padding: 0.5rem 0.75rem;
   margin-right: 0.5rem;
+}
+
+.lw-roczna-amount-input {
+  width: 8rem;
+}
+
+/* Year <select> above the Składki table (skladki.js's populateYearSelect, KRKG-0047) - same
+   inline-select look as .lw-roster-controls select on the wyjazd page. */
+#skladki-year-label select {
+  margin-left: 0.4rem;
+  background: var(--surface-deep);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
 }
 
 /* <details> gives free collapse/expand with no JS - styled so the closed summary still reads as

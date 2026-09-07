@@ -50,6 +50,10 @@
                   <th scope="col" data-sort-key="nickname" aria-sort="none"><button type="button">Ksywa</button></th>
                   <th scope="col" data-sort-key="sectionLabel" aria-sort="none"><button type="button">Sekcja</button></th>
                   <th scope="col" data-sort-key="email" aria-sort="ascending"><button type="button">Email</button></th>
+                  <!-- Admin/księgowy-only column (KRKG-0047) - shown/hidden by czlonkowie.js
+                       based on GET /lista-wyjazdowa/my-role's canManageSkladki, same gate as the
+                       Składki page's toggle/kwota controls. -->
+                  <th scope="col" id="czl-actions-header" hidden>Akcje</th>
                 </tr>
               </thead>
               <tbody id="czl-table-body"></tbody>

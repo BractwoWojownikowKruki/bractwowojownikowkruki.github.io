@@ -3327,6 +3327,34 @@ test('PUT /lista-wyjazdowa/member still accepts a retired section the member is 
   });
 });
 
+test('PUT /lista-wyjazdowa/member?memberEmail= requires accountant, 403 for a plain member', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member?memberEmail=inny@example.test', {
+      fullName: 'Inna Osoba',
+      sectionId: 'krakow',
+    });
+    assert.equal(res.status, 403);
+  });
+});
+
+test('PUT /lista-wyjazdowa/member?memberEmail= lets an accountant edit another member, recording the accountant as updatedBy', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member?memberEmail=inny@example.test', {
+      fullName: 'Inna Osoba',
+      nickname: 'Inna',
+      sectionId: 'krakow',
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.member.fullName, 'Inna Osoba');
+    assert.equal(body.member.email, 'inny@example.test');
+    assert.equal(body.member.updatedBy, 'wojownik@gmail.com', 'updatedBy must be the accountant, not the edited member');
+  });
+});
+
 test('GET /lista-wyjazdowa/lookup-lists returns seeded lists', async () => {
   const firestore = makeFakeFirestore();
   firestore.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
@@ -3889,10 +3917,38 @@ test('PUT /lista-wyjazdowa/events without skladkaFee in the body does not append
   });
 });
 
-test('GET /lista-wyjazdowa/dues/audit-log is open to any signed-in member, not just accountants', async () => {
-  await withServer(makeDeps({ firestore: makeListaWyjazdowaFirestore() }), async baseUrl => {
+test('GET /lista-wyjazdowa/dues/audit-log requires accountant, 403 for a plain member (KRKG-0047)', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
+    assert.equal(res.status, 403);
+  });
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
     assert.equal(res.status, 200);
+  });
+});
+
+test('PUT /lista-wyjazdowa/dues can set/clear amount independently of paid, and each produces its own audit entry', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
+
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { amount: '100 zł' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.dues.amount, '100 zł');
+    assert.equal(body.dues.paid, false, 'paid must be untouched when only amount is sent');
+
+    const toggled = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
+    assert.equal((await toggled.json()).dues.amount, '100 zł', 'amount must be untouched when only paid is sent');
+
+    const auditRes = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
+    const entries = (await auditRes.json()).entries;
+    assert.equal(entries.length, 2);
+    assert.ok(entries[0].changeSummary.includes('100 zł'));
+    assert.equal(entries[1].changeSummary, 'Oznaczono składkę roczną 2027 jako opłaconą');
   });
 });
 

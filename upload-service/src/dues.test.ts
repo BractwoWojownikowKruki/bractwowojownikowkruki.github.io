@@ -1,38 +1,55 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
-import { getDues, listDuesForYear, setDuesPaid, appendDuesAuditEntry, listDuesAuditLog } from './dues.ts';
+import { getDues, listDuesForYear, saveDues, appendDuesAuditEntry, listDuesAuditLog } from './dues.ts';
 
 test('getDues returns null when no record exists', async () => {
   const client = createInMemoryFirestoreClient();
   assert.equal(await getDues(client, 'ala@example.test', 2027), null);
 });
 
-test('setDuesPaid creates a record and getDues round-trips it', async () => {
+test('saveDues creates a record and getDues round-trips it', async () => {
   const client = createInMemoryFirestoreClient();
-  const dues = await setDuesPaid(client, 'Ala@Example.test', 2027, true, 'accountant@example.test');
+  const dues = await saveDues(client, 'Ala@Example.test', 2027, { paid: true }, 'accountant@example.test');
   assert.equal(dues.email, 'ala@example.test');
   assert.equal(dues.year, 2027);
   assert.equal(dues.paid, true);
+  assert.equal(dues.amount, null);
   assert.equal(dues.updatedBy, 'accountant@example.test');
 
   const fetched = await getDues(client, 'ala@example.test', 2027);
   assert.deepEqual(fetched, dues);
 });
 
-test('setDuesPaid on an existing record updates paid/updatedBy/updatedAt', async () => {
+test('saveDues on an existing record updates paid/updatedBy/updatedAt', async () => {
   const client = createInMemoryFirestoreClient();
-  await setDuesPaid(client, 'ala@example.test', 2027, false, 'admin@example.test');
-  const updated = await setDuesPaid(client, 'ala@example.test', 2027, true, 'accountant@example.test');
+  await saveDues(client, 'ala@example.test', 2027, { paid: false }, 'admin@example.test');
+  const updated = await saveDues(client, 'ala@example.test', 2027, { paid: true }, 'accountant@example.test');
   assert.equal(updated.paid, true);
   assert.equal(updated.updatedBy, 'accountant@example.test');
 });
 
+test('saveDues with only amount leaves an existing paid status untouched, and vice versa', async () => {
+  const client = createInMemoryFirestoreClient();
+  await saveDues(client, 'ala@example.test', 2027, { paid: true }, 'accountant@example.test');
+  const withAmount = await saveDues(client, 'ala@example.test', 2027, { amount: '100 zł' }, 'accountant@example.test');
+  assert.equal(withAmount.paid, true);
+  assert.equal(withAmount.amount, '100 zł');
+
+  const paidToggled = await saveDues(client, 'ala@example.test', 2027, { paid: false }, 'accountant@example.test');
+  assert.equal(paidToggled.amount, '100 zł');
+  assert.equal(paidToggled.paid, false);
+
+  const cleared = await saveDues(client, 'ala@example.test', 2027, { amount: null }, 'accountant@example.test');
+  assert.equal(cleared.amount, null);
+  assert.equal(cleared.paid, false);
+});
+
 test('listDuesForYear returns only records for the requested year', async () => {
   const client = createInMemoryFirestoreClient();
-  await setDuesPaid(client, 'ala@example.test', 2026, true, 'accountant@example.test');
-  await setDuesPaid(client, 'ala@example.test', 2027, false, 'accountant@example.test');
-  await setDuesPaid(client, 'bea@example.test', 2027, true, 'accountant@example.test');
+  await saveDues(client, 'ala@example.test', 2026, { paid: true }, 'accountant@example.test');
+  await saveDues(client, 'ala@example.test', 2027, { paid: false }, 'accountant@example.test');
+  await saveDues(client, 'bea@example.test', 2027, { paid: true }, 'accountant@example.test');
 
   const for2027 = await listDuesForYear(client, 2027);
   assert.equal(for2027.length, 2);

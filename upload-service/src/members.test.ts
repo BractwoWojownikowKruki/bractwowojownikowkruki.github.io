@@ -11,11 +11,16 @@ test('getMember returns null when no record exists', async () => {
 
 test('saveMember creates a new record with categoryId/driveFolderId defaulted to null', async () => {
   const client = createInMemoryFirestoreClient();
-  const member = await saveMember(client, 'Ala@Example.test', {
-    fullName: 'Ala Kowalska',
-    nickname: 'Alka',
-    sectionId: 'krakow',
-  });
+  const member = await saveMember(
+    client,
+    'Ala@Example.test',
+    {
+      fullName: 'Ala Kowalska',
+      nickname: 'Alka',
+      sectionId: 'krakow',
+    },
+    'Ala@Example.test',
+  );
   assert.equal(member.fullName, 'Ala Kowalska');
   assert.equal(member.categoryId, null);
   assert.equal(member.driveFolderId, null);
@@ -37,11 +42,16 @@ test('saveMember on an existing record preserves categoryId and driveFolderId', 
     updatedBy: 'ala@example.test',
   });
 
-  const updated = await saveMember(client, 'ala@example.test', {
-    fullName: 'Ala Kowalska-Nowak',
-    nickname: 'Alka',
-    sectionId: 'wroclaw',
-  });
+  const updated = await saveMember(
+    client,
+    'ala@example.test',
+    {
+      fullName: 'Ala Kowalska-Nowak',
+      nickname: 'Alka',
+      sectionId: 'wroclaw',
+    },
+    'ala@example.test',
+  );
 
   assert.equal(updated.fullName, 'Ala Kowalska-Nowak');
   assert.equal(updated.sectionId, 'wroclaw');
@@ -70,11 +80,16 @@ test('saveMember leaves fields it does not know about untouched', async () => {
     updatedBy: 'admin@example.test',
   });
 
-  await saveMember(client, 'ala@example.test', {
-    fullName: 'Ala Kowalska-Nowak',
-    nickname: 'Alka',
-    sectionId: 'krakow',
-  });
+  await saveMember(
+    client,
+    'ala@example.test',
+    {
+      fullName: 'Ala Kowalska-Nowak',
+      nickname: 'Alka',
+      sectionId: 'krakow',
+    },
+    'ala@example.test',
+  );
 
   const stored = await client.getDoc<Record<string, unknown>>('members', 'ala@example.test');
   assert.equal(stored?.someAdminAddedField, 'ustawione ręcznie w konsoli');
@@ -83,13 +98,18 @@ test('saveMember leaves fields it does not know about untouched', async () => {
 
 test('saveMember ignores categoryId/driveFolderId even if present on the input object', async () => {
   const client = createInMemoryFirestoreClient();
-  const member = await saveMember(client, 'ala@example.test', {
-    fullName: 'Ala Kowalska',
-    nickname: null,
-    sectionId: 'krakow',
-    // @ts-expect-error - not part of MemberWritableFields, verifying it's structurally rejected
-    categoryId: 'blacha',
-  });
+  const member = await saveMember(
+    client,
+    'ala@example.test',
+    {
+      fullName: 'Ala Kowalska',
+      nickname: null,
+      sectionId: 'krakow',
+      // @ts-expect-error - not part of MemberWritableFields, verifying it's structurally rejected
+      categoryId: 'blacha',
+    },
+    'ala@example.test',
+  );
   assert.equal(member.categoryId, null);
 });
 
@@ -113,11 +133,16 @@ test('saveMember preserves an existing status/appliedAt/approvedAt/approvedBy ra
     updatedBy: 'ala@example.test',
   });
 
-  const result = await saveMember(client, 'ala@example.test', {
-    fullName: 'Ala Kowalska-Nowak',
-    nickname: 'Alka',
-    sectionId: 'wroclaw',
-  });
+  const result = await saveMember(
+    client,
+    'ala@example.test',
+    {
+      fullName: 'Ala Kowalska-Nowak',
+      nickname: 'Alka',
+      sectionId: 'wroclaw',
+    },
+    'ala@example.test',
+  );
 
   assert.equal(result.status, 'active');
   assert.equal(result.appliedAt, '2026-01-01T00:00:00.000Z');
@@ -128,21 +153,41 @@ test('saveMember preserves an existing status/appliedAt/approvedAt/approvedBy ra
 
 test('saveMember on a brand-new record defaults to status "active"', async () => {
   const client = createInMemoryFirestoreClient();
-  const member = await saveMember(client, 'nowy@example.test', {
-    fullName: 'Nowy Członek',
-    nickname: null,
-    sectionId: 'krakow',
-  });
+  const member = await saveMember(
+    client,
+    'nowy@example.test',
+    {
+      fullName: 'Nowy Członek',
+      nickname: null,
+      sectionId: 'krakow',
+    },
+    'nowy@example.test',
+  );
   assert.equal(member.status, 'active');
   assert.equal(member.email, 'nowy@example.test');
   assert.equal(member.approvedAt, null);
   assert.ok(member.appliedAt);
 });
 
+// KRKG-0047: an accountant/admin editing someone else's record (server.ts's
+// handleListaWyjazdowaPutMember with ?memberEmail=) must have their own email recorded, not the
+// edited member's - unlike self-service, where the two happen to be equal.
+test('saveMember records the acting editor as updatedBy, distinct from the edited member', async () => {
+  const client = createInMemoryFirestoreClient();
+  const updated = await saveMember(
+    client,
+    'ala@example.test',
+    { fullName: 'Ala Kowalska', nickname: 'Alka', sectionId: 'krakow' },
+    'ksiegowy@example.test',
+  );
+  assert.equal(updated.email, 'ala@example.test');
+  assert.equal(updated.updatedBy, 'ksiegowy@example.test');
+});
+
 test('listAllMembers returns every member with email populated from the doc id', async () => {
   const client = createInMemoryFirestoreClient();
-  await saveMember(client, 'ala@example.test', { fullName: 'Ala Kowalska', nickname: null, sectionId: 'krakow' });
-  await saveMember(client, 'basia@example.test', { fullName: 'Basia Nowak', nickname: null, sectionId: 'wroclaw' });
+  await saveMember(client, 'ala@example.test', { fullName: 'Ala Kowalska', nickname: null, sectionId: 'krakow' }, 'ala@example.test');
+  await saveMember(client, 'basia@example.test', { fullName: 'Basia Nowak', nickname: null, sectionId: 'wroclaw' }, 'basia@example.test');
 
   const all = await listAllMembers(client);
   assert.equal(all.length, 2);

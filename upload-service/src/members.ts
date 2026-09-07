@@ -30,7 +30,10 @@ export async function getMember(client: FirestoreLikeClient, email: string): Pro
 }
 
 /**
- * Self-service write of the caller's own identity record.
+ * Write of a member's identity record - either self-service (the caller editing their own
+ * record) or an accountant/admin editing someone else's from the Lista Członków page (KRKG-0047).
+ * `updatedBy` is always the *acting* identity, which for self-service happens to equal `email`
+ * but for an admin edit does not - see server.ts's handleListaWyjazdowaPutMember.
  *
  * Only the member-writable fields are sent to Firestore; `categoryId` and `driveFolderId` are
  * admin-owned (design.md §7) and are never named in the update, so the merging write
@@ -42,6 +45,7 @@ export async function saveMember(
   client: FirestoreLikeClient,
   email: string,
   fields: MemberWritableFields,
+  updatedBy: string,
 ): Promise<MemberDoc> {
   const id = email.toLowerCase();
   const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
@@ -51,7 +55,7 @@ export async function saveMember(
     nickname: fields.nickname,
     sectionId: fields.sectionId,
     updatedAt: now,
-    updatedBy: id,
+    updatedBy: updatedBy.toLowerCase(),
   };
   // KRKG-0046: preserves status/appliedAt/approvedAt/approvedBy across a self-service profile
   // edit, the same way categoryId/driveFolderId were already preserved - a member editing their

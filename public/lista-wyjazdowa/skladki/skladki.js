@@ -1,9 +1,9 @@
 /**
- * Składki page (Plan C, KRKG-0037): Wpisowe + Składka roczna (current year) for every member,
- * grouped by section. Read-only for every signed-in member; toggle buttons only render when
- * GET /lista-wyjazdowa/my-role reports canManageSkladki (accountant/admin) - the server
- * re-checks the role on every PUT regardless, this only controls what the UI offers
- * (design.md §8, §9).
+ * Składki page (Plan C, KRKG-0037): Wpisowe + Składka roczna (selectable year, KRKG-0047) for
+ * every member, grouped by section. Read-only for every signed-in member; toggle/kwota-edit
+ * controls and the Historia zmian panel only render when GET /lista-wyjazdowa/my-role reports
+ * canManageSkladki (accountant/admin) - the server re-checks the role on every PUT/GET regardless,
+ * this only controls what the UI offers (design.md §8, §9).
  */
 
 // Same escapeHtml/escapeAttr pair as wyjazd.js/profil.js/person-tile.js - the established pattern
@@ -70,6 +70,32 @@ function clearError() {
 
 const currentYear = new Date().getFullYear();
 
+// Selected in the year <select> (KRKG-0047) - defaults to the current year, but the backend has
+// always accepted any year 2000-2100 (see server.ts's requireYear), so this is purely a frontend
+// gap being closed: someone paying składka roczna for next year (joining late) or checking a past
+// year's records needs a way to pick a year other than "now".
+let selectedYear = currentYear;
+const YEAR_RANGE_PAST = 5;
+const YEAR_RANGE_FUTURE = 1;
+
+function populateYearSelect() {
+  const select = document.getElementById('skladki-year-select');
+  const years = [];
+  for (let y = currentYear - YEAR_RANGE_PAST; y <= currentYear + YEAR_RANGE_FUTURE; y++) years.push(y);
+  select.innerHTML = years.map((y) => `<option value="${y}">${y}</option>`).join('');
+  select.value = String(selectedYear);
+}
+
+document.getElementById('skladki-year-select').addEventListener('change', async (e) => {
+  selectedYear = Number(e.target.value);
+  clearError();
+  try {
+    await loadAndRender();
+  } catch (err) {
+    showError(`Nie udało się wczytać składek: ${err.message}`);
+  }
+});
+
 // Fetched once per loadAndRender() alongside roster/dues (Task 2's GET /my-role). Read by
 // renderTable() to decide whether to show toggle buttons or read-only text.
 let canManageSkladki = false;
@@ -112,6 +138,10 @@ function renderTable(roster, duesByEmail) {
       // click on that toggle failed with an error banner, so they get an explicit "brak profilu"
       // and no button at all - the status is reported honestly and nothing unusable is offered.
       // Składka roczna is unaffected: it is stored per member+year and needs no profile.
+      // Kwota (amount) is roczna-only (KRKG-0047) - wpisowe stays a plain toggle, per the design
+      // decision that wpisowe has no per-member rate to record. Free-text like skladkaFee on the
+      // wyjazd page, same input+Zapisz pattern (#skladka-fee-input/-save there).
+      const amount = duesByEmail.get(member.email)?.amount ?? null;
       row.innerHTML = `
         <span>${escapeHtml(displayName(member))}</span>
         <span>Wpisowe: ${member.hasProfile ? (member.wpisowePaid ? 'opłacone' : 'nieopłacone') : 'brak profilu'}</span>
@@ -120,11 +150,20 @@ function renderTable(roster, duesByEmail) {
             ? `<button type="button" class="lw-wpisowe-toggle" data-email="${emailAttr}" data-paid="${member.wpisowePaid ? 'true' : 'false'}">${member.wpisowePaid ? 'Oznacz jako nieopłacone' : 'Oznacz jako opłacone'}</button>`
             : ''
         }
-        <span>Składka ${currentYear}: ${roczna ? 'opłacona' : 'nieopłacona'}</span>
+        <span>Składka ${selectedYear}: ${roczna ? 'opłacona' : 'nieopłacona'}</span>
         ${
           canManageSkladki
             ? `<button type="button" class="lw-roczna-toggle" data-email="${emailAttr}" data-paid="${roczna ? 'true' : 'false'}">${roczna ? 'Oznacz jako nieopłaconą' : 'Oznacz jako opłaconą'}</button>`
             : ''
+        }
+        ${
+          canManageSkladki
+            ? `<span class="lw-roczna-amount-edit">
+                 Kwota:
+                 <input type="text" class="lw-roczna-amount-input" data-email="${emailAttr}" value="${escapeAttr(amount ?? '')}" placeholder="np. 100 zł" />
+                 <button type="button" class="lw-roczna-amount-save" data-email="${emailAttr}">Zapisz</button>
+               </span>`
+            : `<span>Kwota: ${amount ? escapeHtml(amount) : 'nie ustalono'}</span>`
         }
       `;
       sectionEl.appendChild(row);
@@ -133,7 +172,12 @@ function renderTable(roster, duesByEmail) {
   }
 }
 
+// Accountant/admin-only (KRKG-0047): GET /lista-wyjazdowa/dues/audit-log now 403s for a plain
+// member, so the panel is hidden entirely for them rather than fetched and left to error.
 async function renderDuesAuditLog() {
+  const panel = document.getElementById('dues-audit-log-panel');
+  panel.hidden = !canManageSkladki;
+  if (!canManageSkladki) return;
   const { entries } = await apiFetch('/lista-wyjazdowa/dues/audit-log', { method: 'GET' }, showReauth, hideReauth);
   // targetMemberEmail is null for an eventFee entry (the event's name is already baked into its
   // changeSummary text server-side, see server.ts's handleListaWyjazdowaPutEvent) - the arrow only
@@ -149,17 +193,17 @@ async function renderDuesAuditLog() {
 }
 
 async function loadAndRender() {
+  populateYearSelect();
   const [{ canManageSkladki: role }, { roster }, { dues }, lookupLists] = await Promise.all([
     apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
-    apiFetch(`/lista-wyjazdowa/dues?year=${currentYear}`, { method: 'GET' }, showReauth, hideReauth),
+    apiFetch(`/lista-wyjazdowa/dues?year=${selectedYear}`, { method: 'GET' }, showReauth, hideReauth),
     // GET /lista-wyjazdowa/lookup-lists answers with the lists themselves ({ sections, categories,
     // weapons }), not wrapped in an envelope - see handleListaWyjazdowaLookupLists.
     apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
   ]);
   canManageSkladki = role;
   sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
-  document.getElementById('skladki-year-label').textContent = `Rok: ${currentYear}`;
   const duesByEmail = new Map(dues.map((d) => [d.email, d]));
   renderTable(roster, duesByEmail);
   await renderDuesAuditLog();
@@ -184,7 +228,7 @@ async function toggleRoczna(email, nextPaid) {
   clearError();
   try {
     await apiFetch(
-      `/lista-wyjazdowa/dues?memberEmail=${encodeURIComponent(email)}&year=${currentYear}`,
+      `/lista-wyjazdowa/dues?memberEmail=${encodeURIComponent(email)}&year=${selectedYear}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: nextPaid }) },
       showReauth,
       hideReauth,
@@ -192,6 +236,21 @@ async function toggleRoczna(email, nextPaid) {
     await loadAndRender();
   } catch (err) {
     showError(`Nie udało się zaktualizować składki: ${err.message}`);
+  }
+}
+
+async function saveRocznaAmount(email, amount) {
+  clearError();
+  try {
+    await apiFetch(
+      `/lista-wyjazdowa/dues?memberEmail=${encodeURIComponent(email)}&year=${selectedYear}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: amount || null }) },
+      showReauth,
+      hideReauth,
+    );
+    await loadAndRender();
+  } catch (err) {
+    showError(`Nie udało się zapisać kwoty składki: ${err.message}`);
   }
 }
 
@@ -204,6 +263,12 @@ document.getElementById('skladki-content').addEventListener('click', (e) => {
   const rocznaBtn = e.target.closest('.lw-roczna-toggle');
   if (rocznaBtn) {
     toggleRoczna(rocznaBtn.dataset.email, rocznaBtn.dataset.paid !== 'true');
+    return;
+  }
+  const amountBtn = e.target.closest('.lw-roczna-amount-save');
+  if (amountBtn) {
+    const input = amountBtn.closest('.lw-roczna-amount-edit').querySelector('.lw-roczna-amount-input');
+    saveRocznaAmount(amountBtn.dataset.email, input.value.trim());
   }
 });
 
