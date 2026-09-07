@@ -31,6 +31,7 @@ import { getMember, listAllMembers, saveMember, type MemberWritableFields } from
 import { applyForMembership, applyAdminTransition, listMembersByStatus, type AdminTransition } from './membership.ts';
 import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
+import { createDisabledSheetsClient, createSheetsClient, type SheetsClient } from './sheets.ts';
 import { getProfile, listAllProfiles, saveProfile, setWpisowePaid, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 import { getAllLookupLists, getLookupList } from './lookup-lists.ts';
 import { listEvents, getEvent, createEvent, updateEvent, type EventWritableFields } from './events.ts';
@@ -128,6 +129,9 @@ export interface ServerDeps {
   // allowlist - see productionDeps below), for GET /members/directory to enumerate: everyone
   // with site access, not just those who happen to have a members/{email} Firestore doc yet.
   listMemberEmails: () => Promise<string[]>;
+  // KRKG-0046: Google Sheets disaster-recovery backup of the members collection. Never a runtime
+  // fallback for authorization - see sheets.ts's SheetsClient doc comment.
+  sheetsClient: SheetsClient;
 }
 
 // Per-folder exact file-count reservation, in-process. This is what actually enforces
@@ -699,6 +703,9 @@ async function handleAdminListMembers(req: IncomingMessage, res: ServerResponse,
 
 const ADMIN_TRANSITIONS = ['approve', 'reject', 'suspend', 'reactivate', 'remove'] as const;
 
+// KRKG-0046: every transition re-syncs the *complete* current member list to the backup sheet,
+// never just the one changed member - a partial sync would blank out everyone else's row (see
+// design.md's Sheets failure/consistency contract and the plan review that caught this).
 async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
   const body = await readJsonBody<{ email?: string; transition?: string }>(req, deps.maxJsonBodyBytes);
@@ -707,7 +714,16 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
     throw new AuthError('Nieprawidłowe przejście statusu.', 400);
   }
   const member = await applyAdminTransition(deps.firestore, body.email, body.transition as AdminTransition, identity.email);
-  sendJson(res, 200, { member });
+  const allMembers = await listAllMembers(deps.firestore);
+  const sheetSyncStatus = await deps.sheetsClient.syncAllMembers(allMembers);
+  sendJson(res, 200, { member, sheetSyncStatus });
+}
+
+async function handleAdminMembersSynchronize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdminWithStepUp(req, res);
+  const allMembers = await listAllMembers(deps.firestore);
+  const sheetSyncStatus = await deps.sheetsClient.syncAllMembers(allMembers);
+  sendJson(res, 200, { sheetSyncStatus });
 }
 
 async function handleAdminListRedirects(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -1939,6 +1955,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminListMembers(req, res, url, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/members/transition') {
         await handleAdminMemberTransition(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/admin/members/synchronize') {
+        await handleAdminMembersSynchronize(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/redirects') {
         await handleAdminListRedirects(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/redirects') {
@@ -2108,6 +2126,17 @@ async function startProductionServer(): Promise<void> {
       return claims;
     };
   }
+  // KRKG-0046: disabled (fails safe, "not_configured") until the one-time Sheets OAuth setup
+  // (scripts/get-sheets-refresh-token.ts) is done - never a boot-time failure.
+  const sheetsClient: SheetsClient =
+    config.sheetsClientId && config.sheetsClientSecret && config.sheetsRefreshToken && config.membersBackupSheetId
+      ? createSheetsClient({
+          clientId: config.sheetsClientId,
+          clientSecret: config.sheetsClientSecret,
+          refreshToken: config.sheetsRefreshToken,
+          sheetId: config.membersBackupSheetId,
+        })
+      : createDisabledSheetsClient();
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps, docsDriveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
@@ -2140,6 +2169,7 @@ async function startProductionServer(): Promise<void> {
     maxJsonBodyBytes: config.maxJsonBodyBytes,
     galleriesCacheTtlMs: config.galleriesCacheTtlMs,
     listMemberEmails: () => listActiveMemberEmails(firestoreClient),
+    sheetsClient,
   };
   const server = createServer(createRequestListener(productionDeps));
   server.listen(config.port, () => {

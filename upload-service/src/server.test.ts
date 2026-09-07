@@ -21,6 +21,7 @@ import { resetAboutUsBootstrapForTests } from './about-us.ts';
 import { resetSettingsBootstrapForTests } from './settings.ts';
 import { resetRateLimitForTests } from './rate-limit.ts';
 import { createInMemoryFirestoreClient } from './firestore.ts';
+import { createDisabledSheetsClient } from './sheets.ts';
 
 const nodeFetch = globalThis.fetch;
 const ALLOWED_ORIGIN_FOR_TESTS = 'https://example.test'; // matches makeDeps()'s allowedOrigin
@@ -177,6 +178,7 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     // the dedicated caching test below overrides this to a real TTL to exercise the cache itself.
     galleriesCacheTtlMs: 0,
     listMemberEmails: async () => [],
+    sheetsClient: createDisabledSheetsClient(),
     ...overrides,
   };
 }
@@ -1782,6 +1784,105 @@ test('POST /admin/members/transition requires step-up freshness (rejects a stale
       headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
       body: JSON.stringify({ email: 'someone@example.com', transition: 'approve' }),
     });
+    assert.equal(res.status, 401);
+  });
+});
+
+test('POST /admin/members/transition reports sheetSyncStatus and includes the full member list, not just the one changed', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'pending@example.com', {
+    email: 'pending@example.com', fullName: 'P', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'pending', appliedAt: 'x', approvedAt: null, approvedBy: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  client.seed('members', 'other@example.com', {
+    email: 'other@example.com', fullName: 'O', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  let syncedEmails: string[] = [];
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    sheetsClient: {
+      syncAllMembers: async members => {
+        syncedEmails = members.map((m: { email: string }) => m.email);
+        return 'ok';
+      },
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/transition`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'pending@example.com', transition: 'approve' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.sheetSyncStatus, 'ok');
+  });
+  assert.deepEqual(syncedEmails.sort(), ['other@example.com', 'pending@example.com']);
+});
+
+test('POST /admin/members/transition still returns 200 (Firestore succeeded) even when the Sheets sync fails', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'pending@example.com', {
+    email: 'pending@example.com', fullName: 'P', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'pending', appliedAt: 'x', approvedAt: null, approvedBy: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    sheetsClient: { syncAllMembers: async () => 'failed' },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/transition`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'pending@example.com', transition: 'approve' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.member.status, 'active');
+    assert.equal(body.sheetSyncStatus, 'failed');
+  });
+});
+
+test('POST /admin/members/synchronize syncs the full member list and requires step-up', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'a@example.com', {
+    email: 'a@example.com', fullName: 'A', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  let syncedCount = -1;
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    sheetsClient: {
+      syncAllMembers: async members => {
+        syncedCount = members.length;
+        return 'ok';
+      },
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/synchronize`, {
+      method: 'POST',
+      headers: { origin: ALLOWED_ORIGIN_FOR_TESTS },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.sheetSyncStatus, 'ok');
+  });
+  assert.equal(syncedCount, 1);
+});
+
+test('POST /admin/members/synchronize rejects a stale admin session', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => {
+      throw new AuthError('Wymagane ponowne logowanie.', 401);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/synchronize`, { method: 'POST', headers: { origin: ALLOWED_ORIGIN_FOR_TESTS } });
     assert.equal(res.status, 401);
   });
 });

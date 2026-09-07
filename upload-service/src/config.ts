@@ -50,6 +50,13 @@ export const config = {
   // blocking deploys on a secret that can't exist yet or leaving those endpoints open to the
   // whole kruki group in the meantime.
   moderatorGroupUrl: process.env.MODERATOR_GROUP_URL,
+  // KRKG-0046: Google Sheets backup/audit trail for member status - optional/undefined until
+  // the one-time OAuth setup (scripts/get-sheets-refresh-token.ts) is done, same fail-safe
+  // pattern as docsClientId above. The backup feature is disabled (not a boot failure) when unset.
+  sheetsClientId: process.env.SHEETS_CLIENT_ID,
+  sheetsClientSecret: process.env.SHEETS_CLIENT_SECRET,
+  sheetsRefreshToken: process.env.SHEETS_REFRESH_TOKEN,
+  membersBackupSheetId: process.env.MEMBERS_BACKUP_SHEET_ID,
   googleOAuthClientId: requireEnv('GOOGLE_OAUTH_CLIENT_ID'),
   driveRefreshToken: requireEnv('DRIVE_REFRESH_TOKEN'),
   driveClientId: requireEnv('DRIVE_CLIENT_ID'),

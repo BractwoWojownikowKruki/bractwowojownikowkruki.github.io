@@ -128,10 +128,18 @@ document.getElementById('redirects-list').addEventListener('click', async e => {
   loadRedirects();
 });
 
+function sheetSyncStatusMessage(status) {
+  if (status === 'failed') return 'Zapisano, ale nie udało się zaktualizować kopii w arkuszu - użyj przycisku Synchronizuj.';
+  if (status === 'not_configured') return 'Backup arkusza nie jest skonfigurowany.';
+  return null;
+}
+
 // KRKG-0046: sends one status-transition request, then reloads both membership lists - a single
-// transition (e.g. approve) always moves a record out of one list and into the other.
+// transition (e.g. approve) always moves a record out of one list and into the other. Returns
+// the response's sheetSyncStatus so callers can surface a non-blocking warning if it failed -
+// the transition itself has already succeeded (Firestore is authoritative) regardless.
 async function postMembershipTransition(email, transition) {
-  await apiFetch(
+  const { sheetSyncStatus } = await apiFetch(
     '/admin/members/transition',
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, transition }) },
     showReauth,
@@ -139,7 +147,19 @@ async function postMembershipTransition(email, transition) {
   );
   loadMembershipApplications();
   loadMembershipMembers();
+  return sheetSyncStatus;
 }
+
+document.getElementById('membership-synchronize').addEventListener('click', async () => {
+  const status = document.getElementById('membership-synchronize-status');
+  status.textContent = 'Synchronizowanie...';
+  try {
+    const { sheetSyncStatus } = await apiFetch('/admin/members/synchronize', { method: 'POST' }, showReauth, hideReauth);
+    status.textContent = sheetSyncStatusMessage(sheetSyncStatus) ?? 'Zsynchronizowano.';
+  } catch (err) {
+    status.textContent = `Błąd: ${err.message}`;
+  }
+});
 
 async function loadMembershipApplications() {
   const list = document.getElementById('membership-applications-list');
@@ -178,11 +198,17 @@ document.getElementById('membership-applications-list').addEventListener('click'
   if (!row) return;
   const email = row.dataset.email;
   if (e.target.closest('.approve-application')) {
-    await postMembershipTransition(email, 'approve');
-    window.alert(`Zatwierdzono ${email}. Pamiętaj, aby dodać tę osobę ręcznie do grupy Google (Docs/Sheets/Drive).`);
+    const sheetSyncStatus = await postMembershipTransition(email, 'approve');
+    const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
+    window.alert(
+      `Zatwierdzono ${email}. Pamiętaj, aby dodać tę osobę ręcznie do grupy Google (Docs/Sheets/Drive).` +
+        (sheetWarning ? `\n\n${sheetWarning}` : ''),
+    );
   } else if (e.target.closest('.reject-application')) {
     if (!window.confirm(`Na pewno odrzucić zgłoszenie ${email}?`)) return;
-    await postMembershipTransition(email, 'reject');
+    const sheetSyncStatus = await postMembershipTransition(email, 'reject');
+    const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
+    if (sheetWarning) window.alert(sheetWarning);
   }
 });
 
@@ -235,7 +261,9 @@ document.getElementById('membership-members-list').addEventListener('click', asy
   const email = row.dataset.email;
   const transition = actionBtn.dataset.transition;
   if (transition === 'remove' && !window.confirm(`Na pewno usunąć członka ${email}?`)) return;
-  await postMembershipTransition(email, transition);
+  const sheetSyncStatus = await postMembershipTransition(email, transition);
+  const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
+  if (sheetWarning) window.alert(sheetWarning);
 });
 
 // Uploads every file in fileList to folderId, sequentially (simplicity over throughput - this
