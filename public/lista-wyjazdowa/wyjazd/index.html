@@ -77,6 +77,20 @@
 
           <section id="roster-panel">
             <h2>Lista</h2>
+            <div class="lw-roster-controls">
+              <label>Sortuj wg:
+                <select id="roster-sort-select">
+                  <option value="section">Sekcja</option>
+                  <option value="weapon">Rodzaj broni</option>
+                </select>
+              </label>
+              <label>Pokaż:
+                <select id="roster-filter-select">
+                  <option value="attending">Tylko zgłoszeni</option>
+                  <option value="all">Wszyscy</option>
+                </select>
+              </label>
+            </div>
             <div id="roster-content"></div>
           </section>
 

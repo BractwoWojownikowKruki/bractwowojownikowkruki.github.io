@@ -24,8 +24,14 @@ function escapeAttr(str) {
 // A member's Ksywa (nickname) matters more here than in most places on the site: this roster is
 // exactly the context the sheet's "Nazwisko, Imię" + Ksywa columns existed for - people who know
 // each other by nickname need to find their own row and each other's.
+//
+// fullName falls back to email because the roster now enumerates the whole club allowlist (see
+// server.ts's handleListaWyjazdowaGetRoster), not just members who filled in "Mój profil" - such
+// a member has no fullName/nickname to show yet, but still needs a findable row so their
+// attendance can be set.
 function displayName(member) {
-  return member.nickname ? `${member.fullName} (${member.nickname})` : member.fullName;
+  const name = member.fullName ?? member.email;
+  return member.nickname ? `${name} (${member.nickname})` : name;
 }
 
 // startDate is a bare calendar date ("2027-05-01"), not a timestamp - plain string slicing avoids
@@ -154,7 +160,7 @@ function renderSummary(roster, signups) {
   }
 
   const sectionLines = Array.from(bySection.entries())
-    .map(([sectionId, count]) => `<li>${escapeHtml(sectionId)}: ${count}</li>`)
+    .map(([sectionId, count]) => `<li>${escapeHtml(sectionId ?? 'Bez sekcji')}: ${count}</li>`)
     .join('');
 
   document.getElementById('summary-content').innerHTML = `
@@ -170,19 +176,49 @@ function renderSummary(roster, signups) {
   `;
 }
 
+// rosterSortBy picks the grouping axis for #roster-content ('section' groups by member.sectionId,
+// the pre-existing behaviour; 'weapon' groups by the member's first weaponIds entry - a member can
+// carry several weapons, but the roster only ever has one row per member, so grouping uses just
+// the first one rather than duplicating the row into every weapon's group). rosterFilter picks
+// which members are shown at all: 'attending' (the default) hides every member who hasn't signed
+// up for this event yet, keeping the list short; 'all' reveals the full club allowlist so someone
+// who hasn't been asked yet can be ticked as attending for the first time. Both are re-applied
+// locally from the roster/signups already fetched by loadAll() - no network round-trip needed.
+let rosterSortBy = 'section';
+let rosterFilter = 'attending';
+let cachedRoster = [];
+let cachedSignups = [];
+
+function rosterGroupKey(member) {
+  return rosterSortBy === 'weapon' ? (member.weaponIds[0] ?? null) : member.sectionId;
+}
+
+function rosterGroupLabel(key) {
+  if (key !== null) return key;
+  return rosterSortBy === 'weapon' ? 'Bez broni' : 'Bez sekcji';
+}
+
 function renderRoster(roster, signups) {
   const signupByEmail = new Map(signups.map((s) => [s.memberEmail, s]));
-  const bySection = new Map();
-  for (const member of roster) {
-    if (!bySection.has(member.sectionId)) bySection.set(member.sectionId, []);
-    bySection.get(member.sectionId).push(member);
-  }
+  const visible = rosterFilter === 'all' ? roster : roster.filter((m) => signupByEmail.get(m.email)?.attending);
 
   const container = document.getElementById('roster-content');
   container.innerHTML = '';
-  for (const [sectionId, members] of bySection.entries()) {
+  if (visible.length === 0) {
+    container.innerHTML = '<p>Brak osób do wyświetlenia.</p>';
+    return;
+  }
+
+  const groups = new Map();
+  for (const member of visible) {
+    const key = rosterGroupKey(member);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(member);
+  }
+
+  for (const [key, members] of groups.entries()) {
     const sectionEl = document.createElement('div');
-    sectionEl.innerHTML = `<h3>${escapeHtml(sectionId)}</h3>`;
+    sectionEl.innerHTML = `<h3>${escapeHtml(rosterGroupLabel(key))}</h3>`;
     const sorted = [...members].sort((a, b) => {
       const aAttending = signupByEmail.get(a.email)?.attending ? 0 : 1;
       const bAttending = signupByEmail.get(b.email)?.attending ? 0 : 1;
@@ -254,6 +290,16 @@ async function saveSignupFor(email) {
   }
 }
 
+document.getElementById('roster-sort-select').addEventListener('change', (e) => {
+  rosterSortBy = e.target.value;
+  renderRoster(cachedRoster, cachedSignups);
+});
+
+document.getElementById('roster-filter-select').addEventListener('change', (e) => {
+  rosterFilter = e.target.value;
+  renderRoster(cachedRoster, cachedSignups);
+});
+
 document.getElementById('roster-content').addEventListener('change', (e) => {
   if (!e.target.classList.contains('lw-attend-checkbox')) return;
   const email = e.target.dataset.email;
@@ -302,6 +348,8 @@ async function loadAll() {
   document.getElementById('restore-event-btn').hidden = event.status !== 'cancelled';
   renderSkladkaFee(event);
 
+  cachedRoster = roster;
+  cachedSignups = signups;
   renderSummary(roster, signups);
   renderRoster(roster, signups);
   await renderAuditLog();

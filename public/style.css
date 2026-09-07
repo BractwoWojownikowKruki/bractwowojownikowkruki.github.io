@@ -3549,6 +3549,26 @@ button.nav-item {
   font-weight: 600;
 }
 
+/* Sort/filter controls above the event page's roster (wyjazd.js's rosterSortBy/rosterFilter) -
+   inline selects rather than a form, since choosing either one re-renders the list immediately. */
+.lw-roster-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.lw-roster-controls select {
+  margin-left: 0.4rem;
+  background: var(--surface-deep);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+}
+
 /* Section headings inside the roster/składki tables (one per Sekcja, see wyjazd.js's/skladki.js's
    renderRoster()/renderTable()) - a visible divider plus gold accent so long lists of rows don't
    read as one undifferentiated block. */

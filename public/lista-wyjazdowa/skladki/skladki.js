@@ -21,8 +21,12 @@ function escapeAttr(str) {
 // Same as wyjazd.js's displayName/formatDateTime - duplicated per this codebase's existing
 // convention (escapeHtml/escapeAttr are already duplicated the same way across every Lista
 // Wyjazdowa page) rather than introducing a shared module for two small functions.
+//
+// fullName falls back to email for the same reason as wyjazd.js's displayName: the roster now
+// enumerates the whole club allowlist, including members with no "Mój profil" saved yet.
 function displayName(member) {
-  return member.nickname ? `${member.fullName} (${member.nickname})` : member.fullName;
+  const name = member.fullName ?? member.email;
+  return member.nickname ? `${name} (${member.nickname})` : name;
 }
 
 function formatDateTime(iso) {
@@ -76,7 +80,11 @@ let canManageSkladki = false;
 // members already assigned to one still have to be grouped under a readable heading.
 let sectionLabelById = new Map();
 
+// sectionId is null for a member with no "Mój profil" saved yet (the roster now enumerates the
+// whole club allowlist, not just members with a profile document) - grouped under one readable
+// heading instead of crashing escapeHtml(null) downstream.
 function sectionLabel(sectionId) {
+  if (sectionId === null) return 'Bez sekcji';
   return sectionLabelById.get(sectionId) ?? sectionId;
 }
 

@@ -1146,9 +1146,10 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
   // memberEmail is open-edit (any member may sign anyone up), but it still has to name a real
   // members/{email} document. Without this check a typo'd or invented address gets a signup doc
   // of its own that is counted by attendingCount (the events list's "N os.") yet dropped from
-  // GET /lista-wyjazdowa/roster and the event page's per-section breakdown, both of which join
-  // against real member documents only - so the two pages would report different attendee totals
-  // for the same event, with nothing on either page explaining the difference.
+  // GET /lista-wyjazdowa/roster and the event page's per-section breakdown - both list every
+  // allowlisted member, but a made-up address isn't on the allowlist at all - so the two pages
+  // would report different attendee totals for the same event, with nothing on either page
+  // explaining the difference.
   const targetMember = await getMember(deps.firestore, memberEmail);
   if (!targetMember) throw new AuthError('Nie znaleziono takiego członka.', 404);
 
@@ -1198,18 +1199,30 @@ async function handleListaWyjazdowaGetAuditLog(req: IncomingMessage, res: Server
   sendJson(res, 200, { entries });
 }
 
+// Enumerates the live kruki Google Group allowlist (same as GET /members/directory, KRKG-0045),
+// not just members/{email} docs: a club member who never opened "Mój profil" still has to be
+// settable as attending/not-attending a trip, which is only possible if their row exists at all.
+// fullName/nickname/sectionId/categoryId are null for such a member; the event page's "Wszyscy"
+// filter is what surfaces them (see wyjazd.js's renderRoster), hidden by default behind "tylko
+// zgłoszeni" so a long allowlist doesn't bury the people who already signed up.
 async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   await deps.authenticateWojownicyUpload(req, res);
-  const [members, profiles] = await Promise.all([listAllMembers(deps.firestore), listAllProfiles(deps.firestore)]);
+  const [emails, members, profiles] = await Promise.all([
+    deps.listMemberEmails(),
+    listAllMembers(deps.firestore),
+    listAllProfiles(deps.firestore),
+  ]);
+  const memberByEmail = new Map(members.map((m) => [m.email, m]));
   const profileByEmail = new Map(profiles.map((p) => [p.email, p]));
-  const roster = members.map((m) => {
-    const profile = profileByEmail.get(m.email);
+  const roster = emails.map((email) => {
+    const member = memberByEmail.get(email);
+    const profile = profileByEmail.get(email);
     return {
-      email: m.email,
-      fullName: m.fullName,
-      nickname: m.nickname,
-      sectionId: m.sectionId,
-      categoryId: m.categoryId,
+      email,
+      fullName: member?.fullName ?? null,
+      nickname: member?.nickname ?? null,
+      sectionId: member?.sectionId ?? null,
+      categoryId: member?.categoryId ?? null,
       weaponIds: profile?.weaponIds ?? [],
       equipment: profile?.equipment ?? [],
       companions: profile?.companions ?? [],
@@ -1227,12 +1240,11 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, { roster });
 }
 
-// GET /members/directory (KRKG-0045): the club-wide "Lista Członków" page. Unlike the Lista
-// Wyjazdowa roster above - which only lists members/{email} docs, i.e. people who've filled in
-// their profile - this enumerates the live kruki Google Group membership itself (the same
-// allowlist that already gates authenticateWojownicyUpload/authenticate), so someone who has site
-// access but never saved a profile still shows up, just with blank fullName/nickname/sectionId
-// rather than being missing entirely.
+// GET /members/directory (KRKG-0045): the club-wide "Lista Członków" page. Same allowlist
+// enumeration as the Lista Wyjazdowa roster above (the same live kruki Google Group membership
+// that already gates authenticateWojownicyUpload/authenticate), so someone who has site access but
+// never saved a profile still shows up, just with blank fullName/nickname/sectionId rather than
+// being missing entirely.
 async function handleMembersDirectory(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   await deps.authenticateWojownicyUpload(req, res);
   const [emails, members, lookupLists] = await Promise.all([

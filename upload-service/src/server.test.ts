@@ -3271,7 +3271,7 @@ test('PUT /lista-wyjazdowa/signups returns 404 for a memberEmail with no members
 });
 
 test('GET /lista-wyjazdowa/roster joins members with their listaWyjazdowaProfile', async () => {
-  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore(), listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Ala Kowalska', sectionId: 'krakow' });
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: ['tarczownik'], equipment: [], companions: [] });
@@ -3281,6 +3281,28 @@ test('GET /lista-wyjazdowa/roster joins members with their listaWyjazdowaProfile
     assert.equal(body.roster.length, 1);
     assert.equal(body.roster[0].fullName, 'Ala Kowalska');
     assert.deepEqual(body.roster[0].weaponIds, ['tarczownik']);
+  });
+});
+
+// The roster now enumerates the live allowlist (like GET /members/directory), not just
+// members/{email} docs - a club member who never opened "Mój profil" must still get a row so the
+// event page's "Wszyscy" filter can offer them an attending checkbox.
+test('GET /lista-wyjazdowa/roster includes allowlisted members with no members/{email} document', async () => {
+  const deps = makeDeps({
+    firestore: makeListaWyjazdowaFirestore(),
+    listMemberEmails: async () => ['wojownik@gmail.com', 'bezprofilu@example.test'],
+  });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
+    assert.equal(body.roster.length, 2);
+    const noProfile = body.roster.find((r: { email: string }) => r.email === 'bezprofilu@example.test');
+    assert.equal(noProfile.fullName, null);
+    assert.equal(noProfile.nickname, null);
+    assert.equal(noProfile.sectionId, null);
+    assert.equal(noProfile.categoryId, null);
+    assert.deepEqual(noProfile.weaponIds, []);
+    assert.equal(noProfile.hasProfile, false);
+    assert.equal(noProfile.wpisowePaid, false);
   });
 });
 
@@ -3334,9 +3356,13 @@ test('GET /lista-wyjazdowa/signups/mine returns the caller\'s own signup after s
 
 // Plan C (składki/dues): makeDeps()'s default caller (wojownik@gmail.com) has no userRoles doc,
 // so it is a plain member for every test below unless makeDepsWithRole seeds one.
-function makeDepsWithRole(role: 'accountant' | 'admin', firestore = makeListaWyjazdowaFirestore()) {
+function makeDepsWithRole(
+  role: 'accountant' | 'admin',
+  firestore = makeListaWyjazdowaFirestore(),
+  overrides: Partial<ServerDeps> = {},
+) {
   firestore.seed('userRoles', 'wojownik@gmail.com', { roles: [role] });
-  return makeDeps({ firestore });
+  return makeDeps({ firestore, ...overrides });
 }
 
 test('GET /lista-wyjazdowa/my-role reflects granted roles', async () => {
@@ -3502,7 +3528,7 @@ test('GET /lista-wyjazdowa/dues/audit-log is open to any signed-in member, not j
 });
 
 test('GET /lista-wyjazdowa/roster includes wpisowePaid per member', async () => {
-  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore(), listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Ala Kowalska', sectionId: 'krakow' });
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
@@ -3520,7 +3546,10 @@ test('GET /lista-wyjazdowa/roster includes wpisowePaid per member', async () => 
 test('GET /lista-wyjazdowa/roster reports hasProfile: false for a member with no listaWyjazdowaProfile', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'bezprofilu@example.test');
-  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+  const deps = makeDepsWithRole('accountant', firestore, {
+    listMemberEmails: async () => ['wojownik@gmail.com', 'bezprofilu@example.test'],
+  });
+  await withServer(deps, async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Ala Kowalska', sectionId: 'krakow' });
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
 
