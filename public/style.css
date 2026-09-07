@@ -1472,11 +1472,21 @@ main { padding: 1.25rem 1.5rem 3rem; }
   margin-left: 0.3rem;
 }
 
+/* .members-zone-sidebar's own `gap` (see above) only spaces its direct children - the toggle
+   button and this wrapper - not the links inside it, so it's reproduced locally here. */
+.members-zone-sidebar .mz-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
 /* The "Do przeczytania" group heading itself - same look as the box's own "Strefa Członków"
-   label above it, but not a link (no href, no hover state) since it's just a grouping, not a
-   destination. */
+   label above it, but a <button> (see .mz-group-toggle below for the shared collapse/expand
+   behavior and button reset) rather than a link, since it expands/collapses its nested items
+   instead of navigating. */
 .members-zone-group-label {
-  cursor: default;
+  width: 100%;
 }
 
 /* The install action is intentionally a small member-zone utility, not a second primary CTA.
@@ -1710,11 +1720,47 @@ button.nav-item {
 }
 
 /* The "Do przeczytania" group heading in the top-nav dropdown/mobile panel flavor - not a link
-   (no href, no hover/active state), just a grouping above its two nested links. */
+   (no href, no hover/active state), just a button that expands/collapses its nested links (see
+   .mz-group-toggle below). */
 .members-zone-group-label {
   color: var(--gold);
   font-weight: 600;
-  cursor: default;
+}
+
+/* Shared collapse/expand toggle behavior + button reset for BOTH flavors - .members-zone-
+   group-label above supplies each flavor's own color/spacing, this adds the parts that only
+   matter because it's a <button> (native chrome reset, cursor, keyboard focus) and the parts
+   that are identical either way (full-width row with the chevron pushed to the far right). */
+.mz-group-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: none;
+  border: none;
+  margin: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mz-chevron {
+  margin-left: auto;
+  margin-right: 0;
+  transition: transform 0.15s ease;
+}
+
+.mz-group-toggle[aria-expanded="true"] .mz-chevron {
+  transform: rotate(90deg);
+}
+
+/* The two links revealed under "Do przeczytania" once its toggle is expanded. Nav flavor
+   (top-nav dropdown/mobile panel) needs nothing extra - each link already carries its own
+   padding/border via .nav-subitem--nested. Sidebar flavor's parent box lays out its direct
+   children with `gap` (see .members-zone-sidebar above), which doesn't reach into this nested
+   wrapper, so it gets the same column gap reproduced locally, via the sidebar-scoped rule
+   below. */
+.mz-group-items[hidden] {
+  display: none;
 }
 
 /* Indents the links nested under "Do przeczytania" well past every other item's own padding-left

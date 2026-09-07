@@ -77,6 +77,7 @@ const MZ_ICON_PATHS = {
   swords: '<path d="M14.5 17.5 3 6V3h3l11.5 11.5"></path><path d="M9.5 6.5 13 3h3v3l-3.5 3.5"></path><path d="M3 21l6.5-6.5"></path><path d="M21 21l-6.5-6.5"></path>',
   chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>',
   tool: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>',
+  chevron: '<polyline points="9 6 15 12 9 18"></polyline>',
 };
 
 /**
@@ -121,9 +122,9 @@ function renderMembersZoneMenus() {
     const groupLabelClass = flavor === 'sidebar' ? 'members-zone-sidebar-label members-zone-group-label' : 'nav-item nav-subitem members-zone-group-label';
     const nestedClass = flavor === 'sidebar' ? 'members-zone-sidebar-link--nested' : 'nav-subitem--nested';
 
-    function makeIcon(icon) {
+    function makeIcon(icon, extraClass) {
       const span = document.createElement('span');
-      span.className = 'mz-icon';
+      span.className = extraClass ? `mz-icon ${extraClass}` : 'mz-icon';
       span.setAttribute('aria-hidden', 'true');
       span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MZ_ICON_PATHS[icon]}</svg>`;
       return span;
@@ -146,14 +147,31 @@ function renderMembersZoneMenus() {
     mount.replaceChildren();
     MEMBERS_ZONE_MENU.forEach(item => {
       if (item.items) {
-        const label = document.createElement('span');
-        label.className = groupLabelClass;
-        label.append(makeIcon(item.icon), ` ${item.label}`);
-        mount.append(label);
+        // "Do przeczytania" collapses/expands its nested links - starts collapsed so the menu
+        // stays compact, since these two are read-once reference pages, not frequent
+        // destinations like the items above them. A <button>, not the plain non-interactive
+        // label this used to be, so it's independently toggleable in each of the three flavors.
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = `${groupLabelClass} mz-group-toggle`;
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.append(makeIcon(item.icon), ` ${item.label}`, makeIcon('chevron', 'mz-chevron'));
+
+        const sublist = document.createElement('div');
+        sublist.className = 'mz-group-items';
+        sublist.hidden = true;
         item.items.forEach(sub => {
           const link = makeLink(sub, nestedClass);
-          if (link) mount.append(link);
+          if (link) sublist.append(link);
         });
+
+        toggle.addEventListener('click', () => {
+          const expanded = toggle.getAttribute('aria-expanded') === 'true';
+          toggle.setAttribute('aria-expanded', String(!expanded));
+          sublist.hidden = expanded;
+        });
+
+        mount.append(toggle, sublist);
         return;
       }
       const link = makeLink(item);
