@@ -32,7 +32,7 @@ import { applyForMembership, applyAdminTransition, listMembersByStatus, type Adm
 import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
 import { getProfile, listAllProfiles, saveProfile, setWpisowePaid, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
-import { getAllLookupLists } from './lookup-lists.ts';
+import { getAllLookupLists, getLookupList } from './lookup-lists.ts';
 import { listEvents, getEvent, createEvent, updateEvent, type EventWritableFields } from './events.ts';
 import {
   listAllSignups,
@@ -522,6 +522,15 @@ async function handleMembershipWhoami(req: IncomingMessage, res: ServerResponse,
   const identity = await deps.authenticateSessionOnly(req, res);
   const member = await getMember(deps.firestore, identity.email);
   sendJson(res, 200, { email: identity.email, status: member?.status ?? null });
+}
+
+// Deliberately narrower than GET /lista-wyjazdowa/lookup-lists (which requires active
+// membership) - the "Zgłoś się" form needs the Sekcja dropdown *before* the visitor is a member,
+// so this exposes only the one list that form needs, not weapons/categories too.
+async function handleMembershipSections(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateSessionOnly(req, res);
+  const sections = await getLookupList(deps.firestore, 'sections');
+  sendJson(res, 200, { sections });
 }
 
 async function handleMembershipApply(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -1912,6 +1921,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleSessionLogout(req, res);
       } else if (req.method === 'GET' && url.pathname === '/membership/whoami') {
         await handleMembershipWhoami(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/membership/sections') {
+        await handleMembershipSections(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/membership/apply') {
         await handleMembershipApply(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/galleries') {

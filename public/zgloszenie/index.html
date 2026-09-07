@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zgłoś się - Bractwo Wojowników Kruki</title>
+  <meta name="robots" content="noindex, nofollow" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Zgłoś się - Bractwo Wojowników Kruki" />
+  <meta property="og:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+  <meta property="og:locale" content="pl_PL" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Zgłoś się - Bractwo Wojowników Kruki" />
+  <meta name="twitter:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <link rel="apple-touch-icon" href="../favicon.png" />
+  <link rel="stylesheet" href="../style.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <!-- PARTIAL:nav -->
+
+  <main class="add-album-main">
+    <div class="add-album-card">
+      <h1 class="add-album-title">Zgłoś się</h1>
+
+      <p class="auth-checking" id="zg-checking" role="status"><span class="busy-sticker-aura" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker" alt=""></span>Please hold the line...</p>
+
+      <div class="upload-signin" id="zg-signin" hidden>
+        <p class="add-album-intro">Zaloguj się kontem Google, żeby złożyć zgłoszenie.</p>
+        <div id="google-signin-button"></div>
+      </div>
+
+      <section class="add-album-section" id="zg-active" hidden>
+        <p>Jesteś już członkiem. Możesz edytować swoje dane w <a href="/profil/">Mój profil</a>.</p>
+      </section>
+
+      <section class="add-album-section" id="zg-pending" hidden>
+        <p>Twoje zgłoszenie czeka na akceptację administratora.</p>
+      </section>
+
+      <section class="add-album-section" id="zg-suspended" hidden>
+        <p>Twoje konto jest zawieszone. Skontaktuj się z administratorem.</p>
+      </section>
+
+      <section class="add-album-section" id="zg-form-panel" hidden>
+        <p class="add-album-section-intro" id="zg-form-note" hidden></p>
+        <form id="zg-form" novalidate>
+          <div class="field">
+            <label for="zg-full-name">Imię i nazwisko</label>
+            <input type="text" id="zg-full-name" name="fullName" />
+          </div>
+          <div class="field">
+            <label for="zg-nickname">Ksywa</label>
+            <input type="text" id="zg-nickname" name="nickname" />
+          </div>
+          <p class="lw-hint">Podaj przynajmniej jedno z: Imię i nazwisko lub Ksywa.</p>
+          <div class="field">
+            <label for="zg-section">Sekcja</label>
+            <select id="zg-section" name="sectionId" required></select>
+          </div>
+          <p class="add-album-error" id="zg-form-error" hidden></p>
+          <button type="submit" class="btn-add-album" id="zg-form-submit">Wyślij zgłoszenie</button>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <!-- PARTIAL:footer -->
+  <script src="../auth.js"></script>
+  <script src="../nav.js"></script>
+  <script src="zgloszenie.js"></script>
+</body>
+</html>

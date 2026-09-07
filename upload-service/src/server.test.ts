@@ -579,6 +579,32 @@ test('GET /membership/whoami returns status null when no application exists yet'
   });
 });
 
+test('GET /membership/sections returns the sections list for any signed-in identity, without requiring membership', async () => {
+  const client = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({
+    firestore: client,
+    authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'new@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/membership/sections`, { credentials: 'include' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(body.sections.some((s: { id: string }) => s.id === 'krakow'));
+  });
+});
+
+test('GET /membership/sections rejects a request with no session', async () => {
+  const deps = makeDeps({
+    authenticateSessionOnly: async () => {
+      throw new AuthError('Brak sesji. Zaloguj się ponownie.', 401);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/membership/sections`, { credentials: 'include' });
+    assert.equal(res.status, 401);
+  });
+});
+
 test('POST /membership/apply creates a pending application for any signed-in identity', async () => {
   const client = makeListaWyjazdowaFirestore();
   const deps = makeDeps({
