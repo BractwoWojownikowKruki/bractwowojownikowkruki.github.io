@@ -1,11 +1,18 @@
 import type { FirestoreLikeClient } from './firestore.ts';
 
+export type MembershipStatus = 'pending' | 'active' | 'suspended' | 'removed' | 'rejected';
+
 export interface MemberDoc {
+  email: string;
   fullName: string;
   nickname: string | null;
   sectionId: string;
   categoryId: string | null;
   driveFolderId: string | null;
+  status: MembershipStatus;
+  appliedAt: string;
+  approvedAt: string | null;
+  approvedBy: string | null;
   updatedAt: string;
   updatedBy: string;
 }
@@ -38,28 +45,40 @@ export async function saveMember(
 ): Promise<MemberDoc> {
   const id = email.toLowerCase();
   const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
+  const now = new Date().toISOString();
   const writable = {
     fullName: fields.fullName,
     nickname: fields.nickname,
     sectionId: fields.sectionId,
-    updatedAt: new Date().toISOString(),
+    updatedAt: now,
     updatedBy: id,
   };
-  await client.setDoc(
-    COLLECTION,
-    id,
-    existing ? writable : { ...writable, categoryId: null, driveFolderId: null },
-  );
-  return {
-    ...writable,
-    categoryId: existing?.categoryId ?? null,
-    driveFolderId: existing?.driveFolderId ?? null,
-  };
+  // KRKG-0046: preserves status/appliedAt/approvedAt/approvedBy across a self-service profile
+  // edit, the same way categoryId/driveFolderId were already preserved - a member editing their
+  // own name/nickname/section must never reset their own membership status. A brand-new doc
+  // (existing === null) should not occur in practice once KRKG-0046 ships, since reaching this
+  // function requires already passing an active-status gate - handled defensively regardless.
+  const record: MemberDoc = existing
+    ? { ...existing, ...writable }
+    : {
+        ...writable,
+        email: id,
+        categoryId: null,
+        driveFolderId: null,
+        status: 'active',
+        appliedAt: now,
+        approvedAt: null,
+        approvedBy: null,
+      };
+  await client.setDoc(COLLECTION, id, record);
+  return record;
 }
 
-// Plan B (roster join, GET /lista-wyjazdowa/roster): unlike getMember, callers here need the
-// email too, since MemberDoc itself doesn't carry it - it's only known via the doc id.
+// Plan B (roster join, GET /lista-wyjazdowa/roster). KRKG-0046 added `email` to MemberDoc
+// itself, written by every function in this file - but falls back to the doc id for documents
+// seeded before that field existed (or seeded directly in tests without it), rather than
+// returning an undefined email for them.
 export async function listAllMembers(client: FirestoreLikeClient): Promise<Array<MemberDoc & { email: string }>> {
   const docs = await client.listDocs<MemberDoc>(COLLECTION);
-  return docs.map((d) => ({ email: d.id, ...d.data }));
+  return docs.map((d) => ({ ...d.data, email: d.data.email ?? d.id }));
 }

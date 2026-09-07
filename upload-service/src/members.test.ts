@@ -93,6 +93,52 @@ test('saveMember ignores categoryId/driveFolderId even if present on the input o
   assert.equal(member.categoryId, null);
 });
 
+// KRKG-0046: status/appliedAt/approvedAt/approvedBy are membership-lifecycle fields, not
+// self-service profile fields - saveMember (used only by the already-active-gated "Mój profil"
+// edit) must never reset them, the same structural guarantee categoryId/driveFolderId already had.
+test('saveMember preserves an existing status/appliedAt/approvedAt/approvedBy rather than resetting them', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.test', {
+    email: 'ala@example.test',
+    fullName: 'Ala Kowalska',
+    nickname: 'Alka',
+    sectionId: 'krakow',
+    categoryId: 'blacha',
+    driveFolderId: 'drive-folder-123',
+    status: 'active',
+    appliedAt: '2026-01-01T00:00:00.000Z',
+    approvedAt: '2026-01-02T00:00:00.000Z',
+    approvedBy: 'admin@example.test',
+    updatedAt: '2026-01-02T00:00:00.000Z',
+    updatedBy: 'ala@example.test',
+  });
+
+  const result = await saveMember(client, 'ala@example.test', {
+    fullName: 'Ala Kowalska-Nowak',
+    nickname: 'Alka',
+    sectionId: 'wroclaw',
+  });
+
+  assert.equal(result.status, 'active');
+  assert.equal(result.appliedAt, '2026-01-01T00:00:00.000Z');
+  assert.equal(result.approvedAt, '2026-01-02T00:00:00.000Z');
+  assert.equal(result.approvedBy, 'admin@example.test');
+  assert.equal(result.fullName, 'Ala Kowalska-Nowak');
+});
+
+test('saveMember on a brand-new record defaults to status "active"', async () => {
+  const client = createInMemoryFirestoreClient();
+  const member = await saveMember(client, 'nowy@example.test', {
+    fullName: 'Nowy Członek',
+    nickname: null,
+    sectionId: 'krakow',
+  });
+  assert.equal(member.status, 'active');
+  assert.equal(member.email, 'nowy@example.test');
+  assert.equal(member.approvedAt, null);
+  assert.ok(member.appliedAt);
+});
+
 test('listAllMembers returns every member with email populated from the doc id', async () => {
   const client = createInMemoryFirestoreClient();
   await saveMember(client, 'ala@example.test', { fullName: 'Ala Kowalska', nickname: null, sectionId: 'krakow' });
