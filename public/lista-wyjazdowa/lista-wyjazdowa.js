@@ -147,9 +147,20 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
 // we're already on this page, to avoid a pointless full reload for something the page can just
 // reveal in place. openAddEventForm() is also called directly below on page load when arriving
 // via that link from elsewhere (or a bookmarked/shared ?new=1 URL).
+//
+// The existing list (and its "pokaż wszystkie"/error row) is hidden while the form is open -
+// with both visible at once the list is just noise between the sub-nav and the form the member
+// actually came here to fill in.
+function setListVisible(visible) {
+  document.getElementById('toggle-past-events').hidden = !visible;
+  document.getElementById('events-error').hidden = !visible;
+  document.getElementById('events-list').hidden = !visible;
+}
+
 function openAddEventForm() {
   const form = document.getElementById('add-event-form');
   form.hidden = false;
+  setListVisible(false);
   form.scrollIntoView({ block: 'center' });
 }
 
@@ -160,6 +171,7 @@ document.getElementById('lw-subnav-add').addEventListener('click', (e) => {
     openAddEventForm();
   } else {
     form.hidden = true;
+    setListVisible(true);
   }
 });
 

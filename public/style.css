@@ -3199,10 +3199,28 @@ button.nav-item {
   text-decoration: none;
   white-space: nowrap;
   transition: background-color 0.15s, color 0.15s;
+  /* Without this, tapping a link on mobile Chrome/Brave leaves the default translucent
+     tap-highlight rectangle sitting under the label until it fades - reads as a stray partial
+     underline on a dark background. The link's own hover/active background already gives the
+     tap enough visual feedback. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 .content-section .lw-subnav-link:hover {
   color: var(--text);
+}
+
+.content-section .lw-subnav-link:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* Breathing room between the "pokaż wszystkie" toggle and the sub-nav above/event list below -
+   previously all three sat flush against each other with no vertical rhythm. No `display` here:
+   an unconditional display would out-cascade the UA default `[hidden] { display: none }` and
+   defeat lista-wyjazdowa.js's JS toggling of this same button - see setListVisible(). */
+#toggle-past-events {
+  margin: 0 0 1rem;
 }
 
 .content-section .lw-subnav-link--active {
