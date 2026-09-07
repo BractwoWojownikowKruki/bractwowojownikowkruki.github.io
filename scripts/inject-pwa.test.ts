@@ -27,7 +27,14 @@ test('build emits PWA markup and a bounded worker into an isolated output direct
   try {
     execFileSync('npm', ['run', 'build'], {
       cwd: new URL('..', import.meta.url).pathname,
-      env: { ...process.env, BUILD_OUTPUT_DIR: outputDir, GITHUB_SHA: 'pwa-output-test' },
+      env: {
+        ...process.env,
+        BUILD_OUTPUT_DIR: outputDir,
+        GITHUB_SHA: 'pwa-output-test',
+        GITHUB_RUN_NUMBER: '123',
+        RELEASE_BUILT_AT: '2026-09-06T14:23:00.000Z',
+        RELEASE_COMMIT_SHA: '0123456789abcdef',
+      },
       stdio: 'pipe',
     });
 
@@ -55,7 +62,7 @@ test('build emits PWA markup and a bounded worker into an isolated output direct
     }
 
     const worker = readFileSync(join(outputDir, 'service-worker.js'), 'utf8');
-    assert.match(worker, /kruki-pwa-pwa-output-test/);
+    assert.match(worker, /kruki-pwa-0123456789abcdef/);
     assert.doesNotMatch(worker, /galerie\/(?:covers|thumbs)|facebook\/images|api\.kruki\.org/);
   } finally {
     rmSync(outputDir, { recursive: true, force: true });

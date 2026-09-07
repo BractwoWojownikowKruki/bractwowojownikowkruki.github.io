@@ -64,8 +64,11 @@ jobs:
           fi
 
       - name: Build site
-        # scripts/build-pwa.ts consumes the standard GitHub Actions GITHUB_SHA for cache versioning.
-        run: npm run build
+        run: |
+          RELEASE_COMMIT_SHA="$(git rev-parse HEAD)"
+          RELEASE_BUILT_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          export RELEASE_COMMIT_SHA RELEASE_BUILT_AT
+          npm run build
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

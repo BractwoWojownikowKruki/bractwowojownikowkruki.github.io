@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { injectPartials } from './inject-partials.ts';
 
 test('injectPartials replaces a placeholder with the matching partial', () => {
@@ -24,6 +28,107 @@ test('injectPartials leaves the placeholder untouched when no matching partial e
 test('injectPartials leaves html without placeholders unchanged', () => {
   const html = '<body><p>no placeholders here</p></body>';
   assert.equal(injectPartials(html, { footer: '<f>f</f>' }), html);
+});
+
+test('build renders the same release identity into root and nested final HTML', async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'kruki-release-build-'));
+  const repositoryRoot = new URL('..', import.meta.url).pathname;
+  const expected = 'wersja 2026.09.06.123 · commit 0123456 · opublikowano 06.09.2026, 14:23 UTC';
+
+  try {
+    execFileSync('npm', ['run', 'build'], {
+      cwd: repositoryRoot,
+      env: {
+        ...process.env,
+        BUILD_OUTPUT_DIR: outputDir,
+        RELEASE_BUILT_AT: '2026-09-06T14:23:00.000Z',
+        GITHUB_RUN_NUMBER: '123',
+        RELEASE_COMMIT_SHA: '0123456789abcdef0123456789abcdef01234567',
+        GITHUB_SHA: 'fedcba9876543210fedcba9876543210fedcba98',
+      },
+      stdio: 'pipe',
+    });
+
+    for (const relativePath of ['index.html', 'o-nas/index.html']) {
+      const html = await readFile(join(outputDir, relativePath), 'utf8');
+      assert.ok(html.includes(`<span data-release-info>${expected}</span>`));
+      assert.doesNotMatch(html, /\{\{RELEASE_INFO\}\}/);
+    }
+
+    const worker = await readFile(join(outputDir, 'service-worker.js'), 'utf8');
+    assert.match(worker, /const CACHE_NAME = "kruki-pwa-0123456789abcdef0123456789abcdef01234567";/);
+    assert.doesNotMatch(worker, /kruki-pwa-fedcba9876543210fedcba9876543210fedcba98/);
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test('Pages build exports one final commit and UTC build timestamp immediately before building', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/pages.yml', import.meta.url), 'utf8');
+
+  assert.match(
+    workflow,
+    /- name: Build site\s+run: \|\s+RELEASE_COMMIT_SHA="\$\(git rev-parse HEAD\)"\s+RELEASE_BUILT_AT="\$\(date -u \+'%Y-%m-%dT%H:%M:%SZ'\)"\s+export RELEASE_COMMIT_SHA RELEASE_BUILT_AT\s+npm run build/,
+  );
+});
+
+test('release injector uses readable local metadata when CI inputs are absent', async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'kruki-release-local-'));
+  const repositoryRoot = new URL('..', import.meta.url).pathname;
+  const localSha = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+  }).trim();
+
+  try {
+    await writeFile(join(outputDir, 'index.html'), '<span data-release-info>{{RELEASE_INFO}}</span>');
+    execFileSync(join(repositoryRoot, 'node_modules/.bin/tsx'), ['scripts/inject-release-info.ts'], {
+      cwd: repositoryRoot,
+      env: releaseEnvironment({ BUILD_OUTPUT_DIR: outputDir }),
+      stdio: 'pipe',
+    });
+
+    const html = await readFile(join(outputDir, 'index.html'), 'utf8');
+    assert.match(
+      html,
+      new RegExp(`wersja \\d{4}\\.\\d{2}\\.\\d{2}\\.0 · commit ${localSha} · opublikowano \\d{2}\\.\\d{2}\\.\\d{4}, \\d{2}:\\d{2} UTC`),
+    );
+    assert.doesNotMatch(html, /\{\{RELEASE_INFO\}\}/);
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test('release injector rejects every missing required GitHub Actions input', async () => {
+  const repositoryRoot = new URL('..', import.meta.url).pathname;
+  const requiredInputs = ['RELEASE_BUILT_AT', 'RELEASE_COMMIT_SHA', 'GITHUB_RUN_NUMBER'] as const;
+
+  for (const missingInput of requiredInputs) {
+    const outputDir = mkdtempSync(join(tmpdir(), 'kruki-release-ci-'));
+
+    try {
+      await writeFile(join(outputDir, 'index.html'), '<span data-release-info>{{RELEASE_INFO}}</span>');
+      const env = releaseEnvironment({
+        BUILD_OUTPUT_DIR: outputDir,
+        GITHUB_ACTIONS: 'true',
+        RELEASE_BUILT_AT: '2026-09-06T14:23:00.000Z',
+        RELEASE_COMMIT_SHA: '0123456789abcdef0123456789abcdef01234567',
+        GITHUB_RUN_NUMBER: '123',
+      });
+      delete env[missingInput];
+
+      const result = spawnSync(
+        join(repositoryRoot, 'node_modules/.bin/tsx'),
+        ['scripts/inject-release-info.ts'],
+        { cwd: repositoryRoot, env, encoding: 'utf8' },
+      );
+
+      assert.notEqual(result.status, 0, `${missingInput} must be required in GitHub Actions`);
+      assert.match(result.stderr, new RegExp(`Missing required GitHub Actions release input: ${missingInput}`));
+    } finally {
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  }
 });
 
 test('member-zone partials provide initially hidden accessible PWA install controls', async () => {
@@ -103,4 +208,13 @@ function assertInstallControl(source: string, zoneId: string, zoneEnd: string) {
   const messageId = messages[0].match(/\bid="([^"]+)"/)?.[1];
   assert.ok(messageId, `${zoneId} install message needs a unique ID`);
   assert.match(controls[0], new RegExp(`\\baria-describedby="${messageId}"`));
+}
+
+function releaseEnvironment(overrides: Record<string, string>): Record<string, string> {
+  const env = { ...process.env, ...overrides } as Record<string, string>;
+  delete env.GITHUB_ACTIONS;
+  delete env.RELEASE_BUILT_AT;
+  delete env.RELEASE_COMMIT_SHA;
+  delete env.GITHUB_RUN_NUMBER;
+  return { ...env, ...overrides };
 }
