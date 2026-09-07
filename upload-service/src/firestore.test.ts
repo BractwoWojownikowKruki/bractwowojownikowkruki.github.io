@@ -48,6 +48,52 @@ test('in-memory client: listDocs returns all docs in a collection with ids', asy
   );
 });
 
+test('in-memory client: runTransaction reads and writes through the transaction handle, committing to the store', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'a@example.test', { count: 1 });
+  const result = await client.runTransaction(async tx => {
+    const doc = await tx.getDoc<{ count: number }>('members', 'a@example.test');
+    await tx.setDoc('members', 'a@example.test', { count: (doc?.count ?? 0) + 1 });
+    return doc?.count;
+  });
+  assert.equal(result, 1);
+  const stored = await client.getDoc<{ count: number }>('members', 'a@example.test');
+  assert.equal(stored?.count, 2);
+});
+
+// KRKG-0046: the whole reason runTransaction exists - two "concurrent" transactions on the same
+// document must run one at a time, never interleaved, so the second sees the first's write.
+test('in-memory client: runTransaction serializes concurrent calls instead of interleaving them', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'a@example.test', { count: 0 });
+  const increment = () =>
+    client.runTransaction(async tx => {
+      const doc = await tx.getDoc<{ count: number }>('members', 'a@example.test');
+      // Yield a tick between read and write - if transactions interleaved, both would read the
+      // same starting count and the final result would be 1, not 2.
+      await Promise.resolve();
+      await tx.setDoc('members', 'a@example.test', { count: (doc?.count ?? 0) + 1 });
+    });
+  await Promise.all([increment(), increment()]);
+  const stored = await client.getDoc<{ count: number }>('members', 'a@example.test');
+  assert.equal(stored?.count, 2);
+});
+
+test('in-memory client: runTransaction propagates a thrown error without committing the write', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'a@example.test', { count: 1 });
+  await assert.rejects(
+    () =>
+      client.runTransaction(async tx => {
+        await tx.setDoc('members', 'a@example.test', { count: 999 });
+        throw new Error('boom');
+      }),
+    /boom/,
+  );
+  const stored = await client.getDoc<{ count: number }>('members', 'a@example.test');
+  assert.equal(stored?.count, 1, 'a thrown error must discard the transaction\'s writes, not commit them');
+});
+
 test('in-memory client: seed() pre-populates a doc for test setup', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('userRoles', 'admin@example.test', { roles: ['admin'] });

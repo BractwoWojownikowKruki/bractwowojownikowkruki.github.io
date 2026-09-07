@@ -115,6 +115,32 @@ test('applyAdminTransition never deletes the document', async () => {
   assert.equal((docs[0].data as { status: string }).status, 'rejected');
 });
 
+// KRKG-0046: fixes a race an earlier plan review flagged - concurrent approve/reject against
+// the same pending application must not both succeed (whichever commits second must see the
+// already-updated status and 409, not silently overwrite the first admin's decision).
+test('applyAdminTransition is atomic - concurrent conflicting transitions do not both commit', async () => {
+  const client = createInMemoryFirestoreClient();
+  await applyForMembership(client, 'race@example.com', { fullName: 'Race', nickname: null, sectionId: 'sekcja-1' });
+
+  const results = await Promise.allSettled([
+    applyAdminTransition(client, 'race@example.com', 'approve', 'admin1@example.com'),
+    applyAdminTransition(client, 'race@example.com', 'reject', 'admin2@example.com'),
+  ]);
+
+  const fulfilled = results.filter(r => r.status === 'fulfilled');
+  const rejected = results.filter(r => r.status === 'rejected');
+  assert.equal(fulfilled.length, 1, 'exactly one transition should commit');
+  assert.equal(rejected.length, 1, 'the other must be rejected, not silently overwritten');
+  const rejection = rejected[0] as PromiseRejectedResult;
+  assert.ok(rejection.reason instanceof AuthError && rejection.reason.status === 409);
+
+  // The final stored state must match whichever transition actually won - never a mix of both
+  // (e.g. approvedBy set by the loser).
+  const final = await client.getDoc<{ status: string }>('members', 'race@example.com');
+  const winnerStatus = (fulfilled[0] as PromiseFulfilledResult<{ status: string }>).value.status;
+  assert.equal(final?.status, winnerStatus);
+});
+
 test('listMembersByStatus filters correctly', async () => {
   const client = createInMemoryFirestoreClient();
   await applyForMembership(client, 'kate@example.com', { fullName: 'Kate', nickname: null, sectionId: 'sekcja-1' });

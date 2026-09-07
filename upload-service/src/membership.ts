@@ -1,6 +1,6 @@
 import { AuthError } from './auth.ts';
 import type { FirestoreLikeClient } from './firestore.ts';
-import { getMember, listAllMembers, type MemberDoc, type MembershipStatus } from './members.ts';
+import { listAllMembers, type MemberDoc, type MembershipStatus } from './members.ts';
 
 export interface ApplyFields {
   fullName: string;
@@ -22,31 +22,36 @@ export async function applyForMembership(
   fields: ApplyFields,
 ): Promise<MemberDoc> {
   const id = email.toLowerCase();
-  const existing = await getMember(client, id);
-  if (existing?.status === 'active') {
-    throw new AuthError('Jesteś już członkiem. Zmień dane w "Mój profil".', 409);
-  }
-  if (existing?.status === 'suspended') {
-    throw new AuthError('Twoje konto jest zawieszone. Skontaktuj się z administratorem.', 409);
-  }
-  const now = new Date().toISOString();
-  const appliedAt = existing?.status === 'pending' ? existing.appliedAt : now;
-  const record: MemberDoc = {
-    email: id,
-    fullName: fields.fullName,
-    nickname: fields.nickname,
-    sectionId: fields.sectionId,
-    categoryId: existing?.categoryId ?? null,
-    driveFolderId: existing?.driveFolderId ?? null,
-    status: 'pending',
-    appliedAt,
-    approvedAt: existing?.approvedAt ?? null,
-    approvedBy: existing?.approvedBy ?? null,
-    updatedAt: now,
-    updatedBy: id,
-  };
-  await client.setDoc('members', id, record);
-  return record;
+  // KRKG-0046: read-validate-write inside a transaction so two concurrent submissions (or a
+  // submission racing an admin transition) can't both read the same "before" status, both pass
+  // validation, and silently overwrite each other - same reasoning as applyAdminTransition below.
+  return client.runTransaction(async tx => {
+    const existing = await tx.getDoc<MemberDoc>('members', id);
+    if (existing?.status === 'active') {
+      throw new AuthError('Jesteś już członkiem. Zmień dane w "Mój profil".', 409);
+    }
+    if (existing?.status === 'suspended') {
+      throw new AuthError('Twoje konto jest zawieszone. Skontaktuj się z administratorem.', 409);
+    }
+    const now = new Date().toISOString();
+    const appliedAt = existing?.status === 'pending' ? existing.appliedAt : now;
+    const record: MemberDoc = {
+      email: id,
+      fullName: fields.fullName,
+      nickname: fields.nickname,
+      sectionId: fields.sectionId,
+      categoryId: existing?.categoryId ?? null,
+      driveFolderId: existing?.driveFolderId ?? null,
+      status: 'pending',
+      appliedAt,
+      approvedAt: existing?.approvedAt ?? null,
+      approvedBy: existing?.approvedBy ?? null,
+      updatedAt: now,
+      updatedBy: id,
+    };
+    await tx.setDoc('members', id, record);
+    return record;
+  });
 }
 
 export type AdminTransition = 'approve' | 'reject' | 'suspend' | 'reactivate' | 'remove';
@@ -76,25 +81,31 @@ export async function applyAdminTransition(
   adminEmail: string,
 ): Promise<MemberDoc> {
   const id = email.toLowerCase();
-  const existing = await getMember(client, id);
-  const rule = TRANSITIONS[transition];
-  if (!existing || !rule.from.includes(existing.status)) {
-    throw new AuthError(
-      `Nie można wykonać "${transition}" - obecny status: ${existing?.status ?? 'brak rekordu'}.`,
-      409,
-    );
-  }
-  const now = new Date().toISOString();
-  const record: MemberDoc = {
-    ...existing,
-    status: rule.to,
-    approvedAt: transition === 'approve' ? now : existing.approvedAt,
-    approvedBy: transition === 'approve' ? adminEmail : existing.approvedBy,
-    updatedAt: now,
-    updatedBy: adminEmail,
-  };
-  await client.setDoc('members', id, record);
-  return record;
+  // KRKG-0046: read-validate-write inside a transaction, so two admins (or two rapid requests)
+  // acting on the same member can't both read the same source status, both pass the transition
+  // guard, and then overwrite each other - whichever commits second re-reads the *already
+  // updated* status and correctly 409s instead of silently clobbering the first result.
+  return client.runTransaction(async tx => {
+    const existing = await tx.getDoc<MemberDoc>('members', id);
+    const rule = TRANSITIONS[transition];
+    if (!existing || !rule.from.includes(existing.status)) {
+      throw new AuthError(
+        `Nie można wykonać "${transition}" - obecny status: ${existing?.status ?? 'brak rekordu'}.`,
+        409,
+      );
+    }
+    const now = new Date().toISOString();
+    const record: MemberDoc = {
+      ...existing,
+      status: rule.to,
+      approvedAt: transition === 'approve' ? now : existing.approvedAt,
+      approvedBy: transition === 'approve' ? adminEmail : existing.approvedBy,
+      updatedAt: now,
+      updatedBy: adminEmail,
+    };
+    await tx.setDoc('members', id, record);
+    return record;
+  });
 }
 
 export async function listMembersByStatus(
