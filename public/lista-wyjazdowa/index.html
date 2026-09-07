@@ -28,7 +28,7 @@
   <main class="main-content">
     <div class="content-left">
       <section class="content-section">
-        <h1>Lista wyjazdowa</h1>
+        <h1 id="lw-page-title">Lista wyjazdowa</h1>
 
         <p class="auth-checking" id="lw-checking" role="status"><span class="auth-spinner" aria-hidden="true"></span>Please hold the line...</p>
         <div class="upload-signin" id="signed-out-panel" hidden>
@@ -59,7 +59,7 @@
                page; the other two pages link to /lista-wyjazdowa/?new=1 instead, which this
                page's own load logic detects and opens the same way. -->
           <nav class="lw-subnav">
-            <a href="/lista-wyjazdowa/" class="lw-subnav-link lw-subnav-link--active">Lista wyjazdów</a>
+            <a href="/lista-wyjazdowa/" class="lw-subnav-link lw-subnav-link--active" id="lw-subnav-list">Lista wyjazdów</a>
             <a href="?new=1" class="lw-subnav-link" id="lw-subnav-add">Dodaj wyjazd</a>
             <a href="skladki/" class="lw-subnav-link">Składki</a>
           </nav>

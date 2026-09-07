@@ -157,10 +157,21 @@ function setListVisible(visible) {
   document.getElementById('events-list').hidden = !visible;
 }
 
+// The sub-nav's --active pill and the <h1> both need to track which of the two tabs is
+// actually showing - otherwise "Lista wyjazdów" stays highlighted (and the heading stays
+// "Lista wyjazdowa") while the form is the only thing on screen, which reads as if the click
+// didn't do anything.
+function setAddFormActive(active) {
+  document.getElementById('lw-subnav-list').classList.toggle('lw-subnav-link--active', !active);
+  document.getElementById('lw-subnav-add').classList.toggle('lw-subnav-link--active', active);
+  document.getElementById('lw-page-title').textContent = active ? 'Dodaj wyjazd' : 'Lista wyjazdowa';
+}
+
 function openAddEventForm() {
   const form = document.getElementById('add-event-form');
   form.hidden = false;
   setListVisible(false);
+  setAddFormActive(true);
   form.scrollIntoView({ block: 'center' });
 }
 
@@ -172,6 +183,7 @@ document.getElementById('lw-subnav-add').addEventListener('click', (e) => {
   } else {
     form.hidden = true;
     setListVisible(true);
+    setAddFormActive(false);
   }
 });
 
