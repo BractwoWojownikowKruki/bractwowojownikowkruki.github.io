@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
-import { statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 const staticLoaderSources = [
@@ -74,5 +77,40 @@ test('uses a compact, screen-reader-labelled Hold the Line sticker in both navig
     assert.match(navStatus, /<span class="busy-sticker-aura busy-sticker-aura--compact" aria-hidden="true">\s*<img src="\/icons\/hold-the-line\.png" class="busy-sticker busy-sticker--compact" alt="">\s*<\/span>/);
     assert.equal((navStatus.match(/<span class="sr-only">Please hold the line\.\.\.<\/span>/g) ?? []).length, 1);
     assert.equal((navStatus.match(/Please hold the line\.\.\./g) ?? []).length, 1, `${source} should not expose duplicate navigation text`);
+  }
+});
+
+test('uses the shared Hold the Line sticker in gallery list and page loading states', async () => {
+  const app = await readFile(new URL('../public/galerie/app.js', import.meta.url), 'utf8');
+  const legacySpinnersOutsideImageOverlays = app
+    .replace(/<div class="(?:drive-hero-image-wrap|lightbox-image-wrap)">[\s\S]*?<\/div>/g, '')
+    .match(/<span class="spinner"><\/span>/g) ?? [];
+
+  assert.match(app, /const BUSY_STICKER = '<span class="busy-sticker-aura" aria-hidden="true"><img src="\/icons\/hold-the-line\.png" class="busy-sticker" alt=""><\/span>';/);
+  assert.match(app, /id="drive-gallery-status">\$\{BUSY_STICKER\} Ładowanie…<\/p>/);
+  assert.equal(legacySpinnersOutsideImageOverlays.length, 0, 'gallery app should retain legacy spinners only inside image overlays');
+  assert.equal((app.match(/<span class="spinner"><\/span>/g) ?? []).length, 3, 'gallery image overlays should retain their image-load spinners');
+  assert.match(app, /<div class="drive-hero-image-wrap">[\s\S]*?<span class="spinner"><\/span>[\s\S]*?<\/div>/);
+  assert.match(app, /<div class="lightbox-image-wrap">[\s\S]*?<span class="spinner"><\/span>[\s\S]*?<\/div>/);
+});
+
+test('temporary site build preserves sticker markup in both navigation variants without static legacy spinners', () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'kruki-loader-build-'));
+  const repositoryRoot = new URL('..', import.meta.url).pathname;
+
+  try {
+    execFileSync('npm', ['run', 'build'], {
+      cwd: repositoryRoot,
+      env: { ...process.env, BUILD_OUTPUT_DIR: outputDir },
+      stdio: 'pipe',
+    });
+
+    for (const source of ['index.html', 'galerie/index.html']) {
+      const html = readFileSync(join(outputDir, source), 'utf8');
+      assert.match(html, /src="\/icons\/hold-the-line\.png"/, `${source} should contain the shared sticker asset`);
+      assert.doesNotMatch(html, /<span class="spinner"><\/span>/, `${source} should not contain a legacy static spinner`);
+    }
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
   }
 });
