@@ -3508,35 +3508,57 @@ button.nav-item {
   cursor: default;
 }
 
-/* A roster row's own label (checkbox + name) sits on its own line above the revealed
-   picker/składka blocks, which are visually indented and separated so it's clear they belong to
-   the row above them rather than reading as a second, unrelated row. */
+/* Each roster row is a single line: attend toggle, name, składka icon - no more stacked
+   picker/składka blocks underneath (that per-event equipment/companion picker was dropped; a
+   member's gear for a trip now just round-trips whatever their last signup already stored). */
 .lw-roster-row {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.5rem;
+  flex-wrap: nowrap;
 }
 
-.lw-roster-row > label {
-  font-weight: 600;
+.lw-roster-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.lw-picker,
-.lw-skladka {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.6rem 0.75rem 0.6rem 1.5rem;
-  border-left: 2px solid var(--border);
-  font-size: 14px;
-  color: var(--text-muted);
-}
-
-.lw-picker label {
+/* Kasa icon standing in for "Składka: opłacona/nieopłacona" text - a red/green badge behind the
+   emoji says the same thing at a glance without taking up a line of its own (a CSS filter on the
+   emoji itself would depend on the platform's emoji font actually being grayscale-tintable, which
+   isn't guaranteed - a background badge works regardless). Plain <span> for members who can't
+   manage składki (nothing to click); canManageSkladki gets an actual <button> instead (see
+   wyjazd.js's renderSkladkaIcon), same disabled-state handling as the other toggles on this row. */
+.lw-skladka-icon {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 0.3rem;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+}
+
+button.lw-skladka-icon {
+  cursor: pointer;
+}
+
+button.lw-skladka-icon:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.lw-skladka-icon[data-paid="true"] {
+  background: color-mix(in srgb, #2e7d32 40%, var(--surface-deep));
+  border: 1px solid #2e7d32;
+}
+
+.lw-skladka-icon[data-paid="false"] {
+  background: color-mix(in srgb, #c62828 40%, var(--surface-deep));
+  border: 1px solid #c62828;
 }
 
 .lw-skladki-row {

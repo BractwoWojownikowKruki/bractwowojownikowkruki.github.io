@@ -2843,11 +2843,12 @@ function makeListaWyjazdowaFirestore() {
   return firestore;
 }
 
-// PUT /lista-wyjazdowa/signups only accepts a memberEmail that names a real members/{email}
-// document, so any test that signs somebody up has to put that document in place first. Written
-// straight through seed() rather than through PUT /lista-wyjazdowa/member because the target is
-// usually somebody other than the test's authenticated caller, and that route only ever writes
-// the caller's own record.
+// PUT /lista-wyjazdowa/signups only requires memberEmail to be on the live allowlist (see
+// makeDeps' listMemberEmails override) - this members/{email} document isn't required for that
+// check, but several tests below still want a real fullName/sectionId on the roster for the
+// target. Written straight through seed() rather than through PUT /lista-wyjazdowa/member because
+// the target is usually somebody other than the test's authenticated caller, and that route only
+// ever writes the caller's own record.
 function seedMember(firestore: ReturnType<typeof makeListaWyjazdowaFirestore>, email: string): void {
   firestore.seed('members', email.toLowerCase(), {
     fullName: email,
@@ -3100,7 +3101,7 @@ test('POST /lista-wyjazdowa/events rejects a malformed startDate with 400', asyn
 test('GET /lista-wyjazdowa/events includes attendingCount and the caller\'s own viewerAttending', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'wojownik@gmail.com');
-  const deps = makeDeps({ firestore });
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
@@ -3139,7 +3140,7 @@ test('PUT /lista-wyjazdowa/events?eventId= returns 404 for an unknown event', as
 test('PUT /lista-wyjazdowa/signups rejects an equipmentId that does not belong to the target member', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'wojownik@gmail.com');
-  const deps = makeDeps({ firestore });
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     // wojownik@gmail.com has no listaWyjazdowaProfile yet in this fixture, so any equipmentId is "not theirs".
@@ -3155,7 +3156,7 @@ test('PUT /lista-wyjazdowa/signups rejects an equipmentId that does not belong t
 test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and logs it', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'inny@example.test');
-  const deps = makeDeps({ firestore });
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com', 'inny@example.test'] });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     const res = await putListaWyjazdowa(
@@ -3223,7 +3224,7 @@ test("PUT /lista-wyjazdowa/signups validates equipment/companion ids against the
     callerEquipmentId = (await res.json()).profile.equipment[0].id;
   });
 
-  const deps = makeDeps({ firestore });
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com', targetEmail] });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
 
@@ -3249,7 +3250,7 @@ test("PUT /lista-wyjazdowa/signups validates equipment/companion ids against the
 // Open-edit lets any member sign up any *other* member, but not an address that is nobody: such a
 // signup is counted by attendingCount on the events list yet invisible to the roster/per-section
 // breakdown on the event page, leaving the two pages disagreeing about the attendee total.
-test('PUT /lista-wyjazdowa/signups returns 404 for a memberEmail with no members document, and persists nothing', async () => {
+test('PUT /lista-wyjazdowa/signups returns 404 for a memberEmail not on the allowlist, and persists nothing', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const deps = makeDeps({ firestore });
   await withServer(deps, async baseUrl => {
@@ -3267,6 +3268,27 @@ test('PUT /lista-wyjazdowa/signups returns 404 for a memberEmail with no members
 
     const events = await (await fetch(`${baseUrl}/lista-wyjazdowa/events`)).json();
     assert.equal(events.events[0].attendingCount, 0, 'and must not be counted towards the event total');
+  });
+});
+
+// The fix for "can't sign up a member who never opened Mój profil": the gate used to require a
+// members/{email} document (getMember), which such a member has never created. It now checks the
+// live allowlist instead - the same one GET /lista-wyjazdowa/roster enumerates - so a real club
+// member with no document at all can still be marked attending.
+test('PUT /lista-wyjazdowa/signups succeeds for an allowlisted member with no members document', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com', 'bezdokumentu@example.test'] });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const res = await putListaWyjazdowa(
+      baseUrl,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=bezdokumentu@example.test`,
+      { attending: true, equipmentIds: [], companionIds: [] },
+    );
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.signup.memberEmail, 'bezdokumentu@example.test');
+    assert.equal(body.signup.attending, true);
   });
 });
 
@@ -3309,7 +3331,7 @@ test('GET /lista-wyjazdowa/roster includes allowlisted members with no members/{
 test('GET /lista-wyjazdowa/signups returns the full raw roster of signups for an event', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'wojownik@gmail.com');
-  const deps = makeDeps({ firestore });
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
@@ -3338,7 +3360,7 @@ test('GET /lista-wyjazdowa/signups/mine returns null when the caller has not sig
 test('GET /lista-wyjazdowa/signups/mine returns the caller\'s own signup after signing up', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'wojownik@gmail.com');
-  const deps = makeDeps({ firestore });
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
@@ -3417,11 +3439,11 @@ test('PUT /lista-wyjazdowa/signups/skladka requires accountant and 404s for a me
 
 test('PUT /lista-wyjazdowa/signups/skladka succeeds for accountant against an existing signup', async () => {
   const firestore = makeListaWyjazdowaFirestore();
-  // PUT /lista-wyjazdowa/signups 404s unless memberEmail names a real members/{email} document
-  // (see handleListaWyjazdowaPutSignup's targetMember check) - seed one so the signup below is
-  // actually created, matching the seedMember pattern used by the other signups tests above.
+  // PUT /lista-wyjazdowa/signups 404s unless memberEmail is on the live allowlist (see
+  // handleListaWyjazdowaPutSignup) - seed one so the signup below is actually created, matching
+  // the seedMember/listMemberEmails pattern used by the other signups tests above.
   seedMember(firestore, 'wojownik@gmail.com');
-  const deps = makeDepsWithRole('accountant', firestore);
+  const deps = makeDepsWithRole('accountant', firestore, { listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
@@ -3634,7 +3656,8 @@ test('GET /members/directory falls back to the raw sectionId when it has no matc
 test('PUT /lista-wyjazdowa/signups still works for a member with no listaWyjazdowaProfile', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'bezprofilu@example.test');
-  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+  const deps = makeDepsWithRole('accountant', firestore, { listMemberEmails: async () => ['bezprofilu@example.test'] });
+  await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=bezprofilu@example.test', { paid: true });
     const res = await putListaWyjazdowa(

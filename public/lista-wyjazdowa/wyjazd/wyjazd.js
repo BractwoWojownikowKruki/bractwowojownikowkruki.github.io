@@ -226,37 +226,17 @@ function renderRoster(roster, signups) {
     });
     for (const member of sorted) {
       const signup = signupByEmail.get(member.email);
+      const attending = signup?.attending ?? false;
       const emailAttr = escapeAttr(member.email);
       const row = document.createElement('div');
       row.className = 'lw-roster-row';
       row.innerHTML = `
-        <label>
-          <input type="checkbox" class="lw-attend-checkbox" data-email="${emailAttr}" ${signup?.attending ? 'checked' : ''} />
-          ${escapeHtml(displayName(member))} (${escapeHtml(member.categoryId ?? '—')}, ${member.weaponIds.map(escapeHtml).join(', ') || '—'})
-        </label>
-        <div class="lw-picker" data-email="${emailAttr}" ${signup?.attending ? '' : 'hidden'}>
-          ${member.equipment
-            .map(
-              (eq) =>
-                `<label><input type="checkbox" class="lw-eq-checkbox" value="${escapeAttr(eq.id)}" ${signup?.equipmentIds.includes(eq.id) ? 'checked' : ''} /> ${escapeHtml(eq.name)}</label>`,
-            )
-            .join('')}
-          ${member.companions
-            .map(
-              (c) =>
-                `<label><input type="checkbox" class="lw-comp-checkbox" value="${escapeAttr(c.id)}" ${signup?.companionIds.includes(c.id) ? 'checked' : ''} /> ${escapeHtml(c.name)}</label>`,
-            )
-            .join('')}
-          <button type="button" class="lw-save-signup" data-email="${emailAttr}">Zapisz</button>
-        </div>
-        <div class="lw-skladka" data-email="${emailAttr}" ${signup?.attending ? '' : 'hidden'}>
-          Składka: ${signup?.skladkaPaid ? 'opłacona' : 'nieopłacona'}
-          ${
-            canManageSkladki
-              ? `<button type="button" class="lw-skladka-toggle" data-email="${emailAttr}" data-paid="${signup?.skladkaPaid ? 'true' : 'false'}">${signup?.skladkaPaid ? 'Oznacz jako nieopłaconą' : 'Oznacz jako opłaconą'}</button>`
-              : ''
-          }
-        </div>
+        <button type="button" class="lw-attend-toggle" data-email="${emailAttr}" data-attending="${attending}" aria-pressed="${attending}">
+          <span class="lw-attend-toggle-track" aria-hidden="true"></span>
+          ${attending ? 'Jadę' : 'Nie jadę'}
+        </button>
+        <span class="lw-roster-name">${escapeHtml(displayName(member))} (${escapeHtml(member.categoryId ?? '—')}, ${member.weaponIds.map(escapeHtml).join(', ') || '—'})</span>
+        ${attending ? renderSkladkaIcon(emailAttr, signup?.skladkaPaid ?? false) : ''}
       `;
       sectionEl.appendChild(row);
     }
@@ -264,29 +244,49 @@ function renderRoster(roster, signups) {
   }
 }
 
-async function saveSignupFor(email) {
-  const picker = document.querySelector(`.lw-picker[data-email="${CSS.escape(email)}"]`);
-  const attending = document.querySelector(`.lw-attend-checkbox[data-email="${CSS.escape(email)}"]`).checked;
-  const equipmentIds = Array.from(picker.querySelectorAll('.lw-eq-checkbox:checked')).map((cb) => cb.value);
-  const companionIds = Array.from(picker.querySelectorAll('.lw-comp-checkbox:checked')).map((cb) => cb.value);
+// A plain, uneditable coin for a member who can't manage składki - reading the row shouldn't
+// suggest a button that would just 403; only canManageSkladki gets the clickable <button> below.
+function renderSkladkaIcon(emailAttr, paid) {
+  const label = paid ? 'Składka opłacona' : 'Składka nieopłacona';
+  if (!canManageSkladki) {
+    return `<span class="lw-skladka-icon" data-paid="${paid}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">💰</span>`;
+  }
+  return `<button type="button" class="lw-skladka-icon" data-email="${emailAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
+}
+
+// The quick toggle has no equipment/companion picker of its own (dropped from this row - see
+// lista-wyjazdowa.js's own attend toggle, which never had one either), so it round-trips whatever
+// the existing signup already stored, filtered against the member's *current* profile the same
+// way lista-wyjazdowa.js's stillValidIds does: deleting an equipment/companion row on /profil/
+// drops its id entirely, and resubmitting a now-orphaned id verbatim would be rejected outright by
+// the server's referential check.
+function stillValidIds(ids, items) {
+  const valid = new Set((items ?? []).map((item) => item.id));
+  return (ids ?? []).filter((id) => valid.has(id));
+}
+
+async function toggleAttending(email, nextAttending) {
   clearError();
+  const member = cachedRoster.find((m) => m.email === email);
+  const existing = cachedSignups.find((s) => s.memberEmail === email);
   try {
     await apiFetch(
       `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&memberEmail=${encodeURIComponent(email)}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ attending, equipmentIds, companionIds }),
+        body: JSON.stringify({
+          attending: nextAttending,
+          equipmentIds: stillValidIds(existing?.equipmentIds, member?.equipment),
+          companionIds: stillValidIds(existing?.companionIds, member?.companions),
+        }),
       },
       showReauth,
       hideReauth,
     );
     await loadAll();
   } catch (err) {
-    // The checkbox the member just clicked keeps its new state even though nothing was saved (no
-    // loadAll() ran to re-render it from the server), so the message has to say the displayed
-    // state is not the stored one - otherwise a silent failure reads as a successful save.
-    showError(`Nie udało się zapisać zgłoszenia: ${err.message}. Odśwież stronę, aby zobaczyć zapisany stan.`);
+    showError(`Nie udało się zapisać zgłoszenia: ${err.message}`);
   }
 }
 
@@ -300,24 +300,19 @@ document.getElementById('roster-filter-select').addEventListener('change', (e) =
   renderRoster(cachedRoster, cachedSignups);
 });
 
-document.getElementById('roster-content').addEventListener('change', (e) => {
-  if (!e.target.classList.contains('lw-attend-checkbox')) return;
-  const email = e.target.dataset.email;
-  const picker = document.querySelector(`.lw-picker[data-email="${CSS.escape(email)}"]`);
-  picker.hidden = !e.target.checked;
-  const skladkaEl = document.querySelector(`.lw-skladka[data-email="${CSS.escape(email)}"]`);
-  if (skladkaEl) skladkaEl.hidden = !e.target.checked;
-  if (!e.target.checked) saveSignupFor(email);
-});
-
 document.getElementById('roster-content').addEventListener('click', (e) => {
-  const saveBtn = e.target.closest('.lw-save-signup');
-  if (saveBtn) {
-    saveSignupFor(saveBtn.dataset.email);
+  const attendBtn = e.target.closest('.lw-attend-toggle');
+  if (attendBtn) {
+    const nextAttending = attendBtn.dataset.attending !== 'true';
+    attendBtn.disabled = true;
+    toggleAttending(attendBtn.dataset.email, nextAttending).finally(() => { attendBtn.disabled = false; });
     return;
   }
-  const skladkaBtn = e.target.closest('.lw-skladka-toggle');
-  if (skladkaBtn) toggleSkladkaPaid(skladkaBtn.dataset.email, skladkaBtn.dataset.paid !== 'true');
+  const skladkaBtn = e.target.closest('.lw-skladka-icon');
+  if (skladkaBtn && skladkaBtn.dataset.email) {
+    skladkaBtn.disabled = true;
+    toggleSkladkaPaid(skladkaBtn.dataset.email, skladkaBtn.dataset.paid !== 'true').finally(() => { skladkaBtn.disabled = false; });
+  }
 });
 
 async function renderAuditLog() {

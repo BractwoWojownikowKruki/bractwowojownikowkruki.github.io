@@ -1144,14 +1144,14 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
   if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
 
   // memberEmail is open-edit (any member may sign anyone up), but it still has to name a real
-  // members/{email} document. Without this check a typo'd or invented address gets a signup doc
-  // of its own that is counted by attendingCount (the events list's "N os.") yet dropped from
-  // GET /lista-wyjazdowa/roster and the event page's per-section breakdown - both list every
-  // allowlisted member, but a made-up address isn't on the allowlist at all - so the two pages
-  // would report different attendee totals for the same event, with nothing on either page
-  // explaining the difference.
-  const targetMember = await getMember(deps.firestore, memberEmail);
-  if (!targetMember) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  // club member - checked against the live Google Group allowlist (the same one GET
+  // /lista-wyjazdowa/roster now enumerates), not the members/{email} collection. A member who has
+  // never opened "Mój profil" has no members/{email} document yet but is still a real member and
+  // must be signable up; a typo'd or invented address isn't on the allowlist either way, so this
+  // still rejects it before it can create an orphan signup doc that inflates attendingCount (the
+  // events list's "N os.") while never showing up on the roster or the event page's breakdown.
+  const allowedEmails = await deps.listMemberEmails();
+  if (!allowedEmails.includes(memberEmail.toLowerCase())) throw new AuthError('Nie znaleziono takiego członka.', 404);
 
   // The target member need not have a Lista Wyjazdowa profile yet - "I'm coming, no gear/
   // companions listed yet" is a legitimate signup. A missing profile just means its
