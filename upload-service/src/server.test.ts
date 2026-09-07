@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { AuthError } from './auth.ts';
 import {
   createRequestListener,
+  fromAllowlist,
   getFolderLockKeyCountForTests,
   readSessionCookie,
   verifySessionRequest,
@@ -396,7 +397,7 @@ function fakeAllowlist(emails: string[]): SheetAllowlist & { forceRefreshCalls: 
 test('verifySessionRequest rejects a request with no session cookie', async () => {
   const { res } = fakeResponseRecordingHeaders();
   await assert.rejects(
-    () => verifySessionRequest(fakeRequestWithSessionCookie(null), res, SESSION_CONFIG, fakeAllowlist(['alice@gmail.com'])),
+    () => verifySessionRequest(fakeRequestWithSessionCookie(null), res, SESSION_CONFIG, fromAllowlist(fakeAllowlist(['alice@gmail.com']))),
     (err: unknown) => err instanceof AuthError && err.status === 401,
   );
 });
@@ -405,7 +406,7 @@ test('verifySessionRequest returns the session claims for a valid, allowlisted c
   const now = Date.now();
   const token = issueSessionToken({ sub: 'sub-1', email: 'alice@gmail.com' }, SESSION_KEY, now, SESSION_CONFIG.sessionSlidingWindowMs);
   const { res, setCookie } = fakeResponseRecordingHeaders();
-  const claims = await verifySessionRequest(fakeRequestWithSessionCookie(token), res, SESSION_CONFIG, fakeAllowlist(['alice@gmail.com']));
+  const claims = await verifySessionRequest(fakeRequestWithSessionCookie(token), res, SESSION_CONFIG, fromAllowlist(fakeAllowlist(['alice@gmail.com'])));
   assert.equal(claims.sub, 'sub-1');
   assert.equal(claims.email, 'alice@gmail.com');
   assert.equal(setCookie(), undefined); // not yet due for renewal - no Set-Cookie written
@@ -416,7 +417,7 @@ test('verifySessionRequest rejects a caller who is no longer on the allowlist', 
   const token = issueSessionToken({ sub: 'sub-1', email: 'removed@gmail.com' }, SESSION_KEY, now, SESSION_CONFIG.sessionSlidingWindowMs);
   const { res } = fakeResponseRecordingHeaders();
   await assert.rejects(
-    () => verifySessionRequest(fakeRequestWithSessionCookie(token), res, SESSION_CONFIG, fakeAllowlist(['alice@gmail.com'])),
+    () => verifySessionRequest(fakeRequestWithSessionCookie(token), res, SESSION_CONFIG, fromAllowlist(fakeAllowlist(['alice@gmail.com']))),
     (err: unknown) => err instanceof AuthError && err.status === 403,
   );
 });
@@ -429,7 +430,7 @@ test('verifySessionRequest does not renew the cookie for a caller rejected by th
   const token = issueSessionToken({ sub: 'sub-1', email: 'removed@gmail.com' }, SESSION_KEY, issuedAt, SESSION_CONFIG.sessionSlidingWindowMs);
   const { res, setCookie } = fakeResponseRecordingHeaders();
   await assert.rejects(
-    () => verifySessionRequest(fakeRequestWithSessionCookie(token), res, SESSION_CONFIG, fakeAllowlist(['alice@gmail.com'])),
+    () => verifySessionRequest(fakeRequestWithSessionCookie(token), res, SESSION_CONFIG, fromAllowlist(fakeAllowlist(['alice@gmail.com']))),
     (err: unknown) => err instanceof AuthError && err.status === 403,
   );
   assert.equal(setCookie(), undefined);
@@ -438,7 +439,7 @@ test('verifySessionRequest does not renew the cookie for a caller rejected by th
 test('verifySessionRequest rejects a malformed/expired cookie the same way verifySessionToken would', async () => {
   const { res } = fakeResponseRecordingHeaders();
   await assert.rejects(
-    () => verifySessionRequest(fakeRequestWithSessionCookie('not-a-valid-token'), res, SESSION_CONFIG, fakeAllowlist(['alice@gmail.com'])),
+    () => verifySessionRequest(fakeRequestWithSessionCookie('not-a-valid-token'), res, SESSION_CONFIG, fromAllowlist(fakeAllowlist(['alice@gmail.com']))),
     (err: unknown) => err instanceof AuthError && err.status === 401,
   );
 });
@@ -447,7 +448,7 @@ test('verifySessionRequest renews the cookie past the halfway point of the slidi
   const issuedAt = Date.now() - (SESSION_CONFIG.sessionSlidingWindowMs / 2 + 1000);
   const token = issueSessionToken({ sub: 'sub-1', email: 'alice@gmail.com' }, SESSION_KEY, issuedAt, SESSION_CONFIG.sessionSlidingWindowMs);
   const { res, setCookie } = fakeResponseRecordingHeaders();
-  const claims = await verifySessionRequest(fakeRequestWithSessionCookie(token), res, SESSION_CONFIG, fakeAllowlist(['alice@gmail.com']));
+  const claims = await verifySessionRequest(fakeRequestWithSessionCookie(token), res, SESSION_CONFIG, fromAllowlist(fakeAllowlist(['alice@gmail.com'])));
   assert.equal(claims.sub, 'sub-1');
 
   const renewedCookie = setCookie();
@@ -466,7 +467,7 @@ test('verifySessionRequest passes forceRefresh through to the allowlist', async 
   const token = issueSessionToken({ sub: 'sub-1', email: 'alice@gmail.com' }, SESSION_KEY, now, SESSION_CONFIG.sessionSlidingWindowMs);
   const { res } = fakeResponseRecordingHeaders();
   const allowlist = fakeAllowlist(['alice@gmail.com']);
-  await verifySessionRequest(fakeRequestWithSessionCookie(token), res, SESSION_CONFIG, allowlist, { forceRefresh: true });
+  await verifySessionRequest(fakeRequestWithSessionCookie(token), res, SESSION_CONFIG, fromAllowlist(allowlist), { forceRefresh: true });
   assert.equal(allowlist.forceRefreshCalls, 1);
 });
 

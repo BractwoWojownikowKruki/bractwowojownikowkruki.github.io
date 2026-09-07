@@ -29,6 +29,7 @@ import {
 import { createFirestoreClient, type FirestoreLikeClient } from './firestore.ts';
 import { getMember, listAllMembers, saveMember, type MemberWritableFields } from './members.ts';
 import { applyForMembership } from './membership.ts';
+import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
 import { getProfile, listAllProfiles, saveProfile, setWpisowePaid, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 import { getAllLookupLists } from './lookup-lists.ts';
 import { listEvents, getEvent, createEvent, updateEvent, type EventWritableFields } from './events.ts';
@@ -335,6 +336,27 @@ export interface SessionVerifyConfig {
 // composition a route handler will call once the Phase 1 cutover replaces authenticate*
 // (KRKG-0036), built and tested standalone first like every earlier Phase 1 piece.
 //
+// Generalizes the list-shaped SheetAllowlist for callers that only need an authorization
+// decision for one identity, not the full list - specifically so a single-document Firestore
+// read (createFirestoreMemberAuthorizer, KRKG-0046) doesn't have to pretend to be a "fetch
+// everyone" source just to fit the old shape. verifySessionRequest/withStepUp take this instead
+// of SheetAllowlist directly.
+export interface Authorizer {
+  authorize(identity: { sub: string; email: string }, options?: { forceRefresh?: boolean }): Promise<void>;
+}
+
+// Adapts an existing list-shaped SheetAllowlist (the Sheet CSV / Apps Script Group sources) into
+// an Authorizer - unchanged behavior for authenticateAdmin/authenticateModerator, which only have
+// a "fetch the whole list" source to work with (a Sheet export, an Apps Script group).
+export function fromAllowlist(allowlist: SheetAllowlist): Authorizer {
+  return {
+    async authorize(identity, options) {
+      const allowedEmails = await allowlist.getEmails(options);
+      checkAllowlist(identity, allowedEmails);
+    },
+  };
+}
+
 // Returns the full SessionClaims (a superset of VerifiedIdentity) rather than narrowing to
 // {sub, email), so a caller that also needs the step-up guard (checkReauthFreshness, from
 // session.ts) has reauthAt available without a second cookie read/verify.
@@ -342,7 +364,7 @@ export async function verifySessionRequest(
   req: IncomingMessage,
   res: ServerResponse,
   config: SessionVerifyConfig,
-  allowlist: SheetAllowlist,
+  authorizer: Authorizer,
   options: { forceRefresh?: boolean } = {},
 ): Promise<SessionClaims> {
   const token = readSessionCookie(req);
@@ -353,8 +375,7 @@ export async function verifySessionRequest(
   const claims = verifySessionToken(token, config.sessionSigningKeys, now, config.sessionMaxLifetimeMs);
   // Authorization before renewal, deliberately: a revoked member must not receive an extended
   // Set-Cookie on the very same 403 that rejects them.
-  const allowedEmails = await allowlist.getEmails(options);
-  checkAllowlist({ sub: claims.sub, email: claims.email }, allowedEmails);
+  await authorizer.authorize({ sub: claims.sub, email: claims.email }, options);
   const renewed = maybeRenewSessionToken(claims, config.sessionSigningKeys[0], now, config.sessionSlidingWindowMs, config.sessionMaxLifetimeMs);
   if (renewed) {
     setSessionCookie(res, renewed.token, renewed.exp - now);
@@ -2013,31 +2034,35 @@ async function startProductionServer(): Promise<void> {
   const docsDriveDeps = config.docsClientId && config.docsClientSecret && config.docsRefreshToken
     ? { clientId: config.docsClientId, clientSecret: config.docsClientSecret, refreshToken: config.docsRefreshToken }
     : driveDeps;
+  const firestoreClient = createFirestoreClient(config.firestoreProjectId);
   const adminAllowlist = createSheetAllowlist({ url: config.adminAllowlistSheetUrl });
-  // One shared allowlist (live kruki Google Group membership, see createAppsScriptAllowlist)
-  // now gates both the Krucze Galerie access/upload flow and the Wojownicy self-service
-  // upload flow - previously galerie had its own separate, manually-maintained Sheet. Sharing
-  // one instance (not two separate ones pointed at the same URL) also means one cache, so a
-  // visitor hitting both flows doesn't double the Apps Script call volume.
-  const groupAllowlist = createAppsScriptAllowlist({ url: config.wojownicyUploadGroupUrl });
+  const adminAuthorizer = fromAllowlist(adminAllowlist);
+  // KRKG-0046: replaces the Apps-Script/Google-Group-backed allowlist that hit Google's daily
+  // Groups-read quota in production. A single Firestore members/{email} read is now the sole
+  // authorization check for ordinary member site access - see design.md's scope inventory for
+  // which two mechanisms (admin, moderator) deliberately stay on their own, unrelated sources.
+  const memberAuthorizer = createFirestoreMemberAuthorizer(firestoreClient);
   // See config.ts's moderatorGroupUrl - undefined until the moderator group actually exists,
   // in which case every /delete-drive-gallery and /unregister call is denied (fail closed)
   // rather than falling back to the broader kruki group.
-  const moderatorAllowlist = config.moderatorGroupUrl
+  const moderatorAllowlistSource = config.moderatorGroupUrl
     ? createAppsScriptAllowlist({ url: config.moderatorGroupUrl })
     : createEmptyAllowlist();
+  const moderatorAuthorizer = fromAllowlist(moderatorAllowlistSource);
   const sessionVerifyConfig: SessionVerifyConfig = {
     sessionSigningKeys: config.sessionSigningKeys,
     sessionSlidingWindowMs: config.sessionSlidingWindowMs,
     sessionMaxLifetimeMs: config.sessionMaxLifetimeMs,
   };
   // Every *WithStepUp variant does the same two things on top of the plain cookie check: force
-  // a live (non-cached) allowlist re-check, then require reauthAt within the last
+  // a live (non-cached) authorization re-check, then require reauthAt within the last
   // reauthFreshnessWindowMs - see design-v2.md Phase 1 point 9 for why that has to be a
   // separate, non-renewable field rather than derived from the (sliding-renewed) session itself.
-  function withStepUp(allowlist: SheetAllowlist) {
+  // For the Firestore-backed memberAuthorizer, "live re-check" is simply its normal behavior
+  // (no cache to force-bypass) - forceRefresh is a no-op there but harmless to pass through.
+  function withStepUp(authorizer: Authorizer) {
     return async (req: IncomingMessage, res: ServerResponse): Promise<SessionClaims> => {
-      const claims = await verifySessionRequest(req, res, sessionVerifyConfig, allowlist, { forceRefresh: true });
+      const claims = await verifySessionRequest(req, res, sessionVerifyConfig, authorizer, { forceRefresh: true });
       checkReauthFreshness(claims, Date.now(), config.reauthFreshnessWindowMs);
       return claims;
     };
@@ -2045,14 +2070,14 @@ async function startProductionServer(): Promise<void> {
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps, docsDriveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
-    firestore: createFirestoreClient(config.firestoreProjectId),
-    authenticate: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, groupAllowlist),
-    authenticateWithStepUp: withStepUp(groupAllowlist),
-    authenticateAdmin: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, adminAllowlist),
-    authenticateAdminWithStepUp: withStepUp(adminAllowlist),
-    authenticateWojownicyUpload: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, groupAllowlist),
-    authenticateModerator: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, moderatorAllowlist),
-    authenticateModeratorWithStepUp: withStepUp(moderatorAllowlist),
+    firestore: firestoreClient,
+    authenticate: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, memberAuthorizer),
+    authenticateWithStepUp: withStepUp(memberAuthorizer),
+    authenticateAdmin: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, adminAuthorizer),
+    authenticateAdminWithStepUp: withStepUp(adminAuthorizer),
+    authenticateWojownicyUpload: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, memberAuthorizer),
+    authenticateModerator: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, moderatorAuthorizer),
+    authenticateModeratorWithStepUp: withStepUp(moderatorAuthorizer),
     // KRKG-0046: no longer checks any allowlist - it must succeed for any verified Google
     // identity, member or not, so a not-yet-approved applicant can reach /membership/apply.
     // Authorization for every actual privileged route is still enforced independently and
@@ -2073,20 +2098,23 @@ async function startProductionServer(): Promise<void> {
     allowedMimeTypes: config.allowedMimeTypes,
     maxJsonBodyBytes: config.maxJsonBodyBytes,
     galleriesCacheTtlMs: config.galleriesCacheTtlMs,
-    listMemberEmails: () => groupAllowlist.getEmails(),
+    listMemberEmails: () => listActiveMemberEmails(firestoreClient),
   };
   const server = createServer(createRequestListener(productionDeps));
   server.listen(config.port, () => {
     console.log(`upload-service listening on :${config.port}`);
   });
 
-  // Pre-warms the auth caches (Google's JWKS, both allowlists) as soon as the container boots,
-  // in the background - not awaited before listen() above, so this never delays Cloud Run's
-  // readiness check. A cold instance already pays real startup latency; without this, whichever
-  // visitor's request happens to arrive first also pays for a JWKS fetch plus an allowlist fetch
-  // (a Sheet CSV, or worse, the Apps Script group check) stacked on top of that, lazily, inline
-  // with their own request. Warming here means that cost is paid once at boot instead.
-  Promise.all([fetchGoogleJwks(), adminAllowlist.getEmails(), groupAllowlist.getEmails(), moderatorAllowlist.getEmails()]).catch(err => {
+  // Pre-warms the auth caches (Google's JWKS, the admin/moderator allowlists) as soon as the
+  // container boots, in the background - not awaited before listen() above, so this never
+  // delays Cloud Run's readiness check. A cold instance already pays real startup latency;
+  // without this, whichever visitor's request happens to arrive first also pays for a JWKS
+  // fetch plus an allowlist fetch (a Sheet CSV, or the Apps Script moderator-group check)
+  // stacked on top of that, lazily, inline with their own request. Warming here means that cost
+  // is paid once at boot instead. KRKG-0046: the member authorizer has no cache to warm (a plain
+  // Firestore document read per request, no daily quota to protect), so it's deliberately not
+  // included here.
+  Promise.all([fetchGoogleJwks(), adminAllowlist.getEmails(), moderatorAllowlistSource.getEmails()]).catch(err => {
     console.error('Nie udało się wstępnie rozgrzać pamięci podręcznej uwierzytelniania:', err);
   });
 }

@@ -10,18 +10,8 @@ export const config = {
   port: Number(process.env.PORT ?? 8080),
   // Published CSV export of a Sheet listing emails allowed into /admin (Viewer access via
   // link, editable only by Bartosz). See KRKG-0024 design.md for the pattern - no env
-  // var/secret needed, this is a public read-only URL by design. Krucze Galerie's own
-  // access/upload allowlist used to be a second Sheet like this one, but now shares
-  // wojownicyUploadGroupUrl below instead (live Google Group membership, not a hand-edited
-  // Sheet) - see the "same mechanism" gallery-auth migration.
+  // var/secret needed, this is a public read-only URL by design.
   adminAllowlistSheetUrl: 'https://docs.google.com/spreadsheets/d/1StUp5mdTmbbuadc1XCOA_c2PILmYSAJ0Z5t1K7xjn78/export?format=csv',
-  // Apps Script Web App deployed under the club's own Google account, returning
-  // {"emails": [...]} for the live membership of the kruki Google Group (groups.google.com/g/kruki)
-  // via GroupsApp - gates the self-service "Wrzucam swoje zdjęcie" upload in the Wojownicy
-  // section to actual group members, kept in sync automatically instead of a manually-copied
-  // Sheet. Public/unguessable URL by the same design as the two Sheet URls above - see
-  // createAppsScriptAllowlist in allowlist.ts.
-  wojownicyUploadGroupUrl: 'https://script.google.com/macros/s/AKfycbwkSGgWwYLq2XyGQSX7ntWh_PgvJ3ZTDV6NDRJ304wl0bkOJ3XyqKg1QjtWl5g5WYc7/exec',
   // Google Doc file IDs for the two Wojownicy-only pages (Zasady Bractwa, Poradnik Walki),
   // fetched live via drive.ts's exportDocHtml using docsClientId/docsClientSecret/docsRefreshToken
   // below - never checked out into the repo. IDs aren't secret in themselves: it's that
@@ -53,8 +43,8 @@ export const config = {
   // undefined lets @google-cloud/firestore fall back to ADC's default project rather than
   // failing the whole service's boot over a not-yet-provisioned Firestore database.
   firestoreProjectId: process.env.FIRESTORE_PROJECT_ID,
-  // Same Apps Script pattern as wojownicyUploadGroupUrl above, but for a moderator group that
-  // does not exist yet (see KRKG-0027) - gates destructive gallery actions (/delete-drive-gallery,
+  // Apps Script Web App URL (see createAppsScriptAllowlist in allowlist.ts) for a moderator
+  // group that does not exist yet (see KRKG-0027) - gates destructive gallery actions (/delete-drive-gallery,
   // /unregister). Deliberately optional and undefined by default: until this is set to a real
   // group's Apps Script URL, createEmptyAllowlist denies every caller rather than either
   // blocking deploys on a secret that can't exist yet or leaving those endpoints open to the
