@@ -55,20 +55,17 @@ test('builds a metadata request for an external deep-linked folder', async () =>
   assert.equal(request.options.headers['X-Goog-Api-Key'], browser.DRIVE_API_KEY_PUBLIC);
 });
 
-test('wires both public Drive pages, navigation partials, and sitemap', async () => {
-  const [graphics, offers, nav, galleryNav, sitemap] = await Promise.all([
+test('wires both public Drive pages, the shared navigation partial, and sitemap', async () => {
+  const [graphics, offers, nav, sitemap] = await Promise.all([
     readFile(new URL('../public/grafiki/index.html', import.meta.url), 'utf8'),
     readFile(new URL('../public/oferty/index.html', import.meta.url), 'utf8'),
     readFile(new URL('../templates/nav.html', import.meta.url), 'utf8'),
-    readFile(new URL('../templates/nav_galerie.html', import.meta.url), 'utf8'),
     readFile(new URL('../public/sitemap.xml', import.meta.url), 'utf8'),
   ]);
   assert.match(graphics, /data-drive-root-id="1J5DaXEqHK8jqcFN0OBs9Ttv_7CSek4-1"/);
   assert.match(offers, /data-drive-root-id="13pJVzMWrQoApYoxCSOF1nFkQlfI_29QV"/);
-  for (const source of [nav, galleryNav]) {
-    assert.match(source, /href="\/grafiki\/"[^>]*>Zdjęcia i grafiki/);
-    assert.match(source, /href="\/oferty\/"[^>]*>Oferty handlowe/);
-  }
+  assert.match(nav, /href="\/grafiki\/"[^>]*>Zdjęcia i grafiki/);
+  assert.match(nav, /href="\/oferty\/"[^>]*>Oferty handlowe/);
   assert.match(sitemap, /https:\/\/www\.kruki\.org\/grafiki\//);
   assert.match(sitemap, /https:\/\/www\.kruki\.org\/oferty\//);
 });

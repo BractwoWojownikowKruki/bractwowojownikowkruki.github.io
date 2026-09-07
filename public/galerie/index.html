@@ -21,15 +21,12 @@
   <link rel="stylesheet" href="../style.css" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
-<body>
-    <!-- PARTIAL:nav_galerie -->
-  <header class="site-header">
-    <a href="/galerie/" class="logo-link" aria-label="Krucze Galery — strona główna">
-      <picture>
-        <source media="(max-width: 600px)" srcset="../logo.png" />
-        <img src="../logo-desktop.png" alt="Krucze Galery" class="logo" onerror="this.style.display='none'" />
-      </picture>
-    </a>
+<body class="galerie-page">
+    <!-- PARTIAL:nav -->
+  <!-- KRKG-0046: this used to also carry its own logo-link (pre-KRKG-0039, when this page was
+       the entire site) - removed as a duplicate of the shared nav's own logo. A plain <div>, not
+       <header>: the shared nav above is already the page's one <header>/banner landmark. -->
+  <div class="site-header">
     <div class="toolbar" id="toolbar" hidden>
       <div class="search-wrap">
         <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -47,7 +44,7 @@
         <a href="dodaj-galerie.html" class="btn-add-album">Dodaj galerię</a>
       </div>
     </div>
-  </header>
+  </div>
 
   <!-- Galerie contain personal data (contributor/uploader emails, names, photos), so viewing
        them requires being signed in with the same kruki-group Google account as

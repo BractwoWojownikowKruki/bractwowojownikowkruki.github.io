@@ -169,29 +169,26 @@ test('protected entry points begin with the shared session-checking message, not
   }
 });
 
-test('both shared navigation partials start with an account-status indicator', async () => {
-  for (const partial of ['../templates/nav.html', '../templates/nav_galerie.html']) {
-    const html = await readFile(new URL(partial, import.meta.url), 'utf8');
-    assert.match(html, /id="nav-auth-checking"/);
-    assert.match(html, /Please hold the line\.\.\./);
-  }
+test('the shared navigation partial starts with an account-status indicator', async () => {
+  const html = await readFile(new URL('../templates/nav.html', import.meta.url), 'utf8');
+  assert.match(html, /id="nav-auth-checking"/);
+  assert.match(html, /Please hold the line\.\.\./);
 });
 
-test('the Strefa Członków top-nav dropdown lives inside .nav-account-area in both nav partials', async () => {
-  // Regression check for a bug where templates/nav_galerie.html placed #members-zone-nav as a
-  // sibling BEFORE .nav-account-area instead of nested inside it. .nav-account-area is what
-  // pushes its contents to the row's right edge (margin-left:auto, see .nav-account-area in
-  // style.css) - outside it, the dropdown drifted to the middle of the row on Galerie pages
-  // while every other page still showed it flush right, since only nav.html's copy was ever
-  // fixed. The two templates are otherwise near-identical by design (see the diff between them),
-  // so this asserts the one structural relationship that must not silently drift apart again.
-  for (const partial of ['../templates/nav.html', '../templates/nav_galerie.html']) {
-    const html = await readFile(new URL(partial, import.meta.url), 'utf8');
-    const accountArea = html.match(/<div class="nav-account-area">([\s\S]*?)\n\s*<\/div>\s*\n\s*<\/nav>/)?.[1];
+test('the Strefa Członków top-nav dropdown lives inside .nav-account-area', async () => {
+  // KRKG-0046: templates/nav_galerie.html (a near-duplicate of this file, kept only to avoid a
+  // second <header> landmark and a sticky-position conflict on the /galerie/ pages) was deleted
+  // once those two page-specific problems were fixed at their actual source (galerie/index.html's
+  // own leftover header, a body class + CSS selector for the sticky override) instead of by
+  // forking the whole shared nav. This regression check (originally guarding both files against
+  // drifting apart - see git history) now only has the one file to check, but is kept as a
+  // direct assertion of the structural relationship it protects: .nav-account-area's
+  // margin-left:auto (style.css) is what pushes #members-zone-nav to the row's right edge.
+  const html = await readFile(new URL('../templates/nav.html', import.meta.url), 'utf8');
+  const accountArea = html.match(/<div class="nav-account-area">([\s\S]*?)\n\s*<\/div>\s*\n\s*<\/nav>/)?.[1];
 
-    assert.ok(accountArea, `${partial} must have a .nav-account-area block ending just before </nav>`);
-    assert.match(accountArea, /id="members-zone-nav"/, `${partial}: #members-zone-nav must be nested inside .nav-account-area`);
-  }
+  assert.ok(accountArea, 'templates/nav.html must have a .nav-account-area block ending just before </nav>');
+  assert.match(accountArea, /id="members-zone-nav"/, '#members-zone-nav must be nested inside .nav-account-area');
 });
 
 test('session-checking indicators honor hidden after authentication resolves', async () => {

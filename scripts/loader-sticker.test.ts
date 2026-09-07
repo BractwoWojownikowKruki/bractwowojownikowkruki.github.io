@@ -8,7 +8,6 @@ import { test } from 'node:test';
 
 const staticLoaderSources = [
   'templates/nav.html',
-  'templates/nav_galerie.html',
   'public/admin/index.html',
   'public/galerie/dodaj-galerie.html',
   'public/galerie/dodaj-zdjecia.html',
@@ -82,8 +81,8 @@ test('uses the Hold the Line sticker in every static loading context', async () 
   }
 });
 
-test('uses a compact, screen-reader-labelled Hold the Line sticker in both navigation partials', async () => {
-  for (const source of ['templates/nav.html', 'templates/nav_galerie.html']) {
+test('uses a compact, screen-reader-labelled Hold the Line sticker in the shared navigation partial', async () => {
+  for (const source of ['templates/nav.html']) {
     const html = await readFile(new URL(`../${source}`, import.meta.url), 'utf8');
     const navStatus = html.match(/<p class="auth-checking nav-auth-checking" id="nav-auth-checking" role="status">([\s\S]*?)<\/p>/)?.[1];
 

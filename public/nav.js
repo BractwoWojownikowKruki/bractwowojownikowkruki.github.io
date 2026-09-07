@@ -65,7 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
  * fixed-color bitmaps on every platform (Apple/Noto/Segoe color emoji fonts) and ignore CSS
  * `color`, so they can't be made to match the site's gold/text palette - these use
  * stroke="currentColor" instead, same technique already used by the hamburger icon in
- * nav.html/nav_galerie.html, so they always render in the surrounding text color.
+ * nav.html, so they always render in the surrounding text color.
  */
 const MZ_ICON_PATHS = {
   user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle>',
