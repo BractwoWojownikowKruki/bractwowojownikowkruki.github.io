@@ -40,7 +40,10 @@
              copies, so nav.js's existing generic visibility gating (querySelectorAll across the
              whole DOM) shows/hides this copy the same way with no JS changes. -->
         <div class="nav-item-dropdown members-zone-container" id="members-zone-nav" hidden>
-          <button type="button" class="nav-item">Strefa Członków</button>
+          <button type="button" class="nav-item">
+            <span class="members-zone-icon" aria-hidden="true"></span>
+            Strefa Członków
+          </button>
           <div class="nav-dropdown-menu">
             <div class="members-zone-links" data-members-zone-flavor="nav"></div>
             <button type="button" class="members-zone-install" data-pwa-install aria-describedby="pwa-install-nav-message" hidden>Zainstaluj</button>
