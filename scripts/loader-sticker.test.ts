@@ -101,7 +101,18 @@ test('temporary site build preserves sticker markup in both navigation variants 
   try {
     execFileSync('npm', ['run', 'build'], {
       cwd: repositoryRoot,
-      env: { ...process.env, BUILD_OUTPUT_DIR: outputDir },
+      // scripts/inject-release-info.ts requires RELEASE_BUILT_AT/RELEASE_COMMIT_SHA/
+      // GITHUB_RUN_NUMBER whenever GITHUB_ACTIONS=true, which this "Run tests" CI step already
+      // is - the real values are only exported later, in pages.yml's separate "Build site" step.
+      // This is a one-off sanity build, not the real release, so it supplies its own dummy
+      // values rather than inheriting env that's incomplete at this point in the pipeline.
+      env: {
+        ...process.env,
+        BUILD_OUTPUT_DIR: outputDir,
+        RELEASE_BUILT_AT: new Date().toISOString(),
+        RELEASE_COMMIT_SHA: '0000000',
+        GITHUB_RUN_NUMBER: '0',
+      },
       stdio: 'pipe',
     });
 
