@@ -1464,9 +1464,12 @@ main { padding: 1.25rem 1.5rem 3rem; }
 
 /* Indents the two links nested under the "Do przeczytania" heading (see MEMBERS_ZONE_MENU in
    nav.js) so they read as its children, same idea as .nav-subitem--nested below for the other
-   two flavors. */
+   two flavors - plus a left border tick, since the sidebar box has no other list styling
+   (bullets, dividers) that indentation alone can visually latch onto. */
 .members-zone-sidebar-link--nested {
-  padding-left: 1.1rem;
+  padding-left: 0.85rem;
+  border-left: 2px solid var(--border);
+  margin-left: 0.3rem;
 }
 
 /* The "Do przeczytania" group heading itself - same look as the box's own "Strefa Członków"
@@ -1689,12 +1692,21 @@ button.nav-item {
   white-space: nowrap;
 }
 
-/* Icon glyph in front of each Strefa Członków link's label (see MEMBERS_ZONE_MENU/mz-icon in
-   nav.js) - small and slightly faded so it reads as a marker, not competing with the text. */
+/* Icon in front of each Strefa Członków link's label (see MEMBERS_ZONE_MENU/MZ_ICON_PATHS in
+   nav.js) - an inline SVG using stroke="currentColor", so it always renders in the surrounding
+   text's own color (monochrome, matching the gold/text palette) rather than a fixed-color emoji
+   bitmap. Sized down from the SVG's 24x24 viewBox and vertically nudged to sit on the text
+   baseline like a normal glyph. */
 .mz-icon {
-  display: inline-block;
-  margin-right: 0.15rem;
+  display: inline-flex;
+  margin-right: 0.35rem;
   opacity: 0.85;
+  vertical-align: -3px;
+}
+
+.mz-icon svg {
+  width: 15px;
+  height: 15px;
 }
 
 /* The "Do przeczytania" group heading in the top-nav dropdown/mobile panel flavor - not a link
@@ -1705,11 +1717,15 @@ button.nav-item {
   cursor: default;
 }
 
-/* Indents the links nested under "Do przeczytania" so they read as its children. Doubled-up
-   selector (not just .nav-subitem--nested) so this outweighs the mobile breakpoint's own
-   .nav-subitem padding-left override further down, regardless of source order. */
+/* Indents the links nested under "Do przeczytania" well past every other item's own padding-left
+   (1rem desktop / 1.5rem mobile, see .nav-subitem above and its 768px-breakpoint override below)
+   so the grouping is unmistakable at a glance rather than a couple of barely-there pixels.
+   Doubled-up selector (not just .nav-subitem--nested) so this still outweighs the mobile
+   breakpoint's own .nav-subitem padding-left override further down, regardless of source order. */
 .nav-subitem.nav-subitem--nested {
-  padding-left: 2rem;
+  margin-left: 0.75rem;
+  padding-left: 1.5rem;
+  border-left: 2px solid var(--border);
 }
 
 /* Lives in .header-actions (top bar, next to the hamburger) - holds only the avatar once

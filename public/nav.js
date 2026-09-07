@@ -60,6 +60,26 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
+ * Monochrome line-icon paths (Feather Icons, MIT-licensed - github.com/feathericons/feather),
+ * one per MEMBERS_ZONE_MENU entry below. Inline SVG rather than emoji glyphs: emoji render as
+ * fixed-color bitmaps on every platform (Apple/Noto/Segoe color emoji fonts) and ignore CSS
+ * `color`, so they can't be made to match the site's gold/text palette - these use
+ * stroke="currentColor" instead, same technique already used by the hamburger icon in
+ * nav.html/nav_galerie.html, so they always render in the surrounding text color.
+ */
+const MZ_ICON_PATHS = {
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>',
+  map: '<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line>',
+  coins: '<line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>',
+  scroll: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line>',
+  swords: '<path d="M14.5 17.5 3 6V3h3l11.5 11.5"></path><path d="M9.5 6.5 13 3h3v3l-3.5 3.5"></path><path d="M3 21l6.5-6.5"></path><path d="M21 21l-6.5-6.5"></path>',
+  chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>',
+  tool: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>',
+};
+
+/**
  * Single source of truth for the "Strefa Członków" link list - every place the menu appears
  * (top-nav dropdown, mobile panel, desktop sidebar box, each duplicated again on the Galerie
  * page's variant header) renders from this same array via renderMembersZoneMenus() below,
@@ -67,21 +87,21 @@ document.addEventListener('DOMContentLoaded', () => {
  * "Do przeczytania" is a non-clickable group heading with nested links, same order everywhere.
  */
 const MEMBERS_ZONE_MENU = [
-  { href: '/profil/', label: 'Mój profil', icon: '👤' },
-  { href: '/galerie/', label: 'Galerie', icon: '🖼️' },
-  { href: '/lista-wyjazdowa/', label: 'Lista wyjazdowa', icon: '🎒' },
-  { href: '/lista-wyjazdowa/skladki/', label: 'Składki', icon: '💰' },
+  { href: '/profil/', label: 'Mój profil', icon: 'user' },
+  { href: '/galerie/', label: 'Galerie', icon: 'image' },
+  { href: '/lista-wyjazdowa/', label: 'Lista wyjazdowa', icon: 'map' },
+  { href: '/lista-wyjazdowa/skladki/', label: 'Składki', icon: 'coins' },
   {
     label: 'Do przeczytania',
-    icon: '📖',
+    icon: 'book',
     items: [
-      { href: '/zasady-bractwa/', label: 'Zasady Bractwa', icon: '📜' },
-      { href: '/poradnik-walki/', label: 'Poradnik walki w linii', icon: '⚔️' },
+      { href: '/zasady-bractwa/', label: 'Zasady Bractwa', icon: 'scroll' },
+      { href: '/poradnik-walki/', label: 'Poradnik walki w linii', icon: 'swords' },
     ],
   },
-  { href: '/discord', label: 'Forum/Discord', icon: '💬', external: true },
+  { href: '/discord', label: 'Forum/Discord', icon: 'chat', external: true },
 ];
-const ADMIN_ZONE_ITEM = { href: '/admin/', label: 'Panel admina', icon: '🛠️' };
+const ADMIN_ZONE_ITEM = { href: '/admin/', label: 'Panel admina', icon: 'tool' };
 
 /**
  * Renders MEMBERS_ZONE_MENU into every `.members-zone-links` mount point found in the DOM.
@@ -105,7 +125,7 @@ function renderMembersZoneMenus() {
       const span = document.createElement('span');
       span.className = 'mz-icon';
       span.setAttribute('aria-hidden', 'true');
-      span.textContent = icon;
+      span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MZ_ICON_PATHS[icon]}</svg>`;
       return span;
     }
 
