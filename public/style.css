@@ -3184,7 +3184,11 @@ button.nav-item {
   max-width: 100%;
 }
 
-.lw-subnav-link {
+/* Qualified with the .content-section ancestor (rather than bare .lw-subnav-link) to
+   out-specificity .content-section a, which otherwise wins the cascade (class+type beats a
+   single class) and paints these red with its own border-bottom "underline" - same class of bug
+   as the .btn-add-album fix above. Applies to every .lw-* link rule below for the same reason. */
+.content-section .lw-subnav-link {
   padding: 0.5rem 1.1rem;
   background: transparent;
   border: 1px solid transparent;
@@ -3197,11 +3201,11 @@ button.nav-item {
   transition: background-color 0.15s, color 0.15s;
 }
 
-.lw-subnav-link:hover {
+.content-section .lw-subnav-link:hover {
   color: var(--text);
 }
 
-.lw-subnav-link--active {
+.content-section .lw-subnav-link--active {
   background: var(--surface-deep);
   border-color: var(--accent);
   color: var(--gold);
@@ -3229,16 +3233,17 @@ button.nav-item {
   border-color: var(--border-hover);
 }
 
-.lw-event-name {
+.content-section .lw-event-name {
   flex: 1 1 auto;
   min-width: 12rem;
   color: var(--text);
   font-weight: 600;
   font-size: 16px;
   text-decoration: none;
+  border-bottom: none;
 }
 
-.lw-event-name:hover {
+.content-section .lw-event-name:hover {
   color: var(--gold);
   text-decoration: underline;
 }
