@@ -28,7 +28,8 @@ import {
 } from './about-us.ts';
 import { createFirestoreClient, type FirestoreLikeClient } from './firestore.ts';
 import { getMember, listAllMembers, saveMember, type MemberWritableFields } from './members.ts';
-import { applyForMembership } from './membership.ts';
+import { applyForMembership, applyAdminTransition, listMembersByStatus, type AdminTransition } from './membership.ts';
+import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
 import { getProfile, listAllProfiles, saveProfile, setWpisowePaid, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 import { getAllLookupLists } from './lookup-lists.ts';
@@ -673,6 +674,31 @@ async function handleAdminUpdateSettings(req: IncomingMessage, res: ServerRespon
   const { liveFetchPostCount } = await readJsonBody<{ liveFetchPostCount?: number }>(req, deps.maxJsonBodyBytes);
   await setFacebookSettings(deps.drive, { liveFetchPostCount: Number(liveFetchPostCount) });
   sendJson(res, 200, { ok: true });
+}
+
+const MEMBERSHIP_STATUSES = ['pending', 'active', 'suspended', 'removed', 'rejected'] as const;
+
+async function handleAdminListMembers(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req, res);
+  const status = url.searchParams.get('status');
+  if (!status || !(MEMBERSHIP_STATUSES as readonly string[]).includes(status)) {
+    throw new AuthError('Nieprawidłowy status.', 400);
+  }
+  const members = await listMembersByStatus(deps.firestore, status as MembershipStatus);
+  sendJson(res, 200, { members });
+}
+
+const ADMIN_TRANSITIONS = ['approve', 'reject', 'suspend', 'reactivate', 'remove'] as const;
+
+async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  const body = await readJsonBody<{ email?: string; transition?: string }>(req, deps.maxJsonBodyBytes);
+  if (!body.email) throw new AuthError('Brak email.', 400);
+  if (!body.transition || !(ADMIN_TRANSITIONS as readonly string[]).includes(body.transition)) {
+    throw new AuthError('Nieprawidłowe przejście statusu.', 400);
+  }
+  const member = await applyAdminTransition(deps.firestore, body.email, body.transition as AdminTransition, identity.email);
+  sendJson(res, 200, { member });
 }
 
 async function handleAdminListRedirects(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -1898,6 +1924,10 @@ export function createRequestListener(deps: ServerDeps) {
         await handleModeratorWhoami(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/social-media/refresh') {
         await handleAdminRefreshSocialCache(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/members') {
+        await handleAdminListMembers(req, res, url, deps);
+      } else if (req.method === 'POST' && url.pathname === '/admin/members/transition') {
+        await handleAdminMemberTransition(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/redirects') {
         await handleAdminListRedirects(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/redirects') {

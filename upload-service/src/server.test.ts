@@ -1671,6 +1671,95 @@ test('/unregister removes the matching albums.json entry, for a Drive-by-URL or 
   });
 });
 
+test('GET /admin/members?status=pending lists pending applications', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'pending@example.com', {
+    email: 'pending@example.com', fullName: 'P', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'pending', appliedAt: 'x',
+    approvedAt: null, approvedBy: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({ firestore: client });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members?status=pending`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.members.length, 1);
+    assert.equal(body.members[0].email, 'pending@example.com');
+  });
+});
+
+test('GET /admin/members rejects an unknown status value', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members?status=bogus`);
+    assert.equal(res.status, 400);
+  });
+});
+
+test('GET /admin/members rejects an unauthenticated caller', async () => {
+  const deps = makeDeps({
+    authenticateAdmin: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members?status=pending`);
+    assert.equal(res.status, 401);
+  });
+});
+
+test('POST /admin/members/transition approves a pending member via authenticateAdminWithStepUp', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'pending@example.com', {
+    email: 'pending@example.com', fullName: 'P', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'pending', appliedAt: 'x',
+    approvedAt: null, approvedBy: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/transition`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'pending@example.com', transition: 'approve' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.member.status, 'active');
+    assert.equal(body.member.approvedBy, 'admin@example.com');
+  });
+});
+
+test('POST /admin/members/transition rejects an unknown transition value', async () => {
+  const deps = makeDeps();
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/transition`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'someone@example.com', transition: 'bogus' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('POST /admin/members/transition requires step-up freshness (rejects a stale reauthAt)', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => {
+      throw new AuthError('Wymagane ponowne logowanie.', 401);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/transition`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'someone@example.com', transition: 'approve' }),
+    });
+    assert.equal(res.status, 401);
+  });
+});
+
 test('GET /admin/redirects rejects an unauthenticated caller before touching GitHub', async () => {
   let githubCalled = false;
   const deps = makeDeps({

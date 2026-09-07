@@ -67,6 +67,29 @@
       </section>
 
       <section style="margin-bottom: 2rem;">
+        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Zgłoszenia członkowskie</h2>
+        <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
+          Zgłoszenia oczekujące na akceptację. Zatwierdzenie daje natychmiastowy dostęp do Strefy Członków - pamiętaj,
+          żeby dodać osobę ręcznie do grupy Google (Docs/Sheets/Drive), bo to nie dzieje się automatycznie.
+        </p>
+        <div id="membership-applications-list">Ładowanie...</div>
+      </section>
+
+      <section style="margin-bottom: 2rem;">
+        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Członkowie</h2>
+        <label style="display:block; margin-bottom:0.75rem;">
+          Status
+          <select id="membership-status-filter" style="display:block; width:100%; margin-top:4px;">
+            <option value="active">Aktywni</option>
+            <option value="suspended">Zawieszeni</option>
+            <option value="removed">Usunięci</option>
+            <option value="rejected">Odrzuceni</option>
+          </select>
+        </label>
+        <div id="membership-members-list">Ładowanie...</div>
+      </section>
+
+      <section style="margin-bottom: 2rem;">
         <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Przekierowania</h2>
         <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
           Alias otwiera się pod adresem kruki.org/&lt;alias&gt; i przekierowuje na docelowy adres. Zmiana pojawia się na

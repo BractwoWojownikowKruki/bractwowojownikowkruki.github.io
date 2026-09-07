@@ -16,6 +16,8 @@ initGoogleSignIn({
     loadManageList();
     loadFacebookSettings();
     loadRedirects();
+    loadMembershipApplications();
+    loadMembershipMembers();
   },
   onSignedOut: () => {
     document.getElementById('admin-checking').hidden = true;
@@ -124,6 +126,116 @@ document.getElementById('redirects-list').addEventListener('click', async e => {
   if (!window.confirm(`Na pewno usunąć przekierowanie /${deleteBtn.dataset.path}?`)) return;
   await apiFetch(`/admin/redirects?path=${encodeURIComponent(deleteBtn.dataset.path)}`, { method: 'DELETE' }, showReauth, hideReauth);
   loadRedirects();
+});
+
+// KRKG-0046: sends one status-transition request, then reloads both membership lists - a single
+// transition (e.g. approve) always moves a record out of one list and into the other.
+async function postMembershipTransition(email, transition) {
+  await apiFetch(
+    '/admin/members/transition',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, transition }) },
+    showReauth,
+    hideReauth,
+  );
+  loadMembershipApplications();
+  loadMembershipMembers();
+}
+
+async function loadMembershipApplications() {
+  const list = document.getElementById('membership-applications-list');
+  list.textContent = 'Ładowanie...';
+  try {
+    const { members } = await apiFetch('/admin/members?status=pending', { method: 'GET' }, showReauth, hideReauth);
+    renderMembershipApplications(members);
+  } catch (err) {
+    list.textContent = `Błąd: ${err.message}`;
+  }
+}
+
+function renderMembershipApplications(members) {
+  const list = document.getElementById('membership-applications-list');
+  if (!members.length) {
+    list.innerHTML = '<p>Brak oczekujących zgłoszeń.</p>';
+    return;
+  }
+  list.innerHTML = members
+    .map(
+      m => `
+    <div class="membership-application" data-email="${escapeAttr(m.email)}" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; padding:0.5rem 0; border-bottom:1px solid var(--border);">
+      <div style="flex:1; min-width:200px;">
+        <strong>${escapeHtml(m.fullName)}</strong>${m.nickname ? ` (${escapeHtml(m.nickname)})` : ''}
+        <br><span style="color:var(--text-muted);">${escapeHtml(m.email)} - ${escapeHtml(m.sectionId)}</span>
+      </div>
+      <button class="approve-application" style="color:var(--gold);">Zatwierdź</button>
+      <button class="reject-application" style="color:var(--accent);">Odrzuć</button>
+    </div>`,
+    )
+    .join('');
+}
+
+document.getElementById('membership-applications-list').addEventListener('click', async e => {
+  const row = e.target.closest('.membership-application');
+  if (!row) return;
+  const email = row.dataset.email;
+  if (e.target.closest('.approve-application')) {
+    await postMembershipTransition(email, 'approve');
+    window.alert(`Zatwierdzono ${email}. Pamiętaj, aby dodać tę osobę ręcznie do grupy Google (Docs/Sheets/Drive).`);
+  } else if (e.target.closest('.reject-application')) {
+    if (!window.confirm(`Na pewno odrzucić zgłoszenie ${email}?`)) return;
+    await postMembershipTransition(email, 'reject');
+  }
+});
+
+const MEMBERSHIP_ACTIONS_BY_STATUS = {
+  active: [{ transition: 'suspend', label: 'Zawieś' }, { transition: 'remove', label: 'Usuń' }],
+  suspended: [{ transition: 'reactivate', label: 'Przywróć' }, { transition: 'remove', label: 'Usuń' }],
+  removed: [],
+  rejected: [],
+};
+
+async function loadMembershipMembers() {
+  const status = document.getElementById('membership-status-filter').value;
+  const list = document.getElementById('membership-members-list');
+  list.textContent = 'Ładowanie...';
+  try {
+    const { members } = await apiFetch(`/admin/members?status=${encodeURIComponent(status)}`, { method: 'GET' }, showReauth, hideReauth);
+    renderMembershipMembers(members, status);
+  } catch (err) {
+    list.textContent = `Błąd: ${err.message}`;
+  }
+}
+
+function renderMembershipMembers(members, status) {
+  const list = document.getElementById('membership-members-list');
+  if (!members.length) {
+    list.innerHTML = '<p>Brak członków w tym statusie.</p>';
+    return;
+  }
+  const actions = MEMBERSHIP_ACTIONS_BY_STATUS[status] ?? [];
+  list.innerHTML = members
+    .map(
+      m => `
+    <div class="membership-member" data-email="${escapeAttr(m.email)}" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; padding:0.5rem 0; border-bottom:1px solid var(--border);">
+      <div style="flex:1; min-width:200px;">
+        <strong>${escapeHtml(m.fullName)}</strong>${m.nickname ? ` (${escapeHtml(m.nickname)})` : ''}
+        <br><span style="color:var(--text-muted);">${escapeHtml(m.email)} - ${escapeHtml(m.sectionId)}</span>
+      </div>
+      ${actions.map(a => `<button class="member-action" data-transition="${a.transition}" style="color:var(--gold);">${a.label}</button>`).join('')}
+    </div>`,
+    )
+    .join('');
+}
+
+document.getElementById('membership-status-filter').addEventListener('change', loadMembershipMembers);
+
+document.getElementById('membership-members-list').addEventListener('click', async e => {
+  const actionBtn = e.target.closest('.member-action');
+  if (!actionBtn) return;
+  const row = e.target.closest('.membership-member');
+  const email = row.dataset.email;
+  const transition = actionBtn.dataset.transition;
+  if (transition === 'remove' && !window.confirm(`Na pewno usunąć członka ${email}?`)) return;
+  await postMembershipTransition(email, transition);
 });
 
 // Uploads every file in fileList to folderId, sequentially (simplicity over throughput - this
