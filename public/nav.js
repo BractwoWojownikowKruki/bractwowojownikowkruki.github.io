@@ -267,6 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
 document.addEventListener('DOMContentLoaded', () => {
   const avatarSlot = document.getElementById('nav-auth-slot');
   const loginLink = document.getElementById('nav-login-link');
+  const applyLink = document.getElementById('nav-apply-link');
   const logoutLink = document.getElementById('nav-logout-link');
   const checking = document.getElementById('nav-auth-checking');
   if (!avatarSlot || typeof initGoogleSignIn !== 'function') return;
@@ -276,6 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!identity) {
       avatarSlot.innerHTML = '';
       if (loginLink) loginLink.hidden = false;
+      if (applyLink) applyLink.hidden = false;
       if (logoutLink) logoutLink.hidden = true;
       return;
     }
@@ -296,6 +298,7 @@ document.addEventListener('DOMContentLoaded', () => {
       avatarSlot.replaceChildren(fallback);
     }
     if (loginLink) loginLink.hidden = true;
+    if (applyLink) applyLink.hidden = true;
     if (logoutLink) logoutLink.hidden = false;
   }
 

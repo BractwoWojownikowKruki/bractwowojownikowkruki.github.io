@@ -47,6 +47,8 @@ test('classifies public and gated page paths', () => {
   assert.equal(isPwaExcludedPath('/wojownicy/wrzuc/'), true);
   assert.equal(isPwaExcludedPath('/profil/'), true);
   assert.equal(isPwaExcludedPath('/lista-wyjazdowa/'), true);
+  // KRKG-0046
+  assert.equal(isPwaExcludedPath('/zgloszenie/'), true);
 });
 
 test('uses a deployment-specific cache name', () => {

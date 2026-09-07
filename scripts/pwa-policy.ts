@@ -42,6 +42,9 @@ export const GATED_PATH_PREFIXES = [
   '/admin/',
   '/galerie/',
   '/logowanie/',
+  // KRKG-0046: session-gated self-service registration - same reasoning as /logowanie/ (auth
+  // flow, not a public content page) even though it's reachable by non-members too.
+  '/zgloszenie/',
   '/wojownicy/wrzuc/',
   // KRKG-0037: /profil/ replaces /wojownicy/wrzuc/ and carries the same personal-data/photo-
   // upload sensitivity (plus member profile fields wrzuc.js never had) - same exclusion.
