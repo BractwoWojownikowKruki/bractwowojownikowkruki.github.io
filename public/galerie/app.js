@@ -55,6 +55,8 @@ const ICON_ADD_PHOTO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
   <path d="M17 9h4M19 7v4" stroke-width="2"/>
 </svg>`;
 
+const BUSY_STICKER = '<span class="busy-sticker-aura" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker" alt=""></span>';
+
 let allAlbums = [];
 let sortMode = 'newest';
 
@@ -374,7 +376,7 @@ function renderDriveGalleryView(album) {
         ${renderDeleteButton()}
       </div>
     </div>
-    <p class="drive-gallery-status" id="drive-gallery-status"><span class="spinner"></span> Ładowanie…</p>
+    <p class="drive-gallery-status" id="drive-gallery-status">${BUSY_STICKER} Ładowanie…</p>
     <div class="drive-gallery-browser">
       <div class="drive-hero" id="drive-hero" hidden>
         <div class="drive-hero-row">
