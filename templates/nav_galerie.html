@@ -29,21 +29,26 @@
           <a href="/publiczne-materialy/archiwalna-wersja-strony/" class="nav-item nav-subitem">Archiwalna wersja strony</a>
         </div>
       </div>
-      <!-- Same Strefa Członków top-nav dropdown as nav.html - see that file for the full
-           rationale. No self-link to Galerie here, same reasoning as the mobile trigger panel
-           below - this is already the Galerie page. -->
-      <div class="nav-item-dropdown members-zone-container" id="members-zone-nav" hidden>
-        <button type="button" class="nav-item">
-          <span class="members-zone-icon" aria-hidden="true"></span>
-          Strefa Członków
-        </button>
-        <div class="nav-dropdown-menu">
-          <div class="members-zone-links" data-members-zone-flavor="nav" data-members-zone-exclude="/galerie/"></div>
-          <button type="button" class="members-zone-install" data-pwa-install aria-describedby="pwa-install-nav-message" hidden>Zainstaluj</button>
-          <p class="members-zone-install-message" id="pwa-install-nav-message" data-pwa-install-message role="status" aria-live="polite" hidden></p>
-        </div>
-      </div>
       <div class="nav-account-area">
+        <!-- Same Strefa Członków top-nav dropdown as nav.html, in the same place - nested inside
+           .nav-account-area so .nav-account-area's margin-left:auto pushes it to the row's right
+           edge along with Zaloguj/Wyloguj, exactly like on every other page. (This previously
+           sat as a sibling BEFORE .nav-account-area instead of inside it, which left it
+           mid-row instead of right-aligned - see nav-templates-parity.test.ts, added after that
+           bug, for a regression check against this drifting again.) No self-link to Galerie
+           here, same reasoning as the mobile trigger panel below - this is already the Galerie
+           page. -->
+        <div class="nav-item-dropdown members-zone-container" id="members-zone-nav" hidden>
+          <button type="button" class="nav-item">
+            <span class="members-zone-icon" aria-hidden="true"></span>
+            Strefa Członków
+          </button>
+          <div class="nav-dropdown-menu">
+            <div class="members-zone-links" data-members-zone-flavor="nav" data-members-zone-exclude="/galerie/"></div>
+            <button type="button" class="members-zone-install" data-pwa-install aria-describedby="pwa-install-nav-message" hidden>Zainstaluj</button>
+            <p class="members-zone-install-message" id="pwa-install-nav-message" data-pwa-install-message role="status" aria-live="polite" hidden></p>
+          </div>
+        </div>
         <a href="/logowanie/" class="nav-item" id="nav-login-link" hidden>Zaloguj się</a>
         <button type="button" class="nav-item" id="nav-logout-link" hidden>Wyloguj się</button>
         <p class="auth-checking nav-auth-checking" id="nav-auth-checking" role="status"><span class="busy-sticker-aura busy-sticker-aura--compact" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--compact" alt=""></span><span class="sr-only">Please hold the line...</span></p>

@@ -177,6 +177,23 @@ test('both shared navigation partials start with an account-status indicator', a
   }
 });
 
+test('the Strefa Członków top-nav dropdown lives inside .nav-account-area in both nav partials', async () => {
+  // Regression check for a bug where templates/nav_galerie.html placed #members-zone-nav as a
+  // sibling BEFORE .nav-account-area instead of nested inside it. .nav-account-area is what
+  // pushes its contents to the row's right edge (margin-left:auto, see .nav-account-area in
+  // style.css) - outside it, the dropdown drifted to the middle of the row on Galerie pages
+  // while every other page still showed it flush right, since only nav.html's copy was ever
+  // fixed. The two templates are otherwise near-identical by design (see the diff between them),
+  // so this asserts the one structural relationship that must not silently drift apart again.
+  for (const partial of ['../templates/nav.html', '../templates/nav_galerie.html']) {
+    const html = await readFile(new URL(partial, import.meta.url), 'utf8');
+    const accountArea = html.match(/<div class="nav-account-area">([\s\S]*?)\n\s*<\/div>\s*\n\s*<\/nav>/)?.[1];
+
+    assert.ok(accountArea, `${partial} must have a .nav-account-area block ending just before </nav>`);
+    assert.match(accountArea, /id="members-zone-nav"/, `${partial}: #members-zone-nav must be nested inside .nav-account-area`);
+  }
+});
+
 test('session-checking indicators honor hidden after authentication resolves', async () => {
   const css = await readFile(new URL('../public/style.css', import.meta.url), 'utf8');
   assert.match(css, /\.auth-checking\[hidden\]\s*\{\s*display:\s*none;/);
