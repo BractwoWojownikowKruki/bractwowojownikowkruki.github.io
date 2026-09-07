@@ -1458,17 +1458,22 @@ main { padding: 1.25rem 1.5rem 3rem; }
   transition: color 0.15s;
 }
 
-.members-zone-sidebar-link::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--gold);
-  flex-shrink: 0;
-}
-
 .members-zone-sidebar-link:hover {
   color: var(--gold);
+}
+
+/* Indents the two links nested under the "Do przeczytania" heading (see MEMBERS_ZONE_MENU in
+   nav.js) so they read as its children, same idea as .nav-subitem--nested below for the other
+   two flavors. */
+.members-zone-sidebar-link--nested {
+  padding-left: 1.1rem;
+}
+
+/* The "Do przeczytania" group heading itself - same look as the box's own "Strefa Członków"
+   label above it, but not a link (no href, no hover state) since it's just a grouping, not a
+   destination. */
+.members-zone-group-label {
+  cursor: default;
 }
 
 /* The install action is intentionally a small member-zone utility, not a second primary CTA.
@@ -1682,6 +1687,29 @@ button.nav-item {
   padding: 0.5rem 1rem;
   border-bottom: none;
   white-space: nowrap;
+}
+
+/* Icon glyph in front of each Strefa Członków link's label (see MEMBERS_ZONE_MENU/mz-icon in
+   nav.js) - small and slightly faded so it reads as a marker, not competing with the text. */
+.mz-icon {
+  display: inline-block;
+  margin-right: 0.15rem;
+  opacity: 0.85;
+}
+
+/* The "Do przeczytania" group heading in the top-nav dropdown/mobile panel flavor - not a link
+   (no href, no hover/active state), just a grouping above its two nested links. */
+.members-zone-group-label {
+  color: var(--gold);
+  font-weight: 600;
+  cursor: default;
+}
+
+/* Indents the links nested under "Do przeczytania" so they read as its children. Doubled-up
+   selector (not just .nav-subitem--nested) so this outweighs the mobile breakpoint's own
+   .nav-subitem padding-left override further down, regardless of source order. */
+.nav-subitem.nav-subitem--nested {
+  padding-left: 2rem;
 }
 
 /* Lives in .header-actions (top bar, next to the hamburger) - holds only the avatar once

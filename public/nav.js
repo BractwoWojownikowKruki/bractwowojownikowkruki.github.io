@@ -60,12 +60,110 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /**
- * "Strefa Członków" exists twice in the DOM - the desktop sidebar box (#members-zone-sidebar,
- * see social_sidebar.html) and the mobile header trigger/panel (#members-zone-mobile, see
- * nav.html) - each holding its own copy of the same links (.member-zone-link/.admin-zone-link),
- * shown/hidden by CSS media query rather than JS, so only one is ever visible at a time. Both
- * are gated by two different, independent checks - Panel admina (admin allowlist) alongside
- * Galerie/Zasady Bractwa/Poradnik Walki/Wrzucam swoje zdjęcie/Forum/Discord (kruki group
+ * Single source of truth for the "Strefa Członków" link list - every place the menu appears
+ * (top-nav dropdown, mobile panel, desktop sidebar box, each duplicated again on the Galerie
+ * page's variant header) renders from this same array via renderMembersZoneMenus() below,
+ * instead of each carrying its own hand-copied HTML that could drift out of sync.
+ * "Do przeczytania" is a non-clickable group heading with nested links, same order everywhere.
+ */
+const MEMBERS_ZONE_MENU = [
+  { href: '/profil/', label: 'Mój profil', icon: '👤' },
+  { href: '/galerie/', label: 'Galerie', icon: '🖼️' },
+  { href: '/lista-wyjazdowa/', label: 'Lista wyjazdowa', icon: '🎒' },
+  { href: '/lista-wyjazdowa/skladki/', label: 'Składki', icon: '💰' },
+  {
+    label: 'Do przeczytania',
+    icon: '📖',
+    items: [
+      { href: '/zasady-bractwa/', label: 'Zasady Bractwa', icon: '📜' },
+      { href: '/poradnik-walki/', label: 'Poradnik walki w linii', icon: '⚔️' },
+    ],
+  },
+  { href: '/discord', label: 'Forum/Discord', icon: '💬', external: true },
+];
+const ADMIN_ZONE_ITEM = { href: '/admin/', label: 'Panel admina', icon: '🛠️' };
+
+/**
+ * Renders MEMBERS_ZONE_MENU into every `.members-zone-links` mount point found in the DOM.
+ * `data-members-zone-flavor` picks the link classes for that mount ("nav" for the top-nav
+ * dropdown and mobile panel, which share identical markup/classes; "sidebar" for the desktop
+ * sidebar box) and `data-members-zone-exclude` (used on the Galerie page's header variant, which
+ * has no reason to link back to the page it's already on) drops one href from that mount only.
+ * Links start `hidden` - the membership/admin gates below reveal them, exactly as when they were
+ * static HTML - and Panel admina is appended last with the `.admin-zone-link` class so its own
+ * separate gate keeps working unchanged.
+ */
+function renderMembersZoneMenus() {
+  document.querySelectorAll('.members-zone-links').forEach(mount => {
+    const flavor = mount.dataset.membersZoneFlavor || 'nav';
+    const exclude = mount.dataset.membersZoneExclude;
+    const linkClass = flavor === 'sidebar' ? 'members-zone-sidebar-link' : 'nav-item nav-subitem';
+    const groupLabelClass = flavor === 'sidebar' ? 'members-zone-sidebar-label members-zone-group-label' : 'nav-item nav-subitem members-zone-group-label';
+    const nestedClass = flavor === 'sidebar' ? 'members-zone-sidebar-link--nested' : 'nav-subitem--nested';
+
+    function makeIcon(icon) {
+      const span = document.createElement('span');
+      span.className = 'mz-icon';
+      span.setAttribute('aria-hidden', 'true');
+      span.textContent = icon;
+      return span;
+    }
+
+    function makeLink(item, extraClass) {
+      if (exclude && item.href === exclude) return null;
+      const a = document.createElement('a');
+      a.href = item.href;
+      a.className = `${linkClass} member-zone-link${extraClass ? ` ${extraClass}` : ''}`;
+      a.hidden = true;
+      if (item.external) {
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+      }
+      a.append(makeIcon(item.icon), ` ${item.label}`);
+      return a;
+    }
+
+    mount.replaceChildren();
+    MEMBERS_ZONE_MENU.forEach(item => {
+      if (item.items) {
+        const label = document.createElement('span');
+        label.className = groupLabelClass;
+        label.append(makeIcon(item.icon), ` ${item.label}`);
+        mount.append(label);
+        item.items.forEach(sub => {
+          const link = makeLink(sub, nestedClass);
+          if (link) mount.append(link);
+        });
+        return;
+      }
+      const link = makeLink(item);
+      if (link) mount.append(link);
+    });
+
+    const adminLink = document.createElement('a');
+    adminLink.href = ADMIN_ZONE_ITEM.href;
+    adminLink.className = `${linkClass} admin-zone-link`;
+    adminLink.hidden = true;
+    adminLink.append(makeIcon(ADMIN_ZONE_ITEM.icon), ` ${ADMIN_ZONE_ITEM.label}`);
+    mount.append(adminLink);
+  });
+
+  // The menu's own links didn't exist yet when updateNavigation() ran on DOMContentLoaded
+  // (that listener is registered above this one), so the freshly-minted ones never got their
+  // current-page state. updateNavigation is declared with `function`, so it's hoisted and safe
+  // to call here regardless of listener order.
+  updateNavigation();
+}
+
+document.addEventListener('DOMContentLoaded', renderMembersZoneMenus);
+
+/**
+ * "Strefa Członków" exists in the DOM up to three times per page - the desktop sidebar box
+ * (#members-zone-sidebar, see social_sidebar.html), the mobile header trigger/panel
+ * (#members-zone-mobile, see nav.html) and the desktop top-nav dropdown (#members-zone-nav) -
+ * each rendered from the same MEMBERS_ZONE_MENU above via renderMembersZoneMenus(), shown/hidden
+ * by CSS media query rather than JS, so only one is ever visible at a time. Both gates below are
+ * independent - Panel admina (admin allowlist) alongside the membership-only links (kruki group
  * membership) - so neither container has a single gate of its own; each shows whenever at least
  * one of ITS OWN links does. Called after either gate below changes any link's hidden state.
  */
