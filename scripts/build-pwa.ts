@@ -4,7 +4,10 @@ import { join, resolve } from 'node:path';
 import { cacheNameForDeployment, PRECACHE_PATHS, renderServiceWorker, validatePrecacheAsset } from './pwa-policy.ts';
 
 /** Generates the deployment-specific browser worker from the final static output. */
-export function buildPwa(distDir: string, deploymentId = process.env.GITHUB_SHA): void {
+export function buildPwa(
+  distDir: string,
+  deploymentId = process.env.RELEASE_COMMIT_SHA ?? process.env.GITHUB_SHA,
+): void {
   const hasher = createHash('sha256');
   for (const pathname of PRECACHE_PATHS) {
     const content = readFileSync(join(distDir, pathname));

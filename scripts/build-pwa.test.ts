@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -19,3 +19,38 @@ test('generates a deployment-versioned worker from approved built assets', () =>
   assert.match(worker, /kruki-pwa-deployment-sha/);
   assert.doesNotMatch(worker, /galerie\/(?:covers|thumbs)|facebook\/images|api\.kruki\.org/);
 });
+
+test('prefers the final release commit over the workflow event commit', () => {
+  const distDir = mkdtempSync(join(tmpdir(), 'kruki-pwa-final-sha-'));
+  const previousReleaseSha = process.env.RELEASE_COMMIT_SHA;
+  const previousGithubSha = process.env.GITHUB_SHA;
+
+  try {
+    for (const pathname of PRECACHE_PATHS) {
+      const target = join(distDir, pathname);
+      mkdirSync(join(target, '..'), { recursive: true });
+      writeFileSync(target, 'small shell asset');
+    }
+
+    process.env.RELEASE_COMMIT_SHA = 'final-release-sha';
+    process.env.GITHUB_SHA = 'workflow-event-sha';
+
+    buildPwa(distDir);
+
+    const worker = readFileSync(join(distDir, 'service-worker.js'), 'utf8');
+    assert.match(worker, /kruki-pwa-final-release-sha/);
+    assert.doesNotMatch(worker, /workflow-event-sha/);
+  } finally {
+    restoreEnvironmentVariable('RELEASE_COMMIT_SHA', previousReleaseSha);
+    restoreEnvironmentVariable('GITHUB_SHA', previousGithubSha);
+    rmSync(distDir, { recursive: true, force: true });
+  }
+});
+
+function restoreEnvironmentVariable(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
