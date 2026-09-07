@@ -1,5 +1,13 @@
+// The admin panel is one long page (Cache, Facebook, Redirects, membership, people management...)
+// and #admin-reauth sits right at the top, above admin-panel - a step-up action triggered from
+// deep in the page (e.g. "Usuń" in the membership section) otherwise reveals the prompt entirely
+// out of the viewport, so the admin never sees it, never clicks it, and the paused apiFetch retry
+// never fires - looking exactly like the action silently did nothing. scrollIntoView matches the
+// same pattern this codebase's error banners already use (see wyjazd.js/skladki.js's showError).
 function showReauth() {
-  document.getElementById('admin-reauth').hidden = false;
+  const reauth = document.getElementById('admin-reauth');
+  reauth.hidden = false;
+  reauth.scrollIntoView({ block: 'center' });
 }
 function hideReauth() {
   document.getElementById('admin-reauth').hidden = true;
@@ -193,22 +201,30 @@ function renderMembershipApplications(members) {
     .join('');
 }
 
+// try/catch here (missing before this fix) matters beyond the step-up 401 case fixed above in
+// showReauth: without it, any other failure (network blip, 403 from a role change, 500) rejected
+// silently - the confirm dialog closes and the click just looks like it did nothing, the same
+// symptom reported for "Usuń", just from a different cause.
 document.getElementById('membership-applications-list').addEventListener('click', async e => {
   const row = e.target.closest('.membership-application');
   if (!row) return;
   const email = row.dataset.email;
-  if (e.target.closest('.approve-application')) {
-    const sheetSyncStatus = await postMembershipTransition(email, 'approve');
-    const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
-    window.alert(
-      `Zatwierdzono ${email}. Pamiętaj, aby dodać tę osobę ręcznie do grupy Google (Docs/Sheets/Drive).` +
-        (sheetWarning ? `\n\n${sheetWarning}` : ''),
-    );
-  } else if (e.target.closest('.reject-application')) {
-    if (!window.confirm(`Na pewno odrzucić zgłoszenie ${email}?`)) return;
-    const sheetSyncStatus = await postMembershipTransition(email, 'reject');
-    const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
-    if (sheetWarning) window.alert(sheetWarning);
+  try {
+    if (e.target.closest('.approve-application')) {
+      const sheetSyncStatus = await postMembershipTransition(email, 'approve');
+      const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
+      window.alert(
+        `Zatwierdzono ${email}. Pamiętaj, aby dodać tę osobę ręcznie do grupy Google (Docs/Sheets/Drive).` +
+          (sheetWarning ? `\n\n${sheetWarning}` : ''),
+      );
+    } else if (e.target.closest('.reject-application')) {
+      if (!window.confirm(`Na pewno odrzucić zgłoszenie ${email}?`)) return;
+      const sheetSyncStatus = await postMembershipTransition(email, 'reject');
+      const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
+      if (sheetWarning) window.alert(sheetWarning);
+    }
+  } catch (err) {
+    window.alert(`Błąd: ${err.message}`);
   }
 });
 
@@ -261,9 +277,13 @@ document.getElementById('membership-members-list').addEventListener('click', asy
   const email = row.dataset.email;
   const transition = actionBtn.dataset.transition;
   if (transition === 'remove' && !window.confirm(`Na pewno usunąć członka ${email}?`)) return;
-  const sheetSyncStatus = await postMembershipTransition(email, transition);
-  const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
-  if (sheetWarning) window.alert(sheetWarning);
+  try {
+    const sheetSyncStatus = await postMembershipTransition(email, transition);
+    const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
+    if (sheetWarning) window.alert(sheetWarning);
+  } catch (err) {
+    window.alert(`Błąd: ${err.message}`);
+  }
 });
 
 // Uploads every file in fileList to folderId, sequentially (simplicity over throughput - this
