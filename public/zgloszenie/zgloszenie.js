@@ -1,5 +1,5 @@
 /**
- * "Zgłoś się" self-service membership application (KRKG-0046). Reuses the site's existing
+ * "Zarejestruj się" self-service membership application (KRKG-0046). Reuses the site's existing
  * Google Sign-In (auth.js) exactly like every other member-area page - see profil.js's header
  * comment for the general apiFetch/initGoogleSignIn contract this follows.
  *
