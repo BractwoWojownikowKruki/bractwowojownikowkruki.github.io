@@ -14,6 +14,7 @@
 // instant guess from a decoded token.
 const UPLOAD_SERVICE_URL = 'https://api.kruki.org';
 const GOOGLE_OAUTH_CLIENT_ID = '895090213384-cqac9v2tvmjhkkertjjj5q4h8qf41g3d.apps.googleusercontent.com';
+const MINIMUM_SESSION_CHECKING_MS = 1000;
 
 // One-time cleanup: pre-KRKG-0036 browsers may still carry the old bearer-token/membership
 // cache keys in localStorage. Nothing reads them anymore, so this just tidies them away.
@@ -210,6 +211,12 @@ function initGoogleSignIn({ buttonIds, onSignedIn, onSignedOut, onForbidden, onI
   signedInListeners.push({ whoamiPath, onSignedIn, onSignedOut, onForbidden, onIdentity });
 
   if (onSignedIn || onSignedOut || onForbidden) {
+    const sessionCheckStartedAt = Date.now();
+    const afterMinimumSessionChecking = callback => {
+      const remaining = Math.max(0, MINIMUM_SESSION_CHECKING_MS - (Date.now() - sessionCheckStartedAt));
+      return new Promise(resolve => setTimeout(resolve, remaining)).then(callback);
+    };
+
     // Two-argument .then, NOT .then(...).catch(...): only a rejected `whoamiPath` check itself
     // (no session, or a session that isn't allowlisted) may map to onForbidden. A trailing
     // .catch() also catches whatever onSignedIn's own body throws - and on the Lista Wyjazdowa
@@ -219,8 +226,8 @@ function initGoogleSignIn({ buttonIds, onSignedIn, onSignedOut, onForbidden, onI
     // chained promise (visible in the console); showing the user a message for those is the
     // calling page's job, since only it knows where its own error UI lives.
     apiFetch(whoamiPath, { method: 'GET' }).then(
-      identity => onSignedIn?.(identity),
-      err => notifyAuthFailure({ onSignedOut, onForbidden }, err),
+      identity => afterMinimumSessionChecking(() => onSignedIn?.(identity)),
+      err => afterMinimumSessionChecking(() => notifyAuthFailure({ onSignedOut, onForbidden }, err)),
     );
   }
 
