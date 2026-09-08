@@ -1,7 +1,7 @@
 // Zarządzanie ludźmi (KRKG-0049): the members table (status, live filter, Drive-folder mapping,
 // Zawieś/Usuń/Przywróć, and the new Rola column), plus the Sheets backup sync. Split out of the
 // original single-page admin.js. showReauth/hideReauth/escapeHtml/escapeAttr/
-// sheetSyncStatusMessage come from ../admin-shared.js, loaded before this file.
+// sheetSyncStatusMessage/formatDateTime come from ../admin-shared.js, loaded before this file.
 initGoogleSignIn({
   buttonIds: ['google-signin-button', 'google-reauth-button'],
   whoamiPath: '/admin/whoami',
@@ -11,6 +11,7 @@ initGoogleSignIn({
     document.getElementById('admin-email').textContent = payload.email;
     document.getElementById('admin-panel').hidden = false;
     loadMembershipMembers();
+    renderRolesAuditLog();
   },
   onSignedOut: () => {
     document.getElementById('admin-checking').hidden = true;
@@ -104,6 +105,17 @@ function roleTier(roles) {
 }
 
 const ROLE_TIER_LABELS = { '': 'Brak', accountant: 'Księgowy', admin: 'Admin' };
+
+// KRKG-0049: every role change, admin-only same as the page itself - not gated any further since
+// reaching this page at all already requires the admin allowlist.
+async function renderRolesAuditLog() {
+  const { entries } = await apiFetch('/admin/roles/audit-log', { method: 'GET' }, showReauth, hideReauth);
+  document.getElementById('roles-audit-log-content').innerHTML = entries
+    .slice()
+    .reverse()
+    .map(e => `<li>${escapeHtml(formatDateTime(e.changedAt))} — ${escapeHtml(e.changedBy)} → ${escapeHtml(e.targetEmail)}: ${escapeHtml(e.changeSummary)}</li>`)
+    .join('');
+}
 
 // Cached from the last successful load so the free-text filter can re-render instantly without
 // re-fetching - cleared/replaced on every status change or data-changing action.
@@ -214,6 +226,7 @@ document.getElementById('membership-members-list').addEventListener('change', as
         hideReauth,
       );
       membershipMembersCache.rolesByEmail.set(email, roles);
+      renderRolesAuditLog();
     } catch (err) {
       window.alert(`Błąd: ${err.message}`);
       roleSelect.value = previousTier;

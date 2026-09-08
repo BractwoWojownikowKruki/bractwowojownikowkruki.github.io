@@ -22,6 +22,7 @@ import { resetSettingsBootstrapForTests } from './settings.ts';
 import { resetRateLimitForTests } from './rate-limit.ts';
 import { createInMemoryFirestoreClient } from './firestore.ts';
 import { createDisabledSheetsClient } from './sheets.ts';
+import { listRoleAuditLog } from './roles.ts';
 
 const nodeFetch = globalThis.fetch;
 const ALLOWED_ORIGIN_FOR_TESTS = 'https://example.test'; // matches makeDeps()'s allowedOrigin
@@ -1976,6 +1977,15 @@ test('PUT /admin/roles grants a role to a member', async () => {
   });
   const stored = await client.getDoc<{ roles: string[] }>('userRoles', 'ala@example.com');
   assert.deepEqual(stored?.roles, ['admin']);
+  const { entries } = await withServer(makeDeps({ firestore: client }), baseUrl =>
+    fetch(`${baseUrl}/admin/roles/audit-log`).then(r => r.json()),
+  );
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].targetEmail, 'ala@example.com');
+  assert.deepEqual(entries[0].previousRoles, []);
+  assert.deepEqual(entries[0].newRoles, ['admin']);
+  assert.equal(entries[0].changedBy, 'admin@example.com');
+  assert.equal(entries[0].changeSummary, 'Zmieniono rolę: Brak → Admin');
 });
 
 test('PUT /admin/roles can revoke every role by passing an empty array', async () => {
@@ -1995,6 +2005,34 @@ test('PUT /admin/roles can revoke every role by passing an empty array', async (
   });
   const stored = await client.getDoc<{ roles: string[] }>('userRoles', 'ala@example.com');
   assert.deepEqual(stored?.roles, []);
+  const auditEntries = await listRoleAuditLog(client);
+  assert.equal(auditEntries.length, 1);
+  assert.deepEqual(auditEntries[0].previousRoles, ['accountant']);
+  assert.deepEqual(auditEntries[0].newRoles, []);
+  assert.equal(auditEntries[0].changeSummary, 'Zmieniono rolę: Księgowy → Brak');
+});
+
+test('GET /admin/roles/audit-log lists entries', async () => {
+  const client = createInMemoryFirestoreClient();
+  const deps = makeDeps({ firestore: client });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/roles/audit-log`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.entries, []);
+  });
+});
+
+test('GET /admin/roles/audit-log rejects an unauthenticated caller', async () => {
+  const deps = makeDeps({
+    authenticateAdmin: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/roles/audit-log`);
+    assert.equal(res.status, 401);
+  });
 });
 
 test('PUT /admin/roles rejects an unknown role name', async () => {

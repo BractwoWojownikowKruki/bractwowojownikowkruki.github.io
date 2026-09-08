@@ -61,6 +61,14 @@
           <input id="membership-members-filter" type="search" placeholder="Szukaj…" autocomplete="off" style="display:block; width:100%; margin-top:4px;" />
         </label>
         <div id="membership-members-list">Ładowanie...</div>
+
+        <!-- Every Rola change lands here (roles.ts's rolesAuditLog) - collapsed by default, same
+             as the Skladki page's Historia zmian, since who has admin/accountant is looked up
+             rarely compared to the table above it. -->
+        <details id="roles-audit-log-panel" style="margin-top:1rem;">
+          <summary>Historia zmian ról</summary>
+          <ul id="roles-audit-log-content"></ul>
+        </details>
       </section>
 
       <section style="margin-bottom: 2rem;">

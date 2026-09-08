@@ -2,7 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
 import { AuthError } from './auth.ts';
-import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles } from './roles.ts';
+import {
+  getGrantedRoles,
+  satisfiesRole,
+  requireRole,
+  setGrantedRoles,
+  listAllGrantedRoles,
+  appendRoleAuditEntry,
+  listRoleAuditLog,
+} from './roles.ts';
 
 test('getGrantedRoles returns [] when no userRoles doc exists', async () => {
   const client = createInMemoryFirestoreClient();
@@ -75,4 +83,44 @@ test('listAllGrantedRoles returns every userRoles doc', async () => {
       { email: 'bob@example.test', roles: ['admin'] },
     ],
   );
+});
+
+test('appendRoleAuditEntry stores an entry with a generated changedAt', async () => {
+  const client = createInMemoryFirestoreClient();
+  await appendRoleAuditEntry(client, {
+    targetEmail: 'ala@example.test',
+    previousRoles: [],
+    newRoles: ['admin'],
+    changedBy: 'boss@example.test',
+    changeSummary: 'Zmieniono rolę: Brak → Admin',
+  });
+  const entries = await listRoleAuditLog(client);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].targetEmail, 'ala@example.test');
+  assert.deepEqual(entries[0].previousRoles, []);
+  assert.deepEqual(entries[0].newRoles, ['admin']);
+  assert.equal(entries[0].changedBy, 'boss@example.test');
+  assert.equal(entries[0].changeSummary, 'Zmieniono rolę: Brak → Admin');
+  assert.equal(typeof entries[0].changedAt, 'string');
+});
+
+test('listRoleAuditLog returns entries sorted oldest first', async () => {
+  const client = createInMemoryFirestoreClient();
+  await appendRoleAuditEntry(client, {
+    targetEmail: 'ala@example.test',
+    previousRoles: [],
+    newRoles: ['accountant'],
+    changedBy: 'boss@example.test',
+    changeSummary: 'first',
+  });
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  await appendRoleAuditEntry(client, {
+    targetEmail: 'ala@example.test',
+    previousRoles: ['accountant'],
+    newRoles: ['admin'],
+    changedBy: 'boss@example.test',
+    changeSummary: 'second',
+  });
+  const entries = await listRoleAuditLog(client);
+  assert.deepEqual(entries.map((e) => e.changeSummary), ['first', 'second']);
 });

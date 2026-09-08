@@ -45,7 +45,7 @@ import {
   listAuditLogForEvent,
   type SignupWritableFields,
 } from './signups.ts';
-import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles } from './roles.ts';
+import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, appendRoleAuditEntry, listRoleAuditLog } from './roles.ts';
 import { listDuesForYear, saveDues, type DuesWritableFields, appendDuesAuditEntry, listDuesAuditLog } from './dues.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
@@ -754,15 +754,40 @@ async function handleAdminListRoles(req: IncomingMessage, res: ServerResponse, d
 
 const ASSIGNABLE_ROLES = ['accountant', 'admin'] as const;
 
+// Collapses a roles array to the single tier the Zarządzanie ludźmi UI offers, for the audit
+// entry's human-readable summary - mirrors zarzadzanie-ludzmi.js's roleTier()/ROLE_TIER_LABELS.
+function roleTierLabel(roles: string[]): string {
+  if (roles.includes('admin')) return 'Admin';
+  if (roles.includes('accountant')) return 'Księgowy';
+  return 'Brak';
+}
+
 async function handleAdminSetRoles(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { email, roles } = await readJsonBody<{ email?: unknown; roles?: unknown }>(req, deps.maxJsonBodyBytes);
   if (typeof email !== 'string' || !email.trim()) throw new AuthError('Brak email.', 400);
   if (!Array.isArray(roles) || roles.some((r) => !(ASSIGNABLE_ROLES as readonly string[]).includes(r))) {
     throw new AuthError('Nieprawidłowa rola.', 400);
   }
-  await setGrantedRoles(deps.firestore, email, roles as string[]);
+  const newRoles = roles as string[];
+  const previousRoles = await getGrantedRoles(deps.firestore, email);
+  await setGrantedRoles(deps.firestore, email, newRoles);
+  await appendRoleAuditEntry(deps.firestore, {
+    targetEmail: email.toLowerCase(),
+    previousRoles,
+    newRoles,
+    changedBy: identity.email,
+    changeSummary: `Zmieniono rolę: ${roleTierLabel(previousRoles)} → ${roleTierLabel(newRoles)}`,
+  });
   sendJson(res, 200, { ok: true });
+}
+
+// Admin-only (KRKG-0049) - who has admin/accountant is itself sensitive, same reasoning as the
+// dues audit log being accountant/admin-only rather than open to every signed-in member.
+async function handleAdminListRolesAuditLog(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req, res);
+  const entries = await listRoleAuditLog(deps.firestore);
+  sendJson(res, 200, { entries });
 }
 
 async function handleAdminListRedirects(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -2042,6 +2067,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminListRoles(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/roles') {
         await handleAdminSetRoles(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/roles/audit-log') {
+        await handleAdminListRolesAuditLog(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/redirects') {
         await handleAdminListRedirects(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/redirects') {
