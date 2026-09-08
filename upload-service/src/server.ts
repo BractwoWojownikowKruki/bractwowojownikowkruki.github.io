@@ -756,12 +756,12 @@ const ASSIGNABLE_ROLES = ['accountant', 'admin'] as const;
 
 async function handleAdminSetRoles(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   await deps.authenticateAdminWithStepUp(req, res);
-  const { email, roles } = await readJsonBody<{ email?: string; roles?: string[] }>(req, deps.maxJsonBodyBytes);
-  if (!email) throw new AuthError('Brak email.', 400);
+  const { email, roles } = await readJsonBody<{ email?: unknown; roles?: unknown }>(req, deps.maxJsonBodyBytes);
+  if (typeof email !== 'string' || !email.trim()) throw new AuthError('Brak email.', 400);
   if (!Array.isArray(roles) || roles.some((r) => !(ASSIGNABLE_ROLES as readonly string[]).includes(r))) {
     throw new AuthError('Nieprawidłowa rola.', 400);
   }
-  await setGrantedRoles(deps.firestore, email, roles);
+  await setGrantedRoles(deps.firestore, email, roles as string[]);
   sendJson(res, 200, { ok: true });
 }
 

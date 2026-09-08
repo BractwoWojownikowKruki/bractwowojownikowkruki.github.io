@@ -2025,6 +2025,36 @@ test('PUT /admin/roles rejects a missing email', async () => {
   });
 });
 
+test('PUT /admin/roles rejects a non-string email (400, not a 500 crash)', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    for (const email of [123, { nested: 'object' }, ['array'], null]) {
+      const res = await fetch(`${baseUrl}/admin/roles`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+        body: JSON.stringify({ email, roles: ['admin'] }),
+      });
+      assert.equal(res.status, 400, `expected 400 for email=${JSON.stringify(email)}`);
+    }
+  });
+});
+
+test('PUT /admin/roles rejects a whitespace-only email', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/roles`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: '   ', roles: ['admin'] }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
 test('PUT /admin/roles requires step-up freshness (rejects a stale reauthAt)', async () => {
   const deps = makeDeps({
     authenticateAdminWithStepUp: async () => {
