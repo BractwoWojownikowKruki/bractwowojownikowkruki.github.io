@@ -27,7 +27,7 @@ import {
   type AdminDepartment,
 } from './about-us.ts';
 import { createFirestoreClient, type FirestoreLikeClient } from './firestore.ts';
-import { getMember, listAllMembers, saveMember, type MemberWritableFields } from './members.ts';
+import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, type MemberWritableFields } from './members.ts';
 import { applyForMembership, applyAdminTransition, listMembersByStatus, type AdminTransition } from './membership.ts';
 import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
@@ -717,6 +717,22 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
   const allMembers = await listAllMembers(deps.firestore);
   const sheetSyncStatus = await deps.sheetsClient.syncAllMembers(allMembers);
   sendJson(res, 200, { member, sheetSyncStatus });
+}
+
+// Admin panel counterpart to KRKG-0037's deferred driveFolderId gap (design.md §2/§6): lets an
+// admin link a member's account to a Drive folder that already exists under one of the public
+// About-Us categories (Blachowi/Niewiasty/Emeryci/Kandydaci), instead of a manual Firestore
+// console edit. folderId: null clears the link. Unlike the member-writable fields in
+// MemberWritableFields, driveFolderId is deliberately not member-settable - this is the one
+// admin-only write path for it (see setMemberDriveFolderId's comment).
+async function handleAdminSetMemberDriveFolder(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdminWithStepUp(req, res);
+  const { email, folderId } = await readJsonBody<{ email?: string; folderId?: string | null }>(req, deps.maxJsonBodyBytes);
+  if (!email) throw new AuthError('Brak email.', 400);
+  const member = await getMember(deps.firestore, email);
+  if (!member) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  await setMemberDriveFolderId(deps.firestore, email, folderId ?? null);
+  sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminMembersSynchronize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -1995,6 +2011,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminListMembers(req, res, url, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/members/transition') {
         await handleAdminMemberTransition(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/members/drive-folder') {
+        await handleAdminSetMemberDriveFolder(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/members/synchronize') {
         await handleAdminMembersSynchronize(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/redirects') {

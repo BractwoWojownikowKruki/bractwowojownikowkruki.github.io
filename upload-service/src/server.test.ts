@@ -1846,6 +1846,96 @@ test('POST /admin/members/transition still returns 200 (Firestore succeeded) eve
   });
 });
 
+test('PUT /admin/members/drive-folder links an existing member to a Drive folder', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', folderId: 'folder-xyz' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+  });
+  const stored = await client.getDoc<{ driveFolderId: string | null }>('members', 'ala@example.com');
+  assert.equal(stored?.driveFolderId, 'folder-xyz');
+});
+
+test('PUT /admin/members/drive-folder can clear a member\'s folder link by passing folderId: null', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: 'old-folder', status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', folderId: null }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ driveFolderId: string | null }>('members', 'ala@example.com');
+  assert.equal(stored?.driveFolderId, null);
+});
+
+test('PUT /admin/members/drive-folder 404s for an unknown member', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'nobody@example.com', folderId: 'folder-xyz' }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('PUT /admin/members/drive-folder rejects a missing email', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ folderId: 'folder-xyz' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/members/drive-folder requires step-up freshness (rejects a stale reauthAt)', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => {
+      throw new AuthError('Wymagane ponowne logowanie.', 401);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', folderId: 'folder-xyz' }),
+    });
+    assert.equal(res.status, 401);
+  });
+});
+
 test('POST /admin/members/synchronize syncs the full member list and requires step-up', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('members', 'a@example.com', {

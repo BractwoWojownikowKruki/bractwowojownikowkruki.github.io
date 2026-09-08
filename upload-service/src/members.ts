@@ -78,6 +78,24 @@ export async function saveMember(
   return record;
 }
 
+/**
+ * Admin-only write of the one deliberate exception to `driveFolderId` being admin-owned
+ * (see saveMember's comment): an admin linking a member's account to their existing Drive
+ * About-Us folder from the admin panel (KRKG-0037's deferred driveFolderId gap). Uses the same
+ * merging `setDoc` as saveMember, so no other field is touched. Throws if the member doc doesn't
+ * exist yet - there's no member identity to attach a folder to.
+ */
+export async function setMemberDriveFolderId(
+  client: FirestoreLikeClient,
+  email: string,
+  folderId: string | null,
+): Promise<void> {
+  const id = email.toLowerCase();
+  const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
+  if (!existing) throw new Error(`Nie znaleziono członka: ${id}`);
+  await client.setDoc(COLLECTION, id, { driveFolderId: folderId });
+}
+
 // Plan B (roster join, GET /lista-wyjazdowa/roster). KRKG-0046 added `email` to MemberDoc
 // itself, written by every function in this file - but falls back to the doc id for documents
 // seeded before that field existed (or seeded directly in tests without it), rather than

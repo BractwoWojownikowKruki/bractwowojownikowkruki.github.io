@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
-import { getMember, listAllMembers, saveMember } from './members.ts';
+import { getMember, listAllMembers, saveMember, setMemberDriveFolderId } from './members.ts';
 
 test('getMember returns null when no record exists', async () => {
   const client = createInMemoryFirestoreClient();
@@ -182,6 +182,59 @@ test('saveMember records the acting editor as updatedBy, distinct from the edite
   );
   assert.equal(updated.email, 'ala@example.test');
   assert.equal(updated.updatedBy, 'ksiegowy@example.test');
+});
+
+test('setMemberDriveFolderId sets driveFolderId on an existing member without touching other fields', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.test', {
+    email: 'ala@example.test',
+    fullName: 'Ala Kowalska',
+    nickname: 'Alka',
+    sectionId: 'krakow',
+    categoryId: 'blacha',
+    driveFolderId: null,
+    status: 'active',
+    appliedAt: '2026-01-01T00:00:00.000Z',
+    approvedAt: '2026-01-02T00:00:00.000Z',
+    approvedBy: 'admin@example.test',
+    updatedAt: '2026-01-02T00:00:00.000Z',
+    updatedBy: 'ala@example.test',
+  });
+
+  await setMemberDriveFolderId(client, 'ala@example.test', 'folder-xyz');
+
+  const stored = await getMember(client, 'ala@example.test');
+  assert.equal(stored?.driveFolderId, 'folder-xyz');
+  assert.equal(stored?.fullName, 'Ala Kowalska', 'unrelated fields must survive untouched');
+  assert.equal(stored?.categoryId, 'blacha', 'unrelated admin-owned fields must survive untouched');
+});
+
+test('setMemberDriveFolderId can clear driveFolderId back to null', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.test', {
+    email: 'ala@example.test',
+    fullName: 'Ala Kowalska',
+    nickname: null,
+    sectionId: 'krakow',
+    categoryId: null,
+    driveFolderId: 'folder-xyz',
+    status: 'active',
+    appliedAt: 'x',
+    approvedAt: null,
+    approvedBy: null,
+    updatedAt: 'x',
+    updatedBy: 'x',
+  });
+
+  await setMemberDriveFolderId(client, 'ala@example.test', null);
+
+  const stored = await getMember(client, 'ala@example.test');
+  assert.equal(stored?.driveFolderId, null);
+});
+
+test('setMemberDriveFolderId throws when the member does not exist', async () => {
+  const client = createInMemoryFirestoreClient();
+  await assert.rejects(() => setMemberDriveFolderId(client, 'nobody@example.test', 'folder-xyz'));
 });
 
 test('listAllMembers returns every member with email populated from the doc id', async () => {
