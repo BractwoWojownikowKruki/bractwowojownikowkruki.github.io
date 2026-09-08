@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zarządzanie ludźmi - Panel administracyjny - Bractwo Wojowników Kruki</title>
+  <meta name="robots" content="noindex, nofollow" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Zarządzanie ludźmi - Panel administracyjny - Bractwo Wojowników Kruki" />
+  <meta property="og:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+  <meta property="og:locale" content="pl_PL" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Zarządzanie ludźmi - Panel administracyjny - Bractwo Wojowników Kruki" />
+  <meta name="twitter:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+
+  <link rel="stylesheet" href="../../style.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <!-- PARTIAL:nav -->
+
+  <main style="max-width: 700px; margin: 2rem auto; padding: 0 1.25rem;">
+    <h1 style="font-family:'Cinzel',serif; color: var(--text); margin-bottom: 1.5rem;">Panel administracyjny - Zarządzanie ludźmi</h1>
+
+    <p class="auth-checking busy-sticker-loader--feature" id="admin-checking" role="status"><span class="busy-sticker-aura busy-sticker-aura--feature" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--feature" alt=""></span><span class="busy-sticker-label">PLEASE HOLD THE LINE...</span></p>
+    <div id="admin-signin" hidden>
+      <div id="google-signin-button"></div>
+    </div>
+
+    <div id="admin-forbidden" hidden>
+      <p style="color: var(--accent);">To konto nie ma uprawnień administratora.</p>
+    </div>
+
+    <div id="admin-reauth" hidden style="margin-bottom: 1.5rem;">
+      <p style="color: var(--text-muted); margin-bottom: 0.5rem;">Twoja sesja logowania wygasła. Zaloguj się ponownie, aby kontynuować.</p>
+      <div id="google-reauth-button"></div>
+    </div>
+
+    <div id="admin-panel" hidden>
+      <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Zalogowano jako <span id="admin-email"></span></p>
+
+      <section style="margin-bottom: 2rem;">
+        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Członkowie</h2>
+        <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
+          Sekcje/foldery, mapowanie do Dysku Google oraz rola (Księgowy/Admin) - rolę nadaje/odbiera tylko admin,
+          zmiana wymaga świeżego logowania.
+        </p>
+        <label style="display:block; margin-bottom:0.75rem;">
+          Status
+          <select id="membership-status-filter" style="display:block; width:100%; margin-top:4px;">
+            <option value="active">Aktywni</option>
+            <option value="suspended">Zawieszeni</option>
+            <option value="removed">Usunięci</option>
+            <option value="rejected">Odrzuceni</option>
+          </select>
+        </label>
+        <label style="display:block; margin-bottom:0.75rem;">
+          Filtruj
+          <input id="membership-members-filter" type="search" placeholder="Szukaj…" autocomplete="off" style="display:block; width:100%; margin-top:4px;" />
+        </label>
+        <div id="membership-members-list">Ładowanie...</div>
+      </section>
+
+      <section style="margin-bottom: 2rem;">
+        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Backup w arkuszu Google Sheets</h2>
+        <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
+          Kopia zapasowa listy członków - aktualizowana automatycznie przy każdej zmianie statusu. Użyj przycisku,
+          żeby wymusić pełną synchronizację (np. po awarii poprzedniego zapisu).
+        </p>
+        <button id="membership-synchronize" class="btn-add-album">Synchronizuj</button>
+        <p id="membership-synchronize-status" style="margin-top:0.5rem;"></p>
+      </section>
+    </div>
+  </main>
+
+  <script src="../../auth.js"></script>
+  <script src="../../nav.js"></script>
+  <script src="../admin-shared.js"></script>
+  <script src="zarzadzanie-ludzmi.js"></script>
+</body>
+</html>
