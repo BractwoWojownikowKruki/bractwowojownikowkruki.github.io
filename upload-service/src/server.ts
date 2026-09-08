@@ -45,7 +45,7 @@ import {
   listAuditLogForEvent,
   type SignupWritableFields,
 } from './signups.ts';
-import { getGrantedRoles, satisfiesRole, requireRole } from './roles.ts';
+import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles } from './roles.ts';
 import { listDuesForYear, saveDues, type DuesWritableFields, appendDuesAuditEntry, listDuesAuditLog } from './dues.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
@@ -740,6 +740,29 @@ async function handleAdminMembersSynchronize(req: IncomingMessage, res: ServerRe
   const allMembers = await listAllMembers(deps.firestore);
   const sheetSyncStatus = await deps.sheetsClient.syncAllMembers(allMembers);
   sendJson(res, 200, { sheetSyncStatus });
+}
+
+// KRKG-0049: admin-only role assignment UI (Zarządzanie ludźmi page) - the first way to grant
+// userRoles other than a direct Firestore-console edit. GET is a plain read (handleAdminListMembers
+// pattern); PUT uses the step-up gate like the other admin mutations here, since granting 'admin'
+// is the most privilege-sensitive write in this file.
+async function handleAdminListRoles(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req, res);
+  const roles = await listAllGrantedRoles(deps.firestore);
+  sendJson(res, 200, { roles });
+}
+
+const ASSIGNABLE_ROLES = ['accountant', 'admin'] as const;
+
+async function handleAdminSetRoles(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdminWithStepUp(req, res);
+  const { email, roles } = await readJsonBody<{ email?: string; roles?: string[] }>(req, deps.maxJsonBodyBytes);
+  if (!email) throw new AuthError('Brak email.', 400);
+  if (!Array.isArray(roles) || roles.some((r) => !(ASSIGNABLE_ROLES as readonly string[]).includes(r))) {
+    throw new AuthError('Nieprawidłowa rola.', 400);
+  }
+  await setGrantedRoles(deps.firestore, email, roles);
+  sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminListRedirects(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -2015,6 +2038,10 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminSetMemberDriveFolder(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/members/synchronize') {
         await handleAdminMembersSynchronize(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/roles') {
+        await handleAdminListRoles(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/roles') {
+        await handleAdminSetRoles(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/redirects') {
         await handleAdminListRedirects(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/redirects') {

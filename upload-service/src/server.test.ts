@@ -1936,6 +1936,111 @@ test('PUT /admin/members/drive-folder requires step-up freshness (rejects a stal
   });
 });
 
+test('GET /admin/roles lists granted roles', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('userRoles', 'ala@example.com', { roles: ['accountant'] });
+  const deps = makeDeps({ firestore: client });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/roles`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.roles, [{ email: 'ala@example.com', roles: ['accountant'] }]);
+  });
+});
+
+test('GET /admin/roles rejects an unauthenticated caller', async () => {
+  const deps = makeDeps({
+    authenticateAdmin: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/roles`);
+    assert.equal(res.status, 401);
+  });
+});
+
+test('PUT /admin/roles grants a role to a member', async () => {
+  const client = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/roles`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', roles: ['admin'] }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ roles: string[] }>('userRoles', 'ala@example.com');
+  assert.deepEqual(stored?.roles, ['admin']);
+});
+
+test('PUT /admin/roles can revoke every role by passing an empty array', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('userRoles', 'ala@example.com', { roles: ['accountant'] });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/roles`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', roles: [] }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ roles: string[] }>('userRoles', 'ala@example.com');
+  assert.deepEqual(stored?.roles, []);
+});
+
+test('PUT /admin/roles rejects an unknown role name', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/roles`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', roles: ['superadmin'] }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/roles rejects a missing email', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/roles`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ roles: ['admin'] }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/roles requires step-up freshness (rejects a stale reauthAt)', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => {
+      throw new AuthError('Wymagane ponowne logowanie.', 401);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/roles`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', roles: ['admin'] }),
+    });
+    assert.equal(res.status, 401);
+  });
+});
+
 test('POST /admin/members/synchronize syncs the full member list and requires step-up', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('members', 'a@example.com', {
