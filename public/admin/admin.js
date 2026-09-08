@@ -235,38 +235,128 @@ const MEMBERSHIP_ACTIONS_BY_STATUS = {
   rejected: [],
 };
 
+// The 4 public About-Us categories (about-us.ts's ABOUT_US_CATEGORIES) - deliberately all 4,
+// unlike TRANSFER_TARGET_CATEGORIES above (which excludes Emeryci for the unrelated
+// photo-transfer feature): a retired member can still be a logged-in Firestore member whose
+// account needs linking to their Emeryci folder.
+const DRIVE_FOLDER_LINK_CATEGORIES = ['Blachowi', 'Niewiasty', 'Emeryci', 'Kandydaci'];
+
+// Cached across loadMembershipMembers calls (status-filter changes, "usuń" actions) so switching
+// the status filter repeatedly doesn't re-fetch all 4 categories' folder lists every time - the
+// admin panel's own folder structure doesn't change within one open session.
+let driveFolderOptionsPromise = null;
+
+function loadDriveFolderOptions() {
+  if (!driveFolderOptionsPromise) {
+    driveFolderOptionsPromise = Promise.all(
+      DRIVE_FOLDER_LINK_CATEGORIES.map(category =>
+        apiFetch(`/admin/people?category=${encodeURIComponent(category)}`, { method: 'GET' }, showReauth, hideReauth),
+      ),
+    ).then(results => {
+      const options = [];
+      results.forEach((data, i) => {
+        for (const p of data.people || []) {
+          options.push({ folderId: p.folderId, label: `${DRIVE_FOLDER_LINK_CATEGORIES[i]} / ${p.name}` });
+        }
+      });
+      return options;
+    });
+  }
+  return driveFolderOptionsPromise;
+}
+
 async function loadMembershipMembers() {
   const status = document.getElementById('membership-status-filter').value;
   const list = document.getElementById('membership-members-list');
   list.textContent = 'Ładowanie...';
   try {
-    const { members } = await apiFetch(`/admin/members?status=${encodeURIComponent(status)}`, { method: 'GET' }, showReauth, hideReauth);
-    renderMembershipMembers(members, status);
+    const [{ members }, driveFolderOptions] = await Promise.all([
+      apiFetch(`/admin/members?status=${encodeURIComponent(status)}`, { method: 'GET' }, showReauth, hideReauth),
+      loadDriveFolderOptions(),
+    ]);
+    renderMembershipMembers(members, status, driveFolderOptions);
   } catch (err) {
     list.textContent = `Błąd: ${err.message}`;
   }
 }
 
-function renderMembershipMembers(members, status) {
+function renderMembershipMembers(members, status, driveFolderOptions) {
   const list = document.getElementById('membership-members-list');
   if (!members.length) {
     list.innerHTML = '<p>Brak członków w tym statusie.</p>';
     return;
   }
   const actions = MEMBERSHIP_ACTIONS_BY_STATUS[status] ?? [];
-  list.innerHTML = members
-    .map(
-      m => `
+  const labelByFolderId = new Map(driveFolderOptions.map(o => [o.folderId, o.label]));
+  const datalistHtml = `
+    <datalist id="drive-folder-datalist">
+      ${driveFolderOptions.map(o => `<option value="${escapeAttr(o.label)}"></option>`).join('')}
+    </datalist>`;
+  list.innerHTML =
+    datalistHtml +
+    members
+      .map(m => {
+        // A driveFolderId pointing at a folder outside the 4 linkable categories (staging
+        // "upload"/"deleted", or a folder since removed) has no known label - fall back to the
+        // raw id so the field isn't misleadingly blank, matching this codebase's existing
+        // convention of showing a raw id rather than hiding an unresolved reference (see
+        // KRKG-0037's known-gaps note on raw section-id fallbacks).
+        const currentValue = m.driveFolderId ? (labelByFolderId.get(m.driveFolderId) ?? m.driveFolderId) : '';
+        return `
     <div class="membership-member" data-email="${escapeAttr(m.email)}" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; padding:0.5rem 0; border-bottom:1px solid var(--border);">
       <div style="flex:1; min-width:200px;">
         <strong>${escapeHtml(m.fullName)}</strong>${m.nickname ? ` (${escapeHtml(m.nickname)})` : ''}
         <br><span style="color:var(--text-muted);">${escapeHtml(m.email)} - ${escapeHtml(m.sectionId)}</span>
       </div>
+      <div style="display:flex; align-items:center; gap:0.4rem;">
+        <input
+          type="text"
+          class="drive-folder-input"
+          list="drive-folder-datalist"
+          placeholder="Folder na stronie..."
+          value="${escapeAttr(currentValue)}"
+          style="width:220px; font-size:12px;"
+        />
+        <span class="drive-folder-saved" style="color:var(--gold);" hidden>✓</span>
+      </div>
       ${actions.map(a => `<button class="member-action" data-transition="${a.transition}" style="color:var(--gold);">${a.label}</button>`).join('')}
-    </div>`,
-    )
-    .join('');
+    </div>`;
+      })
+      .join('');
 }
+
+document.getElementById('membership-members-list').addEventListener('change', async e => {
+  const input = e.target.closest('.drive-folder-input');
+  if (!input) return;
+  const row = e.target.closest('.membership-member');
+  const email = row.dataset.email;
+  const savedIndicator = row.querySelector('.drive-folder-saved');
+  savedIndicator.hidden = true;
+
+  const typedLabel = input.value.trim();
+  let folderId = null;
+  if (typedLabel) {
+    const driveFolderOptions = await loadDriveFolderOptions();
+    const match = driveFolderOptions.find(o => o.label === typedLabel);
+    if (!match) {
+      window.alert(`Nie znaleziono folderu "${typedLabel}" na liście. Wybierz jedną z podpowiedzi.`);
+      return;
+    }
+    folderId = match.folderId;
+  }
+
+  try {
+    await apiFetch(
+      '/admin/members/drive-folder',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, folderId }) },
+      showReauth,
+      hideReauth,
+    );
+    savedIndicator.hidden = false;
+  } catch (err) {
+    window.alert(`Błąd: ${err.message}`);
+  }
+});
 
 document.getElementById('membership-status-filter').addEventListener('change', loadMembershipMembers);
 
