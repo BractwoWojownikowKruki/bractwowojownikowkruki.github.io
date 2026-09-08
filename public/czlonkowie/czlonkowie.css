@@ -83,20 +83,23 @@
   font-size: 0.9rem;
 }
 
-/* Accountant/admin-only inline edit row (KRKG-0047) - replaces a plain row in place when
-   "Edytuj" is clicked, see czlonkowie.js's renderEditRow(). */
-.czl-edit-row input,
-.czl-edit-row select {
+/* Accountant/admin-only inline-editable fields (KRKG-0047/KRKG-0049) - fullName/nickname/sectionId
+   render as these instead of plain text when canManageSkladki, saving on change (czlonkowie.js). */
+.czl-table td input.czl-field,
+.czl-table td select.czl-field {
   background: var(--surface-deep);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
-  padding: 0.35rem 0.5rem;
+  padding: 0.3rem 0.5rem;
+  font-size: inherit;
+  font-family: inherit;
   width: 100%;
+  min-width: 120px;
 }
 
-.czl-edit-error {
-  color: var(--accent);
-  font-size: 0.85rem;
-  margin-top: 0.35rem;
+.czl-table td input.czl-field:focus,
+.czl-table td select.czl-field:focus {
+  border-color: var(--accent);
+  outline: none;
 }

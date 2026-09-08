@@ -4,10 +4,11 @@
  * every member with site access is listed - including someone who's never filled in a profile,
  * shown here with an em dash instead of being missing from the table entirely.
  *
- * KRKG-0047 adds an accountant/admin-only "Edytuj" action per row, letting them fix another
- * member's Imię i nazwisko/Ksywa/Sekcja - reuses the same PUT /lista-wyjazdowa/member endpoint as
- * the self-service "Mój profil" form, with ?memberEmail= naming the target (see server.ts's
- * handleListaWyjazdowaPutMember).
+ * KRKG-0047 lets an accountant/admin fix another member's Imię i nazwisko/Ksywa/Sekcja directly
+ * from this table - reuses the same PUT /lista-wyjazdowa/member endpoint as the self-service
+ * "Mój profil" form, with ?memberEmail= naming the target (see server.ts's
+ * handleListaWyjazdowaPutMember). KRKG-0049 replaced the original per-row Edytuj/Zapisz/Anuluj
+ * flow with plain inline-editable fields that save on change - no edit mode to enter or leave.
  */
 
 function escapeHtml(str) {
@@ -45,8 +46,6 @@ let filterText = '';
 // controls whether the "Edytuj" action/column is offered at all.
 let canManageSkladki = false;
 let sections = [];
-// Email of the row currently expanded into an edit form, or null - only one row edits at a time.
-let editingEmail = null;
 
 function cell(value) {
   return value ? escapeHtml(value) : EMPTY;
@@ -60,23 +59,6 @@ function sectionOptions(currentSectionId) {
     .filter((s) => !s.retired || s.id === currentSectionId)
     .map((s) => `<option value="${escapeAttr(s.id)}" ${s.id === currentSectionId ? 'selected' : ''}>${escapeHtml(s.label)}</option>`)
     .join('');
-}
-
-function renderEditRow(member) {
-  const row = document.createElement('tr');
-  row.className = 'czl-edit-row';
-  row.innerHTML = `
-    <td><input type="text" class="czl-edit-fullname" value="${escapeAttr(member.fullName ?? '')}" placeholder="Imię i nazwisko" /></td>
-    <td><input type="text" class="czl-edit-nickname" value="${escapeAttr(member.nickname ?? '')}" placeholder="Ksywa" /></td>
-    <td><select class="czl-edit-section">${sectionOptions(member.sectionId)}</select></td>
-    <td>${escapeHtml(member.email)}</td>
-    <td>
-      <button type="button" class="czl-edit-save" data-email="${escapeAttr(member.email)}">Zapisz</button>
-      <button type="button" class="czl-edit-cancel">Anuluj</button>
-      <p class="czl-edit-error" hidden></p>
-    </td>
-  `;
-  return row;
 }
 
 function renderTable() {
@@ -98,17 +80,21 @@ function renderTable() {
   const tbody = document.getElementById('czl-table-body');
   tbody.replaceChildren();
   for (const m of sorted) {
-    if (m.email === editingEmail) {
-      tbody.append(renderEditRow(m));
-      continue;
-    }
     const row = document.createElement('tr');
+    const fullNameCell = canManageSkladki
+      ? `<input type="text" class="czl-field" data-email="${escapeAttr(m.email)}" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" />`
+      : cell(m.fullName);
+    const nicknameCell = canManageSkladki
+      ? `<input type="text" class="czl-field" data-email="${escapeAttr(m.email)}" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" />`
+      : cell(m.nickname);
+    const sectionCell = canManageSkladki
+      ? `<select class="czl-field" data-email="${escapeAttr(m.email)}" data-field="sectionId">${sectionOptions(m.sectionId)}</select>`
+      : cell(m.sectionLabel);
     row.innerHTML = `
-      <td class="${m.fullName ? '' : 'czl-empty'}">${cell(m.fullName)}</td>
-      <td class="${m.nickname ? '' : 'czl-empty'}">${cell(m.nickname)}</td>
-      <td class="${m.sectionLabel ? '' : 'czl-empty'}">${cell(m.sectionLabel)}</td>
+      <td class="${!canManageSkladki && !m.fullName ? 'czl-empty' : ''}">${fullNameCell}</td>
+      <td class="${!canManageSkladki && !m.nickname ? 'czl-empty' : ''}">${nicknameCell}</td>
+      <td class="${!canManageSkladki && !m.sectionLabel ? 'czl-empty' : ''}">${sectionCell}</td>
       <td>${escapeHtml(m.email)}</td>
-      ${canManageSkladki ? `<td><button type="button" class="czl-edit-start" data-email="${escapeAttr(m.email)}">Edytuj</button></td>` : ''}
     `;
     tbody.append(row);
   }
@@ -117,7 +103,6 @@ function renderTable() {
     filtered.length === members.length
       ? `Liczba członków: ${members.length}`
       : `Liczba członków: ${filtered.length} / ${members.length}`;
-  document.getElementById('czl-actions-header').hidden = !canManageSkladki;
 
   document.querySelectorAll('#czl-table thead th[data-sort-key]').forEach((th) => {
     const isActive = th.dataset.sortKey === sortKey;
@@ -143,13 +128,20 @@ document.querySelectorAll('#czl-table thead th[data-sort-key]').forEach((th) => 
   });
 });
 
-async function saveMemberEdit(email, row) {
-  const errorEl = row.querySelector('.czl-edit-error');
-  errorEl.hidden = true;
+// Saves all 3 editable fields together (the endpoint takes them as one PUT, not per-field) using
+// each field's *current* DOM value, not just the one that just changed - so editing fullName then
+// tabbing to nickname sends the already-updated fullName along with it, not a stale copy. Doesn't
+// call renderTable() on success: re-rendering would resort the table out from under whichever
+// field the admin is about to edit next (e.g. sorted by "Imię i nazwisko" while renaming someone),
+// so `members` is patched in place instead and the DOM is left exactly as the admin sees it.
+async function saveMemberField(row, email) {
+  const fullNameInput = row.querySelector('[data-field="fullName"]');
+  const nicknameInput = row.querySelector('[data-field="nickname"]');
+  const sectionSelect = row.querySelector('[data-field="sectionId"]');
+  const fullName = fullNameInput.value.trim();
+  const nickname = nicknameInput.value.trim();
+  const sectionId = sectionSelect.value;
   try {
-    const fullName = row.querySelector('.czl-edit-fullname').value.trim();
-    const nickname = row.querySelector('.czl-edit-nickname').value.trim();
-    const sectionId = row.querySelector('.czl-edit-section').value;
     await apiFetch(
       `/lista-wyjazdowa/member?memberEmail=${encodeURIComponent(email)}`,
       {
@@ -160,33 +152,22 @@ async function saveMemberEdit(email, row) {
       showReauth,
       hideReauth,
     );
-    editingEmail = null;
-    const { members: fetched } = await apiFetch('/members/directory', { method: 'GET' }, showReauth, hideReauth);
-    members = fetched;
-    renderTable();
+    const member = members.find((m) => m.email === email);
+    if (member) {
+      member.fullName = fullName || null;
+      member.nickname = nickname || null;
+      member.sectionId = sectionId;
+      member.sectionLabel = sections.find((s) => s.id === sectionId)?.label ?? member.sectionLabel;
+    }
   } catch (err) {
-    errorEl.textContent = `Błąd: ${err.message}`;
-    errorEl.hidden = false;
+    window.alert(`Błąd zapisu: ${err.message}`);
   }
 }
 
-document.getElementById('czl-table-body').addEventListener('click', (e) => {
-  const startBtn = e.target.closest('.czl-edit-start');
-  if (startBtn) {
-    editingEmail = startBtn.dataset.email;
-    renderTable();
-    return;
-  }
-  const cancelBtn = e.target.closest('.czl-edit-cancel');
-  if (cancelBtn) {
-    editingEmail = null;
-    renderTable();
-    return;
-  }
-  const saveBtn = e.target.closest('.czl-edit-save');
-  if (saveBtn) {
-    saveMemberEdit(saveBtn.dataset.email, saveBtn.closest('tr'));
-  }
+document.getElementById('czl-table-body').addEventListener('change', (e) => {
+  const field = e.target.closest('.czl-field');
+  if (!field) return;
+  saveMemberField(field.closest('tr'), field.dataset.email);
 });
 
 initGoogleSignIn({
