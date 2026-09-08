@@ -38,6 +38,7 @@ const EMPTY = '—';
 let members = [];
 let sortKey = 'email';
 let sortDir = 'asc';
+let filterText = '';
 
 // Set from GET /lista-wyjazdowa/my-role, same accountant/admin gate as the Składki page's
 // toggle/kwota controls - the server re-checks the role on every PUT regardless, this only
@@ -79,7 +80,15 @@ function renderEditRow(member) {
 }
 
 function renderTable() {
-  const sorted = [...members].sort((a, b) => {
+  const needle = filterText.trim().toLocaleLowerCase('pl');
+  const filtered = !needle
+    ? members
+    : members.filter((m) =>
+        [m.fullName, m.nickname, m.sectionLabel, m.email].some((v) =>
+          (v ?? '').toString().toLocaleLowerCase('pl').includes(needle),
+        ),
+      );
+  const sorted = [...filtered].sort((a, b) => {
     const av = (a[sortKey] ?? '').toString().toLocaleLowerCase('pl');
     const bv = (b[sortKey] ?? '').toString().toLocaleLowerCase('pl');
     const cmp = av.localeCompare(bv, 'pl');
@@ -104,7 +113,10 @@ function renderTable() {
     tbody.append(row);
   }
 
-  document.getElementById('czl-count').textContent = `Liczba członków: ${members.length}`;
+  document.getElementById('czl-count').textContent =
+    filtered.length === members.length
+      ? `Liczba członków: ${members.length}`
+      : `Liczba członków: ${filtered.length} / ${members.length}`;
   document.getElementById('czl-actions-header').hidden = !canManageSkladki;
 
   document.querySelectorAll('#czl-table thead th[data-sort-key]').forEach((th) => {
@@ -112,6 +124,11 @@ function renderTable() {
     th.setAttribute('aria-sort', isActive ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none');
   });
 }
+
+document.getElementById('czl-filter').addEventListener('input', (e) => {
+  filterText = e.target.value;
+  renderTable();
+});
 
 document.querySelectorAll('#czl-table thead th[data-sort-key]').forEach((th) => {
   th.querySelector('button').addEventListener('click', () => {

@@ -265,6 +265,10 @@ function loadDriveFolderOptions() {
   return driveFolderOptionsPromise;
 }
 
+// Cached from the last successful load so the free-text filter can re-render instantly without
+// re-fetching - cleared/replaced on every status change or data-changing action.
+let membershipMembersCache = { members: [], status: 'active', driveFolderOptions: [] };
+
 async function loadMembershipMembers() {
   const status = document.getElementById('membership-status-filter').value;
   const list = document.getElementById('membership-members-list');
@@ -274,11 +278,25 @@ async function loadMembershipMembers() {
       apiFetch(`/admin/members?status=${encodeURIComponent(status)}`, { method: 'GET' }, showReauth, hideReauth),
       loadDriveFolderOptions(),
     ]);
-    renderMembershipMembers(members, status, driveFolderOptions);
+    membershipMembersCache = { members, status, driveFolderOptions };
+    renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions);
   } catch (err) {
     list.textContent = `Błąd: ${err.message}`;
   }
 }
+
+function filterMembershipMembers(members) {
+  const needle = document.getElementById('membership-members-filter').value.trim().toLocaleLowerCase('pl');
+  if (!needle) return members;
+  return members.filter(m =>
+    [m.fullName, m.nickname, m.email, m.sectionId].some(v => (v ?? '').toString().toLocaleLowerCase('pl').includes(needle)),
+  );
+}
+
+document.getElementById('membership-members-filter').addEventListener('input', () => {
+  const { members, status, driveFolderOptions } = membershipMembersCache;
+  renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions);
+});
 
 function renderMembershipMembers(members, status, driveFolderOptions) {
   const list = document.getElementById('membership-members-list');
@@ -303,7 +321,7 @@ function renderMembershipMembers(members, status, driveFolderOptions) {
         // KRKG-0037's known-gaps note on raw section-id fallbacks).
         const currentValue = m.driveFolderId ? (labelByFolderId.get(m.driveFolderId) ?? m.driveFolderId) : '';
         return `
-    <div class="membership-member" data-email="${escapeAttr(m.email)}" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; padding:0.5rem 0; border-bottom:1px solid var(--border);">
+    <div class="membership-member" data-email="${escapeAttr(m.email)}" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; padding:0.3rem 0; border-bottom:1px solid var(--border);">
       <div style="flex:1; min-width:200px;">
         <strong>${escapeHtml(m.fullName)}</strong>${m.nickname ? ` (${escapeHtml(m.nickname)})` : ''}
         <br><span style="color:var(--text-muted);">${escapeHtml(m.email)} - ${escapeHtml(m.sectionId)}</span>
@@ -353,6 +371,8 @@ document.getElementById('membership-members-list').addEventListener('change', as
       hideReauth,
     );
     savedIndicator.hidden = false;
+    const cached = membershipMembersCache.members.find(m => m.email === email);
+    if (cached) cached.driveFolderId = folderId;
   } catch (err) {
     window.alert(`Błąd: ${err.message}`);
   }

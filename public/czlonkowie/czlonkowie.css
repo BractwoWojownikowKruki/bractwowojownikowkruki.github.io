@@ -2,6 +2,11 @@
  * no JS dependency of that kind anywhere else (only vendored cropperjs, kept because cropping is
  * genuinely non-trivial to hand-roll) and this table's sort is ~20 lines, see czlonkowie.js. */
 
+.czl-filter-wrap {
+  max-width: 320px;
+  margin-bottom: 0.75rem;
+}
+
 .czl-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);
@@ -11,13 +16,13 @@
 .czl-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 .czl-table th,
 .czl-table td {
   text-align: left;
-  padding: 0.6rem 0.9rem;
+  padding: 0.35rem 0.7rem;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
@@ -34,7 +39,7 @@
   align-items: center;
   gap: 0.35rem;
   width: 100%;
-  padding: 0.6rem 0.9rem;
+  padding: 0.4rem 0.7rem;
   color: var(--text-muted);
   font-weight: 700;
 }
