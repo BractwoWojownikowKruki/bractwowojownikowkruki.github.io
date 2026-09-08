@@ -21,24 +21,26 @@
 <body>
   <!-- PARTIAL:nav -->
 
-  <main style="max-width: 700px; margin: 2rem auto; padding: 0 1.25rem;">
-    <h1 style="font-family:'Cinzel',serif; color: var(--text); margin-bottom: 1.5rem;">Panel administracyjny - Publiczne wizytówki</h1>
+  <main class="main-content">
+    <div class="content-left">
+      <section class="content-section">
+        <h1>Panel administracyjny - Publiczne wizytówki</h1>
 
-    <p class="auth-checking busy-sticker-loader--feature" id="admin-checking" role="status"><span class="busy-sticker-aura busy-sticker-aura--feature" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--feature" alt=""></span><span class="busy-sticker-label">PLEASE HOLD THE LINE...</span></p>
-    <div id="admin-signin" hidden>
-      <div id="google-signin-button"></div>
-    </div>
+        <p class="auth-checking busy-sticker-loader--feature" id="admin-checking" role="status"><span class="busy-sticker-aura busy-sticker-aura--feature" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--feature" alt=""></span><span class="busy-sticker-label">PLEASE HOLD THE LINE...</span></p>
+        <div id="admin-signin" hidden>
+          <div id="google-signin-button"></div>
+        </div>
 
-    <div id="admin-forbidden" hidden>
-      <p style="color: var(--accent);">To konto nie ma uprawnień administratora.</p>
-    </div>
+        <div id="admin-forbidden" hidden>
+          <p style="color: var(--accent);">To konto nie ma uprawnień administratora.</p>
+        </div>
 
-    <div id="admin-reauth" hidden style="margin-bottom: 1.5rem;">
-      <p style="color: var(--text-muted); margin-bottom: 0.5rem;">Twoja sesja logowania wygasła. Zaloguj się ponownie, aby kontynuować.</p>
-      <div id="google-reauth-button"></div>
-    </div>
+        <div id="admin-reauth" hidden style="margin-bottom: 1.5rem;">
+          <p style="color: var(--text-muted); margin-bottom: 0.5rem;">Twoja sesja logowania wygasła. Zaloguj się ponownie, aby kontynuować.</p>
+          <div id="google-reauth-button"></div>
+        </div>
 
-    <div id="admin-panel" hidden>
+        <div id="admin-panel" hidden>
       <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Zalogowano jako <span id="admin-email"></span></p>
 
       <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
@@ -93,8 +95,14 @@
         </label>
         <div id="manage-people-list"></div>
       </section>
+        </div>
+      </section>
     </div>
+
+    <!-- PARTIAL:admin_sidebar -->
   </main>
+
+  <!-- PARTIAL:footer -->
 
   <script src="../../auth.js"></script>
   <script src="../../nav.js"></script>

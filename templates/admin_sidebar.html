@@ -1,0 +1,14 @@
+    <aside class="content-right">
+      <!-- Admin panel's sidebar (KRKG-0049): same Strefa Członków box as social_sidebar.html,
+           without the youtube/instagram embeds - those aren't relevant to an admin working the
+           panel, and the extra network calls/CORS noise they generate aren't worth it here. -->
+      <div class="members-zone-sidebar members-zone-container" id="members-zone-sidebar" hidden>
+        <div class="members-zone-sidebar-label">
+          <span class="members-zone-icon" aria-hidden="true"></span>
+          Strefa Członków
+        </div>
+        <div class="members-zone-links" data-members-zone-flavor="sidebar"></div>
+        <button type="button" class="members-zone-install" data-pwa-install aria-describedby="pwa-install-sidebar-message" hidden>Zainstaluj</button>
+        <p class="members-zone-install-message" id="pwa-install-sidebar-message" data-pwa-install-message role="status" aria-live="polite" hidden></p>
+      </div>
+    </aside>
