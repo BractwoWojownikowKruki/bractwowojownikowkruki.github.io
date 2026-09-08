@@ -69,9 +69,18 @@ function selectableLookupItems(items, selectedIds) {
 }
 
 function populateSectionSelect(select, sections, currentSectionId) {
-  select.innerHTML = selectableLookupItems(sections, currentSectionId ? [currentSectionId] : [])
-    .map((s) => `<option value="${escapeAttr(s.id)}">${escapeHtml(s.label)}</option>`)
-    .join('');
+  const options = selectableLookupItems(sections, currentSectionId ? [currentSectionId] : [])
+    .map((s) => `<option value="${escapeAttr(s.id)}">${escapeHtml(s.label)}</option>`);
+  // currentSectionId with no matching lookup-list entry at all (e.g. "nieznana", the migration
+  // script's fallback for a member with no known section) would otherwise have no <option> to
+  // select - the caller's `form.sectionId.value = member.sectionId` a few lines down then
+  // silently no-ops, leaving whichever option happens to render first selected instead, and the
+  // next profile save would overwrite the member's actual sectionId with that wrong one. Shown
+  // with the raw id as its own label, same convention as czlonkowie.js's fallback.
+  if (currentSectionId && !sections.some((s) => s.id === currentSectionId)) {
+    options.unshift(`<option value="${escapeAttr(currentSectionId)}">${escapeHtml(currentSectionId)}</option>`);
+  }
+  select.innerHTML = options.join('');
 }
 
 function populateWeaponCheckboxes(container, weapons, currentWeaponIds) {

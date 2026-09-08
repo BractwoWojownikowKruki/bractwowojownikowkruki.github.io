@@ -20,6 +20,10 @@ const sections = ['Bydgoszcz', 'Czukcze', 'Kraków', 'Poznań', 'Warszawa', 'Wro
   label,
   retired: false,
 }));
+// migrate-existing-members.ts defaults an unrecognized member to sectionId "nieznana" - added
+// here so the Sekcja dropdown (czlonkowie.js/profil.js) offers a proper "Nieznana" label for it
+// instead of falling back to showing the raw id.
+sections.push({ id: 'nieznana', label: 'Nieznana', retired: false });
 
 const categories = ['Brokuł', 'Kandydat', 'Blacha', 'Thing', 'Niewiasta', 'Bobo', 'Inne'].map((label) => ({
   id: slugify(label),

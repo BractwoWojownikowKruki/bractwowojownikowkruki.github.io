@@ -55,10 +55,20 @@ function cell(value) {
 // *new* selection, but must still resolve for a member who already has it - offered only when
 // currentSectionId matches, so re-saving that member doesn't silently blank/change their section.
 function sectionOptions(currentSectionId) {
-  return sections
+  const options = sections
     .filter((s) => !s.retired || s.id === currentSectionId)
-    .map((s) => `<option value="${escapeAttr(s.id)}" ${s.id === currentSectionId ? 'selected' : ''}>${escapeHtml(s.label)}</option>`)
-    .join('');
+    .map((s) => `<option value="${escapeAttr(s.id)}" ${s.id === currentSectionId ? 'selected' : ''}>${escapeHtml(s.label)}</option>`);
+  // A sectionId with no matching lookupLists/sections entry at all (e.g. "nieznana", the
+  // migration script's fallback for a member with no known section - see
+  // migrate-existing-members.ts) would otherwise vanish from the dropdown entirely: the browser
+  // then silently selects the first real option instead of "nieznana", and the next inline-field
+  // save (KRKG-0049) would overwrite that member's actual sectionId with the wrong one. Shown
+  // with the raw id as its own label, same convention as the admin panel's driveFolderId fallback
+  // (KRKG-0037's known-gaps note) - never hide an unresolved reference.
+  if (currentSectionId && !sections.some((s) => s.id === currentSectionId)) {
+    options.unshift(`<option value="${escapeAttr(currentSectionId)}" selected>${escapeHtml(currentSectionId)}</option>`);
+  }
+  return options.join('');
 }
 
 function renderTable() {
