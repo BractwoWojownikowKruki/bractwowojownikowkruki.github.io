@@ -15,6 +15,11 @@ export interface MemberDoc {
   approvedBy: string | null;
   updatedAt: string;
   updatedBy: string;
+  // KRKG-0049: set by recordLastLogin below, called from handleSessionLogin on every real
+  // Google Sign-In (not every page load - the session cookie carries an existing sign-in past
+  // that). null until this member's first login recorded under this field, which for anyone
+  // approved before KRKG-0049 shipped means null-until-next-sign-in, not "never signed in".
+  lastLoginAt: string | null;
 }
 
 export interface MemberWritableFields {
@@ -73,6 +78,7 @@ export async function saveMember(
         appliedAt: now,
         approvedAt: null,
         approvedBy: null,
+        lastLoginAt: null,
       };
   await client.setDoc(COLLECTION, id, record);
   return record;
@@ -94,6 +100,18 @@ export async function setMemberDriveFolderId(
   const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
   if (!existing) throw new Error(`Nie znaleziono członka: ${id}`);
   await client.setDoc(COLLECTION, id, { driveFolderId: folderId });
+}
+
+// KRKG-0049: called from handleSessionLogin on every real Google Sign-In. Silently does nothing
+// for an email with no members/{email} doc (never applied, or a stray/unrelated Google account) -
+// unlike setMemberDriveFolderId above, a login must never fail because of this side effect, and
+// creating a bare partial doc via a merging setDoc on a nonexistent id would otherwise plant a
+// garbage member record missing every other required field.
+export async function recordLastLogin(client: FirestoreLikeClient, email: string): Promise<void> {
+  const id = email.toLowerCase();
+  const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
+  if (!existing) return;
+  await client.setDoc(COLLECTION, id, { lastLoginAt: new Date().toISOString() });
 }
 
 // Plan B (roster join, GET /lista-wyjazdowa/roster). KRKG-0046 added `email` to MemberDoc

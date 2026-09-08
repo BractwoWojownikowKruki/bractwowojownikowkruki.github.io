@@ -110,6 +110,7 @@ export async function migrateActiveMembers(
           approvedBy: 'migration-script',
           updatedAt: now,
           updatedBy: 'migration-script',
+          lastLoginAt: null,
         };
         await client.setDoc('members', email, record);
       }

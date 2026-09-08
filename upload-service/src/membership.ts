@@ -48,6 +48,7 @@ export async function applyForMembership(
       approvedBy: existing?.approvedBy ?? null,
       updatedAt: now,
       updatedBy: id,
+      lastLoginAt: existing?.lastLoginAt ?? null,
     };
     await tx.setDoc('members', id, record);
     return record;

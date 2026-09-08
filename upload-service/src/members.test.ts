@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
-import { getMember, listAllMembers, saveMember, setMemberDriveFolderId } from './members.ts';
+import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, recordLastLogin } from './members.ts';
 
 test('getMember returns null when no record exists', async () => {
   const client = createInMemoryFirestoreClient();
@@ -235,6 +235,38 @@ test('setMemberDriveFolderId can clear driveFolderId back to null', async () => 
 test('setMemberDriveFolderId throws when the member does not exist', async () => {
   const client = createInMemoryFirestoreClient();
   await assert.rejects(() => setMemberDriveFolderId(client, 'nobody@example.test', 'folder-xyz'));
+});
+
+test('recordLastLogin sets lastLoginAt on an existing member without touching other fields', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.test', {
+    email: 'ala@example.test',
+    fullName: 'Ala Kowalska',
+    nickname: 'Alka',
+    sectionId: 'krakow',
+    categoryId: 'blacha',
+    driveFolderId: null,
+    status: 'active',
+    appliedAt: '2026-01-01T00:00:00.000Z',
+    approvedAt: '2026-01-02T00:00:00.000Z',
+    approvedBy: 'admin@example.test',
+    updatedAt: '2026-01-02T00:00:00.000Z',
+    updatedBy: 'ala@example.test',
+    lastLoginAt: null,
+  });
+
+  await recordLastLogin(client, 'ala@example.test');
+
+  const stored = await getMember(client, 'ala@example.test');
+  assert.equal(typeof stored?.lastLoginAt, 'string');
+  assert.equal(stored?.fullName, 'Ala Kowalska', 'unrelated fields must survive untouched');
+});
+
+test('recordLastLogin is a silent no-op when the member does not exist', async () => {
+  const client = createInMemoryFirestoreClient();
+  await recordLastLogin(client, 'nobody@example.test');
+  const stored = await getMember(client, 'nobody@example.test');
+  assert.equal(stored, null, 'must not plant a partial member doc for an unrelated Google account');
 });
 
 test('listAllMembers returns every member with email populated from the doc id', async () => {

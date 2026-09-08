@@ -27,7 +27,7 @@ import {
   type AdminDepartment,
 } from './about-us.ts';
 import { createFirestoreClient, type FirestoreLikeClient } from './firestore.ts';
-import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, type MemberWritableFields } from './members.ts';
+import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, recordLastLogin, type MemberWritableFields } from './members.ts';
 import { applyForMembership, applyAdminTransition, listMembersByStatus, type AdminTransition } from './membership.ts';
 import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
@@ -572,6 +572,10 @@ async function handleSessionLogin(req: IncomingMessage, res: ServerResponse, dep
   const now = Date.now();
   const token = issueSessionToken(identity, deps.sessionSigningKeys[0], now, deps.sessionSlidingWindowMs);
   setSessionCookie(res, token, deps.sessionSlidingWindowMs);
+  // KRKG-0049: recorded once per real sign-in (not per page load, since a returning visit reuses
+  // the session cookie without ever hitting this endpoint again) - a no-op for anyone with no
+  // members/{email} doc, see recordLastLogin's comment.
+  await recordLastLogin(deps.firestore, identity.email);
   sendJson(res, 200, identityResponseBody(identity));
 }
 

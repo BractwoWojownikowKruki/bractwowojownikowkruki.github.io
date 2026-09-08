@@ -519,6 +519,29 @@ test('POST /session/login issues a cookie even for an email with no membership r
   });
 });
 
+test('POST /session/login records lastLoginAt for an existing member', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'alice@gmail.com', {
+    email: 'alice@gmail.com', fullName: 'Alice', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x',
+    approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x', lastLoginAt: null,
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'fake-google-id-token' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ lastLoginAt: string | null }>('members', 'alice@gmail.com');
+  assert.equal(typeof stored?.lastLoginAt, 'string');
+});
+
 test('POST /session/login rejects a body with no idToken', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {

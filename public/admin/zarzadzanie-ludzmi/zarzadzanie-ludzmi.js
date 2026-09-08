@@ -188,6 +188,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       <div style="flex:1; min-width:200px;">
         <strong>${escapeHtml(m.fullName)}</strong>${m.nickname ? ` (${escapeHtml(m.nickname)})` : ''}
         <br><span style="color:var(--text-muted);">${escapeHtml(m.email)} - ${escapeHtml(m.sectionId)}</span>
+        <br><span style="color:var(--text-faint); font-size:12px;">Ostatnie logowanie: ${m.lastLoginAt ? escapeHtml(formatDateTime(m.lastLoginAt)) : 'Nigdy'}</span>
       </div>
       <div style="display:flex; align-items:center; gap:0.4rem;">
         <input
