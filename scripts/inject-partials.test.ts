@@ -164,8 +164,8 @@ test('protected entry points begin with the shared session-checking message, not
 
   for (const page of protectedPages) {
     const html = await readFile(new URL(page, import.meta.url), 'utf8');
-    assert.match(html, /class="auth-checking"[^>]*role="status"/);
-    assert.match(html, /Please hold the line\.\.\./);
+    assert.match(html, /class="[^"]*\bauth-checking\b[^"]*"[^>]*role="status"/);
+    assert.match(html, /<span class="busy-sticker-label">PLEASE HOLD THE LINE\.\.\.<\/span>/);
   }
 });
 

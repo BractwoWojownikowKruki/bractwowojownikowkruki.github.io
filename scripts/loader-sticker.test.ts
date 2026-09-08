@@ -9,6 +9,7 @@ import { test } from 'node:test';
 const staticLoaderSources = [
   'templates/nav.html',
   'public/admin/index.html',
+  'public/czlonkowie/index.html',
   'public/galerie/dodaj-galerie.html',
   'public/galerie/dodaj-zdjecia.html',
   'public/galerie/index.html',
@@ -25,6 +26,7 @@ const staticLoaderSources = [
   'public/wojownicy/niewiasty/index.html',
   'public/wojownicy/wrzuc/index.html',
   'public/zasady-bractwa/index.html',
+  'public/zgloszenie/index.html',
   'public/index.html',
   'templates/social_sidebar.html',
 ];
@@ -58,6 +60,27 @@ test('keeps an initial session check visible for at least one second without del
   assert.match(auth, /Math\.max\(0, MINIMUM_SESSION_CHECKING_MS - \(Date\.now\(\) - sessionCheckStartedAt\)\)/);
   assert.match(auth, /identity => afterMinimumSessionChecking\(\(\) => onSignedIn\?\.\(identity\)\)/);
   assert.match(auth, /err => afterMinimumSessionChecking\(\(\) => notifyAuthFailure\(\{ onSignedOut, onForbidden \}, err\)\)/);
+});
+
+test('uses one shared large renderer in every full-page loading context', async () => {
+  const css = await readFile(new URL('../public/style.css', import.meta.url), 'utf8');
+
+  assert.match(css, /\.busy-sticker-loader--feature\s*\{[\s\S]*animation:\s*busy-sticker-sway/);
+  assert.match(css, /\.busy-sticker-aura--feature\s*\{[\s\S]*width:\s*min\(100%,\s*200px\)/);
+  assert.match(css, /\.busy-sticker-label\s*\{[^}]*font-size:\s*10px/);
+
+  for (const source of staticLoaderSources.filter(source => source !== 'templates/nav.html')) {
+    const html = await readFile(new URL(`../${source}`, import.meta.url), 'utf8');
+    const loaders = html.match(loaderContext) ?? [];
+
+    for (const loader of loaders) {
+      assert.match(loader, /\bbusy-sticker-loader--feature\b/, `${source} should use the full-page renderer`);
+      assert.match(loader, /busy-sticker-aura--feature/, `${source} should size the large sticker`);
+      assert.match(loader, /busy-sticker--feature/, `${source} should keep sway on the renderer`);
+      assert.equal((loader.match(/<span class="busy-sticker-label">PLEASE HOLD THE LINE\.\.\.<\/span>/g) ?? []).length, 1, `${source} should render one label`);
+      assert.equal((loader.match(/Please hold the line\.\.\./gi) ?? []).length, 1, `${source} should not retain duplicate loader text`);
+    }
+  }
 });
 
 test('uses the Hold the Line sticker in every static loading context', async () => {
@@ -99,8 +122,8 @@ test('uses the shared Hold the Line sticker in gallery list and page loading sta
     .replace(/<div class="(?:drive-hero-image-wrap|lightbox-image-wrap)">[\s\S]*?<\/div>/g, '')
     .match(/<span class="spinner"><\/span>/g) ?? [];
 
-  assert.match(app, /const BUSY_STICKER = '<span class="busy-sticker-aura" aria-hidden="true"><img src="\/icons\/hold-the-line\.png" class="busy-sticker" alt=""><\/span>';/);
-  assert.match(app, /id="drive-gallery-status">\$\{BUSY_STICKER\} Ładowanie…<\/p>/);
+  assert.match(app, /const BUSY_STICKER = '<span class="busy-sticker-aura busy-sticker-aura--feature" aria-hidden="true"><img src="\/icons\/hold-the-line\.png" class="busy-sticker busy-sticker--feature" alt=""><\/span><span class="busy-sticker-label">PLEASE HOLD THE LINE\.\.\.<\/span>';/);
+  assert.match(app, /class="drive-gallery-status busy-sticker-loader--feature" id="drive-gallery-status">\$\{BUSY_STICKER\}<\/p>/);
   assert.equal(legacySpinnersOutsideImageOverlays.length, 0, 'gallery app should retain legacy spinners only inside image overlays');
   assert.equal((app.match(/<span class="spinner"><\/span>/g) ?? []).length, 3, 'gallery image overlays should retain their image-load spinners');
   assert.match(app, /<div class="drive-hero-image-wrap">[\s\S]*?<span class="spinner"><\/span>[\s\S]*?<\/div>/);
