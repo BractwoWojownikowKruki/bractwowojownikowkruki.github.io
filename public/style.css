@@ -12,7 +12,59 @@
   --text:         #f5e6c8;
   --text-muted:   #a89070;
   --text-faint:   #6b5340;
+
+  /* KRKG-0051: one color per Sekcja (lookupLists/sections id -> hex), the single place a
+     section's color is declared - every page that shows Sekcja (Spis Ludności, Zarządzanie
+     ludźmi, Lista Wyjazdowa, Składki) reads it from here via the [data-section="..."] rules
+     below, never a hardcoded hex in any page's own JS/CSS. Change a section's color by editing
+     exactly one line here. --section-color-default covers any sectionId with no rule below (a
+     newly added section not yet assigned a color, or an unresolved/legacy id like "nieznana"). */
+  --section-color-bydgoszcz: #4f8fd6;
+  --section-color-czukcze:   #a374d6;
+  --section-color-krakow:    #8a8578;
+  --section-color-poznan:    #d6524f;
+  --section-color-warszawa:  #e0b93f;
+  --section-color-wroclaw:   #5cae6a;
+  --section-color-default:   #8a8578;
 }
+
+[data-section="bydgoszcz"] { --section-c: var(--section-color-bydgoszcz); }
+[data-section="czukcze"]   { --section-c: var(--section-color-czukcze); }
+[data-section="krakow"]    { --section-c: var(--section-color-krakow); }
+[data-section="poznan"]    { --section-c: var(--section-color-poznan); }
+[data-section="warszawa"]  { --section-c: var(--section-color-warszawa); }
+[data-section="wroclaw"]   { --section-c: var(--section-color-wroclaw); }
+
+/* Rendered by each page's own sectionPillHtml()/sectionDotHtml() helper (duplicated per page,
+   same convention as escapeHtml - but every one of them only ever emits data-section, never a
+   color value, so the colors above stay the single source of truth). --section-c is set by the
+   [data-section] rules above, inherited from an ancestor when the pill/dot itself has no
+   data-section of its own (e.g. Lista Wyjazdowa's per-row accent inheriting the group's section). */
+.section-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.85em;
+  font-weight: 600;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--section-c, var(--section-color-default)) 24%, var(--surface-deep));
+  color: color-mix(in srgb, var(--section-c, var(--section-color-default)) 60%, white);
+}
+
+.section-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--section-c, var(--section-color-default));
+  flex: none;
+}
+
+/* .section-row-accent itself is declared at the very end of this file (search for it there) -
+   it overrides a `border: ...` shorthand (e.g. .lw-roster-row's), and CSS resolves that kind of
+   same-specificity clash by source order, not by which rule "looks" more specific - defined here
+   it would just get clobbered by every row class's own border rule further down the file. */
 
 body {
   background: var(--bg);
@@ -3737,4 +3789,13 @@ button.lw-skladka-icon:disabled {
   .lw-skladki-row button {
     align-self: flex-start;
   }
+}
+
+/* KRKG-0051: kept at the very end of the file on purpose - see the comment near .section-dot.
+   Overrides only the left edge of whichever row class this is combined with (.lw-roster-row,
+   .lw-skladki-row, .czl-table's own row styling, ...), leaving that class's own border-width/
+   style/radius on the other three sides untouched. */
+.section-row-accent {
+  border-left-width: 4px;
+  border-left-color: var(--section-c, var(--section-color-default));
 }

@@ -19,6 +19,19 @@ function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
+// Section/city color coding (KRKG-0051) - the colors themselves live in exactly one place,
+// style.css's [data-section="..."] rules; this only ever emits the data-section attribute a CSS
+// rule keys off, never a color value, so a section's color changes by editing one line in
+// style.css, nowhere else. sectionDotHtml is for the editable <select> case (KRKG-0049's inline
+// fields) - a native <select> can't be color-coded internally, so a small swatch sits beside it
+// instead, kept in sync on change (see the czl-field change handler below).
+function sectionPillHtml(sectionId, label) {
+  return `<span class="section-pill" data-section="${escapeAttr(sectionId ?? '')}">${escapeHtml(label)}</span>`;
+}
+function sectionDotHtml(sectionId) {
+  return `<span class="section-dot" data-section="${escapeAttr(sectionId ?? '')}"></span>`;
+}
+
 const panels = {
   checking: document.getElementById('czl-checking'),
   signedOut: document.getElementById('signed-out-panel'),
@@ -37,7 +50,9 @@ function hideReauth() {}
 
 const EMPTY = '—';
 let members = [];
-let sortKey = 'email';
+// Default/Sekcja-column sort (KRKG-0051): grouped by section, alphabetical within each - see the
+// sortKey === 'sectionLabel' special case in renderTable's comparator below.
+let sortKey = 'sectionLabel';
 let sortDir = 'asc';
 let filterText = '';
 
@@ -84,6 +99,15 @@ function renderTable() {
     const av = (a[sortKey] ?? '').toString().toLocaleLowerCase('pl');
     const bv = (b[sortKey] ?? '').toString().toLocaleLowerCase('pl');
     const cmp = av.localeCompare(bv, 'pl');
+    // Sorting by Sekcja ties every member in the same section - break the tie alphabetically by
+    // name instead of leaving it at the server's arbitrary order, so "grouped by section, A-Z
+    // within it" is what both the default view and an explicit click on the Sekcja header show.
+    if (cmp === 0 && sortKey === 'sectionLabel') {
+      const an = (a.fullName ?? '').toString().toLocaleLowerCase('pl');
+      const bn = (b.fullName ?? '').toString().toLocaleLowerCase('pl');
+      const nameCmp = an.localeCompare(bn, 'pl');
+      return sortDir === 'asc' ? nameCmp : -nameCmp;
+    }
     return sortDir === 'asc' ? cmp : -cmp;
   });
 
@@ -98,8 +122,8 @@ function renderTable() {
       ? `<input type="text" class="czl-field" data-email="${escapeAttr(m.email)}" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" />`
       : cell(m.nickname);
     const sectionCell = canManageSkladki
-      ? `<select class="czl-field" data-email="${escapeAttr(m.email)}" data-field="sectionId">${sectionOptions(m.sectionId)}</select>`
-      : cell(m.sectionLabel);
+      ? `<div style="display:flex; align-items:center; gap:0.4rem;"><select class="czl-field" data-email="${escapeAttr(m.email)}" data-field="sectionId">${sectionOptions(m.sectionId)}</select>${sectionDotHtml(m.sectionId)}</div>`
+      : (m.sectionLabel ? sectionPillHtml(m.sectionId, m.sectionLabel) : EMPTY);
     row.innerHTML = `
       <td class="${!canManageSkladki && !m.fullName ? 'czl-empty' : ''}">${fullNameCell}</td>
       <td class="${!canManageSkladki && !m.nickname ? 'czl-empty' : ''}">${nicknameCell}</td>
@@ -178,6 +202,13 @@ async function saveMemberField(row, email) {
 document.getElementById('czl-table-body').addEventListener('change', (e) => {
   const field = e.target.closest('.czl-field');
   if (!field) return;
+  // The dot swatch beside the Sekcja <select> updates immediately, before the save even resolves -
+  // it's a visual echo of what's already selected on screen, not a reflection of saved state (the
+  // input itself already shows that; a failed save doesn't revert the <select>'s own value either).
+  if (field.dataset.field === 'sectionId') {
+    const dot = field.parentElement.querySelector('.section-dot');
+    if (dot) dot.dataset.section = field.value;
+  }
   saveMemberField(field.closest('tr'), field.dataset.email);
 });
 

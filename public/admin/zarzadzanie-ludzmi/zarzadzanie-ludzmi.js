@@ -237,6 +237,15 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
     list.innerHTML = '<p>Brak członków w tym statusie.</p>';
     return;
   }
+  // Grouped by section, alphabetical within it (KRKG-0051) - same rule as czlonkowie.js's Sekcja
+  // sort, just unconditional here since this list has no clickable column headers to override it.
+  const sectionLabelById = new Map(sections.map(s => [s.id, s.label]));
+  const sectionLabel = sectionId => (sectionId ? (sectionLabelById.get(sectionId) ?? sectionId) : '');
+  members = [...members].sort((a, b) => {
+    const sectionCmp = sectionLabel(a.sectionId).toLocaleLowerCase('pl').localeCompare(sectionLabel(b.sectionId).toLocaleLowerCase('pl'), 'pl');
+    if (sectionCmp !== 0) return sectionCmp;
+    return (a.fullName ?? '').toLocaleLowerCase('pl').localeCompare((b.fullName ?? '').toLocaleLowerCase('pl'), 'pl');
+  });
   const actions = MEMBERSHIP_ACTIONS_BY_STATUS[status] ?? [];
   const labelByFolderId = new Map(driveFolderOptions.map(o => [o.folderId, o.label]));
   const datalistHtml = `
@@ -260,6 +269,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
           <input type="text" class="member-field" data-email="${escapeAttr(m.email)}" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" style="width:160px; font-size:12px;" />
           <input type="text" class="member-field" data-email="${escapeAttr(m.email)}" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" style="width:100px; font-size:12px;" />
           <select class="member-field" data-email="${escapeAttr(m.email)}" data-field="sectionId" style="font-size:12px;">${sectionOptions(sections, m.sectionId)}</select>
+          ${sectionDotHtml(m.sectionId)}
           <select class="member-field" data-email="${escapeAttr(m.email)}" data-field="categoryId" style="font-size:12px;">${categoryOptions(categories, m.categoryId)}</select>
         </div>
         <span style="color:var(--text-muted);">${escapeHtml(m.email)}</span>
@@ -323,6 +333,12 @@ async function saveMemberProfileField(row, email) {
 document.getElementById('membership-members-list').addEventListener('change', async e => {
   const profileField = e.target.closest('.member-field');
   if (profileField) {
+    // Same instant-echo swatch update as czlonkowie.js's Sekcja <select> - not a reflection of
+    // saved state, just what's already visibly selected.
+    if (profileField.dataset.field === 'sectionId') {
+      const dot = profileField.parentElement.querySelector('.section-dot');
+      if (dot) dot.dataset.section = profileField.value;
+    }
     saveMemberProfileField(profileField.closest('.membership-member'), profileField.dataset.email);
     return;
   }

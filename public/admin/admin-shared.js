@@ -28,6 +28,14 @@ function sheetSyncStatusMessage(status) {
   return null;
 }
 
+// Section/city color coding (KRKG-0051) - the colors themselves live in exactly one place,
+// style.css's [data-section="..."] rules; this only ever emits the data-section attribute a CSS
+// rule keys off, never a color value. A native <select> (Zarządzanie ludźmi's Sekcja dropdown)
+// can't be color-coded internally, so this small swatch sits beside it instead.
+function sectionDotHtml(sectionId) {
+  return `<span class="section-dot" data-section="${escapeAttr(sectionId ?? '')}"></span>`;
+}
+
 function formatDateTime(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;

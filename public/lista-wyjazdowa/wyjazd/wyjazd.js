@@ -21,6 +21,14 @@ function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
+// Section/city color coding (KRKG-0051) - the actual colors live in exactly one place,
+// style.css's [data-section="..."] rules (a section's hex value changes there, nowhere else).
+// This just renders the data-section attribute a CSS rule keys off; an unrecognized/missing id
+// falls back to style.css's --section-color-default (gray) since no rule matches it.
+function sectionPillHtml(sectionId, label) {
+  return `<span class="section-pill" data-section="${escapeAttr(sectionId ?? '')}">${escapeHtml(label)}</span>`;
+}
+
 // A member's Ksywa (nickname) matters more here than in most places on the site: this roster is
 // exactly the context the sheet's "Nazwisko, Imię" + Ksywa columns existed for - people who know
 // each other by nickname need to find their own row and each other's.
@@ -218,7 +226,14 @@ function renderRoster(roster, signups) {
 
   for (const [key, members] of groups.entries()) {
     const sectionEl = document.createElement('div');
-    sectionEl.innerHTML = `<h3>${escapeHtml(rosterGroupLabel(key))}</h3>`;
+    // The colored pill only makes sense when the group itself *is* a section (rosterSortBy ===
+    // 'section', key is a sectionId) - grouped by weapon instead, each group mixes members from
+    // several sections, so the heading stays plain text and only the per-row accent (below, keyed
+    // by that member's own sectionId regardless of grouping mode) carries the color.
+    sectionEl.innerHTML =
+      rosterSortBy === 'section' && key !== null
+        ? `<h3>${sectionPillHtml(key, rosterGroupLabel(key))}</h3>`
+        : `<h3>${escapeHtml(rosterGroupLabel(key))}</h3>`;
     const sorted = [...members].sort((a, b) => {
       const aAttending = signupByEmail.get(a.email)?.attending ? 0 : 1;
       const bAttending = signupByEmail.get(b.email)?.attending ? 0 : 1;
@@ -229,7 +244,8 @@ function renderRoster(roster, signups) {
       const attending = signup?.attending ?? false;
       const emailAttr = escapeAttr(member.email);
       const row = document.createElement('div');
-      row.className = 'lw-roster-row';
+      row.className = 'lw-roster-row section-row-accent';
+      row.dataset.section = member.sectionId ?? '';
       row.innerHTML = `
         <button type="button" class="lw-attend-toggle" data-email="${emailAttr}" data-attending="${attending}" aria-pressed="${attending}">
           <span class="lw-attend-toggle-track" aria-hidden="true"></span>

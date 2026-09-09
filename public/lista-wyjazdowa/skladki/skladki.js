@@ -18,6 +18,12 @@ function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
+// Section/city color coding (KRKG-0051) - same helper as wyjazd.js, see its comment: the actual
+// colors live in exactly one place, style.css's [data-section="..."] rules.
+function sectionPillHtml(sectionId, label) {
+  return `<span class="section-pill" data-section="${escapeAttr(sectionId ?? '')}">${escapeHtml(label)}</span>`;
+}
+
 // Same as wyjazd.js's displayName/formatDateTime - duplicated per this codebase's existing
 // convention (escapeHtml/escapeAttr are already duplicated the same way across every Lista
 // Wyjazdowa page) rather than introducing a shared module for two small functions.
@@ -125,12 +131,14 @@ function renderTable(roster, duesByEmail) {
   container.innerHTML = '';
   for (const [sectionId, members] of bySection.entries()) {
     const sectionEl = document.createElement('div');
-    sectionEl.innerHTML = `<h3>${escapeHtml(sectionLabel(sectionId))}</h3>`;
+    sectionEl.innerHTML =
+      sectionId === null ? `<h3>${escapeHtml(sectionLabel(sectionId))}</h3>` : `<h3>${sectionPillHtml(sectionId, sectionLabel(sectionId))}</h3>`;
     for (const member of members) {
       const roczna = duesByEmail.get(member.email)?.paid ?? false;
       const emailAttr = escapeAttr(member.email);
       const row = document.createElement('div');
-      row.className = 'lw-skladki-row';
+      row.className = 'lw-skladki-row section-row-accent';
+      row.dataset.section = sectionId ?? '';
       // Wpisowe lives on the member's listaWyjazdowaProfile document, so a member who has not
       // filled that profile in yet has nowhere to record it: PUT /lista-wyjazdowa/wpisowe answers
       // 404 for them by design (it must not create a profile document with only the wpisowePaid
