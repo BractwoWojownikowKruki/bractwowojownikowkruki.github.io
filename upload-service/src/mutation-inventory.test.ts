@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 
 /**
  * KRKG-0050 batch 6/6: release-evidence coverage test for
@@ -134,6 +135,65 @@ test('every authenticated mutating route in server.ts dispatch is classified in 
     `a route is classified inconsistently within the Mutation inventory table itself: ${inconsistentClassifications.map(([route]) => route).join(', ')}`,
   );
 });
+
+/**
+ * Absolute path to the istra tracker's live copy of the contract this fixture was copied from (see
+ * the file-level comment above and `mutation-inventory.contract-table.md`'s header). Present only on
+ * checkouts that also have the istra tracker repo cloned next to this one (typically just the
+ * author's machine) - never in CI, and not guaranteed on another developer's machine.
+ */
+const LIVE_CONTRACT_PATH =
+  '/Users/bartosz/repos/istra/2-InProgress/KRKG-0050 - Centralny, czytelny audyt operacji zapisu/implementation-contract.md';
+
+/** Returns the trimmed text of every markdown-table-row line (`| ... |`) in `source`, in order. */
+function extractPipeTableLines(source: string): string {
+  return source
+    .split('\n')
+    .filter(line => line.trim().startsWith('|'))
+    .join('\n')
+    .trim();
+}
+
+/** Extracts just the "## Mutation inventory" section's table rows out of a full contract document. */
+function extractLiveMutationInventoryTable(source: string): string {
+  const lines = source.split('\n');
+  const headingIndex = lines.findIndex(line => line.trim() === '## Mutation inventory');
+  if (headingIndex === -1) {
+    throw new Error('live contract file: could not find a "## Mutation inventory" heading - has it changed?');
+  }
+  const afterHeading = lines.slice(headingIndex + 1);
+  const nextHeadingOffset = afterHeading.findIndex(line => /^##\s/.test(line));
+  const sectionLines = nextHeadingOffset === -1 ? afterHeading : afterHeading.slice(0, nextHeadingOffset);
+  return extractPipeTableLines(sectionLines.join('\n'));
+}
+
+const liveContractExists = existsSync(LIVE_CONTRACT_PATH);
+
+test(
+  "the checked-in mutation-inventory fixture matches the live istra contract's Mutation inventory table",
+  {
+    skip: liveContractExists
+      ? false
+      : `live istra contract file not found at "${LIVE_CONTRACT_PATH}" - expected in CI and on ` +
+        'checkouts without the istra tracker repo; this drift check only runs where that path exists ' +
+        '(e.g. the contract author\'s machine). The fixture-vs-server.ts coverage test above still runs regardless.',
+  },
+  async () => {
+    const liveSource = await readFile(LIVE_CONTRACT_PATH, 'utf8');
+    const liveTable = extractLiveMutationInventoryTable(liveSource);
+
+    const fixtureSource = await readFile(new URL('./mutation-inventory.contract-table.md', import.meta.url), 'utf8');
+    const fixtureTable = extractPipeTableLines(fixtureSource);
+
+    assert.equal(
+      fixtureTable,
+      liveTable,
+      'mutation-inventory.contract-table.md has drifted from the live istra contract\'s "## Mutation inventory" ' +
+        'table - re-copy the table from implementation-contract.md into the fixture (see the fixture\'s header ' +
+        'comment for the sync instructions) and update its "Last synced" date.',
+    );
+  },
+);
 
 test('the documented non-member exception is not silently absorbing an unrelated gap', () => {
   // Guards against someone "fixing" a future coverage failure by widening
