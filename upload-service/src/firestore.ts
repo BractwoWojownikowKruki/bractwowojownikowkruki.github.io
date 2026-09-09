@@ -13,6 +13,7 @@ export interface FirestoreDoc<T> {
 export interface FirestoreTransaction {
   getDoc<T>(collection: string, id: string): Promise<T | null>;
   setDoc<T extends object>(collection: string, id: string, data: T): Promise<void>;
+  createDoc<T extends object>(collection: string, id: string, data: T): Promise<void>;
 }
 
 export interface FirestoreLikeClient {
@@ -26,6 +27,11 @@ export interface FirestoreLikeClient {
    * admin-added field this codebase does not model at all - cannot be clobbered by it.
    */
   setDoc<T extends object>(collection: string, id: string, data: T): Promise<void>;
+  /**
+   * Creates an immutable document and fails if the ID already exists. Audit events use this
+   * rather than merging writes so a collision or retry cannot alter prior evidence.
+   */
+  createDoc<T extends object>(collection: string, id: string, data: T): Promise<void>;
   listDocs<T>(collection: string): Promise<FirestoreDoc<T>[]>;
   /**
    * Read-validate-write as a single atomic unit (KRKG-0046) - required whenever a write's
@@ -48,6 +54,9 @@ export function createFirestoreClient(projectId?: string): FirestoreLikeClient {
     async setDoc<T extends object>(collection: string, id: string, data: T): Promise<void> {
       await db.collection(collection).doc(id).set(data, { merge: true });
     },
+    async createDoc<T extends object>(collection: string, id: string, data: T): Promise<void> {
+      await db.collection(collection).doc(id).create(data);
+    },
     async listDocs<T>(collection: string): Promise<FirestoreDoc<T>[]> {
       const snap = await db.collection(collection).get();
       return snap.docs.map((d) => ({ id: d.id, data: d.data() as T }));
@@ -61,6 +70,9 @@ export function createFirestoreClient(projectId?: string): FirestoreLikeClient {
           },
           async setDoc<D extends object>(collection: string, id: string, data: D): Promise<void> {
             transaction.set(db.collection(collection).doc(id), data, { merge: true });
+          },
+          async createDoc<D extends object>(collection: string, id: string, data: D): Promise<void> {
+            transaction.create(db.collection(collection).doc(id), data);
           },
         };
         return fn(tx);
@@ -98,6 +110,11 @@ export function createInMemoryFirestoreClient(): FirestoreLikeClient & {
       const existing = m.get(id) as object | undefined;
       m.set(id, existing ? { ...existing, ...data } : { ...data });
     },
+    async createDoc<T extends object>(collection: string, id: string, data: T): Promise<void> {
+      const m = collectionMap(collection);
+      if (m.has(id)) throw new Error(`Document already exists: ${collection}/${id}`);
+      m.set(id, { ...data });
+    },
     async listDocs<T>(collection: string): Promise<FirestoreDoc<T>[]> {
       const m = collectionMap(collection);
       return Array.from(m.entries()).map(([id, data]) => ({ id, data: data as T }));
@@ -129,6 +146,13 @@ export function createInMemoryFirestoreClient(): FirestoreLikeClient & {
             const key = JSON.stringify([collection, id]);
             const base = pendingWrites.get(key)?.data ?? (collectionMap(collection).get(id) as object | undefined);
             pendingWrites.set(key, { collection, id, data: base ? { ...base, ...data } : { ...data } });
+          },
+          async createDoc<D extends object>(collection: string, id: string, data: D): Promise<void> {
+            const key = JSON.stringify([collection, id]);
+            if (pendingWrites.has(key) || collectionMap(collection).has(id)) {
+              throw new Error(`Document already exists: ${collection}/${id}`);
+            }
+            pendingWrites.set(key, { collection, id, data: { ...data } });
           },
         };
         const result = await fn(tx);
