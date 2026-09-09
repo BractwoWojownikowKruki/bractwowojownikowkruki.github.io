@@ -160,6 +160,8 @@ test('protected entry points begin with the shared session-checking message, not
     '../public/lista-wyjazdowa/wyjazd/index.html',
     '../public/lista-wyjazdowa/skladki/index.html',
     '../public/admin/index.html',
+    '../public/audyt/index.html',
+    '../public/admin/audyt/index.html',
   ];
 
   for (const page of protectedPages) {

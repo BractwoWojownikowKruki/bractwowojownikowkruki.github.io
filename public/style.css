@@ -3342,3 +3342,443 @@ button.nav-item {
   transform: translateY(-2px);
 }
 
+/* ── Panel Admina: manage-people list (public/admin/admin.js) ── */
+/* Two columns, filled row-by-row (grid's default auto-flow) so the existing top-to-bottom
+   order from the API response reads left-to-right, top-to-bottom - same order as the old
+   single-column list, just wrapped into two side-by-side columns instead of one long one.
+   Stacks back to a single column on narrow screens (below the shared 768px breakpoint). */
+#manage-people-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  #manage-people-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Bumped from the old rows="3" - the description is often the longest field in the card and
+   was clipping to a tiny box that needed constant internal scrolling to review or edit. */
+.edit-description {
+  min-height: 8rem;
+  resize: vertical;
+}
+
+/* ── Lista Wyjazdowa (events list, event detail, składki) ── */
+/* The persistent sub-nav shown at the top of every view inside this "app within the site" - a
+   single segmented-control track (like a tab bar) rather than three separate floating pills, so
+   it reads as one cohesive control instead of loose buttons scattered with gaps between them. */
+.lw-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 1.75rem;
+  padding: 0.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* Qualified with the .content-section ancestor (rather than bare .lw-subnav-link) to
+   out-specificity .content-section a, which otherwise wins the cascade (class+type beats a
+   single class) and paints these red with its own border-bottom "underline" - same class of bug
+   as the .btn-add-album fix above. Applies to every .lw-* link rule below for the same reason. */
+.content-section .lw-subnav-link {
+  padding: 0.5rem 1.1rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s;
+  /* Without this, tapping a link on mobile Chrome/Brave leaves the default translucent
+     tap-highlight rectangle sitting under the label until it fades - reads as a stray partial
+     underline on a dark background. The link's own hover/active background already gives the
+     tap enough visual feedback. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+.content-section .lw-subnav-link:hover {
+  color: var(--text);
+}
+
+.content-section .lw-subnav-link:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* Breathing room between the "pokaż wszystkie" toggle and the sub-nav above/event list below -
+   previously all three sat flush against each other with no vertical rhythm. No `display` here:
+   an unconditional display would out-cascade the UA default `[hidden] { display: none }` and
+   defeat lista-wyjazdowa.js's JS toggling of this same button - see setListVisible(). */
+#toggle-past-events {
+  margin: 0 0 1rem;
+}
+
+.content-section .lw-subnav-link--active {
+  background: var(--surface-deep);
+  border-color: var(--accent);
+  color: var(--gold);
+}
+
+/* Shared card look for every row-like list item across these pages (event rows, składki rows) -
+   the roster (KRKG-0052) moved to a dense .czl-table instead, so it's no longer part of this
+   list - one visual language for the two that remain instead of an ad-hoc one each. */
+.lw-event-row,
+.lw-skladki-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: border-color 0.15s;
+}
+
+.lw-event-row:hover,
+.lw-skladki-row:hover {
+  border-color: var(--border-hover);
+}
+
+.content-section .lw-event-name {
+  flex: 1 1 auto;
+  min-width: 12rem;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 16px;
+  text-decoration: none;
+  border-bottom: none;
+}
+
+.content-section .lw-event-name:hover {
+  color: var(--gold);
+  text-decoration: underline;
+}
+
+.lw-event-date {
+  color: var(--text-muted);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.lw-event-count {
+  color: var(--gold);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* "Jadę / Nie jadę" as an actual toggle switch (track + sliding knob) rather than a plain button
+   whose only state cue was its text - the on/off state now reads at a glance the way a settings
+   switch does everywhere else. Built from a <button aria-pressed> (see lista-wyjazdowa.js), so
+   the state that matters for styling and assistive tech alike is the aria-pressed attribute. */
+.lw-attend-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 0 0 auto;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.lw-attend-toggle-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 2.5rem;
+  height: 1.4rem;
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.lw-attend-toggle-track::before {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 1.1rem;
+  height: 1.1rem;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: transform 0.15s ease, background-color 0.15s;
+}
+
+.lw-attend-toggle[aria-pressed="true"] {
+  color: var(--gold);
+}
+
+.lw-attend-toggle[aria-pressed="true"] .lw-attend-toggle-track {
+  background: color-mix(in srgb, var(--gold) 25%, var(--surface-deep));
+  border-color: var(--gold);
+}
+
+.lw-attend-toggle[aria-pressed="true"] .lw-attend-toggle-track::before {
+  background: var(--gold);
+  transform: translateX(1.1rem);
+}
+
+.lw-attend-toggle:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Roster table's Status cell (KRKG-0053): label stacks under the toggle track, not beside it.
+   Scoped to .czl-table - lista-wyjazdowa.js reuses .lw-attend-toggle inline, side-by-side. */
+.czl-table .lw-attend-toggle {
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 12px;
+}
+
+/* Kasa icon standing in for "Składka: opłacona/nieopłacona" text - a red/green badge behind the
+   emoji says the same thing at a glance without taking up a line of its own (a CSS filter on the
+   emoji itself would depend on the platform's emoji font actually being grayscale-tintable, which
+   isn't guaranteed - a background badge works regardless). Plain <span> for members who can't
+   manage składki (nothing to click); canManageSkladki gets an actual <button> instead (see
+   wyjazd.js's renderSkladkaIcon), same disabled-state handling as the other toggles on this row. */
+.lw-skladka-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+}
+
+button.lw-skladka-icon {
+  cursor: pointer;
+}
+
+button.lw-skladka-icon:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.lw-skladka-icon[data-paid="true"] {
+  background: color-mix(in srgb, #2e7d32 40%, var(--surface-deep));
+  border: 1px solid #2e7d32;
+}
+
+.lw-skladka-icon[data-paid="false"] {
+  background: color-mix(in srgb, #c62828 40%, var(--surface-deep));
+  border: 1px solid #c62828;
+}
+
+.lw-skladki-row {
+  justify-content: space-between;
+}
+
+.lw-skladki-row > span:first-child {
+  flex: 1 1 auto;
+  min-width: 10rem;
+  font-weight: 600;
+}
+
+/* Sort/filter controls above the event page's roster (wyjazd.js's rosterSortBy/rosterFilter) -
+   inline selects rather than a form, since choosing either one re-renders the list immediately. */
+.lw-roster-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.lw-roster-controls select {
+  margin-left: 0.4rem;
+  background: var(--surface-deep);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+}
+
+/* Section headings inside the składki table (one per Sekcja, see skladki.js's renderTable()) - a
+   visible divider plus gold accent so long lists of rows don't read as one undifferentiated block.
+   The roster (wyjazd.js) moved to a flat .czl-table with no group headings in KRKG-0052. */
+#skladki-content h3 {
+  margin: 1.5rem 0 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--gold);
+  font-size: 16px;
+}
+
+#skladki-content > div:first-child h3 {
+  margin-top: 0;
+}
+
+/* Breathing room between the page's major sections (fee panel, summary, roster, equipment/
+   companions, audit log) - previously these all touched with no vertical rhythm at all. */
+#skladka-fee-panel,
+#summary-panel,
+#roster-panel,
+#equipment-companions-panel,
+#skladki-content {
+  margin-bottom: 2rem;
+}
+
+#summary-panel h2,
+#roster-panel h2,
+#equipment-companions-panel h2 {
+  margin-bottom: 0.75rem;
+  font-size: 20px;
+  color: var(--text);
+}
+
+#skladka-fee-panel {
+  padding: 0.85rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+#skladka-fee-input,
+.lw-roczna-amount-input {
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+  margin-right: 0.5rem;
+}
+
+.lw-roczna-amount-input {
+  width: 8rem;
+}
+
+/* Year <select> above the Składki table (skladki.js's populateYearSelect, KRKG-0047) - same
+   inline-select look as .lw-roster-controls select on the wyjazd page. */
+#skladki-year-label select {
+  margin-left: 0.4rem;
+  background: var(--surface-deep);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+}
+
+/* <details> gives free collapse/expand with no JS - styled so the closed summary still reads as
+   a clickable section header, matching the h2's used by every other section on these pages. */
+#audit-log-panel,
+#dues-audit-log-panel {
+  padding: 0.85rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+#audit-log-panel summary,
+#dues-audit-log-panel summary {
+  cursor: pointer;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  list-style: revert;
+}
+
+#audit-log-panel[open] summary,
+#dues-audit-log-panel[open] summary {
+  margin-bottom: 0.75rem;
+}
+
+#audit-log-content,
+#dues-audit-log-content {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 768px) {
+  .lw-event-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .lw-skladki-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .lw-skladki-row button {
+    align-self: flex-start;
+  }
+
+  /* Member tables (KRKG-0053) - .content-section already borders the whole page section, so
+     .czl-table-wrap's own border on top was a double frame eating into a phone's little width.
+     Tighter padding/font for the same reason. */
+  .czl-table-wrap {
+    border: none;
+    border-radius: 0;
+  }
+
+  .czl-table {
+    font-size: 0.82rem;
+  }
+
+  .czl-table th,
+  .czl-table td {
+    padding: 0.3rem 0.45rem;
+  }
+}
+
+/* KRKG-0051: kept at the very end of the file on purpose - see the comment near .section-pill.
+   Applies to Lista Wyjazdowa/Składki's roster rows (.lw-roster-row/.lw-skladki-row), which already
+   carry a full `border: ...` shorthand - a same-specificity clash with an earlier shorthand rule
+   resolves by source order, so this full border-left shorthand has to come last either way. */
+.section-row-accent {
+  border-left: 8px solid var(--section-c, var(--section-color-default));
+}
+
+/* Table rows (Spis Ludności's .czl-table) can't take a visible border directly on <tr> under
+   border-collapse - only the leftmost <td> can show it. --section-c still comes from the <tr>'s
+   own [data-section="..."] rule/inheritance above; naming ".czl-table" here (rather than a bare
+   "tr[data-section]") keeps this from also matching some unrelated table elsewhere on the site. */
+.czl-table tr[data-section] td:first-child {
+  border-left: 8px solid var(--section-c, var(--section-color-default));
+  padding-left: 0.7rem;
+}
+
+/* KRKG-0050: "◷ Historia" deep-link, used on every record page site-wide (implementation-contract.md
+   "Historia and UI scope"). Plain-text-weight, not a filled button - a secondary row affordance.
+   Rest of the audit-view CSS lives in shared/audit-view.css instead (this file is PWA-precached
+   and near its byte budget; only the two Historia shell pages load that stylesheet). */
+.audyt-history-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: none;
+  white-space: nowrap;
+}
+.audyt-history-link:hover {
+  color: var(--gold);
+  text-decoration: underline;
+}

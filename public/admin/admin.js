@@ -87,6 +87,7 @@ function renderRedirectsList(redirects) {
       <code>/${escapeHtml(r.path)}</code>
       <span>&rarr;</span>
       <span style="flex:1; overflow-wrap:anywhere;">${escapeHtml(r.target)}</span>
+      <a class="audyt-history-link" href="/admin/audyt/?resourceKey=${encodeURIComponent(`redirect:${r.path}`)}">◷ Historia</a>
       <button class="delete-redirect" data-path="${escapeAttr(r.path)}" style="color:var(--accent);">Usuń</button>
     </div>`,
     )

@@ -91,4 +91,16 @@ export const config = {
   // above any legitimate payload so a public endpoint can't be made to buffer arbitrary bytes
   // before authentication even has a chance to reject the request.
   maxJsonBodyBytes: Number(process.env.MAX_JSON_BODY_BYTES ?? 8192),
+  // KRKG-0050: the internal audit-reconcile route (POST /internal/audit/reconcile) is only ever
+  // meant to be called by Cloud Scheduler's own OIDC-authenticated HTTP job - both must be set
+  // together, or the route fails closed (503, "not configured") rather than either booting with
+  // an unauthenticated internal route or refusing to boot at all before Scheduler is
+  // provisioned. See reconciler-runbook.md in the istra story folder for the one-time setup
+  // (enabling Cloud Scheduler, creating the least-privilege service account, granting it
+  // roles/run.invoker, and creating the job) that has to happen before these are set.
+  auditReconcilerServiceAccountEmail: process.env.AUDIT_RECONCILER_SERVICE_ACCOUNT,
+  // The Cloud Run service's own URL - what Cloud Scheduler puts in the OIDC token's `aud` claim
+  // when it calls this service. Not derivable at runtime (Cloud Run doesn't expose its own
+  // public URL to the process), so it's configured explicitly rather than assumed.
+  auditReconcileAudience: process.env.AUDIT_RECONCILE_AUDIENCE,
 };

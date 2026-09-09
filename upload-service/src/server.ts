@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AuthError, checkAllowlist, fetchGoogleJwks, verifyGoogleIdToken, type VerifiedIdentity } from './auth.ts';
 import { createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
@@ -26,27 +26,47 @@ import {
   type AboutUsCategory,
   type AdminDepartment,
 } from './about-us.ts';
-import { createFirestoreClient, type FirestoreLikeClient } from './firestore.ts';
-import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberCategoryId, setMemberHidden, recordLastLogin, type MemberWritableFields } from './members.ts';
-import { applyForMembership, applyAdminTransition, listMembersByStatus, type AdminTransition } from './membership.ts';
+import { createFirestoreClient, type FirestoreLikeClient, type FirestoreTransaction } from './firestore.ts';
+import {
+  createCanonicalAuditEvent,
+  executeAuditedExternalMutation,
+  executeAuditedFirestoreMutation,
+  reconcileExternalOperation,
+  listOpenOperationCorrelationIds,
+  listAuditDiagnostics,
+  queryAuditEvents,
+  getAuditEventDetail,
+  AuditQueryError,
+  type AuditAction,
+  type AuditCategory,
+  type AuditPrimarySelector,
+  type AuditQueryOptions,
+  type AuditViewer,
+  type AuditOperationIntent,
+  type ExternalOperationProbe,
+  type CanonicalAuditEventInput,
+} from './audit.ts';
+import { verifyReconcilerOidcToken } from './auth.ts';
+import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberCategoryId, setMemberHidden, recordLastLogin, type MemberDoc, type MemberWritableFields } from './members.ts';
+import { applyForMembershipInTransaction, applyAdminTransitionInTransaction, listMembersByStatus, type AdminTransition } from './membership.ts';
 import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
 import { createDisabledSheetsClient, createSheetsClient, type SheetsClient } from './sheets.ts';
-import { getProfile, listAllProfiles, saveProfile, setWpisowePaid, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
+import { getProfile, listAllProfiles, saveProfile, setWpisowePaid, type ListaWyjazdowaProfileDoc, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 import { getAllLookupLists, getLookupList } from './lookup-lists.ts';
-import { listEvents, getEvent, createEvent, updateEvent, type EventWritableFields } from './events.ts';
+import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWritableFields } from './events.ts';
 import {
   listAllSignups,
   listSignupsForEvent,
   getSignup,
   saveSignup,
   setSkladkaPaid,
-  appendAuditLogEntry,
   listAuditLogForEvent,
+  type SignupDoc,
   type SignupWritableFields,
 } from './signups.ts';
-import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, appendRoleAuditEntry, listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
-import { listDuesForYear, saveDues, type DuesWritableFields, appendDuesAuditEntry, listDuesAuditLog } from './dues.ts';
+import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
+import { listDuesForYear, saveDues, type DuesDoc, type DuesWritableFields, listDuesAuditLog } from './dues.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -131,6 +151,92 @@ export interface ServerDeps {
   // KRKG-0046: Google Sheets disaster-recovery backup of the members collection. Never a runtime
   // fallback for authorization - see sheets.ts's SheetsClient doc comment.
   sheetsClient: SheetsClient;
+  // KRKG-0050: Cloud Scheduler's own OIDC-authenticated service account, and the audience its
+  // token must be issued for - see config.ts's matching comment. Both undefined until the
+  // Scheduler job is separately provisioned (reconciler-runbook.md); the reconcile route fails
+  // closed (503) rather than either booting unauthenticated or refusing to boot.
+  auditReconcilerServiceAccountEmail?: string;
+  auditReconcileAudience?: string;
+}
+
+type MutationMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+/** A Firestore route's reviewed set of canonical actions. */
+export interface AuditedMutationRouteDescriptor<Actions extends readonly AuditAction[] = readonly AuditAction[]> {
+  method: MutationMethod;
+  path: string;
+  actions: Actions;
+}
+
+function auditedRoute<const Actions extends readonly AuditAction[]>(
+  method: MutationMethod,
+  path: string,
+  actions: Actions,
+): AuditedMutationRouteDescriptor<Actions> {
+  return { method, path, actions };
+}
+
+/**
+ * Batch 2's Firestore-owned mutation inventory. A handler must use its own descriptor through
+ * executeDeclaredAuditedMutation, so a typo or an action borrowed from another route fails
+ * before either the business document or immutable evidence can be committed.
+ */
+export const AUDITED_MEMBER_MUTATION_ROUTES = {
+  membershipApply: auditedRoute('POST', '/membership/apply', ['membership.application.submitted']),
+  memberTransition: auditedRoute('POST', '/admin/members/transition', [
+    'membership.status.approved',
+    'membership.status.rejected',
+    'membership.status.suspended',
+    'membership.status.reactivated',
+    'membership.status.removed',
+  ]),
+  memberDriveFolder: auditedRoute('PUT', '/admin/members/drive-folder', ['profile.drive_folder.changed']),
+  memberProfile: auditedRoute('PUT', '/admin/members/profile', ['profile.member.updated']),
+  roles: auditedRoute('PUT', '/admin/roles', ['role.granted', 'role.revoked', 'role.replaced']),
+  tripMember: auditedRoute('PUT', '/lista-wyjazdowa/member', ['profile.member.updated']),
+  tripProfile: auditedRoute('PUT', '/lista-wyjazdowa/profile', ['profile.member.updated']),
+  eventCreate: auditedRoute('POST', '/lista-wyjazdowa/events', ['event.created']),
+  eventUpdate: auditedRoute('PUT', '/lista-wyjazdowa/events', ['event.updated', 'event.cancelled', 'dues.event_fee.changed']),
+  signup: auditedRoute('PUT', '/lista-wyjazdowa/signups', ['signup.created', 'signup.updated']),
+  signupFee: auditedRoute('PUT', '/lista-wyjazdowa/signups/skladka', ['dues.event_fee.changed']),
+  entryFee: auditedRoute('PUT', '/lista-wyjazdowa/wpisowe', ['dues.entry_fee.changed']),
+  annualDues: auditedRoute('PUT', '/lista-wyjazdowa/dues', ['dues.annual.changed']),
+} as const;
+
+export const AUDITED_MEMBER_MUTATION_ROUTE_DESCRIPTORS = Object.values(AUDITED_MEMBER_MUTATION_ROUTES);
+
+/** Returns the descriptor only for a Batch-2 Firestore mutation route. */
+export function findAuditedMemberMutationRoute(method: string, path: string): AuditedMutationRouteDescriptor | undefined {
+  return AUDITED_MEMBER_MUTATION_ROUTE_DESCRIPTORS.find(route => route.method === method && route.path === path);
+}
+
+async function executeDeclaredAuditedMutation<T, Actions extends readonly AuditAction[]>(
+  deps: ServerDeps,
+  descriptor: AuditedMutationRouteDescriptor<Actions>,
+  action: Actions[number] | readonly Actions[number][],
+  input:
+    | Omit<CanonicalAuditEventInput, 'action'>
+    | readonly Omit<CanonicalAuditEventInput, 'action'>[]
+    | ((tx: FirestoreTransaction) => Promise<Omit<CanonicalAuditEventInput, 'action'> | readonly Omit<CanonicalAuditEventInput, 'action'>[]>),
+  mutation: (tx: FirestoreTransaction) => Promise<T>,
+): ReturnType<typeof executeAuditedFirestoreMutation<T>> {
+  const actions = Array.isArray(action) ? action : [action];
+  if (actions.some(candidate => !(descriptor.actions as readonly AuditAction[]).includes(candidate))) {
+    throw new Error(`Undeclared audit action for ${descriptor.method} ${descriptor.path}.`);
+  }
+  const withAction = typeof input === 'function'
+    ? async (tx: FirestoreTransaction) => {
+        const resolvedInput = await input(tx);
+        const inputs = Array.isArray(resolvedInput) ? resolvedInput : [resolvedInput];
+        if (inputs.length !== actions.length) throw new Error(`Audit input count does not match actions for ${descriptor.method} ${descriptor.path}.`);
+        return inputs.map((auditInput, index) => ({ action: actions[index], ...auditInput }));
+      }
+    : (() => {
+        const inputs = Array.isArray(input) ? input : [input];
+        if (inputs.length !== actions.length) throw new Error(`Audit input count does not match actions for ${descriptor.method} ${descriptor.path}.`);
+        return inputs.map((auditInput, index) => ({ action: actions[index], ...auditInput }));
+      })();
+  return executeAuditedFirestoreMutation(deps.firestore, withAction, mutation);
 }
 
 // Per-folder exact file-count reservation, in-process. This is what actually enforces
@@ -577,7 +683,20 @@ async function handleMembershipApply(req: IncomingMessage, res: ServerResponse, 
   const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
   const lookupLists = await getAllLookupLists(deps.firestore);
   requireKnownLookupId(lookupLists.sections, sectionId, 'Wybrana sekcja nie istnieje.');
-  const member = await applyForMembership(deps.firestore, identity.email, { fullName, nickname: nicknameInput, sectionId });
+  const { result: member } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.membershipApply,
+    'membership.application.submitted',
+    async tx => {
+      const existing = await tx.getDoc<MemberDoc>('members', identity.email.toLowerCase());
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${identity.email.toLowerCase()}`, display: 'member' },
+        changes: [{ field: 'status', ...(existing ? { before: existing.status } : {}), after: 'pending' }],
+      };
+    },
+    tx => applyForMembershipInTransaction(tx, identity.email, { fullName, nickname: nicknameInput, sectionId }),
+  );
   sendJson(res, 200, { member });
 }
 
@@ -589,14 +708,41 @@ async function handleSessionLogin(req: IncomingMessage, res: ServerResponse, dep
   const { idToken } = await readJsonBody<{ idToken?: string }>(req, deps.maxJsonBodyBytes);
   if (!idToken) throw new AuthError('Brak tokenu Google ID.', 400);
   const identity = await deps.authenticateSessionLogin(idToken);
+  await executeAuditedFirestoreMutation(
+    deps.firestore,
+    {
+      action: 'session.login.succeeded',
+      actor: { email: identity.email },
+      resource: { kind: 'session', key: `session:${identity.email.toLowerCase()}`, display: identity.email.toLowerCase() },
+      changes: [{ field: 'status', after: 'succeeded' }],
+    },
+    async tx => recordLastLogin(tx, identity.email),
+  );
   const now = Date.now();
   const token = issueSessionToken(identity, deps.sessionSigningKeys[0], now, deps.sessionSlidingWindowMs);
   setSessionCookie(res, token, deps.sessionSlidingWindowMs);
-  // KRKG-0049: recorded once per real sign-in (not per page load, since a returning visit reuses
-  // the session cookie without ever hitting this endpoint again) - a no-op for anyone with no
-  // members/{email} doc, see recordLastLogin's comment.
-  await recordLastLogin(deps.firestore, identity.email);
   sendJson(res, 200, identityResponseBody(identity));
+}
+
+/** Records the browser-confirmed PWA installation once per signed-in member and fixed app id. */
+async function handlePwaInstallation(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const email = identity.email.toLowerCase();
+  const markerId = `pwa:${email}`;
+  const recorded = await deps.firestore.runTransaction(async tx => {
+    const existing = await tx.getDoc('applicationInstallations', markerId);
+    if (existing) return false;
+    const auditEvent = createCanonicalAuditEvent({
+      action: 'application.pwa.installation_reported',
+      actor: { email },
+      resource: { kind: 'application', key: `application:${email}:/`, display: email },
+      changes: [{ field: 'appId', after: '/' }],
+    });
+    await tx.createDoc('applicationInstallations', markerId, { actorEmail: email, appId: '/' });
+    await tx.createDoc('auditEvents', auditEvent.id, auditEvent);
+    return true;
+  });
+  sendJson(res, 200, { recorded });
 }
 
 // Stateless design (see design-v2.md Phase 1 point 10) - this clears the cookie on this device
@@ -705,8 +851,17 @@ async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerRespons
 // Not scoped to About Us specifically - clears the Instagram/Facebook posts cache so the
 // homepage's Aktualności feed picks up new posts immediately, instead of waiting out the 6h TTL.
 async function handleAdminRefreshSocialCache(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
-  clearSocialMediaCache();
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'site.social_cache.refreshed',
+      actor: { email: identity.email },
+      resource: { kind: 'settings', key: 'settings:social-media-cache', display: 'social-media-cache' },
+      changes: [{ field: 'status', after: 'refreshed' }],
+    },
+    async () => { clearSocialMediaCache(); },
+  );
   sendJson(res, 200, { ok: true });
 }
 
@@ -717,9 +872,10 @@ async function handleAdminGetSettings(req: IncomingMessage, res: ServerResponse,
 }
 
 async function handleAdminUpdateSettings(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { liveFetchPostCount } = await readJsonBody<{ liveFetchPostCount?: number }>(req, deps.maxJsonBodyBytes);
-  await setFacebookSettings(deps.drive, { liveFetchPostCount: Number(liveFetchPostCount) });
+  const count = Number(liveFetchPostCount);
+  await executeAuditedExternalMutation(deps.firestore, { action: 'site.settings.updated', actor: { email: identity.email }, resource: { kind: 'settings', key: 'settings:facebook', display: 'facebook' }, changes: [{ field: 'liveFetchPostCount', after: count }] }, async () => setFacebookSettings(deps.drive, { liveFetchPostCount: count }));
   sendJson(res, 200, { ok: true });
 }
 
@@ -747,9 +903,57 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
   if (!body.transition || !(ADMIN_TRANSITIONS as readonly string[]).includes(body.transition)) {
     throw new AuthError('Nieprawidłowe przejście statusu.', 400);
   }
-  const member = await applyAdminTransition(deps.firestore, body.email, body.transition as AdminTransition, identity.email);
+  const transition = body.transition as AdminTransition;
+  const actionByTransition = {
+    approve: 'membership.status.approved',
+    reject: 'membership.status.rejected',
+    suspend: 'membership.status.suspended',
+    reactivate: 'membership.status.reactivated',
+    remove: 'membership.status.removed',
+  } as const;
+  const { result: member } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.memberTransition,
+    actionByTransition[transition],
+    async tx => {
+      const existing = await tx.getDoc<MemberDoc>('members', body.email!.toLowerCase());
+      const statusByTransition = { approve: 'active', reject: 'rejected', suspend: 'suspended', reactivate: 'active', remove: 'removed' } as const;
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${body.email!.toLowerCase()}`, display: 'member' },
+        changes: [{ field: 'status', before: existing?.status ?? null, after: statusByTransition[transition] }],
+      };
+    },
+    tx => applyAdminTransitionInTransaction(tx, body.email!, transition, identity.email),
+  );
+  // Independent audited sub-operation, correlated to the transition above only by both sharing
+  // this request - not by any shared transaction. The Firestore transition already committed
+  // via executeDeclaredAuditedMutation, so a Sheets failure here must not roll back or discard
+  // it. Unlike handleAdminMembersSynchronize's own identical Sheets call - which is genuinely
+  // global/whole-list in scope and keeps the shared `member:sheet-backup` key - this sub-operation
+  // is triggered by, and scoped to, one specific member's transition, so it is member-attributed
+  // with that same member's own `member:{email}` resource key (plan-addendum.md), matching the
+  // primary transition event's resource key above so it also surfaces in that member's own
+  // Historia filter.
   const allMembers = await listAllMembers(deps.firestore);
-  const sheetSyncStatus = await deps.sheetsClient.syncAllMembers(allMembers);
+  const { result: sheetSyncStatus } = await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'membership.sheet_backup.synchronized',
+      actor: { email: identity.email },
+      resource: { kind: 'member', key: `member:${body.email.toLowerCase()}`, display: body.email.toLowerCase() },
+      changes: [{ field: 'sheetBackup', after: 'requested' }],
+    },
+    async () => deps.sheetsClient.syncAllMembers(allMembers),
+    {
+      eventInput: status => ({
+        action: 'membership.sheet_backup.synchronized',
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${body.email!.toLowerCase()}`, display: body.email!.toLowerCase() },
+        changes: [{ field: 'sheetBackup', after: status }],
+      }),
+    },
+  );
   sendJson(res, 200, { member, sheetSyncStatus });
 }
 
@@ -760,19 +964,32 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
 // MemberWritableFields, driveFolderId is deliberately not member-settable - this is the one
 // admin-only write path for it (see setMemberDriveFolderId's comment).
 async function handleAdminSetMemberDriveFolder(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminOrModeratorWithStepUp(req, res);
+  const identity = await deps.authenticateAdminOrModeratorWithStepUp(req, res);
   const { email, folderId } = await readJsonBody<{ email?: string; folderId?: string | null }>(req, deps.maxJsonBodyBytes);
   if (!email) throw new AuthError('Brak email.', 400);
   const member = await getMember(deps.firestore, email);
   if (!member) throw new AuthError('Nie znaleziono takiego członka.', 404);
-  await setMemberDriveFolderId(deps.firestore, email, folderId ?? null);
+  await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.memberDriveFolder,
+    'profile.drive_folder.changed',
+    async tx => {
+      const current = await tx.getDoc<MemberDoc>('members', email.toLowerCase());
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${email.toLowerCase()}`, display: 'member' },
+        changes: [{ field: 'folderId', before: current?.driveFolderId ?? null, after: folderId ?? null }],
+      };
+    },
+    tx => setMemberDriveFolderId(tx, email, folderId ?? null),
+  );
   sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminMembersSynchronize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminOrModeratorWithStepUp(req, res);
+  const identity = await deps.authenticateAdminOrModeratorWithStepUp(req, res);
   const allMembers = await listAllMembers(deps.firestore);
-  const sheetSyncStatus = await deps.sheetsClient.syncAllMembers(allMembers);
+  const { result: sheetSyncStatus } = await executeAuditedExternalMutation(deps.firestore, { action: 'membership.sheet_backup.synchronized', actor: { email: identity.email }, resource: { kind: 'member', key: 'member:sheet-backup', display: 'sheet-backup' }, changes: [{ field: 'sheetBackup', after: 'requested' }] }, async () => deps.sheetsClient.syncAllMembers(allMembers), { eventInput: status => ({ action: 'membership.sheet_backup.synchronized', actor: { email: identity.email }, resource: { kind: 'member', key: 'member:sheet-backup', display: 'sheet-backup' }, changes: [{ field: 'sheetBackup', after: status }] }) });
   sendJson(res, 200, { sheetSyncStatus });
 }
 
@@ -817,14 +1034,25 @@ async function handleAdminSetRoles(req: IncomingMessage, res: ServerResponse, de
   }
   const newRoles = roles as string[];
   const previousRoles = await getGrantedRoles(deps.firestore, email);
-  await setGrantedRoles(deps.firestore, email, newRoles);
-  await appendRoleAuditEntry(deps.firestore, {
-    targetEmail: email.toLowerCase(),
-    previousRoles,
-    newRoles,
-    changedBy: identity.email,
-    changeSummary: `Zmieniono role: ${rolesLabel(previousRoles)} → ${rolesLabel(newRoles)}`,
-  });
+  const action = previousRoles.length === 0 && newRoles.length > 0
+    ? 'role.granted'
+    : previousRoles.length > 0 && newRoles.length === 0
+      ? 'role.revoked'
+      : 'role.replaced';
+  await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.roles,
+    action,
+    async tx => {
+      const current = await tx.getDoc<{ roles: string[] }>('userRoles', email.toLowerCase());
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${email.toLowerCase()}`, display: 'target' },
+        changes: [{ field: 'roles', before: rolesLabel(current?.roles ?? []), after: rolesLabel(newRoles) }],
+      };
+    },
+    tx => setGrantedRoles(tx, email, newRoles),
+  );
   sendJson(res, 200, { ok: true });
 }
 
@@ -843,7 +1071,7 @@ async function handleAdminListRedirects(req: IncomingMessage, res: ServerRespons
 }
 
 async function handleAdminCreateRedirect(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { path, target } = await readJsonBody<{ path?: string; target?: string }>(req, deps.maxJsonBodyBytes);
   const trimmedPath = (path ?? '').trim().toLowerCase();
   const trimmedTarget = (target ?? '').trim();
@@ -856,15 +1084,33 @@ async function handleAdminCreateRedirect(req: IncomingMessage, res: ServerRespon
   if (!isValidRedirectTarget(trimmedTarget)) {
     throw new AuthError('Docelowy adres musi być pełnym adresem URL zaczynającym się od http:// lub https://.', 400);
   }
-  await deps.github.appendRedirectToMain({ path: trimmedPath, target: trimmedTarget });
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'site.redirect.created',
+      actor: { email: identity.email },
+      resource: { kind: 'redirect', key: `redirect:${trimmedPath}`, display: trimmedPath },
+      changes: [{ field: 'path', after: trimmedPath }, { field: 'target', after: trimmedTarget }],
+    },
+    async () => deps.github.appendRedirectToMain({ path: trimmedPath, target: trimmedTarget }),
+  );
   sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminDeleteRedirect(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const path = url.searchParams.get('path');
   if (!path) throw new AuthError('Brak aliasu.', 400);
-  await deps.github.removeRedirectFromMain(path);
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'site.redirect.deleted',
+      actor: { email: identity.email },
+      resource: { kind: 'redirect', key: `redirect:${path}`, display: path },
+      changes: [{ field: 'path', after: path }],
+    },
+    async () => deps.github.removeRedirectFromMain(path),
+  );
   sendJson(res, 200, { ok: true });
 }
 
@@ -880,7 +1126,7 @@ function rejectIfRateLimited(req: IncomingMessage, res: ServerResponse): boolean
 }
 
 async function handleAdminCreatePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { category, name, order, description } = await readJsonBody<{
     category?: string;
     name?: string;
@@ -890,31 +1136,47 @@ async function handleAdminCreatePerson(req: IncomingMessage, res: ServerResponse
   const validCategory = parseAboutUsCategory(category ?? null);
   if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
 
-  const folders = await bootstrapAboutUsStructure(deps.drive);
   const folderName = buildPersonFolderName(name, order ?? null);
-  const folderId = await deps.drive.createAlbumFolder(folders.categories[validCategory], folderName);
-  if (description) {
-    await deps.drive.writeTextFile(folderId, 'Opis.txt', description);
-  }
+  // Pre-effect resource protocol (implementation-contract.md): no final Drive folder id exists
+  // before the effect runs, so the correlation id is generated first and used as the intent's
+  // immutable provisional resource key - not the browser-supplied identity.sub, which isn't a
+  // correlation id and isn't unique per attempt.
+  const correlationId = randomUUID();
+  const provisionalResourceKey = `person:pending:${correlationId}`;
+  const { result: folderId } = await executeAuditedExternalMutation(deps.firestore, {
+    action: 'profile.person.created', actor: { email: identity.email },
+    resource: { kind: 'person', key: provisionalResourceKey, display: name.trim() },
+    changes: [{ field: 'name', after: name.trim() }, { field: 'category', after: validCategory }],
+  }, async () => {
+    const folders = await bootstrapAboutUsStructure(deps.drive);
+    const id = await deps.drive.createAlbumFolder(folders.categories[validCategory], folderName);
+    if (description) await deps.drive.writeTextFile(id, 'Opis.txt', description);
+    return id;
+  }, {
+    correlationId,
+    provisionalResourceKey,
+    eventInput: id => ({ action: 'profile.person.created', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${id}`, display: name.trim() }, changes: [{ field: 'name', after: name.trim() }, { field: 'category', after: validCategory }] }),
+  });
   invalidateAboutUsCache();
   sendJson(res, 200, { folderId });
 }
 
 async function handleAdminUpdateDescription(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const folderId = url.searchParams.get('folderId');
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   const { description } = await readJsonBody<{ description?: string }>(req, deps.maxJsonBodyBytes);
-  await deps.drive.writeTextFile(folderId, 'Opis.txt', description ?? '');
+  const value = description ?? '';
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.description.updated', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'descriptionHash', after: createHash('sha256').update(value).digest('hex') }, { field: 'descriptionLength', after: value.length }] }, async () => deps.drive.writeTextFile(folderId, 'Opis.txt', value));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const folderId = url.searchParams.get('folderId');
   if (!folderId) throw new AuthError('Brak folderId.', 400);
-  await deps.drive.deleteFolder(folderId);
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.deleted', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'folderId', after: folderId }] }, async () => deps.drive.deleteFolder(folderId));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -931,14 +1193,14 @@ async function handleAdminListPeople(req: IncomingMessage, res: ServerResponse, 
 // together (see buildPersonFolderName) so the admin panel sends both, even when only one
 // actually changed, rather than this handler needing to fetch the current folder name first.
 async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, name, order } = await readJsonBody<{ folderId?: string; name?: string; order?: number | null }>(
     req,
     deps.maxJsonBodyBytes,
   );
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
-  await deps.drive.renameFolder(folderId, buildPersonFolderName(name, order ?? null));
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.order.updated', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: name.trim() }, changes: [{ field: 'name', after: name.trim() }, { field: 'order', after: order ?? null }] }, async () => deps.drive.renameFolder(folderId, buildPersonFolderName(name, order ?? null)));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -954,50 +1216,44 @@ async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerRes
 // which prepends instead - by design, not something the admin panel asks for explicitly.
 // "upload"/"deleted" skip this entirely since order is meaningless there.
 async function handleAdminMovePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, category } = await readJsonBody<{ folderId?: string; category?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   const department = parseAdminDepartment(category ?? null);
-  const folders = await bootstrapAboutUsStructure(deps.drive);
-  const targetFolderId = departmentFolderId(folders, department);
-  const { name: currentFolderName } = await deps.drive.moveFolder(folderId, targetFolderId);
-
-  if (isAboutUsCategory(department)) {
-    const siblings = await deps.drive.listGalleryFolders(targetFolderId);
-    const newOrder = computeOrderForDepartmentMove(
-      department,
-      siblings.filter(f => f.id !== folderId).map(f => f.name),
-    );
-    const { name: personName } = parsePersonFolderName(currentFolderName);
-    await deps.drive.renameFolder(folderId, buildPersonFolderName(personName, newOrder));
-  }
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.category.changed', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'category', after: department }] }, async () => {
+    const folders = await bootstrapAboutUsStructure(deps.drive); const targetFolderId = departmentFolderId(folders, department); const { name: currentFolderName } = await deps.drive.moveFolder(folderId, targetFolderId);
+    if (isAboutUsCategory(department)) { const siblings = await deps.drive.listGalleryFolders(targetFolderId); const newOrder = computeOrderForDepartmentMove(department, siblings.filter(f => f.id !== folderId).map(f => f.name)); const { name: personName } = parsePersonFolderName(currentFolderName); await deps.drive.renameFolder(folderId, buildPersonFolderName(personName, newOrder)); }
+  });
 
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const folderId = url.searchParams.get('folderId');
   const fileName = url.searchParams.get('fileName');
   const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
   if (!folderId || !fileName) throw new AuthError('Brak folderId lub fileName.', 400);
   requireAllowedMimeType(mimeType, deps.allowedMimeTypes);
-  await deps.drive.uploadFileStream(
-    folderId,
-    decodeURIComponent(fileName),
-    mimeType,
-    validatedUploadStream(req, deps.maxFileBytes, mimeType),
-  );
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: 'pending' }] }, async () => deps.drive.uploadFileStream(folderId, decodeURIComponent(fileName), mimeType, validatedUploadStream(req, deps.maxFileBytes, mimeType)), { eventInput: file => ({ action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: file.id }] }) });
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const fileId = url.searchParams.get('fileId');
-  if (!fileId) throw new AuthError('Brak fileId.', 400);
-  await deps.drive.deleteFolder(fileId);
+  // I4: this resource key must be `person:{folderId}`, matching photo.added/photo.main.changed/
+  // in_memoriam.changed (the rest of this same person-photo action family) and the contract's
+  // canonical `person:{personId}` notation - not the ad hoc `person:photo:{fileId}` it used
+  // before, which isn't a notation the contract defines at all. folderId comes from the same
+  // request-body/query source those sibling handlers use, supplied by the client the same way
+  // (publiczne-wizytowki.js's delete-photo button now carries data-folder-id alongside
+  // data-file-id).
+  const folderId = url.searchParams.get('folderId');
+  if (!fileId || !folderId) throw new AuthError('Brak fileId lub folderId.', 400);
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.deleted', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: fileId }] }, async () => deps.drive.deleteFolder(fileId));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -1007,33 +1263,63 @@ async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse,
 // handleWojownicyUploadPhoto below for why "!" specifically) - strips the prefix from whatever
 // other file currently has it first, so exactly one photo is ever marked main at a time.
 async function handleAdminSetMainPhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, fileId } = await readJsonBody<{ folderId?: string; fileId?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId || !fileId) throw new AuthError('Brak folderId lub fileId.', 400);
-  const images = await deps.drive.listImageFiles(folderId);
-  for (const image of images) {
-    const isTarget = image.id === fileId;
-    const hasMainPrefix = image.name.startsWith('!');
-    if (isTarget && !hasMainPrefix) {
-      await deps.drive.renameFolder(image.id, `!${image.name}`);
-    } else if (!isTarget && hasMainPrefix) {
-      await deps.drive.renameFolder(image.id, image.name.slice(1));
-    }
-  }
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.main.changed', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'mainPhoto', after: fileId }] }, async () => { const images = await deps.drive.listImageFiles(folderId); for (const image of images) { const isTarget = image.id === fileId; const hasMainPrefix = image.name.startsWith('!'); if (isTarget && !hasMainPrefix) await deps.drive.renameFolder(image.id, `!${image.name}`); else if (!isTarget && hasMainPrefix) await deps.drive.renameFolder(image.id, image.name.slice(1)); } });
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
 
 // Moves a single photo into a different person's folder - see moveFile in drive.ts for why
 // (reviewing an upload-staging submission for someone who already has an existing profile).
+//
+// I4 (final review): a transfer must show up in BOTH people's own Historia, not only the
+// destination's - the source person's photo genuinely left their folder, which is exactly the
+// kind of change their own history should record. The source folder id isn't known until the
+// Drive move itself reads the file's current parent (moveFile now returns it - see its comment
+// in drive.ts), so the intent declared before the effect still only names the destination (the
+// one resource identifier this handler already had up front); the second, source-keyed event is
+// added only in the final `eventInput`, atomically alongside the destination event, via
+// executeAuditedExternalMutation's array support (implementation-contract.md: "a single
+// backwards-compatible request that changes more than one independent effect may atomically emit
+// one event per effect"). If Drive reports no previous parent at all (shouldn't happen for a real
+// photo, but not assumed), only the destination event is emitted - never a fabricated source key.
 async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { fileId, targetFolderId } = await readJsonBody<{ fileId?: string; targetFolderId?: string }>(
     req,
     deps.maxJsonBodyBytes,
   );
   if (!fileId || !targetFolderId) throw new AuthError('Brak fileId lub targetFolderId.', 400);
-  await deps.drive.moveFile(fileId, targetFolderId);
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'profile.person.photo.transferred',
+      actor: { email: identity.email },
+      resource: { kind: 'person', key: `person:${targetFolderId}`, display: targetFolderId },
+      changes: [{ field: 'fileId', after: fileId }, { field: 'folderId', after: targetFolderId }],
+    },
+    async () => deps.drive.moveFile(fileId, targetFolderId),
+    {
+      eventInput: ({ previousFolderId }) => {
+        const destinationEvent: CanonicalAuditEventInput = {
+          action: 'profile.person.photo.transferred',
+          actor: { email: identity.email },
+          resource: { kind: 'person', key: `person:${targetFolderId}`, display: targetFolderId },
+          changes: [{ field: 'fileId', after: fileId }, { field: 'folderId', after: targetFolderId }],
+        };
+        if (!previousFolderId || previousFolderId === targetFolderId) return destinationEvent;
+        const sourceEvent: CanonicalAuditEventInput = {
+          action: 'profile.person.photo.transferred',
+          actor: { email: identity.email },
+          resource: { kind: 'person', key: `person:${previousFolderId}`, display: previousFolderId },
+          changes: [{ field: 'fileId', before: fileId }, { field: 'folderId', after: targetFolderId }],
+        };
+        return [destinationEvent, sourceEvent];
+      },
+    },
+  );
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -1041,10 +1327,10 @@ async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerRespons
 // Toggles the "Oznacz jako in memoriam" marker (see IN_MEMORIAM_FILE_NAME in about-us.ts) - the
 // public site renders this person's photos grayscale with a black diagonal ribbon once set.
 async function handleAdminSetInMemoriam(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, inMemoriam } = await readJsonBody<{ folderId?: string; inMemoriam?: boolean }>(req, deps.maxJsonBodyBytes);
   if (!folderId || typeof inMemoriam !== 'boolean') throw new AuthError('Brak folderId lub inMemoriam.', 400);
-  await deps.drive.writeTextFile(folderId, IN_MEMORIAM_FILE_NAME, inMemoriam ? 'true' : 'false');
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.in_memoriam.changed', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'inMemoriam', after: inMemoriam }] }, async () => deps.drive.writeTextFile(folderId, IN_MEMORIAM_FILE_NAME, inMemoriam ? 'true' : 'false'));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -1089,10 +1375,37 @@ async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResp
   const { name } = await readJsonBody<{ name?: string }>(req, deps.maxJsonBodyBytes);
   if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
 
-  const folders = await bootstrapAboutUsStructure(deps.drive);
   const date = new Date().toISOString().slice(0, 10);
   const folderName = `${name.trim()} - ${identity.email} - ${date}`;
-  const folderId = await deps.drive.createAlbumFolder(folders.uploadRoot, folderName);
+  // Pre-effect resource protocol - see the matching comment in handleAdminCreatePerson. Final
+  // resource key format (member:{actorEmail}:submission:{folderId}) is
+  // implementation-contract.md's "Pre-effect resource protocol" list, not the generic
+  // person:{personId}/gallery:{folderId} notation.
+  const correlationId = randomUUID();
+  const provisionalResourceKey = `memberSubmission:pending:${correlationId}`;
+  const { result: folderId } = await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'profile.photo_submission.created',
+      actor: { email: identity.email },
+      resource: { kind: 'memberSubmission', key: provisionalResourceKey, display: name.trim() },
+      changes: [{ field: 'name', after: name.trim() }],
+    },
+    async () => {
+      const folders = await bootstrapAboutUsStructure(deps.drive);
+      return deps.drive.createAlbumFolder(folders.uploadRoot, folderName);
+    },
+    {
+      correlationId,
+      provisionalResourceKey,
+      eventInput: createdFolderId => ({
+        action: 'profile.photo_submission.created',
+        actor: { email: identity.email },
+        resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${createdFolderId}`, display: name.trim() },
+        changes: [{ field: 'name', after: name.trim() }],
+      }),
+    },
+  );
   const submissionToken = issueSubmissionToken(
     { folderId, sub: identity.sub, exp: Date.now() + SUBMISSION_TTL_MS },
     deps.submissionTokenSecret,
@@ -1119,23 +1432,51 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
 
-  const reserved = await reserveUploadSlot(deps.drive, folderId, deps.maxFilesPerSubmission);
-  if (!reserved) {
-    throw new AuthError(`Zgłoszenie osiągnęło maksymalną liczbę zdjęć (${deps.maxFilesPerSubmission}).`, 400);
-  }
-
   const targetName = isMain ? `!main.${extensionForMimeType(mimeType)}` : decodeURIComponent(fileName);
-  try {
-    await deps.drive.uploadFileStream(
-      folderId,
-      targetName,
-      mimeType,
-      validatedUploadStream(req, deps.maxFileBytes, mimeType),
-    );
-  } catch (err) {
-    releaseUploadSlot(folderId);
-    throw err;
-  }
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'profile.photo_submission.photo_added',
+      actor: { email: identity.email },
+      // I4: matches profile.photo_submission.created's own final resource key
+      // (`member:{actorEmail}:submission:{folderId}`, implementation-contract.md's canonical
+      // notation) - not the ad hoc `memberSubmission:{folderId}` this used before, which meant
+      // the two halves of the same submission were unreachable via the same Historia/resourceKey
+      // filter.
+      resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${folderId}`, display: folderId },
+      changes: [{ field: 'fileId', after: 'pending' }],
+    },
+    async () => {
+      const reserved = await reserveUploadSlot(deps.drive, folderId, deps.maxFilesPerSubmission);
+      if (!reserved) {
+        throw new AuthError(`Zgłoszenie osiągnęło maksymalną liczbę zdjęć (${deps.maxFilesPerSubmission}).`, 400);
+      }
+      try {
+        return await deps.drive.uploadFileStream(
+          folderId,
+          targetName,
+          mimeType,
+          validatedUploadStream(req, deps.maxFileBytes, mimeType),
+        );
+      } catch (err) {
+        releaseUploadSlot(folderId);
+        throw err;
+      }
+    },
+    {
+      eventInput: uploaded => ({
+        action: 'profile.photo_submission.photo_added',
+        actor: { email: identity.email },
+        // I4: matches profile.photo_submission.created's own final resource key
+        // (`member:{actorEmail}:submission:{folderId}`, implementation-contract.md's canonical
+        // notation) - not the ad hoc `memberSubmission:{folderId}` this used before, which meant
+        // the two halves of the same submission were unreachable via the same Historia/resourceKey
+        // filter.
+        resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${folderId}`, display: folderId },
+        changes: [{ field: 'fileId', after: uploaded.id }],
+      }),
+    },
+  );
   sendJson(res, 200, { ok: true });
 }
 
@@ -1238,7 +1579,24 @@ async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerRe
   const targetEmail = targetEmailParam ?? identity.email;
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const fields = await parseMemberWritableFields(deps, body);
-  const member = await saveMember(deps.firestore, targetEmail, fields, identity.email);
+  const { result: member } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.tripMember,
+    'profile.member.updated',
+    async tx => {
+      const existing = await tx.getDoc<MemberDoc>('members', targetEmail.toLowerCase());
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${targetEmail.toLowerCase()}`, display: 'member' },
+        changes: [
+          { field: 'name', ...(existing ? { before: existing.fullName } : {}), after: fields.fullName },
+          { field: 'nickname', ...(existing ? { before: existing.nickname } : {}), after: fields.nickname },
+          { field: 'sectionId', ...(existing ? { before: existing.sectionId } : {}), after: fields.sectionId },
+        ],
+      };
+    },
+    tx => saveMember(tx, targetEmail, fields, identity.email),
+  );
   sendJson(res, 200, { member });
 }
 
@@ -1267,29 +1625,62 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
   // them is actually present - same "send it or leave it untouched" shape as categoryId/hidden
   // below, so e.g. zarzadzanie-ludzmi.js's hidden checkbox can PUT { email, hidden } alone without
   // also having to resend (and re-pass validation for) the name/section fields already showing.
-  let member = existing;
-  if (body.fullName !== undefined || body.nickname !== undefined || body.sectionId !== undefined) {
-    const fields = await parseMemberWritableFields(deps, body);
-    member = await saveMember(deps.firestore, email, fields, identity.email);
-  }
+  const hasMemberFields = body.fullName !== undefined || body.nickname !== undefined || body.sectionId !== undefined;
+  const fields = hasMemberFields ? await parseMemberWritableFields(deps, body) : undefined;
+  let categoryId: string | null | undefined;
   if (body.categoryId !== undefined) {
     const categoryIdRaw = body.categoryId;
     if (categoryIdRaw !== null && typeof categoryIdRaw !== 'string') {
       throw new AuthError('Nieprawidłowy typ członka.', 400);
     }
-    const categoryId = categoryIdRaw === null || categoryIdRaw === '' ? null : categoryIdRaw;
+    categoryId = categoryIdRaw === null || categoryIdRaw === '' ? null : categoryIdRaw;
     if (categoryId !== null) {
       const lookupLists = await getAllLookupLists(deps.firestore);
       requireKnownLookupId(lookupLists.categories, categoryId, 'Wybrany typ członka nie istnieje.');
     }
-    await setMemberCategoryId(deps.firestore, email, categoryId);
-    member.categoryId = categoryId;
   }
+  let hidden: boolean | undefined;
   if (body.hidden !== undefined) {
     if (typeof body.hidden !== 'boolean') throw new AuthError('Nieprawidłowa wartość hidden.', 400);
-    await setMemberHidden(deps.firestore, email, body.hidden);
-    member.hidden = body.hidden;
+    hidden = body.hidden;
   }
+  if (!fields && categoryId === undefined && hidden === undefined) {
+    sendJson(res, 200, { member: existing });
+    return;
+  }
+  const { result: member } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.memberProfile,
+    'profile.member.updated',
+    async tx => {
+      const current = await tx.getDoc<MemberDoc>('members', email.toLowerCase());
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${email.toLowerCase()}`, display: 'member' },
+        changes: [
+          ...(fields ? [
+            { field: 'name', before: current?.fullName ?? null, after: fields.fullName },
+            { field: 'nickname', before: current?.nickname ?? null, after: fields.nickname },
+            { field: 'sectionId', before: current?.sectionId ?? null, after: fields.sectionId },
+          ] : []),
+          ...(categoryId !== undefined ? [{ field: 'category', before: current?.categoryId ?? null, after: categoryId }] : []),
+          ...(hidden !== undefined ? [{ field: 'hidden', before: current?.hidden ?? false, after: hidden }] : []),
+        ],
+      };
+    },
+    async tx => {
+      const saved = fields ? await saveMember(tx, email, fields, identity.email) : { ...existing };
+      if (categoryId !== undefined) {
+        await setMemberCategoryId(tx, email, categoryId);
+        saved.categoryId = categoryId;
+      }
+      if (hidden !== undefined) {
+        await setMemberHidden(tx, email, hidden);
+        saved.hidden = hidden;
+      }
+      return saved;
+    },
+  );
   sendJson(res, 200, { member });
 }
 
@@ -1346,7 +1737,24 @@ async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerR
   for (const weaponId of fields.weaponIds) {
     requireKnownLookupId(lookupLists.weapons, weaponId, 'Wybrana broń nie istnieje.');
   }
-  const profile = await saveProfile(deps.firestore, identity.email, fields);
+  const { result: profile } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.tripProfile,
+    'profile.member.updated',
+    async tx => {
+      const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', identity.email.toLowerCase());
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${identity.email.toLowerCase()}`, display: 'member' },
+        changes: [
+          { field: 'weaponCount', ...(existing ? { before: existing.weaponIds.length } : {}), after: fields.weaponIds.length },
+          { field: 'equipmentCount', ...(existing ? { before: existing.equipment.length } : {}), after: fields.equipment.length },
+          { field: 'companionCount', ...(existing ? { before: existing.companions.length } : {}), after: fields.companions.length },
+        ],
+      };
+    },
+    tx => saveProfile(tx, identity.email, fields),
+  );
   sendJson(res, 200, { profile });
 }
 
@@ -1391,7 +1799,18 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const name = requireTrimmedString(body.name, LW_MAX_NAME_LENGTH, 'Nazwa wyjazdu jest wymagana.');
   const startDate = requireDateString(body.startDate, 'Data rozpoczęcia jest wymagana (RRRR-MM-DD).');
-  const event = await createEvent(deps.firestore, { name, startDate }, identity.email);
+  const eventId = randomUUID();
+  const { result: event } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.eventCreate,
+    'event.created',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'event', key: `event:${eventId}`, display: name },
+      changes: [{ field: 'name', after: name }, { field: 'startDate', after: startDate }, { field: 'status', after: 'active' }],
+    },
+    tx => createEvent(tx, { name, startDate }, identity.email, eventId),
+  );
   sendJson(res, 200, { event });
 }
 
@@ -1411,21 +1830,49 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
     await requireRole(deps.firestore, identity.email, 'accountant');
     fields.skladkaFee = body.skladkaFee === null ? null : requireTrimmedString(body.skladkaFee, LW_MAX_NAME_LENGTH, 'Opis składki jest nieprawidłowy.');
   }
-  const event = await updateEvent(deps.firestore, eventId, fields);
-  if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
-  if (fields.skladkaFee !== undefined) {
-    await appendDuesAuditEntry(deps.firestore, {
-      context: 'eventFee',
-      targetMemberEmail: null,
-      eventId,
-      eventName: event.name,
-      year: null,
-      changedBy: identity.email,
-      changeSummary: fields.skladkaFee
-        ? `Ustawiono składkę wyjazdu „${event.name}” na: ${fields.skladkaFee}`
-        : `Usunięto składkę wyjazdu „${event.name}”`,
-    });
+  const eventFieldCount = Number(fields.name !== undefined) + Number(fields.startDate !== undefined) + Number(fields.status !== undefined);
+  if (eventFieldCount === 0 && fields.skladkaFee === undefined) {
+    throw new AuthError('Podaj co najmniej jedno pole wyjazdu do zmiany.', 400);
   }
+  const metadataAction = fields.status === 'cancelled' ? 'event.cancelled' : 'event.updated';
+  const actions = fields.skladkaFee !== undefined
+    ? eventFieldCount > 0
+      ? [metadataAction, 'dues.event_fee.changed'] as const
+      : ['dues.event_fee.changed'] as const
+    : [metadataAction] as const;
+  const { result: event } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.eventUpdate,
+    actions,
+    async tx => {
+      const existing = await tx.getDoc<EventDoc>('events', eventId);
+      if (!existing) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+      const metadataInput = {
+        actor: { email: identity.email },
+        resource: { kind: 'event' as const, key: `event:${eventId}`, display: fields.name ?? existing.name },
+        changes: [
+          ...(fields.name !== undefined ? [{ field: 'name', before: existing.name, after: fields.name }] : []),
+          ...(fields.startDate !== undefined ? [{ field: 'startDate', before: existing.startDate, after: fields.startDate }] : []),
+          ...(fields.status !== undefined ? [{ field: 'status', before: existing.status, after: fields.status }] : []),
+        ],
+      };
+      if (fields.skladkaFee === undefined) return metadataInput;
+      const feeDigest = (fee: string | null): string | null => fee === null ? null : createHash('sha256').update(fee).digest('hex');
+      const feeInput = {
+        actor: { email: identity.email },
+        resource: { kind: 'eventFee' as const, key: `eventFee:${eventId}`, display: fields.name ?? existing.name },
+        changes: [
+          { field: 'feeDigest', before: feeDigest(existing.skladkaFee), after: feeDigest(fields.skladkaFee) },
+          { field: 'feeLength', before: existing.skladkaFee?.length ?? null, after: fields.skladkaFee?.length ?? 0 },
+        ],
+      };
+      return eventFieldCount > 0 ? [metadataInput, feeInput] : [feeInput];
+    },
+    tx => updateEvent(tx, eventId, fields).then(event => {
+      if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+      return event;
+    }),
+  );
   sendJson(res, 200, { event });
 }
 
@@ -1491,15 +1938,27 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
   }
 
   const fields: SignupWritableFields = { attending: body.attending, equipmentIds, companionIds };
-  const signup = await saveSignup(deps.firestore, eventId, memberEmail, fields, identity.email);
-  await appendAuditLogEntry(deps.firestore, {
-    eventId,
-    targetMemberEmail: memberEmail.toLowerCase(),
-    changedBy: identity.email,
-    changeSummary: fields.attending
-      ? `Zgłoszono udział (sprzęt: ${equipmentIds.length}, osoby towarzyszące: ${companionIds.length})`
-      : 'Wycofano zgłoszenie udziału',
-  });
+  const normalizedMemberEmail = memberEmail.toLowerCase();
+  const existingSignup = await getSignup(deps.firestore, eventId, normalizedMemberEmail);
+  const action = existingSignup ? 'signup.updated' : 'signup.created';
+  const { result: signup } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.signup,
+    action,
+    async tx => {
+      const existing = await tx.getDoc<SignupDoc>('signups', `${eventId}_${normalizedMemberEmail}`);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'signup', key: `signup:${eventId}:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        changes: [
+          { field: 'attending', ...(existing ? { before: existing.attending } : {}), after: fields.attending },
+          { field: 'equipmentCount', ...(existing ? { before: existing.equipmentIds.length } : {}), after: equipmentIds.length },
+          { field: 'companionCount', ...(existing ? { before: existing.companionIds.length } : {}), after: companionIds.length },
+        ],
+      };
+    },
+    tx => saveSignup(tx, eventId, normalizedMemberEmail, fields, identity.email),
+  );
   sendJson(res, 200, { signup });
 }
 
@@ -1606,14 +2065,30 @@ async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: Ser
   if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
-  const signup = await setSkladkaPaid(deps.firestore, eventId, memberEmail, body.paid, identity.email);
-  if (!signup) throw new AuthError('Ten członek nie jest zapisany na ten wyjazd.', 404);
-  await appendAuditLogEntry(deps.firestore, {
-    eventId,
-    targetMemberEmail: memberEmail.toLowerCase(),
-    changedBy: identity.email,
-    changeSummary: body.paid ? 'Oznaczono składkę jako opłaconą' : 'Oznaczono składkę jako nieopłaconą',
-  });
+  const paid = body.paid;
+  const normalizedMemberEmail = memberEmail.toLowerCase();
+  const { result: signup } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.signupFee,
+    'dues.event_fee.changed',
+    async tx => {
+      const existing = await tx.getDoc<SignupDoc>('signups', `${eventId}_${normalizedMemberEmail}`);
+      if (!existing) throw new AuthError('Ten członek nie jest zapisany na ten wyjazd.', 404);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'signup', key: `signup:${eventId}:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        changes: [
+          { field: 'memberEmail', after: normalizedMemberEmail },
+          { field: 'paid', before: existing.skladkaPaid, after: paid },
+        ],
+      };
+    },
+    async tx => {
+      const updated = await setSkladkaPaid(tx, eventId, normalizedMemberEmail, paid, identity.email);
+      if (!updated) throw new AuthError('Ten członek nie jest zapisany na ten wyjazd.', 404);
+      return updated;
+    },
+  );
   sendJson(res, 200, { signup });
 }
 
@@ -1624,17 +2099,27 @@ async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerR
   if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
-  const profile = await setWpisowePaid(deps.firestore, memberEmail, body.paid, identity.email);
-  if (!profile) throw new AuthError('Ten członek nie ma jeszcze profilu Listy Wyjazdowej.', 404);
-  await appendDuesAuditEntry(deps.firestore, {
-    context: 'wpisowe',
-    targetMemberEmail: memberEmail.toLowerCase(),
-    eventId: null,
-    eventName: null,
-    year: null,
-    changedBy: identity.email,
-    changeSummary: body.paid ? 'Oznaczono wpisowe jako opłacone' : 'Oznaczono wpisowe jako nieopłacone',
-  });
+  const paid = body.paid;
+  const normalizedMemberEmail = memberEmail.toLowerCase();
+  const { result: profile } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.entryFee,
+    'dues.entry_fee.changed',
+    async tx => {
+      const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', normalizedMemberEmail);
+      if (!existing) throw new AuthError('Ten członek nie ma jeszcze profilu Listy Wyjazdowej.', 404);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'due', key: `due:${normalizedMemberEmail}:entry_fee`, display: normalizedMemberEmail },
+        changes: [{ field: 'paid', before: existing.wpisowePaid, after: paid }],
+      };
+    },
+    async tx => {
+      const updated = await setWpisowePaid(tx, normalizedMemberEmail, paid, identity.email);
+      if (!updated) throw new AuthError('Ten członek nie ma jeszcze profilu Listy Wyjazdowej.', 404);
+      return updated;
+    },
+  );
   sendJson(res, 200, { profile });
 }
 
@@ -1672,33 +2157,27 @@ async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResp
     fields.amount =
       body.amount === null ? null : requireTrimmedString(body.amount, LW_MAX_NAME_LENGTH, 'Kwota składki jest nieprawidłowa.');
   }
-  const dues = await saveDues(deps.firestore, memberEmail, year, fields, identity.email);
-  if (fields.paid !== undefined) {
-    await appendDuesAuditEntry(deps.firestore, {
-      context: 'roczna',
-      targetMemberEmail: memberEmail.toLowerCase(),
-      eventId: null,
-      eventName: null,
-      year,
-      changedBy: identity.email,
-      changeSummary: fields.paid
-        ? `Oznaczono składkę roczną ${year} jako opłaconą`
-        : `Oznaczono składkę roczną ${year} jako nieopłaconą`,
-    });
+  if (fields.paid === undefined && fields.amount === undefined) {
+    throw new AuthError('Podaj paid lub amount do zmiany.', 400);
   }
-  if (fields.amount !== undefined) {
-    await appendDuesAuditEntry(deps.firestore, {
-      context: 'roczna',
-      targetMemberEmail: memberEmail.toLowerCase(),
-      eventId: null,
-      eventName: null,
-      year,
-      changedBy: identity.email,
-      changeSummary: fields.amount
-        ? `Ustawiono kwotę składki rocznej ${year} dla ${memberEmail.toLowerCase()} na: ${fields.amount}`
-        : `Usunięto kwotę składki rocznej ${year} dla ${memberEmail.toLowerCase()}`,
-    });
-  }
+  const normalizedMemberEmail = memberEmail.toLowerCase();
+  const { result: dues } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.annualDues,
+    'dues.annual.changed',
+    async tx => {
+      const existing = await tx.getDoc<DuesDoc>('duesAnnual', `${normalizedMemberEmail}_${year}`);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'due', key: `due:${normalizedMemberEmail}:${year}`, display: normalizedMemberEmail },
+        changes: [
+          ...(fields.paid !== undefined ? [{ field: 'paid', ...(existing ? { before: existing.paid } : {}), after: fields.paid }] : []),
+          ...(fields.amount !== undefined ? [{ field: 'amount', ...(existing ? { before: existing.amount } : {}), after: fields.amount }] : []),
+        ],
+      };
+    },
+    tx => saveDues(tx, normalizedMemberEmail, year, fields, identity.email),
+  );
   sendJson(res, 200, { dues });
 }
 
@@ -1736,7 +2215,15 @@ async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerRespons
   const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   try {
-    await deps.drive.deleteFolder(folderId);
+    await executeAuditedExternalMutation(
+      deps.firestore,
+      {
+        action: 'gallery.deleted', actor: { email: identity.email },
+        resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId },
+        changes: [{ field: 'name', after: folderId }],
+      },
+      async () => deps.drive.deleteFolder(folderId),
+    );
   } catch (err) {
     logDestructiveAction('delete-drive-gallery', identity.email, folderId, 'error', err);
     throw err;
@@ -1753,14 +2240,36 @@ async function handleStart(req: IncomingMessage, res: ServerResponse, deps: Serv
   const { name, date } = await readJsonBody<{ name?: string; date: string }>(req, deps.maxJsonBodyBytes);
   if (!date) throw new AuthError('Brak daty albumu.', 400);
   const folderName = name ? `${date} ${name}` : date;
-  const folderId = await deps.drive.createAlbumFolder(deps.driveParentFolderId, folderName);
-  // Made public right away, not deferred to /finalize: the gallery detail view fetches photos
-  // client-side straight from Drive's public API (see app.js's DRIVE_API_KEY_PUBLIC), so any
-  // file already uploaded needs to be visible even if the submission never reaches /finalize -
-  // e.g. some files fail and the uploader never retries. Previously this only happened in
-  // /finalize, which left the folder permanently private (Drive shows nothing to that public
-  // API key) whenever the very first upload attempt for a new gallery had any failures.
-  await deps.drive.setFolderPublic(folderId);
+  // Pre-effect resource protocol - see the matching comment in handleAdminCreatePerson.
+  const correlationId = randomUUID();
+  const provisionalResourceKey = `gallery:pending:${correlationId}`;
+  const { result: folderId } = await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'gallery.created',
+      actor: { email: identity.email },
+      resource: { kind: 'gallery', key: provisionalResourceKey, display: name ?? date },
+      changes: [{ field: 'name', after: name ?? date }, { field: 'date', after: date }],
+    },
+    async () => {
+      const createdFolderId = await deps.drive.createAlbumFolder(deps.driveParentFolderId, folderName);
+      // Made public right away, not deferred to /finalize: the gallery detail view fetches photos
+      // client-side straight from Drive's public API (see app.js's DRIVE_API_KEY_PUBLIC), so any
+      // file already uploaded needs to be visible even if the submission never reaches /finalize.
+      await deps.drive.setFolderPublic(createdFolderId);
+      return createdFolderId;
+    },
+    {
+      correlationId,
+      provisionalResourceKey,
+      eventInput: createdFolderId => ({
+        action: 'gallery.created',
+        actor: { email: identity.email },
+        resource: { kind: 'gallery', key: `gallery:${createdFolderId}`, display: name ?? date },
+        changes: [{ field: 'name', after: name ?? date }, { field: 'date', after: date }],
+      }),
+    },
+  );
   const submissionToken = issueSubmissionToken(
     { folderId, sub: identity.sub, exp: Date.now() + SUBMISSION_TTL_MS },
     deps.submissionTokenSecret,
@@ -1811,6 +2320,39 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
     }
   }
 
+  // Only a genuinely new file reaches Drive, so the audit event (gallery.photo.added) is only
+  // ever emitted here, wrapping just the real upload effect - never the duplicate-skip fast
+  // path above, which changes no state and must stay silent per the story's "successful
+  // state-changing action" scope. The intent/correlation is created immediately before the
+  // effect, matching every other Drive-writing route in this file (external-operation protocol).
+  async function uploadAudited(): Promise<{ id: string }> {
+    const { result } = await executeAuditedExternalMutation(
+      deps.firestore,
+      {
+        action: 'gallery.photo.added',
+        actor: { email: identity.email },
+        resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId as string },
+        changes: [{ field: 'photoCount', after: 1 }],
+      },
+      uploadNow,
+      {
+        // gallery's field allowlist has no fileId (implementation-contract.md's per-action
+        // stored-field allowlist table lists only the controlled photoCount/name/date/etc. for
+        // this category), so - unlike handleWojownicyUploadPhoto's profile-scoped fileId - the
+        // final event stays on the same photoCount=1 change declared in the intent above; there
+        // is no final-resource substitution to make here (no provisional key is used either,
+        // since /upload always has a real folderId up front).
+        eventInput: () => ({
+          action: 'gallery.photo.added',
+          actor: { email: identity.email },
+          resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId as string },
+          changes: [{ field: 'photoCount', after: 1 }],
+        }),
+      },
+    );
+    return result;
+  }
+
   let uploaded: { id: string };
   if (sizeKnown) {
     // A file with this exact (name, size, mtime) already sits in the folder - skip outright
@@ -1833,7 +2375,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
       }
       const key = fileKeyFor(decodedFileName, contentLength, lastModifiedMs);
       if (known.has(key)) return null;
-      const uploadResult = await uploadNow();
+      const uploadResult = await uploadAudited();
       known.add(key);
       return uploadResult;
     });
@@ -1844,7 +2386,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
     }
     uploaded = result;
   } else {
-    uploaded = await uploadNow();
+    uploaded = await uploadAudited();
   }
   // Best-effort: a failure here shouldn't fail an otherwise-successful upload (the photo is
   // already safely in Drive), just leave it unattributed in the detail view's "Dodane przez".
@@ -1896,11 +2438,24 @@ async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: S
   // The folder was already made public by /start (see its comment) - nothing to do here for
   // that. A failure writing the manifest below simply fails /finalize with no compensating
   // action needed.
-  await deps.drive.writeManifest(folderId, {
-    ...(name ? { name } : {}),
-    date,
-    contributors: [identity.email],
-  });
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'gallery.finalized',
+      actor: { email: identity.email },
+      resource: { kind: 'gallery', key: `gallery:${folderId}`, display: name ?? folderId },
+      changes: [
+        ...(name ? [{ field: 'name' as const, after: name }] : []),
+        { field: 'date' as const, after: date },
+        { field: 'finalized' as const, after: 'true' },
+      ],
+    },
+    async () => deps.drive.writeManifest(folderId, {
+      ...(name ? { name } : {}),
+      date,
+      contributors: [identity.email],
+    }),
+  );
 
   // No albums.json/GitHub commit needed here - the app owns this folder (it created it), so
   // GET /galleries already discovers it live via the manifest just written above. Registering
@@ -1958,15 +2513,26 @@ async function handleGalleryPhotosFinalize(req: IncomingMessage, res: ServerResp
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
 
-  await deps.drive.setFolderPublic(folderId);
   const existing = await deps.drive.readManifest(folderId);
   const contributors = new Set(existing?.contributors ?? []);
   contributors.add(identity.email);
-  await deps.drive.writeManifest(folderId, {
-    ...(existing?.name ? { name: existing.name } : {}),
-    date: existing?.date ?? new Date().toISOString().slice(0, 10),
-    contributors: [...contributors],
-  });
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'gallery.photo.contribution.finalized',
+      actor: { email: identity.email },
+      resource: { kind: 'gallery', key: `gallery:${folderId}`, display: existing?.name ?? folderId },
+      changes: [{ field: 'contributorEmail', after: identity.email.toLowerCase() }],
+    },
+    async () => {
+      await deps.drive.setFolderPublic(folderId);
+      await deps.drive.writeManifest(folderId, {
+        ...(existing?.name ? { name: existing.name } : {}),
+        date: existing?.date ?? new Date().toISOString().slice(0, 10),
+        contributors: [...contributors],
+      });
+    },
+  );
   galleriesCache = null;
   sendJson(res, 200, { ok: true });
 }
@@ -2018,16 +2584,24 @@ function canonicalizeGalleryUrl(rawUrl: string): string {
 // scope (see KRKG-0025's design.md), which can never write into a folder it didn't create, so
 // there is no faster path for Drive URLs than the same albums.json + CI pipeline Photos uses.
 async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticate(req, res);
+  const identity = await deps.authenticate(req, res);
   const { url, name, date } = await readJsonBody<{ url?: string; name?: string; date: string }>(req, deps.maxJsonBodyBytes);
   if (!url || !date) throw new AuthError('Brak adresu URL galerii lub daty.', 400);
   const canonicalUrl = canonicalizeGalleryUrl(url);
 
-  await deps.github.appendAlbumToMain({
-    url: canonicalUrl,
-    ...(name ? { nameOverride: name } : {}),
-    dateOverride: date,
-  });
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'gallery.registered', actor: { email: identity.email },
+      resource: { kind: 'gallery', key: `gallery:${canonicalUrl}`, display: name ?? canonicalUrl },
+      changes: [{ field: 'url', after: canonicalUrl }, { field: 'date', after: date }],
+    },
+    async () => deps.github.appendAlbumToMain({
+      url: canonicalUrl,
+      ...(name ? { nameOverride: name } : {}),
+      dateOverride: date,
+    }),
+  );
   sendJson(res, 200, { ok: true });
 }
 
@@ -2039,7 +2613,15 @@ async function handleUnregister(req: IncomingMessage, res: ServerResponse, deps:
   const { url } = await readJsonBody<{ url?: string }>(req, deps.maxJsonBodyBytes);
   if (!url) throw new AuthError('Brak adresu URL galerii.', 400);
   try {
-    await deps.github.removeAlbumFromMain(url);
+    await executeAuditedExternalMutation(
+      deps.firestore,
+      {
+        action: 'gallery.unregistered', actor: { email: identity.email },
+        resource: { kind: 'gallery', key: `gallery:${url}`, display: url },
+        changes: [{ field: 'url', after: url }],
+      },
+      async () => deps.github.removeAlbumFromMain(url),
+    );
   } catch (err) {
     logDestructiveAction('unregister', identity.email, url, 'error', err);
     throw err;
@@ -2129,6 +2711,293 @@ async function handleYouTubeVideos(res: ServerResponse): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// KRKG-0050 batch 4/6: audit query, diagnostics, and reconciliation routes.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Query-string parser shared by the admin and member-zone audit list/detail routes - the
+ * "zero-or-one primary selector" contract is enforced here as much as inside `queryAuditEvents`
+ * itself, since more than one selector query param is a request-shape error the route should
+ * reject before ever touching Firestore.
+ */
+function parseAuditQueryOptions(url: URL): AuditQueryOptions {
+  const params = url.searchParams;
+  const category = params.get('category');
+  const action = params.get('action');
+  const actorEmail = params.get('actorEmail');
+  const resourceKey = params.get('resourceKey');
+  const q = params.get('q');
+  if (action && !category) throw new AuditQueryError('Selektor action wymaga podania category.');
+
+  const selectors: AuditPrimarySelector[] = [];
+  if (category) selectors.push({ kind: 'categoryAction', category: category as AuditCategory, ...(action ? { action: action as AuditAction } : {}) });
+  if (actorEmail) selectors.push({ kind: 'actor', email: actorEmail });
+  if (resourceKey) selectors.push({ kind: 'resourceKey', key: resourceKey });
+  if (q) selectors.push({ kind: 'search', term: q });
+  if (selectors.length > 1) throw new AuditQueryError('Można podać tylko jeden selektor podstawowy (category/action, actorEmail, resourceKey albo q).');
+
+  const from = params.get('from') ?? undefined;
+  const to = params.get('to') ?? undefined;
+  const cursor = params.get('cursor') ?? undefined;
+  const limitParam = params.get('limit');
+  let limit: number | undefined;
+  if (limitParam !== null) {
+    limit = Number(limitParam);
+    if (!Number.isFinite(limit) || limit <= 0) throw new AuditQueryError('Nieprawidłowy limit.');
+  }
+  return { selector: selectors[0] ?? { kind: 'none' }, from, to, cursor, limit };
+}
+
+/**
+ * Resolves the admin-scope audit viewer for `/admin/audyt/*`. Full administrators (the same
+ * admin-allowlist-or-admin-role gate as every other `authenticateAdmin` route) get every
+ * category; a signed-in member who is only an accountant or only a moderator still needs to see
+ * their own domain's history (dues / profile respectively - implementation-contract.md's
+ * role-visibility rules), so this checks `authenticateAdmin` opportunistically rather than
+ * requiring it outright, and 403s only if none of the three roles apply.
+ */
+async function resolveAdminAuditViewer(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<AuditViewer> {
+  const identity = await deps.authenticate(req, res);
+  const granted = await getGrantedRoles(deps.firestore, identity.email);
+  let isAdmin = granted.includes('admin');
+  if (!isAdmin) {
+    try {
+      await deps.authenticateAdmin(req, res);
+      isAdmin = true;
+    } catch {
+      // Not an allowlisted administrator - may still be a scoped accountant/moderator below.
+    }
+  }
+  const isAccountant = isAdmin || granted.includes('accountant');
+  const isModerator = isAdmin || granted.includes('moderator');
+  if (!isAdmin && !isAccountant && !isModerator) {
+    throw new AuthError('Brak uprawnień do przeglądania audytu.', 403);
+  }
+  return { scope: 'admin', isAdmin, isAccountant, isModerator };
+}
+
+async function handleAdminAuditEventsList(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const viewer = await resolveAdminAuditViewer(req, res, deps);
+  const page = await queryAuditEvents(deps.firestore, parseAuditQueryOptions(url), viewer);
+  sendJson(res, 200, page);
+}
+
+async function handleAdminAuditEventDetail(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const viewer = await resolveAdminAuditViewer(req, res, deps);
+  const id = url.searchParams.get('id');
+  if (!id) throw new AuthError('Brak id.', 400);
+  const row = await getAuditEventDetail(deps.firestore, id, viewer);
+  if (!row) throw new AuthError('Nie znaleziono.', 404);
+  sendJson(res, 200, row);
+}
+
+/** Administrator-only, per implementation-contract.md ("Diagnostics are administrator-only and
+ * never contextual member history") - deliberately not open to accountant/moderator-only staff,
+ * unlike the list/detail routes above. */
+async function handleAdminAuditDiagnostics(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req, res);
+  const correlationId = url.searchParams.get('correlationId') ?? undefined;
+  const rows = await listAuditDiagnostics(deps.firestore, correlationId);
+  sendJson(res, 200, { rows });
+}
+
+async function handleAuditEventsListPublic(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticate(req, res);
+  const page = await queryAuditEvents(deps.firestore, parseAuditQueryOptions(url), { scope: 'member' });
+  sendJson(res, 200, page);
+}
+
+async function handleAuditEventDetailPublic(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticate(req, res);
+  const id = url.searchParams.get('id');
+  if (!id) throw new AuthError('Brak id.', 400);
+  const row = await getAuditEventDetail(deps.firestore, id, { scope: 'member' });
+  if (!row) throw new AuthError('Nie znaleziono.', 404);
+  sendJson(res, 200, row);
+}
+
+/**
+ * Resource-specific idempotent final-state probes (implementation-contract.md's Scheduler
+ * contract), keyed by the audited resource kind. Every resource kind that can appear through
+ * `executeAuditedExternalMutation` must have an entry here - not to guarantee a positive
+ * existence check for all of them (some genuinely can't, see below), but so that
+ * `handleInternalAuditReconcile` always calls `reconcileExternalOperation` and lets its 24-hour
+ * `requires_review` boundary apply, instead of short-circuiting to a permanent `not_eligible`
+ * that would leave a stuck operation `pending` forever. None of these probes ever repeats the
+ * original effect - they only observe whether it already happened, or admit they can't tell.
+ */
+function buildReconciliationProbes(deps: ServerDeps): Partial<Record<AuditOperationIntent['resource']['kind'], ExternalOperationProbe>> {
+  // Always-pending fallback shared by any external-operation resource kind/action where no
+  // positive existence probe can be trusted (per implementation-contract.md: never fabricate
+  // `succeeded`, never fabricate `failed` merely because the final state can't be observed) -
+  // relies entirely on `reconcileExternalOperation`'s 24h `requires_review` boundary. Reused by
+  // every non-allowlisted `gallery`- and `person`-kind action below (see driveFolderProbe's
+  // comment) as well as by `settingsProbe`/`memberProbe` further down - deliberately worded here
+  // without naming specific actions so this comment doesn't go stale as more actions are added.
+  const alwaysPendingProbe: ExternalOperationProbe = async () => ({ state: 'pending' });
+
+  const driveFolderProbe = (kind: 'gallery' | 'person'): ExternalOperationProbe => async intent => {
+    // Allowlist, not blocklist: for each kind, exactly one creation action is where "the folder
+    // now exists" is actual proof of success, because before that operation ran, the folder did
+    // not exist yet - `gallery.created` for `gallery`, `profile.person.created` for `person`.
+    // Every other action sharing either resource kind reuses a folder (or, for
+    // `gallery.registered`/`gallery.unregistered`, a GitHub-hosted URL string - not even a Drive
+    // folder id) that already existed for an unrelated reason, so folder existence proves nothing
+    // about whether THAT action's own effect happened:
+    //  - `gallery.photo.added`/`gallery.finalized`/`gallery.photo.contribution.finalized` and the
+    //    non-creation `person`-kind actions (`profile.person.description.updated`,
+    //    `.order.updated`, `.category.changed`, `.photo.added`, `.photo.deleted`,
+    //    `.photo.main.changed`, `.photo.transferred`, `.in_memoriam.changed`): the folder already
+    //    existed before the update ran, so `folderExists` is trivially always true and would
+    //    fabricate `succeeded` regardless of whether the update itself ever completed.
+    //  - `gallery.deleted`/`profile.person.deleted`: inverted - the folder still existing means
+    //    the deletion did NOT happen, so a positive `folderExists` here is exactly the wrong
+    //    signal to report success.
+    //  - `gallery.registered`/`gallery.unregistered`: their resource key is a GitHub-hosted
+    //    gallery URL, not a Drive folder id at all, so calling `deps.drive.folderExists` on it
+    //    would be semantically wrong regardless of the false-positive issue above.
+    // None of these can be positively confirmed here - same always-pending fallback as
+    // `settings`/`member` below, resolved only via the 24h `requires_review` boundary. This is a
+    // genuine allowlist for both kinds (not a blocklist), so a future new action added to either
+    // kind in ACTION_REGISTRY is safely always-pending by default without anyone having to touch
+    // this probe again.
+    if (kind === 'gallery' && intent.action !== 'gallery.created') return alwaysPendingProbe(intent);
+    if (kind === 'person' && intent.action !== 'profile.person.created') return alwaysPendingProbe(intent);
+    // The provisional key is `{kind}:pending:{correlationId}` - there is no folder id to probe
+    // for until the effect has actually created one, so a still-provisional intent can only ever
+    // be "pending" here (never "failed": Drive folder creation is a single all-or-nothing call,
+    // so if it had thrown, `executeAuditedExternalMutation`'s own catch path would already have
+    // recorded `failed` synchronously, and this reconciler branch would never see that intent as
+    // still open in the first place).
+    const provisionalPrefix = `${kind}:pending:`;
+    if (intent.resource.key.startsWith(provisionalPrefix)) return { state: 'pending' };
+    const folderId = intent.resource.key.slice(`${kind}:`.length);
+    const exists = await deps.drive.folderExists(folderId);
+    if (!exists) return { state: 'pending' };
+    return {
+      state: 'succeeded',
+      eventInput: {
+        action: intent.action,
+        actor: intent.actor,
+        resource: intent.resource,
+        changes: [{ field: 'folderId', after: folderId }],
+      },
+    };
+  };
+
+  // memberSubmission's provisional key (`memberSubmission:pending:{correlationId}`, from
+  // handleWojownicyUploadSubmit) upgrades on success to the canonical
+  // `member:{actorEmail}:submission:{folderId}` shape (implementation-contract.md's "Pre-effect
+  // resource protocol"), not the generic `{kind}:{folderId}` shape driveFolderProbe assumes -
+  // handleWojownicyUploadPhoto's own intent (I4 fix) now uses that exact same final shape from
+  // the start, so both this kind's mutation routes share one parsing rule here.
+  //
+  // Same allowlist-vs-blocklist bug as driveFolderProbe above, third instance (see a83ab0a and
+  // 13b4709): `profile.photo_submission.created` is the only memberSubmission action where "the
+  // submission folder now exists" is proof of success (before it ran, the folder did not exist).
+  // `profile.photo_submission.photo_added` (handleWojownicyUploadPhoto) reuses the submission
+  // folder that `.created` already made - by I4's own fix it uses that same real, non-provisional
+  // key from the outset - so `folderExists` on it is trivially always true and would fabricate
+  // `succeeded` for a photo upload that never completed. Allowlist, not blocklist, so a future
+  // third memberSubmission-kind action defaults safely to always-pending without anyone having to
+  // touch this probe again.
+  const memberSubmissionProbe: ExternalOperationProbe = async intent => {
+    if (intent.resource.key.startsWith('memberSubmission:pending:')) return { state: 'pending' };
+    if (intent.action !== 'profile.photo_submission.created') return alwaysPendingProbe(intent);
+    const match = /:submission:([^:]+)$/.exec(intent.resource.key);
+    if (!match) return { state: 'pending' };
+    const folderId = match[1];
+    const exists = await deps.drive.folderExists(folderId);
+    if (!exists) return { state: 'pending' };
+    return {
+      state: 'succeeded',
+      eventInput: {
+        action: intent.action,
+        actor: intent.actor,
+        resource: intent.resource,
+        changes: [{ field: 'folderId', after: folderId }],
+      },
+    };
+  };
+
+  // GitHub-backed redirects: `redirects.json`'s presence/absence of the path *is* the final
+  // state, and `listRedirects` is a plain read - a genuine idempotent existence probe, unlike the
+  // two fallback probes below.
+  const redirectProbe: ExternalOperationProbe = async intent => {
+    const path = intent.resource.key.slice('redirect:'.length);
+    const redirects = await deps.github.listRedirects();
+    const exists = redirects.some(r => r.path === path);
+    const wantsExistence = intent.action === 'site.redirect.created';
+    if (exists !== wantsExistence) return { state: 'pending' };
+    return {
+      state: 'succeeded',
+      eventInput: { action: intent.action, actor: intent.actor, resource: intent.resource, changes: [{ field: 'path', after: path }] },
+    };
+  };
+
+  // `settings:facebook` is Drive-backed (settings.ts), but `AuditOperationIntent` doesn't carry
+  // the write's expected value, and the settings file always exists (bootstrapped, default
+  // fallback) whether or not this specific update landed - so reading it back can't distinguish
+  // "this write happened" from "some earlier write happened". `settings:social-media-cache`
+  // clears an in-process cache with no persisted state at all to read back. Neither can produce a
+  // real existence check within this batch's scope, so both stay `pending` forever and rely on
+  // `reconcileExternalOperation`'s 24h `requires_review` boundary rather than a fabricated probe.
+  const settingsProbe: ExternalOperationProbe = alwaysPendingProbe;
+
+  // Sheets-backed member sync (`membership.sheet_backup.synchronized`): `SheetsClient` has no
+  // read-back method (see sheets.ts) to confirm a write landed, and building one is out of this
+  // batch's scope (flagged as a follow-up in the batch-4 report). Same fallback as settings above
+  // - `pending` forever, so the 24h boundary still applies instead of a permanent `not_eligible`.
+  const memberProbe: ExternalOperationProbe = alwaysPendingProbe;
+
+  return {
+    gallery: driveFolderProbe('gallery'),
+    person: driveFolderProbe('person'),
+    memberSubmission: memberSubmissionProbe,
+    redirect: redirectProbe,
+    settings: settingsProbe,
+    member: memberProbe,
+  };
+}
+
+/**
+ * Internal, OIDC-authenticated route Cloud Scheduler calls every 15 minutes
+ * (plan-addendum.md "Scheduler operational delivery"). Not reachable by any browser session -
+ * fails closed (503) if the reconciler service account/audience aren't configured yet, and 401s
+ * any caller whose OIDC token isn't a valid, current token issued to that exact service account.
+ */
+async function handleInternalAuditReconcile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  if (!deps.auditReconcilerServiceAccountEmail || !deps.auditReconcileAudience) {
+    throw new AuthError('Reconciler Schedulera nie jest skonfigurowany.', 503);
+  }
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    throw new AuthError('Brak tokenu OIDC.', 401);
+  }
+  await verifyReconcilerOidcToken(authHeader.slice('Bearer '.length), deps.auditReconcileAudience, deps.auditReconcilerServiceAccountEmail);
+
+  const probes = buildReconciliationProbes(deps);
+  // Every kind `buildReconciliationProbes` currently returns is reachable through
+  // `executeAuditedExternalMutation`, so this fallback should never actually fire - it exists so
+  // a resource kind added later without a matching probe entry still reaches
+  // `reconcileExternalOperation`'s 24h `requires_review` boundary instead of silently regressing
+  // to a permanent `not_eligible`, the exact bug this fixes for redirect/settings/member today.
+  const fallbackPendingProbe: ExternalOperationProbe = async () => ({ state: 'pending' });
+  const correlationIds = await listOpenOperationCorrelationIds(deps.firestore);
+  const results = [];
+  for (const correlationId of correlationIds) {
+    const intent = await deps.firestore.getDoc<AuditOperationIntent>('auditOperations', correlationId);
+    if (!intent) {
+      results.push({ correlationId, outcome: 'not_eligible' as const });
+      continue;
+    }
+    const probe = probes[intent.resource.kind] ?? fallbackPendingProbe;
+    results.push(await reconcileExternalOperation(deps.firestore, correlationId, probe));
+  }
+  sendJson(res, 200, { results });
+}
+
 export function createRequestListener(deps: ServerDeps) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     setCors(res, deps.allowedOrigin);
@@ -2154,6 +3023,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleSessionLogin(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/session/logout') {
         await handleSessionLogout(req, res);
+      } else if (req.method === 'POST' && url.pathname === '/application/pwa-installation') {
+        await handlePwaInstallation(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/membership/whoami') {
         await handleMembershipWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/membership/sections') {
@@ -2188,6 +3059,18 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminSetRoles(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/roles/audit-log') {
         await handleAdminListRolesAuditLog(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/audyt/events') {
+        await handleAdminAuditEventsList(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/audyt/event') {
+        await handleAdminAuditEventDetail(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/audyt/diagnostics') {
+        await handleAdminAuditDiagnostics(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/audyt/events') {
+        await handleAuditEventsListPublic(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/audyt/event') {
+        await handleAuditEventDetailPublic(req, res, url, deps);
+      } else if (req.method === 'POST' && url.pathname === '/internal/audit/reconcile') {
+        await handleInternalAuditReconcile(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/redirects') {
         await handleAdminListRedirects(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/redirects') {
@@ -2300,6 +3183,11 @@ export function createRequestListener(deps: ServerDeps) {
     } catch (err) {
       if (err instanceof AuthError) {
         sendJson(res, err.status, { error: err.message });
+      } else if (err instanceof AuditQueryError) {
+        // Deterministic rejection of an unsupported audit query shape (e.g. two primary
+        // selectors, or a malformed cursor/date) - implementation-contract.md requires this be a
+        // clean 400, never a 500 or a best-effort partial scan.
+        sendJson(res, 400, { error: err.message });
       } else {
         console.error(err);
         sendJson(res, 500, { error: 'Błąd serwera.' });
@@ -2398,6 +3286,8 @@ async function startProductionServer(): Promise<void> {
     galleriesCacheTtlMs: config.galleriesCacheTtlMs,
     listMemberEmails: () => listActiveMemberEmails(firestoreClient),
     sheetsClient,
+    auditReconcilerServiceAccountEmail: config.auditReconcilerServiceAccountEmail,
+    auditReconcileAudience: config.auditReconcileAudience,
   };
   const server = createServer(createRequestListener(productionDeps));
   server.listen(config.port, () => {

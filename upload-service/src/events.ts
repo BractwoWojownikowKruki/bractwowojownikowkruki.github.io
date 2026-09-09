@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { FirestoreLikeClient } from './firestore.ts';
 
+type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
+
 export interface EventDoc {
   name: string;
   startDate: string; // YYYY-MM-DD
@@ -34,11 +36,11 @@ export async function getEvent(client: FirestoreLikeClient, eventId: string): Pr
 }
 
 export async function createEvent(
-  client: FirestoreLikeClient,
+  client: FirestoreWriteContext,
   fields: { name: string; startDate: string },
   createdBy: string,
+  id = randomUUID(),
 ): Promise<EventWithId> {
-  const id = randomUUID();
   const doc: EventDoc = {
     name: fields.name,
     startDate: fields.startDate,
@@ -52,7 +54,7 @@ export async function createEvent(
 }
 
 export async function updateEvent(
-  client: FirestoreLikeClient,
+  client: FirestoreWriteContext,
   eventId: string,
   fields: EventWritableFields,
 ): Promise<EventWithId | null> {

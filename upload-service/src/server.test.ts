@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { createHash, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { AuthError } from './auth.ts';
 import {
   createRequestListener,
@@ -24,6 +25,7 @@ import { resetRateLimitForTests } from './rate-limit.ts';
 import { createInMemoryFirestoreClient } from './firestore.ts';
 import { createDisabledSheetsClient } from './sheets.ts';
 import { listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
+import { executeAuditedFirestoreMutation, startExternalOperation, completeExternalOperation } from './audit.ts';
 
 const nodeFetch = globalThis.fetch;
 const ALLOWED_ORIGIN_FOR_TESTS = 'https://example.test'; // matches makeDeps()'s allowedOrigin
@@ -105,9 +107,10 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     listFiles: async () => [],
     setFolderPublic: async () => {},
     deleteFolder: async () => {},
+    folderExists: async () => true,
     renameFolder: async () => {},
     moveFolder: async () => ({ name: 'Test Person' }),
-    moveFile: async () => {},
+    moveFile: async () => ({}),
     writeManifest: async () => {},
     readManifest: async () => null,
     listGalleryFolders: async () => [],
@@ -541,6 +544,59 @@ test('POST /session/login records lastLoginAt for an existing member', async () 
   });
   const stored = await client.getDoc<{ lastLoginAt: string | null }>('members', 'alice@gmail.com');
   assert.equal(typeof stored?.lastLoginAt, 'string');
+});
+
+test('POST /session/login records a canonical session event with the signed-in member as actor', async () => {
+  const client = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore: client,
+    authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'fake-google-id-token' }),
+    });
+    assert.equal(res.status, 200);
+  });
+
+  const [audit] = await client.listDocs<{ action: string; actor: { email: string }; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.deepEqual(audit, {
+    id: audit.id,
+    data: {
+      ...audit.data,
+      action: 'session.login.succeeded',
+      actor: { email: 'alice@gmail.com' },
+      resource: { kind: 'session', key: 'session:alice@gmail.com', display: 'alice@gmail.com' },
+      changes: [{ field: 'status', after: 'succeeded', visibility: 'roleRestricted' }],
+    },
+  });
+});
+
+test('POST /application/pwa-installation records one canonical installation event per signed-in member', async () => {
+  const client = createInMemoryFirestoreClient();
+  const deps = makeDeps({ firestore: client, authenticate: async () => fakeSessionClaims({ email: 'alice@gmail.com' }) });
+  await withServer(deps, async baseUrl => {
+    const first = await fetch(`${baseUrl}/application/pwa-installation`, { method: 'POST' });
+    const repeated = await fetch(`${baseUrl}/application/pwa-installation`, { method: 'POST' });
+    assert.equal(first.status, 200);
+    assert.equal(repeated.status, 200);
+    assert.deepEqual(await first.json(), { recorded: true });
+    assert.deepEqual(await repeated.json(), { recorded: false });
+  });
+
+  const events = await client.listDocs<{ action: string; actor: { email: string }; resource: { key: string; display: string }; changes: Array<{ field: string; after: string }>; value: string }>('auditEvents');
+  assert.equal(events.length, 1);
+  assert.equal(events[0].data.action, 'application.pwa.installation_reported');
+  assert.equal(events[0].data.actor.email, 'alice@gmail.com');
+  assert.equal(events[0].data.resource.key, 'application:alice@gmail.com:/');
+  assert.equal(events[0].data.resource.display, 'alice@gmail.com');
+  assert.deepEqual(events[0].data.changes, [{ field: 'appId', after: '/', visibility: 'roleRestricted' }]);
+  assert.equal(events[0].data.value, 'alice@gmail.com.appId=/');
+  assert.deepEqual(await client.getDoc('applicationInstallations', 'pwa:alice@gmail.com'), {
+    actorEmail: 'alice@gmail.com', appId: '/',
+  });
 });
 
 test('POST /session/login rejects a body with no idToken', async () => {
@@ -1408,10 +1464,33 @@ test('DELETE /admin/people/photo trashes the photo file', async () => {
     drive: makeFakeDrive({ deleteFolder: async fileId => { deletedId = fileId; } }),
   });
   await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/admin/people/photo?fileId=photo-1`, { method: 'DELETE' });
+    const res = await fetch(`${baseUrl}/admin/people/photo?fileId=photo-1&folderId=person-1`, { method: 'DELETE' });
     assert.equal(res.status, 200);
   });
   assert.equal(deletedId, 'photo-1');
+});
+
+test('DELETE /admin/people/photo rejects a missing folderId (I4: resource key needs person:{folderId}, not fileId alone)', async () => {
+  const deps = makeDeps({ drive: makeFakeDrive({}) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo?fileId=photo-1`, { method: 'DELETE' });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('DELETE /admin/people/photo audits profile.person.photo.deleted on the person:{folderId} resource, matching its sibling person-photo actions', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    drive: makeFakeDrive({ deleteFolder: async () => {} }),
+    firestore,
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo?fileId=photo-1&folderId=person-1`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+  });
+  const events = await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents');
+  const event = events.find(e => e.data.action === 'profile.person.photo.deleted')!.data;
+  assert.equal(event.resource.key, 'person:person-1');
 });
 
 test('PUT /admin/people/photo/main prefixes the target photo and strips any previous main prefix', async () => {
@@ -1483,6 +1562,7 @@ test('PUT /admin/people/photo/transfer moves the photo into the target folder', 
       moveFile: async (fileId, newParentFolderId) => {
         movedFileId = fileId;
         movedToParent = newParentFolderId;
+        return {};
       },
     }),
   });
@@ -1496,6 +1576,53 @@ test('PUT /admin/people/photo/transfer moves the photo into the target folder', 
   });
   assert.equal(movedFileId, 'photo-1');
   assert.equal(movedToParent, 'person-2');
+});
+
+test('PUT /admin/people/photo/transfer audits profile.person.photo.transferred on BOTH the source and destination person (I4)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      moveFile: async () => ({ previousFolderId: 'person-1' }),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/transfer`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'photo-1', targetFolderId: 'person-2' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const events = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; before?: string; after?: string }> }>('auditEvents');
+  const transferEvents = events.filter(e => e.data.action === 'profile.person.photo.transferred');
+  assert.equal(transferEvents.length, 2, 'one event per affected person - source and destination');
+  const byResourceKey = Object.fromEntries(transferEvents.map(e => [e.data.resource.key, e.data]));
+  assert.ok(byResourceKey['person:person-2'], 'destination person must see the transfer in their own Historia');
+  assert.ok(byResourceKey['person:person-1'], 'source person must also see the transfer in their own Historia (not just the destination)');
+  assert.equal(byResourceKey['person:person-1'].changes.find(c => c.field === 'fileId')?.before, 'photo-1');
+});
+
+test('PUT /admin/people/photo/transfer emits only the destination event when Drive reports no previous parent', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      moveFile: async () => ({}),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/transfer`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'photo-1', targetFolderId: 'person-2' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const events = await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents');
+  const transferEvents = events.filter(e => e.data.action === 'profile.person.photo.transferred');
+  assert.equal(transferEvents.length, 1, 'no fabricated source event when Drive reports no previous parent');
+  assert.equal(transferEvents[0].data.resource.key, 'person:person-2');
 });
 
 test('PUT /admin/people/photo/transfer rejects a missing targetFolderId', async () => {
@@ -1917,6 +2044,38 @@ test('POST /admin/members/transition reports sheetSyncStatus and includes the fu
   assert.deepEqual(syncedEmails.sort(), ['other@example.com', 'pending@example.com']);
 });
 
+test('C2: POST /admin/members/transition audits the Sheets mirror as a correlated membership.sheet_backup.synchronized event, alongside the primary transition event', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'pending@example.com', {
+    email: 'pending@example.com', fullName: 'P', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'pending', appliedAt: 'x', approvedAt: null, approvedBy: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    sheetsClient: { syncAllMembers: async () => 'ok' },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/transition`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'pending@example.com', transition: 'approve' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const events = await client.listDocs<{ action: string; resource: { kind: string; key: string }; changes: Array<{ field: string; after?: string }> }>('auditEvents');
+  const transitionEvent = events.find(e => e.data.action === 'membership.status.approved');
+  const sheetEvent = events.find(e => e.data.action === 'membership.sheet_backup.synchronized');
+  assert.ok(transitionEvent, 'the primary transition must still be audited, unchanged');
+  assert.ok(sheetEvent, 'the Sheets mirror write must be its own audited event, not silently unaudited');
+  assert.equal(sheetEvent!.data.changes.find(c => c.field === 'sheetBackup')?.after, 'ok');
+  // GPT-5 follow-up finding: this sub-operation must be member-attributed with the transitioned
+  // member's own canonical `member:{email}` key, not the old shared `member:sheet-backup` key -
+  // otherwise it's invisible from that member's own Historia resource-key filter.
+  assert.equal(sheetEvent!.data.resource.key, 'member:pending@example.com', 'must use the transitioned member\'s own resource key, not a shared sheet-backup key');
+  assert.equal(sheetEvent!.data.resource.key, transitionEvent!.data.resource.key, 'must match the primary transition event\'s own resource key');
+});
+
 test('POST /admin/members/transition still returns 200 (Firestore succeeded) even when the Sheets sync fails', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('members', 'pending@example.com', {
@@ -2263,6 +2422,27 @@ test('PUT /admin/members/profile rejects a non-boolean hidden value', async () =
   });
 });
 
+test('PUT /admin/members/profile with no mutable field remains a no-op and emits no audit event', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x', hidden: false,
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.deepEqual(await client.listDocs('auditEvents'), []);
+});
+
 test('PUT /admin/members/profile 404s for an unknown member', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
@@ -2379,7 +2559,7 @@ test('GET /admin/roles rejects an unauthenticated caller', async () => {
   });
 });
 
-test('PUT /admin/roles grants a role to a member', async () => {
+test('PUT /admin/roles grants a role to a member and records only canonical evidence', async () => {
   const client = createInMemoryFirestoreClient();
   const deps = makeDeps({
     firestore: client,
@@ -2398,15 +2578,14 @@ test('PUT /admin/roles grants a role to a member', async () => {
   const { entries } = await withServer(makeDeps({ firestore: client }), baseUrl =>
     fetch(`${baseUrl}/admin/roles/audit-log`).then(r => r.json()),
   );
-  assert.equal(entries.length, 1);
-  assert.equal(entries[0].targetEmail, 'ala@example.com');
-  assert.deepEqual(entries[0].previousRoles, []);
-  assert.deepEqual(entries[0].newRoles, ['admin']);
-  assert.equal(entries[0].changedBy, 'admin@example.com');
-  assert.equal(entries[0].changeSummary, 'Zmieniono role: Brak → Admin');
+  assert.deepEqual(entries, []);
+  const [audit] = await client.listDocs<{ action: string; actor: { email: string }; changes: Array<{ field: string; before: string; after: string }> }>('auditEvents');
+  assert.equal(audit.data.action, 'role.granted');
+  assert.equal(audit.data.actor.email, 'admin@example.com');
+  assert.deepEqual(audit.data.changes, [{ field: 'roles', before: 'Brak', after: 'Admin', visibility: 'roleRestricted' }]);
 });
 
-test('PUT /admin/roles can revoke every role by passing an empty array', async () => {
+test('PUT /admin/roles can revoke every role by passing an empty array without appending legacy evidence', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('userRoles', 'ala@example.com', { roles: ['accountant'] });
   const deps = makeDeps({
@@ -2423,11 +2602,10 @@ test('PUT /admin/roles can revoke every role by passing an empty array', async (
   });
   const stored = await client.getDoc<{ roles: string[] }>('userRoles', 'ala@example.com');
   assert.deepEqual(stored?.roles, []);
-  const auditEntries = await listRoleAuditLog(client);
-  assert.equal(auditEntries.length, 1);
-  assert.deepEqual(auditEntries[0].previousRoles, ['accountant']);
-  assert.deepEqual(auditEntries[0].newRoles, []);
-  assert.equal(auditEntries[0].changeSummary, 'Zmieniono role: Księgowy → Brak');
+  assert.deepEqual(await listRoleAuditLog(client), []);
+  const [audit] = await client.listDocs<{ action: string; changes: Array<{ field: string; before: string; after: string }> }>('auditEvents');
+  assert.equal(audit.data.action, 'role.revoked');
+  assert.deepEqual(audit.data.changes, [{ field: 'roles', before: 'Księgowy', after: 'Brak', visibility: 'roleRestricted' }]);
 });
 
 test('GET /admin/roles/audit-log lists entries', async () => {
@@ -2648,7 +2826,9 @@ test('POST /admin/redirects rejects a non-http(s) target without touching GitHub
 
 test('POST /admin/redirects commits the new alias to redirects.json', async () => {
   let appendedEntry: unknown = null;
+  const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
+    firestore,
     github: makeFakeGithub({ appendRedirectToMain: async entry => { appendedEntry = entry; } }),
   });
   await withServer(deps, async baseUrl => {
@@ -2662,6 +2842,14 @@ test('POST /admin/redirects commits the new alias to redirects.json', async () =
     assert.deepEqual(body, { ok: true });
     assert.deepEqual(appendedEntry, { path: 'discord', target: 'https://discord.gg/abc123' });
   });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.equal(event.data.action, 'site.redirect.created');
+  assert.equal(event.data.resource.key, 'redirect:discord');
+  assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [
+    ['path', 'discord'], ['target', 'https://discord.gg/abc123'],
+  ]);
+  assert.equal((await firestore.listDocs('auditOperations')).length, 1);
+  assert.equal((await firestore.listDocs('auditOperationOutcomes')).length, 1);
 });
 
 test('DELETE /admin/redirects rejects an unauthenticated caller before touching GitHub', async () => {
@@ -2681,7 +2869,9 @@ test('DELETE /admin/redirects rejects an unauthenticated caller before touching 
 
 test('DELETE /admin/redirects removes the matching redirects.json entry', async () => {
   let removedPath: string | null = null;
+  const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
+    firestore,
     github: makeFakeGithub({ removeRedirectFromMain: async path => { removedPath = path; } }),
   });
   await withServer(deps, async baseUrl => {
@@ -2691,6 +2881,9 @@ test('DELETE /admin/redirects removes the matching redirects.json entry', async 
     assert.deepEqual(body, { ok: true });
     assert.equal(removedPath, 'discord');
   });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents');
+  assert.equal(event.data.action, 'site.redirect.deleted');
+  assert.equal(event.data.resource.key, 'redirect:discord');
 });
 
 test('/delete-drive-gallery rejects an unauthenticated caller before touching Drive', async () => {
@@ -2816,7 +3009,8 @@ test('/start rejects an unauthenticated caller before touching Drive', async () 
 });
 
 test('/start creates a folder and returns a submission token bound to the caller and folder', async () => {
-  const deps = makeDeps({ drive: makeFakeDrive({ createAlbumFolder: async () => 'folder-created-by-start' }) });
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({ firestore, drive: makeFakeDrive({ createAlbumFolder: async () => 'folder-created-by-start' }) });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/start`, {
       method: 'POST',
@@ -2828,6 +3022,10 @@ test('/start creates a folder and returns a submission token bound to the caller
     assert.equal(body.folderId, 'folder-created-by-start');
     assert.ok(typeof body.submissionToken === 'string' && body.submissionToken.length > 0);
   });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.equal(event.data.action, 'gallery.created');
+  assert.equal(event.data.resource.key, 'gallery:folder-created-by-start');
+  assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [['name', 'Wolin'], ['date', '2026-08-09']]);
 });
 
 test('/start makes the new folder public immediately, before any files are uploaded', async () => {
@@ -2960,6 +3158,64 @@ test('/upload skips a file that already exists in the folder with the same name 
     assert.deepEqual(body, { ok: true, skipped: true });
   });
   assert.equal(uploadFileStreamCalled, false);
+});
+
+test('C1: POST /upload audits gallery.photo.added for a genuinely new file', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      listFiles: async () => [],
+      uploadFileStream: async (_f, _n, _m, stream) => {
+        for await (const _chunk of stream) {
+          // drain
+        }
+        return { id: 'fake-uploaded-file-id' };
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 200);
+  });
+  const events = await firestore.listDocs<{ action: string; actor: { email: string }; resource: { key: string; kind: string } }>('auditEvents');
+  const uploadEvents = events.filter(e => e.data.action === 'gallery.photo.added');
+  assert.equal(uploadEvents.length, 1, 'exactly one gallery.photo.added event per real upload');
+  assert.equal(uploadEvents[0].data.actor.email, 'alice@gmail.com');
+  assert.equal(uploadEvents[0].data.resource.key, `gallery:${folderId}`);
+});
+
+test('C1: POST /upload does not audit anything on the duplicate-skip fast path (no new state changed)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      listFiles: async () => [{ name: 'a.jpg', size: VALID_JPEG_BYTES.length }],
+      uploadFileStream: async () => {
+        throw new Error('must not upload on the duplicate-skip path');
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body, { ok: true, skipped: true });
+  });
+  const events = await firestore.listDocs('auditEvents');
+  assert.equal(events.length, 0, 'a skip changes no state, so it must not be audited');
 });
 
 test('/upload does not skip a same-named file whose size differs from what is already in the folder', async () => {
@@ -3209,7 +3465,9 @@ test('/finalize rejects a folder with no uploaded files', async () => {
 test('/finalize writes a gallery manifest with name, date, and the uploader as contributor before publishing', async () => {
   let writtenFolderId: string | null = null;
   let writtenManifest: { name?: string; date: string; contributors: string[] } | null = null;
+  const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
+    firestore,
     drive: makeFakeDrive({
       listFiles: async () => [{ name: 'a.jpg', size: 10 }],
       writeManifest: async (folderId, manifest) => {
@@ -3230,6 +3488,10 @@ test('/finalize writes a gallery manifest with name, date, and the uploader as c
     assert.equal(writtenFolderId, folderId);
     assert.deepEqual(writtenManifest, { name: 'Zlot Wolin', date: '2026-08-09', contributors: ['alice@gmail.com'] });
   });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.equal(event.data.action, 'gallery.finalized');
+  assert.equal(event.data.resource.key, `gallery:${folderId}`);
+  assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [['name', 'Zlot Wolin'], ['date', '2026-08-09'], ['finalized', 'true']]);
 });
 
 test('/finalize succeeds and does not touch GitHub', async () => {
@@ -3382,7 +3644,9 @@ test('POST /gallery-photos/start rejects a folderId that is not an existing gall
 
 test('POST /gallery-photos/finalize adds the uploader to contributors without duplicating or touching name/date', async () => {
   let writtenManifest: unknown;
+  const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
+    firestore,
     authenticate: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
     drive: makeFakeDrive({
       readManifest: async () => ({ name: 'Wolin', date: '2026-01-01', contributors: ['bob@gmail.com', 'alice@gmail.com'] }),
@@ -3402,6 +3666,9 @@ test('POST /gallery-photos/finalize adds the uploader to contributors without du
     assert.equal(res.status, 200);
   });
   assert.deepEqual(writtenManifest, { name: 'Wolin', date: '2026-01-01', contributors: ['bob@gmail.com', 'alice@gmail.com'] });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents');
+  assert.equal(event.data.action, 'gallery.photo.contribution.finalized');
+  assert.equal(event.data.resource.key, `gallery:${folderId}`);
 });
 
 test('POST /gallery-photos/finalize re-asserts public sharing, healing a gallery whose original /finalize was never reached', async () => {
@@ -3679,7 +3946,9 @@ test('/wojownicy-upload/submit creates a folder named "Imię - email - data" und
   resetAboutUsBootstrapForTests();
   let createdParent: string | undefined;
   let createdName: string | undefined;
+  const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
+    firestore,
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
     drive: makeFakeDrive({
       ensureFolder: async (parent, name) => (name === 'upload' ? 'upload-root' : `ensured-${name}`),
@@ -3704,6 +3973,10 @@ test('/wojownicy-upload/submit creates a folder named "Imię - email - data" und
     const today = new Date().toISOString().slice(0, 10);
     assert.equal(createdName, `Jan Kowalski - ktos@gmail.com - ${today}`);
   });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.equal(event.data.action, 'profile.photo_submission.created');
+  assert.equal(event.data.resource.key, 'member:ktos@gmail.com:submission:submission-folder');
+  assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [['name', 'Jan Kowalski']]);
 });
 
 test('/wojownicy-upload/photo rejects a request with no X-Submission-Token', async () => {
@@ -3733,7 +4006,9 @@ test('/wojownicy-upload/photo rejects a submission token minted for a different 
 
 test('/wojownicy-upload/photo with isMain=true uploads the file as !main.<ext>, ignoring the original filename', async () => {
   let uploadedName: string | undefined;
+  const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
+    firestore,
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
     drive: makeFakeDrive({
       listFiles: async () => [],
@@ -3756,6 +4031,12 @@ test('/wojownicy-upload/photo with isMain=true uploads the file as !main.<ext>, 
     assert.equal(res.status, 200);
     assert.equal(uploadedName, '!main.jpg');
   });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.equal(event.data.action, 'profile.photo_submission.photo_added');
+  // I4: matches profile.photo_submission.created's own final resource key shape so both halves
+  // of the same submission share one resourceKey filter.
+  assert.equal(event.data.resource.key, `member:ktos@gmail.com:submission:${folderId}`);
+  assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [['fileId', 'fake-uploaded-file-id']]);
 });
 
 test('/wojownicy-upload/photo without isMain keeps the original filename', async () => {
@@ -4218,7 +4499,7 @@ test('PUT /lista-wyjazdowa/signups rejects an equipmentId that does not belong t
   });
 });
 
-test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and logs it', async () => {
+test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and records canonical evidence', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'inny@example.test');
   const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com', 'inny@example.test'] });
@@ -4236,9 +4517,13 @@ test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and l
 
     const auditRes = await fetch(`${baseUrl}/lista-wyjazdowa/signups/audit-log?eventId=${created.event.id}`);
     const auditBody = await auditRes.json();
-    assert.equal(auditBody.entries.length, 1);
-    assert.equal(auditBody.entries[0].targetMemberEmail, 'inny@example.test');
-    assert.equal(auditBody.entries[0].changedBy, 'wojownik@gmail.com');
+    assert.deepEqual(auditBody.entries, []);
+    const [audit] = await firestore.listDocs<{ action: string; actor: { email: string }; resource: { key: string } }>('auditEvents');
+    assert.equal(audit.data.action, 'event.created');
+    const signupAudit = (await firestore.listDocs<{ action: string; actor: { email: string }; resource: { key: string } }>('auditEvents'))
+      .find(entry => entry.data.action === 'signup.created');
+    assert.equal(signupAudit?.data.actor.email, 'wojownik@gmail.com');
+    assert.equal(signupAudit?.data.resource.key, `signup:${created.event.id}:inny@example.test`);
   });
 });
 
@@ -4591,7 +4876,7 @@ test('PUT /lista-wyjazdowa/dues requires accountant, validates member exists, an
   });
 });
 
-test('GET /lista-wyjazdowa/dues/audit-log records wpisowe, roczna, and event-fee changes, oldest first', async () => {
+test('GET /lista-wyjazdowa/dues/audit-log retains readable legacy entries while new dues writes are canonical', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const deps = makeDepsWithRole('accountant', firestore);
   await withServer(deps, async baseUrl => {
@@ -4602,18 +4887,35 @@ test('GET /lista-wyjazdowa/dues/audit-log records wpisowe, roczna, and event-fee
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { skladkaFee: '50 zł' });
 
+    firestore.seed('duesAuditLog', 'legacy-entry-fee', {
+      context: 'wpisowe', targetMemberEmail: 'legacy@example.test', eventId: null, eventName: null, year: null,
+      changedBy: 'legacy-admin@example.test', changedAt: '2026-01-01T00:00:00.000Z', changeSummary: 'legacy wpisowe',
+    });
+    firestore.seed('duesAuditLog', 'legacy-annual', {
+      context: 'roczna', targetMemberEmail: 'legacy@example.test', eventId: null, eventName: null, year: 2026,
+      changedBy: 'legacy-admin@example.test', changedAt: '2026-01-02T00:00:00.000Z', changeSummary: 'legacy roczna',
+    });
+    firestore.seed('duesAuditLog', 'legacy-event', {
+      context: 'eventFee', targetMemberEmail: null, eventId: 'legacy-event', eventName: 'Legacy', year: null,
+      changedBy: 'legacy-admin@example.test', changedAt: '2026-01-03T00:00:00.000Z', changeSummary: 'legacy event fee',
+    });
+
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.entries.length, 3);
     assert.equal(body.entries[0].context, 'wpisowe');
-    assert.equal(body.entries[0].targetMemberEmail, 'wojownik@gmail.com');
+    assert.equal(body.entries[0].targetMemberEmail, 'legacy@example.test');
     assert.equal(body.entries[1].context, 'roczna');
-    assert.equal(body.entries[1].year, 2027);
+    assert.equal(body.entries[1].year, 2026);
     assert.equal(body.entries[2].context, 'eventFee');
-    assert.equal(body.entries[2].eventId, created.event.id);
-    assert.equal(body.entries[2].eventName, 'Zjazd');
-    assert.ok(body.entries[2].changeSummary.includes('50 zł'));
+    assert.equal(body.entries[2].eventId, 'legacy-event');
+    assert.equal(body.entries[2].eventName, 'Legacy');
+    assert.equal(body.entries[2].changeSummary, 'legacy event fee');
+    const canonical = await firestore.listDocs<{ action: string }>('auditEvents');
+    assert.ok(canonical.some(entry => entry.data.action === 'dues.entry_fee.changed'));
+    assert.ok(canonical.some(entry => entry.data.action === 'dues.annual.changed'));
+    assert.ok(canonical.some(entry => entry.data.action === 'dues.event_fee.changed'));
   });
 });
 
@@ -4640,7 +4942,7 @@ test('GET /lista-wyjazdowa/dues/audit-log requires accountant, 403 for a plain m
   });
 });
 
-test('PUT /lista-wyjazdowa/dues can set/clear amount independently of paid, and each produces its own audit entry', async () => {
+test('PUT /lista-wyjazdowa/dues can set/clear amount independently of paid with canonical audit entries', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const deps = makeDepsWithRole('accountant', firestore);
   await withServer(deps, async baseUrl => {
@@ -4657,9 +4959,12 @@ test('PUT /lista-wyjazdowa/dues can set/clear amount independently of paid, and 
 
     const auditRes = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
     const entries = (await auditRes.json()).entries;
-    assert.equal(entries.length, 2);
-    assert.ok(entries[0].changeSummary.includes('100 zł'));
-    assert.equal(entries[1].changeSummary, 'Oznaczono składkę roczną 2027 jako opłaconą');
+    assert.deepEqual(entries, []);
+    const canonical = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; after: string | boolean }> }>('auditEvents'))
+      .filter(entry => entry.data.action === 'dues.annual.changed');
+    assert.equal(canonical.length, 2);
+    assert.deepEqual(canonical[0].data.changes, [{ field: 'amount', after: '100 zł', visibility: 'roleRestricted' }]);
+    assert.deepEqual(canonical[1].data.changes, [{ field: 'paid', before: false, after: true, visibility: 'roleRestricted' }]);
   });
 });
 
@@ -4672,6 +4977,115 @@ test('GET /lista-wyjazdowa/roster includes wpisowePaid per member', async () => 
     const body = await res.json();
     assert.equal(body.roster[0].wpisowePaid, false);
     assert.equal(body.roster[0].hasProfile, true);
+  });
+});
+
+// KRKG-0050 Batch 2: this is deliberately a route-level contract rather than a unit test of
+// audit.ts. It proves the actor came from the route's verified identity, business writes and the
+// canonical record committed together, and the retired per-feature audit collections stay
+// read-only while their GET endpoints remain available for migration in Batch 6.
+test('Firestore member and Wyjazdy mutations emit canonical audit records and leave legacy logs read-only', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore, {
+    authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'applicant-1', email: 'applicant@example.test' }),
+    listMemberEmails: async () => ['wojownik@gmail.com'],
+  });
+
+  await withServer(deps, async baseUrl => {
+    const application = await postListaWyjazdowa(baseUrl, '/membership/apply', {
+      fullName: 'Kandydat',
+      sectionId: 'krakow',
+    });
+    assert.equal(application.status, 200);
+
+    const transition = await postListaWyjazdowa(baseUrl, '/admin/members/transition', {
+      email: 'applicant@example.test',
+      transition: 'approve',
+    });
+    assert.equal(transition.status, 200);
+
+    const eventResponse = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', {
+      name: 'Zjazd',
+      startDate: '2027-05-01',
+    });
+    assert.equal(eventResponse.status, 200);
+    const { event } = await eventResponse.json();
+
+    const signup = await putListaWyjazdowa(
+      baseUrl,
+      `/lista-wyjazdowa/signups?eventId=${event.id}&memberEmail=wojownik@gmail.com`,
+      { attending: true, equipmentIds: [], companionIds: [] },
+    );
+    assert.equal(signup.status, 200);
+
+    const paid = await putListaWyjazdowa(
+      baseUrl,
+      `/lista-wyjazdowa/signups/skladka?eventId=${event.id}&memberEmail=wojownik@gmail.com`,
+      { paid: true },
+    );
+    assert.equal(paid.status, 200);
+
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
+    const entryFee = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
+    assert.equal(entryFee.status, 200);
+
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
+    const annualDue = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', {
+      paid: true,
+      amount: '100 zł',
+    });
+    assert.equal(annualDue.status, 200);
+
+    const auditEvents = (await firestore.listDocs('auditEvents')).map(doc => doc.data as {
+      actor: { email: string };
+      category: string;
+      action: string;
+      audience: string;
+      resource: { key: string };
+      changes: Array<{ field: string; before?: string | boolean | null; after?: string | boolean | null; visibility: string }>;
+      value: string;
+    });
+    const byAction = new Map(auditEvents.map(auditEvent => [auditEvent.action, auditEvent]));
+
+    const membershipApplication = byAction.get('membership.application.submitted');
+    assert.ok(membershipApplication);
+    assert.deepEqual({
+      actor: membershipApplication.actor,
+      category: membershipApplication.category,
+      action: membershipApplication.action,
+      audience: membershipApplication.audience,
+      resource: { ...membershipApplication.resource, display: 'member' },
+      changes: membershipApplication.changes,
+      value: membershipApplication.value,
+    }, {
+      actor: { email: 'applicant@example.test' },
+      category: 'membership',
+      action: 'membership.application.submitted',
+      audience: 'admin',
+      resource: { kind: 'member', key: 'member:applicant@example.test', display: 'member' },
+      changes: [{ field: 'status', after: 'pending', visibility: 'roleRestricted' }],
+      value: 'member.status=pending',
+    });
+    assert.equal(byAction.get('membership.status.approved')?.actor.email, 'admin@gmail.com');
+    assert.equal(byAction.get('event.created')?.category, 'events');
+    assert.equal(byAction.get('event.created')?.audience, 'members');
+    assert.equal(byAction.get('signup.created')?.actor.email, 'wojownik@gmail.com');
+    assert.equal(byAction.get('signup.created')?.resource.key, `signup:${event.id}:wojownik@gmail.com`);
+    assert.equal(byAction.get('signup.created')?.value, 'wojownik@gmail.com.attending=true');
+    assert.deepEqual(byAction.get('signup.created')?.changes, [
+      { field: 'attending', after: true, visibility: 'memberVisible' },
+      { field: 'equipmentCount', after: 0, visibility: 'memberVisible' },
+      { field: 'companionCount', after: 0, visibility: 'memberVisible' },
+    ]);
+    assert.equal(byAction.get('dues.event_fee.changed')?.audience, 'adminOrAccountant');
+    assert.equal(byAction.get('dues.entry_fee.changed')?.changes[0]?.field, 'paid');
+    assert.deepEqual(byAction.get('dues.annual.changed')?.changes, [
+      { field: 'paid', after: true, visibility: 'roleRestricted' },
+      { field: 'amount', after: '100 zł', visibility: 'roleRestricted' },
+    ]);
+    assert.equal((await firestore.listDocs('signupAuditLog')).length, 0);
+    assert.equal((await firestore.listDocs('duesAuditLog')).length, 0);
+    assert.equal((await firestore.listDocs('rolesAuditLog')).length, 0);
   });
 });
 
@@ -4820,4 +5234,715 @@ test('PUT /lista-wyjazdowa/signups still works for a member with no listaWyjazdo
     );
     assert.equal(res.status, 200);
   });
+});
+
+test('PUT /lista-wyjazdowa/events preserves combined metadata and fee edits as two atomic canonical events', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', {
+      name: 'Zjazd', startDate: '2027-05-01',
+    })).json();
+
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, {
+      name: 'Zjazd zimowy',
+      skladkaFee: '100 zł',
+    });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).event.name, 'Zjazd zimowy');
+
+    const events = (await firestore.listDocs('auditEvents')).map(doc => doc.data as { action: string; changes: Array<{ field: string }> });
+    const updateEvents = events.filter(event => event.action !== 'event.created');
+    assert.deepEqual(updateEvents.map(event => event.action).sort(), ['dues.event_fee.changed', 'event.updated']);
+    assert.deepEqual(updateEvents.find(event => event.action === 'event.updated')?.changes, [{ field: 'name', before: 'Zjazd', after: 'Zjazd zimowy', visibility: 'memberVisible' }]);
+    assert.deepEqual(updateEvents.find(event => event.action === 'dues.event_fee.changed')?.changes, [
+      { field: 'feeDigest', before: null, after: createHash('sha256').update('100 zł').digest('hex'), visibility: 'roleRestricted' },
+      { field: 'feeLength', before: null, after: 6, visibility: 'roleRestricted' },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// KRKG-0050 batch 4/6: audit query, diagnostics, and reconciliation routes.
+// ---------------------------------------------------------------------------------------------
+
+async function seedAuditEvent(firestore: ReturnType<typeof createInMemoryFirestoreClient>, id: string, timestampIso: string) {
+  await executeAuditedFirestoreMutation(
+    firestore,
+    {
+      action: 'event.created',
+      actor: { email: 'maja@example.test' },
+      resource: { kind: 'event', key: `event:${id}`, display: `Wyjazd ${id}` },
+      changes: [{ field: 'name', after: `Wyjazd ${id}` }],
+    },
+    async () => {},
+    { createId: () => id, now: () => new Date(timestampIso) },
+  );
+}
+
+test('GET /admin/audyt/events lists events for an admin viewer and rejects two primary selectors with 400', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await seedAuditEvent(firestore, 'evt-a', '2026-01-01T00:00:00.000Z');
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/audyt/events`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.rows.length, 1);
+    assert.equal(body.rows[0].id, 'evt-a');
+    assert.equal(body.rows[0].actor.email, 'maja@example.test');
+
+    const rejected = await fetch(`${baseUrl}/admin/audyt/events?category=events&actorEmail=maja@example.test`);
+    assert.equal(rejected.status, 400);
+  });
+});
+
+test('GET /admin/audyt/events: action without category is a deterministic 400, and every single supported selector (category, category+action, actorEmail, resourceKey, q) is individually accepted', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await seedAuditEvent(firestore, 'evt-a', '2026-01-01T00:00:00.000Z');
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    // action alone, with no category, is rejected before Firestore is ever touched.
+    const actionWithoutCategory = await fetch(`${baseUrl}/admin/audyt/events?action=event.created`);
+    assert.equal(actionWithoutCategory.status, 400);
+
+    // Each of the five selector shapes is independently accepted (zero-or-one primary selector).
+    const byCategory = await fetch(`${baseUrl}/admin/audyt/events?category=events`);
+    assert.equal(byCategory.status, 200);
+    const byCategoryAction = await fetch(`${baseUrl}/admin/audyt/events?category=events&action=event.created`);
+    assert.equal(byCategoryAction.status, 200);
+    const byActor = await fetch(`${baseUrl}/admin/audyt/events?actorEmail=maja@example.test`);
+    assert.equal(byActor.status, 200);
+    const byResource = await fetch(`${baseUrl}/admin/audyt/events?resourceKey=event:evt-a`);
+    assert.equal(byResource.status, 200);
+    const byQuery = await fetch(`${baseUrl}/admin/audyt/events?q=evt`);
+    assert.equal(byQuery.status, 200);
+
+    // A primary selector still composes with date-range and cursor query params, and combining
+    // two of the other primary-selector kinds is rejected regardless of which two.
+    const withDateRange = await fetch(`${baseUrl}/admin/audyt/events?actorEmail=maja@example.test&from=2026-01-01T00:00:00.000Z&to=2026-12-31T00:00:00.000Z`);
+    assert.equal(withDateRange.status, 200);
+    const resourceAndQuery = await fetch(`${baseUrl}/admin/audyt/events?resourceKey=event:evt-a&q=evt`);
+    assert.equal(resourceAndQuery.status, 400);
+  });
+});
+
+test('GET /audyt/events (member-zone) never exposes actor and hides an admin-only category entirely', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await seedAuditEvent(firestore, 'evt-public', '2026-01-01T00:00:00.000Z');
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'dues.annual.changed', actor: { email: 'skarbnik@example.test' }, resource: { kind: 'due', key: 'due:ula@example.test:2026', display: 'Ula 2026' }, changes: [{ field: 'paid', after: true }] },
+    async () => {},
+    { createId: () => 'evt-dues', now: () => new Date('2026-01-01T00:01:00.000Z') },
+  );
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/audyt/events`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.rows.map((r: { id: string }) => r.id), ['evt-public']);
+    assert.equal(body.rows[0].actor, undefined);
+  });
+});
+
+test('GET /admin/audyt/event returns 404 for an id the viewer cannot see, and the projected row otherwise', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'dues.annual.changed', actor: { email: 'skarbnik@example.test' }, resource: { kind: 'due', key: 'due:ula@example.test:2026', display: 'Ula 2026' }, changes: [{ field: 'paid', after: true }] },
+    async () => {},
+    { createId: () => 'evt-dues', now: () => new Date('2026-01-01T00:00:00.000Z') },
+  );
+  // A moderator-only (non-admin) viewer cannot see the dues category.
+  const firestoreWithModerator = firestore;
+  await firestoreWithModerator.setDoc('userRoles', 'wojownik@gmail.com', { roles: ['moderator'] });
+  const deps = makeDeps({
+    firestore,
+    authenticate: async () => fakeSessionClaims({ sub: 'mod-1', email: 'wojownik@gmail.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/audyt/event?id=evt-dues`);
+    assert.equal(res.status, 404);
+  });
+});
+
+test('GET /admin/audyt/diagnostics is administrator-only and filters by correlation id', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await startExternalOperation(
+    firestore,
+    { action: 'site.redirect.created', actor: { email: 'admin@example.test' }, resource: { kind: 'redirect', key: 'redirect:discord', display: 'discord' }, changes: [{ field: 'path', after: 'discord' }] },
+    { correlationId: 'diag-1', now: () => new Date('2026-01-01T00:00:00.000Z') },
+  );
+  const adminDeps = makeDeps({ firestore });
+  await withServer(adminDeps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/audyt/diagnostics`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.rows.length, 1);
+    assert.equal(body.rows[0].correlationId, 'diag-1');
+
+    const filtered = await fetch(`${baseUrl}/admin/audyt/diagnostics?correlationId=diag-1`);
+    assert.equal((await filtered.json()).rows.length, 1);
+    const empty = await fetch(`${baseUrl}/admin/audyt/diagnostics?correlationId=does-not-exist`);
+    assert.equal((await empty.json()).rows.length, 0);
+  });
+
+  // An accountant-only (non-admin) viewer must not reach diagnostics - it's administrator-only,
+  // unlike the list/detail routes.
+  const accountantDeps = makeDeps({
+    firestore,
+    authenticate: async () => fakeSessionClaims({ sub: 'acc-1', email: 'wojownik@gmail.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+  await withServer(accountantDeps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/audyt/diagnostics`);
+    assert.equal(res.status, 403);
+  });
+});
+
+test('POST /internal/audit/reconcile fails closed (503) when the reconciler secrets are not configured, and 401s a request with no bearer token once they are', async () => {
+  const notConfigured = makeDeps();
+  await withServer(notConfigured, async baseUrl => {
+    const res = await fetch(`${baseUrl}/internal/audit/reconcile`, { method: 'POST' });
+    assert.equal(res.status, 503);
+  });
+
+  const configured = makeDeps({
+    auditReconcilerServiceAccountEmail: 'audit-reconciler@project.iam.gserviceaccount.com',
+    auditReconcileAudience: 'https://upload-service-xyz.run.app',
+  });
+  await withServer(configured, async baseUrl => {
+    const res = await fetch(`${baseUrl}/internal/audit/reconcile`, { method: 'POST' });
+    assert.equal(res.status, 401);
+  });
+});
+
+// --- Real OIDC round-trip for the reconcile dispatch loop past the fail-closed cases above -----
+//
+// `handleInternalAuditReconcile` verifies its Bearer token against the real Google JWKS endpoint
+// (auth.ts's `fetchGoogleJwks`, not something `ServerDeps` lets tests inject), so exercising the
+// route's actual dispatch loop - not just its 503/401 short-circuits - means signing a real RS256
+// token and intercepting only the JWKS fetch, letting every other request (including the test's
+// own calls into the loopback test server) go through unmodified.
+
+function base64UrlForReconcilerTest(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+const { publicKey: reconcilerPublicKey, privateKey: reconcilerPrivateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const reconcilerJwk = (() => {
+  const exported = reconcilerPublicKey.export({ format: 'jwk' }) as { n: string; e: string; kty: string };
+  return { kid: 'reconciler-test-kid', kty: exported.kty, n: exported.n, e: exported.e };
+})();
+
+function makeReconcilerOidcToken(payload: Record<string, unknown>): string {
+  const header = { alg: 'RS256', typ: 'JWT', kid: reconcilerJwk.kid };
+  const headerB64 = base64UrlForReconcilerTest(Buffer.from(JSON.stringify(header)));
+  const payloadB64 = base64UrlForReconcilerTest(Buffer.from(JSON.stringify(payload)));
+  const signingInput = `${headerB64}.${payloadB64}`;
+  const signature = cryptoSign('RSA-SHA256', Buffer.from(signingInput), reconcilerPrivateKey);
+  return `${signingInput}.${base64UrlForReconcilerTest(signature)}`;
+}
+
+// Intercepts only the Google JWKS endpoint; every other URL (including the test's own requests
+// into the loopback server started by withServer) is delegated to the real, captured fetch.
+async function withMockedGoogleJwks<T>(run: () => Promise<T>): Promise<T> {
+  const wrapped = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === 'https://www.googleapis.com/oauth2/v3/certs') {
+      return new Response(JSON.stringify({ keys: [reconcilerJwk] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return nodeFetch(input as never, init as never);
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).fetch = wrapped;
+  try {
+    return await run();
+  } finally {
+    globalThis.fetch = nodeFetch;
+  }
+}
+
+const RECONCILER_EMAIL = 'audit-reconciler@project.iam.gserviceaccount.com';
+const RECONCILER_AUDIENCE = 'https://upload-service-xyz.run.app';
+
+function makeValidReconcilerBearer(): string {
+  return makeReconcilerOidcToken({
+    iss: 'https://accounts.google.com',
+    aud: RECONCILER_AUDIENCE,
+    exp: Math.floor(Date.now() / 1000) + 300,
+    email: RECONCILER_EMAIL,
+  });
+}
+
+test('POST /internal/audit/reconcile: a previously-uncovered kind (redirect) that never settles reaches requires_review after the 24h boundary via the real dispatch loop', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  // Backdated well past both the 30-minute request lease and the 24-hour requires_review
+  // boundary, so a single real-time reconcile call resolves it immediately.
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'site.redirect.created',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'redirect', key: 'redirect:discord', display: 'discord' },
+      changes: [{ field: 'path', after: 'discord' }],
+    },
+    { correlationId: 'redirect-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The redirect never actually landed in redirects.json, so `buildReconciliationProbes`'s
+    // redirect probe keeps reporting `pending` - proving this is the real probe/dispatch path,
+    // not a stub that always resolves.
+    github: makeFakeGithub({ listRedirects: async () => [] }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const outcome = await firestore.getDoc<{ state: string; determinedBy: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(outcome!.state, 'requires_review');
+  assert.equal(outcome!.determinedBy, 'reconciler');
+});
+
+test('POST /internal/audit/reconcile: the redirect probe recognizes a genuinely completed operation as succeeded, not just pending-forever', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  // Past the 30-minute request lease (so it's eligible), but well within the 24h boundary - the
+  // only way this resolves as `claimed_succeeded` is the probe actually finding the redirect.
+  const startedAt = new Date(Date.now() - 45 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'site.redirect.created',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'redirect', key: 'redirect:discord', display: 'discord' },
+      changes: [{ field: 'path', after: 'discord' }],
+    },
+    { correlationId: 'redirect-done-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    github: makeFakeGithub({ listRedirects: async () => [{ path: 'discord', target: 'https://discord.gg/abc123' }] }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_succeeded' }]);
+    }),
+  );
+
+  const outcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(outcome!.state, 'succeeded');
+  assert.equal(outcome!.determinedBy, 'reconciler');
+  assert.ok(outcome!.auditEventId);
+});
+
+// GPT-5 follow-up review (Finding 1, Critical): `gallery.photo.added` shares the `gallery`
+// resource kind with `gallery.created`, but its gallery folder already exists *before* the photo
+// upload starts - so a folder-existence probe is trivially always true for it and would fabricate
+// `succeeded` for an interrupted/ambiguous upload that never actually added a photo. The two
+// tests below prove: (1) that false positive no longer happens - reconciling a stuck
+// `gallery.photo.added` operation whose gallery folder genuinely exists still does NOT resolve as
+// `claimed_succeeded`, and instead only ever resolves via the 24h `requires_review` boundary, same
+// as the always-pending `member`/`settings` kinds; and (2) `gallery.created`'s own reconciliation
+// is unchanged - it still resolves `claimed_succeeded` via a real folder-existence probe.
+
+test('POST /internal/audit/reconcile: gallery.photo.added never resolves claimed_succeeded via folder existence (false positive), and reaches requires_review after the 24h boundary', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'gallery-folder-1';
+  // Backdated well past both the 30-minute request lease and the 24-hour requires_review
+  // boundary, so a single real-time reconcile call resolves it immediately.
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'gallery.photo.added',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId },
+      changes: [{ field: 'photoCount', after: 1 }],
+    },
+    { correlationId: 'gallery-photo-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The gallery folder DOES genuinely exist here - this is the exact scenario that used to
+    // fabricate a false `claimed_succeeded` via `driveFolderProbe`'s existence check, even though
+    // the interrupted upload never actually added a photo. Before the fix, this test's assertion
+    // below would have failed (outcome would have been 'claimed_succeeded' instead).
+    drive: makeFakeDrive({ folderExists: async () => true }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const outcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(outcome!.state, 'requires_review', 'must never be fabricated as succeeded merely because the (pre-existing) gallery folder exists');
+  assert.equal(outcome!.determinedBy, 'reconciler');
+  assert.equal(outcome!.auditEventId, undefined, 'no audit event should be manufactured for an unconfirmed upload');
+});
+
+test('POST /internal/audit/reconcile: gallery.created is unaffected by the gallery.photo.added fix - still resolves claimed_succeeded via a real folder-existence probe', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'gallery-folder-2';
+  // Past the 30-minute request lease (so it's eligible), but well within the 24h boundary - the
+  // only way this resolves as `claimed_succeeded` is the probe actually finding the folder.
+  const startedAt = new Date(Date.now() - 45 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'gallery.created',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId },
+      changes: [{ field: 'name', after: 'Test Album' }],
+    },
+    { correlationId: 'gallery-created-done-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({ folderExists: async id => id === folderId }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_succeeded' }]);
+    }),
+  );
+
+  const outcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(outcome!.state, 'succeeded');
+  assert.equal(outcome!.determinedBy, 'reconciler');
+  assert.ok(outcome!.auditEventId);
+});
+
+// GPT-5 follow-up review (Apply Review batch): widening driveFolderProbe's guard from a
+// `gallery.photo.added`-only blocklist to a `gallery.created`-only allowlist. The blocklist fix
+// above left the exact same false-positive class open for every OTHER action sharing the
+// `gallery` resource kind - `gallery.finalized` and `gallery.photo.contribution.finalized` reuse
+// a folder that already existed before finalization ran, and `gallery.deleted` is the inverted
+// case: the folder still existing means the deletion did NOT happen, so folder existence must
+// never be read as `succeeded` there either. Before this fix, both tests below would have failed
+// (outcome would have been 'claimed_succeeded' instead of 'claimed_requires_review').
+
+test('POST /internal/audit/reconcile: gallery.finalized never resolves claimed_succeeded via folder existence (the gallery folder pre-exists regardless of whether finalization ran)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'gallery-folder-3';
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'gallery.finalized',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId },
+      changes: [{ field: 'finalized', after: 'true' }],
+    },
+    { correlationId: 'gallery-finalized-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The gallery folder DOES genuinely exist here - it was created by the earlier /start call,
+    // long before this (stuck) /finalize attempt. This is the exact scenario that would fabricate
+    // a false `claimed_succeeded` if driveFolderProbe still only excluded gallery.photo.added.
+    drive: makeFakeDrive({ folderExists: async () => true }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const finalizedOutcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(finalizedOutcome!.state, 'requires_review', 'must never be fabricated as succeeded merely because the (pre-existing) gallery folder exists');
+  assert.equal(finalizedOutcome!.determinedBy, 'reconciler');
+  assert.equal(finalizedOutcome!.auditEventId, undefined, 'no audit event should be manufactured for an unconfirmed finalize');
+});
+
+test('POST /internal/audit/reconcile: gallery.deleted never resolves claimed_succeeded via folder existence - the folder still existing means the deletion did NOT happen', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'gallery-folder-4';
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'gallery.deleted',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId },
+      changes: [{ field: 'name', after: folderId }],
+    },
+    { correlationId: 'gallery-deleted-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The folder STILL exists - i.e. the deletion never actually happened. A probe that reads
+    // existence as success would get this exactly backwards.
+    drive: makeFakeDrive({ folderExists: async () => true }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const deletedOutcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(deletedOutcome!.state, 'requires_review', 'must never be fabricated as succeeded merely because the (undeleted) gallery folder still exists');
+  assert.equal(deletedOutcome!.determinedBy, 'reconciler');
+  assert.equal(deletedOutcome!.auditEventId, undefined, 'no audit event should be manufactured for a deletion that never happened');
+});
+
+// GPT-5 follow-up review: the same allowlist-vs-blocklist bug exists for the `person` resource
+// kind, which shares `driveFolderProbe` with `gallery`. Only `profile.person.created` is the case
+// where "the person's Drive folder now exists" proves that operation's own effect (its intent
+// always carries a provisional `person:pending:{correlationId}` key - see
+// handleAdminCreatePerson - mirroring `gallery.created`). Every other `person`-kind action reuses
+// a folder that already existed before it ran, and `profile.person.deleted` is the inverted case:
+// the folder still existing means the deletion did NOT happen. Before this fix, both tests below
+// would have failed (outcome would have been 'claimed_succeeded' instead of
+// 'claimed_requires_review').
+
+test('POST /internal/audit/reconcile: profile.person.deleted never resolves claimed_succeeded via folder existence - the folder still existing means the deletion did NOT happen', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'person-folder-1';
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'profile.person.deleted',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'person', key: `person:${folderId}`, display: folderId },
+      changes: [{ field: 'name', after: folderId }],
+    },
+    { correlationId: 'person-deleted-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The folder STILL exists - i.e. the deletion never actually happened. A probe that reads
+    // existence as success would get this exactly backwards.
+    drive: makeFakeDrive({ folderExists: async () => true }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const deletedOutcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(deletedOutcome!.state, 'requires_review', 'must never be fabricated as succeeded merely because the (undeleted) person folder still exists');
+  assert.equal(deletedOutcome!.determinedBy, 'reconciler');
+  assert.equal(deletedOutcome!.auditEventId, undefined, 'no audit event should be manufactured for a deletion that never happened');
+});
+
+test('POST /internal/audit/reconcile: profile.person.description.updated never resolves claimed_succeeded via folder existence (the person folder pre-exists regardless of whether the update ran)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'person-folder-2';
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'profile.person.description.updated',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'person', key: `person:${folderId}`, display: folderId },
+      changes: [{ field: 'descriptionLength', after: 42 }],
+    },
+    { correlationId: 'person-description-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The person folder DOES genuinely exist here - it was created long before this (stuck)
+    // description update. This is the exact scenario that would fabricate a false
+    // `claimed_succeeded` if driveFolderProbe's allowlist didn't cover `person` too.
+    drive: makeFakeDrive({ folderExists: async () => true }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const updatedOutcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(updatedOutcome!.state, 'requires_review', 'must never be fabricated as succeeded merely because the (pre-existing) person folder exists');
+  assert.equal(updatedOutcome!.determinedBy, 'reconciler');
+  assert.equal(updatedOutcome!.auditEventId, undefined, 'no audit event should be manufactured for an unconfirmed description update');
+});
+
+// GPT-5 follow-up review: the same allowlist-vs-blocklist bug exists a third time, for the
+// `memberSubmission` resource kind, which shares `ACTION_REGISTRY`'s two `profile.photo_submission.*`
+// actions. Only `profile.photo_submission.created` (handleWojownicyUploadSubmit) is the case where
+// "the submission folder now exists" proves that operation's own effect - its intent starts with a
+// provisional `memberSubmission:pending:{correlationId}` key that only upgrades to the real
+// `member:{email}:submission:{folderId}` key on success, mirroring `gallery.created`/
+// `profile.person.created`. `profile.photo_submission.photo_added` (handleWojownicyUploadPhoto)
+// reuses the submission folder that `.created` already made, and - per the I4 fix - uses that same
+// real, non-provisional key from the very start, so folder existence there is trivially always true
+// and proves nothing about whether that specific photo upload completed. Before this fix, the test
+// below would have failed (outcome would have been 'claimed_succeeded' instead of
+// 'claimed_requires_review').
+
+test('POST /internal/audit/reconcile: profile.photo_submission.photo_added never resolves claimed_succeeded via folder existence (the submission folder pre-exists regardless of whether the photo upload ran)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'submission-folder-1';
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'profile.photo_submission.photo_added',
+      actor: { email: 'member@example.test' },
+      resource: { kind: 'memberSubmission', key: `member:member@example.test:submission:${folderId}`, display: folderId },
+      changes: [{ field: 'fileId', after: 'pending' }],
+    },
+    { correlationId: 'submission-photo-added-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The submission folder DOES genuinely exist here - it was created long before this (stuck)
+    // photo-add attempt, by the earlier .created call. This is the exact scenario that would
+    // fabricate a false `claimed_succeeded` if memberSubmissionProbe still only excluded via the
+    // provisional-key check instead of allowlisting the action itself.
+    drive: makeFakeDrive({ folderExists: async () => true }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const outcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(outcome!.state, 'requires_review', 'must never be fabricated as succeeded merely because the (pre-existing) submission folder exists');
+  assert.equal(outcome!.determinedBy, 'reconciler');
+  assert.equal(outcome!.auditEventId, undefined, 'no audit event should be manufactured for an unconfirmed photo upload');
+});
+
+test('POST /internal/audit/reconcile: profile.photo_submission.created is unaffected by the photo_added fix - still resolves claimed_succeeded via a real folder-existence probe', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'submission-folder-2';
+  // Past the 30-minute request lease (so it's eligible), but well within the 24h boundary - the
+  // only way this resolves as `claimed_succeeded` is the probe actually finding the folder.
+  const startedAt = new Date(Date.now() - 45 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'profile.photo_submission.created',
+      actor: { email: 'member@example.test' },
+      resource: { kind: 'memberSubmission', key: `member:member@example.test:submission:${folderId}`, display: 'Jan Kowalski' },
+      changes: [{ field: 'name', after: 'Jan Kowalski' }],
+    },
+    { correlationId: 'submission-created-done-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({ folderExists: async id => id === folderId }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_succeeded' }]);
+    }),
+  );
+
+  const outcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(outcome!.state, 'succeeded');
+  assert.equal(outcome!.determinedBy, 'reconciler');
+  assert.ok(outcome!.auditEventId);
 });

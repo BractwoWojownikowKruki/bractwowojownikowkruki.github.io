@@ -100,3 +100,13 @@ test('in-memory client: seed() pre-populates a doc for test setup', async () => 
   const doc = await client.getDoc<{ roles: string[] }>('userRoles', 'admin@example.test');
   assert.deepEqual(doc, { roles: ['admin'] });
 });
+
+test('in-memory client: createDoc refuses to overwrite an immutable document', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.createDoc('auditEvents', 'audit-1', { action: 'event.created' });
+  await assert.rejects(
+    () => client.createDoc('auditEvents', 'audit-1', { action: 'event.updated' }),
+    /already exists/i,
+  );
+  assert.deepEqual(await client.getDoc('auditEvents', 'audit-1'), { action: 'event.created' });
+});

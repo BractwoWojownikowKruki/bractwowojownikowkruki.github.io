@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Historia - Bractwo Wojowników Kruki</title>
+  <meta name="robots" content="noindex, nofollow" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Historia - Bractwo Wojowników Kruki" />
+  <meta property="og:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+  <meta property="og:locale" content="pl_PL" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Historia - Bractwo Wojowników Kruki" />
+  <meta name="twitter:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <link rel="apple-touch-icon" href="../favicon.png" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../shared/audit-view.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <!-- PARTIAL:nav -->
+
+  <main class="main-content">
+    <div class="content-left">
+      <section class="content-section">
+        <p class="auth-checking busy-sticker-loader--feature" id="lw-checking" role="status"><span class="busy-sticker-aura busy-sticker-aura--feature" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--feature" alt=""></span><span class="busy-sticker-label">PLEASE HOLD THE LINE...</span></p>
+        <div class="upload-signin" id="signed-out-panel" hidden>
+          <p>Zaloguj się kontem Google, aby zobaczyć historię zmian.</p>
+          <div id="google-signin-button"></div>
+        </div>
+        <p class="upload-forbidden" id="forbidden-panel" hidden>
+          Brak uprawnień. Ta sekcja jest dostępna tylko dla członków Bractwa.
+        </p>
+
+        <div id="main-content" hidden>
+          <h1>◷ Historia</h1>
+          <p style="color: var(--text-muted); margin-bottom: 1rem;">
+            Historia zmian widocznych publicznie dla członków Bractwa - wyjazdy, zgłoszenia i galerie.
+          </p>
+
+          <div id="audyt-container"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- PARTIAL:social_sidebar -->
+  </main>
+
+  <!-- PARTIAL:footer -->
+
+  <script src="../auth.js"></script>
+  <script src="../nav.js"></script>
+  <script src="../shared/audit-view.js"></script>
+  <script src="audyt.js"></script>
+</body>
+</html>

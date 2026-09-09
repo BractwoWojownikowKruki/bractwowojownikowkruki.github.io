@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { FirestoreDoc, FirestoreLikeClient } from './firestore.ts';
 
+type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
+
 export interface SignupDoc {
   eventId: string;
   memberEmail: string;
@@ -47,7 +49,7 @@ export async function getSignup(client: FirestoreLikeClient, eventId: string, em
 }
 
 export async function saveSignup(
-  client: FirestoreLikeClient,
+  client: FirestoreWriteContext,
   eventId: string,
   email: string,
   fields: SignupWritableFields,
@@ -78,7 +80,7 @@ export async function saveSignup(
 }
 
 export async function setSkladkaPaid(
-  client: FirestoreLikeClient,
+  client: FirestoreWriteContext,
   eventId: string,
   email: string,
   paid: boolean,

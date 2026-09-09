@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Audyt - Panel administracyjny - Bractwo Wojowników Kruki</title>
+  <meta name="robots" content="noindex, nofollow" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Audyt - Panel administracyjny - Bractwo Wojowników Kruki" />
+  <meta property="og:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+  <meta property="og:locale" content="pl_PL" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Audyt - Panel administracyjny - Bractwo Wojowników Kruki" />
+  <meta name="twitter:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+
+  <link rel="stylesheet" href="../../style.css" />
+  <link rel="stylesheet" href="../../shared/audit-view.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <!-- PARTIAL:nav -->
+
+  <main class="main-content">
+    <div class="content-left">
+      <section class="content-section">
+        <h1>Panel administracyjny - Audyt</h1>
+
+        <p class="auth-checking busy-sticker-loader--feature" id="admin-checking" role="status"><span class="busy-sticker-aura busy-sticker-aura--feature" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--feature" alt=""></span><span class="busy-sticker-label">PLEASE HOLD THE LINE...</span></p>
+        <div id="admin-signin" hidden>
+          <div id="google-signin-button"></div>
+        </div>
+
+        <div id="admin-forbidden" hidden>
+          <p style="color: var(--accent);">To konto nie ma uprawnień do przeglądania audytu.</p>
+        </div>
+
+        <div id="admin-reauth" hidden style="margin-bottom: 1.5rem;">
+          <p style="color: var(--text-muted); margin-bottom: 0.5rem;">Twoja sesja logowania wygasła. Zaloguj się ponownie, aby kontynuować.</p>
+          <div id="google-reauth-button"></div>
+        </div>
+
+        <div id="admin-panel" hidden>
+          <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Zalogowano jako <span id="admin-email"></span></p>
+
+          <section style="margin-bottom: 2rem;">
+            <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Historia zdarzeń</h2>
+            <div id="audyt-container"></div>
+          </section>
+
+          <!-- Administrator-only (GET /admin/audyt/diagnostics 403s for accountant/moderator-only
+               viewers) - hidden entirely rather than shown with an error, per the task brief. No
+               retry/resolve control by design (plan-addendum.md "Diagnostics remediation path" -
+               v1 has none; remediation is re-doing the normal action on the resource's own page). -->
+          <section id="diagnostics-panel" hidden style="margin-bottom: 2rem;">
+            <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Diagnostyka operacji zewnętrznych</h2>
+            <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
+              Operacje na Dysku/GitHub/Arkuszach, których wynik nie został jeszcze potwierdzony. Aby naprawić, powtórz
+              zwykłą akcję na stronie zasobu - nie ma tu przycisku "ponów".
+            </p>
+            <div class="czl-table-wrap">
+              <table class="czl-table" id="diagnostics-table">
+                <thead>
+                  <tr>
+                    <th scope="col">ID korelacji</th>
+                    <th scope="col">Stan</th>
+                    <th scope="col">Akcja</th>
+                    <th scope="col">Zasób</th>
+                    <th scope="col">Użytkownik</th>
+                    <th scope="col">Rozpoczęto</th>
+                    <th scope="col">Zakończono</th>
+                  </tr>
+                </thead>
+                <tbody id="diagnostics-content"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <!-- PARTIAL:admin_sidebar -->
+  </main>
+
+  <!-- PARTIAL:footer -->
+
+  <script src="../../auth.js"></script>
+  <script src="../../nav.js"></script>
+  <script src="../admin-shared.js"></script>
+  <script src="../../shared/audit-view.js"></script>
+  <script>
+    // Thin wiring only (plan.md "two shells, one shared module") - the complete administrator
+    // shell mounts AuditView against /admin/audyt with scope: admin, plus the diagnostics section
+    // above (administrator-only, never contextual member history - implementation-contract.md).
+    // showReauth/hideReauth/escapeHtml/formatDateTime come from ../admin-shared.js.
+    //
+    // whoamiPath is /wojownicy-upload/whoami (plain "is a signed-in club member" check), not
+    // /admin/members/whoami or /admin/whoami: this page must also open for an accountant-only or
+    // moderator-only viewer (implementation-contract.md - they see their own domain's history),
+    // neither of whom is on the admin allowlist or holds the 'moderator' Firestore role that those
+    // two endpoints require. There is no existing whoami variant reporting "is admin, accountant,
+    // or moderator" (the exact set GET /admin/audyt/* itself checks server-side via
+    // resolveAdminAuditViewer) and adding one is a server-side change out of this UI-only batch's
+    // scope - so a plain club member who holds none of the three roles still reaches this page
+    // shell, and only finds out via the inline error banner AuditView's mount() shows when its
+    // first GET /admin/audyt/events 403s. Diagnostics below has the same gap and is closed the
+    // same way - GET /admin/audyt/diagnostics is administrator-only, so it plainly 403s for
+    // accountant/moderator-only staff too, and the section is hidden on *any* fetch failure
+    // (catch block below) rather than surfacing that as a raw error, per the task brief.
+    function resourceHref(resource) {
+      // Best-effort deep link back to the resource's own page (plan-addendum.md's "Diagnostics
+      // remediation path" - link each row to its original resource page where feasible). Only
+      // wired for kinds with an obvious canonical URL; anything else (settings, pending Drive
+      // folders with no final id yet) has no working link and is shown as plain text.
+      if (resource.kind === 'event') return `/lista-wyjazdowa/wyjazd/?eventId=${encodeURIComponent(resource.key.slice('event:'.length))}`;
+      if (resource.kind === 'redirect') return `/admin/`;
+      return null;
+    }
+
+    async function loadDiagnostics() {
+      const panel = document.getElementById('diagnostics-panel');
+      try {
+        const { rows } = await apiFetch('/admin/audyt/diagnostics', { method: 'GET' }, showReauth, hideReauth);
+        panel.hidden = false;
+        const STATE_LABELS = { pending: 'Oczekuje', failed: 'Nieudana', requires_review: 'Wymaga przeglądu' };
+        document.getElementById('diagnostics-content').innerHTML = rows.length
+          ? rows
+              .map(r => {
+                const href = resourceHref(r.resource);
+                const resourceCell = href
+                  ? `<a href="${escapeAttr(href)}">${escapeHtml(r.resource.display)}</a>`
+                  : escapeHtml(r.resource.display);
+                return `
+        <tr data-state="${escapeAttr(r.state)}" class="audyt-diagnostics-row">
+          <td><code>${escapeHtml(r.correlationId)}</code></td>
+          <td><span class="audyt-diagnostics-state audyt-diagnostics-state--${escapeAttr(r.state)}">${escapeHtml(STATE_LABELS[r.state] ?? r.state)}</span></td>
+          <td>${escapeHtml(AuditView.actionLabel(r.action))}</td>
+          <td>${resourceCell}</td>
+          <td>${escapeHtml(r.actor.name || r.actor.email)}</td>
+          <td>${escapeHtml(formatDateTime(r.startedAt))}</td>
+          <td>${r.completedAt ? escapeHtml(formatDateTime(r.completedAt)) : '—'}</td>
+        </tr>`;
+              })
+              .join('')
+          : '<tr><td colspan="7" class="czl-empty">Brak operacji do przejrzenia.</td></tr>';
+      } catch (err) {
+        // 403 for an accountant/moderator-only viewer is expected (isFullAdmin already gates
+        // this), so any error reaching here is unexpected - hide the section rather than surface
+        // a raw error, per the task brief.
+        panel.hidden = true;
+      }
+    }
+
+    initGoogleSignIn({
+      buttonIds: ['google-signin-button', 'google-reauth-button'],
+      whoamiPath: '/wojownicy-upload/whoami',
+      onSignedIn: payload => {
+        document.getElementById('admin-checking').hidden = true;
+        document.getElementById('admin-signin').hidden = true;
+        document.getElementById('admin-email').textContent = payload.email;
+        document.getElementById('admin-panel').hidden = false;
+        const resourceKey = new URLSearchParams(window.location.search).get('resourceKey') || undefined;
+        AuditView.mount(document.getElementById('audyt-container'), {
+          apiBase: '/admin/audyt',
+          scope: 'admin',
+          initialFilters: resourceKey ? { resourceKey } : undefined,
+          showReauth,
+          hideReauth,
+        });
+        loadDiagnostics();
+      },
+      onSignedOut: () => {
+        document.getElementById('admin-checking').hidden = true;
+        document.getElementById('admin-signin').hidden = false;
+      },
+      onForbidden: () => {
+        document.getElementById('admin-checking').hidden = true;
+        document.getElementById('admin-signin').hidden = true;
+        document.getElementById('admin-forbidden').hidden = false;
+      },
+    });
+  </script>
+</body>
+</html>

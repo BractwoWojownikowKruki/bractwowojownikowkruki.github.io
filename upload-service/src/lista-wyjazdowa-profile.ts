@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { FirestoreLikeClient } from './firestore.ts';
 
+type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
+
 export interface EquipmentItem {
   id: string;
   name: string;
@@ -45,7 +47,7 @@ export async function getProfile(
  * to give a brand-new document its complete shape.
  */
 export async function saveProfile(
-  client: FirestoreLikeClient,
+  client: FirestoreWriteContext,
   email: string,
   fields: ProfileWritableFields,
 ): Promise<ListaWyjazdowaProfileDoc> {
@@ -63,7 +65,7 @@ export async function saveProfile(
 }
 
 export async function setWpisowePaid(
-  client: FirestoreLikeClient,
+  client: FirestoreWriteContext,
   email: string,
   paid: boolean,
   updatedBy: string,

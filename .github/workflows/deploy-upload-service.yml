@@ -62,6 +62,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # KRKG-0050 (fix round 1): the Scheduler/IAM verification steps below call
+      # upload-service/scripts/deploy-validation.ts - the same, unit-tested module covered by
+      # scripts/deploy-validation.test.ts (see the "test" job above) - instead of duplicating that
+      # logic as hand-maintained inline bash that can drift out of sync with what's actually
+      # tested.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: upload-service/package-lock.json
+      - name: Install dependencies
+        working-directory: upload-service
+        run: npm ci
+
       # KRKG-0032: the runtime SA now exists and is verified working in production, so a
       # deploy without it is a regression, not a bootstrap state to tolerate - fail before
       # ever calling `gcloud run deploy`, rather than silently falling back to the default
@@ -75,6 +90,20 @@ jobs:
         run: |
           echo "::error::CLOUD_RUN_RUNTIME_SA secret is not set - refusing to deploy with the default Compute Engine service account."
           exit 1
+
+      # KRKG-0050: the internal audit-reconcile route (POST /internal/audit/reconcile) only ever
+      # accepts calls carrying a valid OIDC token issued to this exact service account - see
+      # config.ts's auditReconcilerServiceAccountEmail and server.ts's handleInternalAuditReconcile.
+      # Without this secret the route stays fail-closed (503) in production, which would make the
+      # 15-minute reconciliation job a silent no-op, so deploy refuses to proceed rather than ship
+      # that quietly. Provisioning the service account itself (least privilege, no broad roles) is
+      # a separately authorized, one-time prerequisite - see
+      # reconciler-runbook.md in the KRKG-0050 story folder.
+      - name: Require audit reconciler service account
+        working-directory: upload-service
+        env:
+          AUDIT_RECONCILER_SERVICE_ACCOUNT: ${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}
+        run: npx tsx scripts/deploy-validation.ts require-secret AUDIT_RECONCILER_SERVICE_ACCOUNT "$AUDIT_RECONCILER_SERVICE_ACCOUNT"
 
       - id: auth
         name: Authenticate to GCP
@@ -95,6 +124,7 @@ jobs:
             GOOGLE_OAUTH_CLIENT_ID=${{ secrets.UPLOAD_OAUTH_CLIENT_ID }}
             DRIVE_PARENT_FOLDER_ID=${{ secrets.UPLOAD_DRIVE_PARENT_FOLDER_ID }}
             GITHUB_REPO=BractwoWojownikowKruki/bractwowojownikowkruki.github.io
+            AUDIT_RECONCILER_SERVICE_ACCOUNT=${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}
           secrets: |
             DRIVE_REFRESH_TOKEN=drive-refresh-token:latest
             DRIVE_CLIENT_ID=drive-oauth-client-id:latest
@@ -124,3 +154,75 @@ jobs:
             exit 1
           fi
           echo "Runtime identity verified."
+
+      # KRKG-0050: AUDIT_RECONCILE_AUDIENCE must be the service's own URL (what Cloud Scheduler's
+      # OIDC token carries as `aud`), which isn't known until after the service exists - so it's
+      # set here as a follow-up update rather than in the initial env_vars block above.
+      - name: Configure audit reconcile audience
+        id: reconcile_audience
+        run: |
+          SERVICE_URL=$(gcloud run services describe krucze-galery-upload --region=europe-west1 --project=krucze-galery-upload --format="value(status.url)")
+          echo "service_url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
+          gcloud run services update krucze-galery-upload \
+            --region=europe-west1 --project=krucze-galery-upload \
+            --update-env-vars=AUDIT_RECONCILE_AUDIENCE="$SERVICE_URL"
+
+      # Least-privilege grant: only this one service account may invoke the (otherwise
+      # --allow-unauthenticated, per the flags above) service at all in a way that reaches an
+      # authenticated route - every route other than /internal/audit/reconcile does its own
+      # session/OIDC verification regardless, so this binding only actually matters for that one
+      # route. Re-running this on every deploy makes it self-healing if the binding is ever lost.
+      - name: Grant audit reconciler invoker access
+        run: |
+          gcloud run services add-iam-policy-binding krucze-galery-upload \
+            --region=europe-west1 --project=krucze-galery-upload \
+            --member="serviceAccount:${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}" \
+            --role="roles/run.invoker"
+
+      # A successful add-iam-policy-binding call is not itself proof the binding is live (e.g. an
+      # IAM propagation delay, or a policy that silently rejected an unexpected member format) -
+      # read the policy back and check for the exact binding, same principle as the Scheduler
+      # job-describe verification below.
+      - name: Verify audit reconciler invoker binding
+        working-directory: upload-service
+        run: |
+          gcloud run services get-iam-policy krucze-galery-upload \
+            --region=europe-west1 --project=krucze-galery-upload --format=json \
+            | npx tsx scripts/deploy-validation.ts verify-invoker-binding "${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}"
+
+      # Create-or-update: the job may not exist yet on a repo's first KRKG-0050 deploy, and must
+      # be kept in sync with the current service URL/reconciler service account on every deploy
+      # after that - implementation-contract.md's 15-minute cadence and 30-minute request lease
+      # are exact contract values, not just an operational default, so this is not "eventually
+      # consistent enough", it's the schedule the reconciliation logic in audit.ts is built around.
+      - name: Create or update audit reconcile Cloud Scheduler job
+        run: |
+          SERVICE_URL="${{ steps.reconcile_audience.outputs.service_url }}"
+          if gcloud scheduler jobs describe audit-reconcile --location=europe-west1 --project=krucze-galery-upload >/dev/null 2>&1; then
+            gcloud scheduler jobs update http audit-reconcile \
+              --location=europe-west1 --project=krucze-galery-upload \
+              --schedule="*/15 * * * *" \
+              --uri="$SERVICE_URL/internal/audit/reconcile" \
+              --http-method=POST \
+              --oidc-service-account-email="${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}" \
+              --oidc-token-audience="$SERVICE_URL"
+          else
+            gcloud scheduler jobs create http audit-reconcile \
+              --location=europe-west1 --project=krucze-galery-upload \
+              --schedule="*/15 * * * *" \
+              --uri="$SERVICE_URL/internal/audit/reconcile" \
+              --http-method=POST \
+              --oidc-service-account-email="${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}" \
+              --oidc-token-audience="$SERVICE_URL"
+          fi
+
+      # Deployment is not complete until this confirms the live job's schedule/audience/service
+      # account - a create/update call succeeding is not itself proof the job is configured
+      # correctly (plan-addendum.md: "Deployment is not complete until `gcloud scheduler jobs
+      # describe` confirms the 15-minute OIDC job").
+      - name: Verify audit reconcile Scheduler job configuration
+        working-directory: upload-service
+        run: |
+          SERVICE_URL="${{ steps.reconcile_audience.outputs.service_url }}"
+          gcloud scheduler jobs describe audit-reconcile --location=europe-west1 --project=krucze-galery-upload --format=json \
+            | npx tsx scripts/deploy-validation.ts verify-scheduler-job "$SERVICE_URL" "${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}"

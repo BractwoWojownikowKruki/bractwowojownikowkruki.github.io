@@ -3,6 +3,8 @@ import type { FirestoreLikeClient } from './firestore.ts';
 import { AuthError } from './auth.ts';
 import type { Authorizer } from './server.ts';
 
+type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
+
 // 'moderator' (KRKG-0049) replaces the old Google-Group-backed moderator mechanism (KRKG-0027,
 // which gated gallery deletion and was never actually configured in production - see the removed
 // moderatorGroupUrl/authenticateModerator in server.ts/config.ts). It's scoped to people
@@ -50,7 +52,7 @@ export async function getGrantedRoles(client: FirestoreLikeClient, email: string
 // design notes on KRKG-0037's Plan C, which deliberately left this out). Admin-only at the
 // server.ts route level - this function itself does no authorization, same division of
 // responsibility as saveMember/setMemberDriveFolderId in members.ts.
-export async function setGrantedRoles(client: FirestoreLikeClient, email: string, roles: string[]): Promise<void> {
+export async function setGrantedRoles(client: FirestoreWriteContext, email: string, roles: string[]): Promise<void> {
   await client.setDoc('userRoles', email.toLowerCase(), { roles });
 }
 

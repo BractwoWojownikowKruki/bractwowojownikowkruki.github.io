@@ -1,5 +1,7 @@
 import type { FirestoreLikeClient } from './firestore.ts';
 
+type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
+
 export type MembershipStatus = 'pending' | 'active' | 'suspended' | 'removed' | 'rejected';
 
 export interface MemberDoc {
@@ -53,7 +55,7 @@ export async function getMember(client: FirestoreLikeClient, email: string): Pro
  * They are only written on first creation, to give a brand-new document its complete shape.
  */
 export async function saveMember(
-  client: FirestoreLikeClient,
+  client: FirestoreWriteContext,
   email: string,
   fields: MemberWritableFields,
   updatedBy: string,
@@ -99,7 +101,7 @@ export async function saveMember(
  * exist yet - there's no member identity to attach a folder to.
  */
 export async function setMemberDriveFolderId(
-  client: FirestoreLikeClient,
+  client: FirestoreWriteContext,
   email: string,
   folderId: string | null,
 ): Promise<void> {
@@ -115,7 +117,7 @@ export async function setMemberDriveFolderId(
 // setMemberDriveFolderId: throws if the member doc doesn't exist, since this is only ever called
 // from the admin panel's Zarządzanie ludźmi page, editing someone already in the list.
 export async function setMemberCategoryId(
-  client: FirestoreLikeClient,
+  client: FirestoreWriteContext,
   email: string,
   categoryId: string | null,
 ): Promise<void> {
@@ -129,7 +131,7 @@ export async function setMemberCategoryId(
 // ludźmi's own (see MemberDoc.hidden's comment) - same shape as setMemberCategoryId, since it's
 // only ever called from that same admin panel page, editing someone already in the list.
 export async function setMemberHidden(
-  client: FirestoreLikeClient,
+  client: FirestoreWriteContext,
   email: string,
   hidden: boolean,
 ): Promise<void> {
@@ -144,7 +146,7 @@ export async function setMemberHidden(
 // unlike setMemberDriveFolderId above, a login must never fail because of this side effect, and
 // creating a bare partial doc via a merging setDoc on a nonexistent id would otherwise plant a
 // garbage member record missing every other required field.
-export async function recordLastLogin(client: FirestoreLikeClient, email: string): Promise<void> {
+export async function recordLastLogin(client: FirestoreWriteContext, email: string): Promise<void> {
   const id = email.toLowerCase();
   const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
   if (!existing) return;

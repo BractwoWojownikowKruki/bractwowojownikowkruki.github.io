@@ -175,6 +175,16 @@ function showToast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('visible'), 3500);
 }
 
+// Historia deep link (KRKG-0050 batch 5/6) - gallery:{folderId|url} per implementation-contract.md's
+// "Action registry" intro paragraph: a Drive-backed album (source: 'drive', has driveFolderId - see
+// server.ts's `kind: 'gallery', key: gallery:${folderId}`) uses its folder id; a registered
+// external link (Google Photos, source anything else) uses its canonical url, same as
+// server.ts's /register handler (`gallery:${canonicalUrl}`).
+function galleryResourceKey(album) {
+  const key = album.source === 'drive' && album.driveFolderId ? album.driveFolderId : album.url;
+  return `gallery:${key}`;
+}
+
 function renderCard(album, mode = 'focus') {
   const badge = album.date
     ? `<span class="date-badge">${album.date}</span>`
@@ -219,6 +229,12 @@ function renderCard(album, mode = 'focus') {
             title="Kopiuj link"
             aria-label="Kopiuj link do albumu"
           >${ICON_LINK}</button>
+          <a
+            class="btn-open-photos audyt-history-link"
+            href="/audyt/?resourceKey=${encodeURIComponent(galleryResourceKey(album))}"
+            title="Historia zmian"
+            aria-label="Historia zmian tej galerii"
+          >◷</a>
         </div>
       </div>
     </article>`;

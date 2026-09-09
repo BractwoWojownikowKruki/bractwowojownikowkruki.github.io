@@ -150,6 +150,12 @@ function renderTable(roster, duesByEmail) {
       // decision that wpisowe has no per-member rate to record. Free-text like skladkaFee on the
       // wyjazd page, same input+Zapisz pattern (#skladka-fee-input/-save there).
       const amount = duesByEmail.get(member.email)?.amount ?? null;
+      // Historia deep links (KRKG-0050 batch 5/6) - due:{memberEmail}:entry_fee is wpisowe's
+      // resource key (see server.ts's handleListaWyjazdowaPutWpisowe), due:{memberEmail}:{year}
+      // is roczna's (handleListaWyjazdowaPutDues) - implementation-contract.md's "Action registry"
+      // intro paragraph. Two separate links since they're two independent resources/query filters.
+      const wpisoweHistoryHref = `/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}:entry_fee`)}`;
+      const rocznaHistoryHref = `/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}:${selectedYear}`)}`;
       row.innerHTML = `
         <span>${escapeHtml(displayName(member))}</span>
         <span>Wpisowe: ${member.hasProfile ? (member.wpisowePaid ? 'opłacone' : 'nieopłacone') : 'brak profilu'}</span>
@@ -158,12 +164,14 @@ function renderTable(roster, duesByEmail) {
             ? `<button type="button" class="lw-wpisowe-toggle" data-email="${emailAttr}" data-paid="${member.wpisowePaid ? 'true' : 'false'}">${member.wpisowePaid ? 'Oznacz jako nieopłacone' : 'Oznacz jako opłacone'}</button>`
             : ''
         }
+        ${member.hasProfile ? `<a class="audyt-history-link" href="${escapeAttr(wpisoweHistoryHref)}">◷ Historia</a>` : ''}
         <span>Składka ${selectedYear}: ${roczna ? 'opłacona' : 'nieopłacona'}</span>
         ${
           canManageSkladki
             ? `<button type="button" class="lw-roczna-toggle" data-email="${emailAttr}" data-paid="${roczna ? 'true' : 'false'}">${roczna ? 'Oznacz jako nieopłaconą' : 'Oznacz jako opłaconą'}</button>`
             : ''
         }
+        <a class="audyt-history-link" href="${escapeAttr(rocznaHistoryHref)}">◷ Historia</a>
         ${
           canManageSkladki
             ? `<span class="lw-roczna-amount-edit">

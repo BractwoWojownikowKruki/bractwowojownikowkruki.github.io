@@ -129,6 +129,25 @@ export async function deleteFolder(deps: DriveDeps, folderId: string): Promise<v
   }
 }
 
+// KRKG-0050: the reconciler's resource-specific idempotent final-state probe for the three
+// pre-effect-protocol Drive-folder resources (gallery/person/memberSubmission) - "does a folder
+// with this id exist and is it not trashed" is the cheapest, safest observation the reconciler
+// can make; it never repeats the creation itself. A 404 means the folder was never created (or
+// this id is simply wrong); a trashed folder is treated as absent, matching every other listing
+// in this file (listFiles/listGalleryFolders/findFolderByName all filter trashed = false).
+export async function folderExists(deps: DriveDeps, folderId: string): Promise<boolean> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const res = await fetch(`${DRIVE_API}/drive/v3/files/${folderId}?fields=id,trashed`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (res.status === 404) return false;
+  if (!res.ok) {
+    throw new Error(`Nie udało się sprawdzić folderu w Drive: HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { trashed?: boolean };
+  return data.trashed !== true;
+}
+
 // Renames a folder in place - used by the admin panel to change a person's "N. Imię" folder
 // name (and so their display order/name) without touching its contents or parent.
 export async function renameFolder(deps: DriveDeps, folderId: string, newName: string): Promise<void> {
@@ -148,7 +167,7 @@ export async function renameFolder(deps: DriveDeps, folderId: string, newName: s
 // name) first rather than trusting a caller-supplied "old parent", since the admin panel
 // doesn't reliably know which department/person an item currently belongs to when the target
 // is chosen from a plain dropdown.
-async function moveDriveItem(deps: DriveDeps, itemId: string, newParentId: string): Promise<{ name: string }> {
+async function moveDriveItem(deps: DriveDeps, itemId: string, newParentId: string): Promise<{ name: string; previousParents: string[] }> {
   const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
   const getRes = await fetch(`${DRIVE_API}/drive/v3/files/${itemId}?fields=parents,name`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -157,7 +176,8 @@ async function moveDriveItem(deps: DriveDeps, itemId: string, newParentId: strin
     throw new Error(`Nie udało się odczytać elementu w Drive: HTTP ${getRes.status}`);
   }
   const { parents, name } = (await getRes.json()) as { parents?: string[]; name: string };
-  const removeParents = (parents ?? []).join(',');
+  const previousParents = parents ?? [];
+  const removeParents = previousParents.join(',');
 
   const updateUrl = new URL(`${DRIVE_API}/drive/v3/files/${itemId}`);
   updateUrl.searchParams.set('addParents', newParentId);
@@ -170,7 +190,7 @@ async function moveDriveItem(deps: DriveDeps, itemId: string, newParentId: strin
   if (!res.ok) {
     throw new Error(`Nie udało się przenieść elementu w Drive: HTTP ${res.status}`);
   }
-  return { name };
+  return { name, previousParents };
 }
 
 // Moves a folder to a new parent (e.g. from the "upload" staging folder into a real category,
@@ -185,9 +205,14 @@ export async function moveFolder(deps: DriveDeps, folderId: string, newParentId:
 // Moves a single photo to a different person's folder (the admin panel's "transfer photo to
 // another user" action - e.g. new photos landed in the upload staging folder for someone who
 // already has an existing profile elsewhere, and belong in that person's folder instead of
-// becoming a whole new entry).
-export async function moveFile(deps: DriveDeps, fileId: string, newParentFolderId: string): Promise<void> {
-  await moveDriveItem(deps, fileId, newParentFolderId);
+// becoming a whole new entry). Returns the file's previous parent folder id (undefined if Drive
+// reported none, which shouldn't happen for a real photo but is handled rather than assumed) so
+// the caller can audit the transfer on both the source and destination person's own Historia
+// (finding I4 of KRKG-0050's final review) - moveDriveItem already reads this for the
+// removeParents call, so returning it here is free, not a second Drive round trip.
+export async function moveFile(deps: DriveDeps, fileId: string, newParentFolderId: string): Promise<{ previousFolderId?: string }> {
+  const { previousParents } = await moveDriveItem(deps, fileId, newParentFolderId);
+  return { previousFolderId: previousParents[0] };
 }
 
 export function buildMultipartParts(
@@ -545,9 +570,10 @@ export interface DriveClient {
   listFiles(folderId: string): Promise<DriveFileInfo[]>;
   setFolderPublic(folderId: string): Promise<void>;
   deleteFolder(folderId: string): Promise<void>;
+  folderExists(folderId: string): Promise<boolean>;
   renameFolder(folderId: string, newName: string): Promise<void>;
   moveFolder(folderId: string, newParentId: string): Promise<{ name: string }>;
-  moveFile(fileId: string, newParentFolderId: string): Promise<void>;
+  moveFile(fileId: string, newParentFolderId: string): Promise<{ previousFolderId?: string }>;
   writeManifest(folderId: string, manifest: GalleryManifest): Promise<void>;
   readManifest(folderId: string): Promise<GalleryManifest | null>;
   listGalleryFolders(rootFolderId: string): Promise<DriveFolderInfo[]>;
@@ -572,6 +598,7 @@ export function createDriveClient(deps: DriveDeps, docsDeps: DriveDeps = deps): 
     listFiles: folderId => listFiles(deps, folderId),
     setFolderPublic: folderId => setFolderPublic(deps, folderId),
     deleteFolder: folderId => deleteFolder(deps, folderId),
+    folderExists: folderId => folderExists(deps, folderId),
     renameFolder: (folderId, newName) => renameFolder(deps, folderId, newName),
     moveFolder: (folderId, newParentId) => moveFolder(deps, folderId, newParentId),
     moveFile: (fileId, newParentFolderId) => moveFile(deps, fileId, newParentFolderId),

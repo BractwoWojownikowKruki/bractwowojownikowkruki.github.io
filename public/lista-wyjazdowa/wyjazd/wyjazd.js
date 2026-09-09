@@ -399,6 +399,12 @@ async function loadAll() {
   document.getElementById('event-meta').textContent = `${formatDate(event.startDate)}${event.status === 'cancelled' ? ' — odwołany' : ''}`;
   document.getElementById('cancel-event-btn').hidden = event.status === 'cancelled';
   document.getElementById('restore-event-btn').hidden = event.status !== 'cancelled';
+  // Historia deep links (KRKG-0050 batch 5/6) - resourceKey formats from implementation-contract.md's
+  // "Action registry" intro: event:{eventId} for the Wyjazd itself, eventFee:{eventId} for its
+  // free-text skladkaFee (a separate resource/action - dues.event_fee.changed - never shown by the
+  // event-scoped one). Never an inline expansion/modal, always this same shared page.
+  document.getElementById('event-history-link').href = `/audyt/?resourceKey=${encodeURIComponent(`event:${eventId}`)}`;
+  document.getElementById('skladka-fee-history-link').href = `/audyt/?resourceKey=${encodeURIComponent(`eventFee:${eventId}`)}`;
   renderSkladkaFee(event);
 
   cachedRoster = roster;

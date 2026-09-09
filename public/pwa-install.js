@@ -47,10 +47,16 @@
     hideMessages();
   });
 
-  window.addEventListener('appinstalled', () => {
+  window.addEventListener('appinstalled', async () => {
     installed = true;
     deferredPrompt = undefined;
     hideInstallUi();
+    try {
+      await apiFetch('/application/pwa-installation', { method: 'POST' });
+    } catch {
+      // Installation is already complete in the browser. A transient audit-report failure must
+      // not undo that state or show a misleading installation error to the member.
+    }
   });
 
   controls.forEach(control => {

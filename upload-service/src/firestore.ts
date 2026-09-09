@@ -1,8 +1,40 @@
-import { Firestore } from '@google-cloud/firestore';
+import { Firestore, FieldPath, type Query, type DocumentData } from '@google-cloud/firestore';
 
 export interface FirestoreDoc<T> {
   id: string;
   data: T;
+}
+
+/**
+ * A single equality/array-contains filter on one field, ANDed with the mandatory timestamp
+ * ordering below. KRKG-0050's audit query contract allows at most one such filter per request
+ * (its "zero-or-one primary selector" rule) - this type deliberately has no way to express more
+ * than one, so a caller cannot accidentally build a query the contract forbids.
+ */
+export interface FirestoreQueryFilter {
+  field: string;
+  op: '==' | 'array-contains';
+  value: string;
+}
+
+/**
+ * Cursor position for resuming a query - the (timestamp, id) pair of the last row already
+ * returned. Both fields are needed because `timestamp` alone isn't unique (two events can share
+ * a millisecond); ordering secondarily by document id gives a total, stable order so pagination
+ * never skips or repeats a row.
+ */
+export interface FirestoreQueryCursor {
+  timestamp: string;
+  id: string;
+}
+
+export interface FirestoreQuery {
+  filter?: FirestoreQueryFilter;
+  timestampField: string;
+  timestampGte?: string;
+  timestampLte?: string;
+  startAfter?: FirestoreQueryCursor;
+  limit: number;
 }
 
 /**
@@ -13,6 +45,7 @@ export interface FirestoreDoc<T> {
 export interface FirestoreTransaction {
   getDoc<T>(collection: string, id: string): Promise<T | null>;
   setDoc<T extends object>(collection: string, id: string, data: T): Promise<void>;
+  createDoc<T extends object>(collection: string, id: string, data: T): Promise<void>;
 }
 
 export interface FirestoreLikeClient {
@@ -26,7 +59,20 @@ export interface FirestoreLikeClient {
    * admin-added field this codebase does not model at all - cannot be clobbered by it.
    */
   setDoc<T extends object>(collection: string, id: string, data: T): Promise<void>;
+  /**
+   * Creates an immutable document and fails if the ID already exists. Audit events use this
+   * rather than merging writes so a collision or retry cannot alter prior evidence.
+   */
+  createDoc<T extends object>(collection: string, id: string, data: T): Promise<void>;
   listDocs<T>(collection: string): Promise<FirestoreDoc<T>[]>;
+  /**
+   * Indexed, ordered, cursor-paginated query - added for KRKG-0050's audit read API, whose
+   * "zero-or-one primary selector" contract (implementation-contract.md, "Query and
+   * Firestore-index contract") requires the collection to never be fully scanned. Always ordered
+   * by `timestampField` descending, then by document id descending as a stable tiebreak, which
+   * matches the composite indexes declared in firestore.indexes.json.
+   */
+  queryDocs<T>(collection: string, query: FirestoreQuery): Promise<FirestoreDoc<T>[]>;
   /**
    * Read-validate-write as a single atomic unit (KRKG-0046) - required whenever a write's
    * legality depends on the document's current state (e.g. a status transition guard), so two
@@ -48,8 +94,22 @@ export function createFirestoreClient(projectId?: string): FirestoreLikeClient {
     async setDoc<T extends object>(collection: string, id: string, data: T): Promise<void> {
       await db.collection(collection).doc(id).set(data, { merge: true });
     },
+    async createDoc<T extends object>(collection: string, id: string, data: T): Promise<void> {
+      await db.collection(collection).doc(id).create(data);
+    },
     async listDocs<T>(collection: string): Promise<FirestoreDoc<T>[]> {
       const snap = await db.collection(collection).get();
+      return snap.docs.map((d) => ({ id: d.id, data: d.data() as T }));
+    },
+    async queryDocs<T>(collection: string, query: FirestoreQuery): Promise<FirestoreDoc<T>[]> {
+      let q: Query<DocumentData> = db.collection(collection);
+      if (query.filter) q = q.where(query.filter.field, query.filter.op, query.filter.value);
+      if (query.timestampGte !== undefined) q = q.where(query.timestampField, '>=', query.timestampGte);
+      if (query.timestampLte !== undefined) q = q.where(query.timestampField, '<=', query.timestampLte);
+      q = q.orderBy(query.timestampField, 'desc').orderBy(FieldPath.documentId(), 'desc');
+      if (query.startAfter) q = q.startAfter(query.startAfter.timestamp, query.startAfter.id);
+      q = q.limit(query.limit);
+      const snap = await q.get();
       return snap.docs.map((d) => ({ id: d.id, data: d.data() as T }));
     },
     async runTransaction<T>(fn: (tx: FirestoreTransaction) => Promise<T>): Promise<T> {
@@ -61,6 +121,9 @@ export function createFirestoreClient(projectId?: string): FirestoreLikeClient {
           },
           async setDoc<D extends object>(collection: string, id: string, data: D): Promise<void> {
             transaction.set(db.collection(collection).doc(id), data, { merge: true });
+          },
+          async createDoc<D extends object>(collection: string, id: string, data: D): Promise<void> {
+            transaction.create(db.collection(collection).doc(id), data);
           },
         };
         return fn(tx);
@@ -98,9 +161,53 @@ export function createInMemoryFirestoreClient(): FirestoreLikeClient & {
       const existing = m.get(id) as object | undefined;
       m.set(id, existing ? { ...existing, ...data } : { ...data });
     },
+    async createDoc<T extends object>(collection: string, id: string, data: T): Promise<void> {
+      const m = collectionMap(collection);
+      if (m.has(id)) throw new Error(`Document already exists: ${collection}/${id}`);
+      m.set(id, { ...data });
+    },
     async listDocs<T>(collection: string): Promise<FirestoreDoc<T>[]> {
       const m = collectionMap(collection);
       return Array.from(m.entries()).map(([id, data]) => ({ id, data: data as T }));
+    },
+    // Mirrors the production client's ordering/filter/cursor semantics (see queryDocs above) over
+    // the in-memory Map, so a test exercising the audit query module gets the same observable
+    // behaviour production Firestore does, including the timestamp-desc/id-desc tiebreak order.
+    async queryDocs<T>(collection: string, query: FirestoreQuery): Promise<FirestoreDoc<T>[]> {
+      const m = collectionMap(collection);
+      const getField = (data: unknown, field: string): unknown =>
+        field.split('.').reduce<unknown>((acc, part) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[part] : undefined), data);
+      let rows = Array.from(m.entries()).map(([id, data]) => ({ id, data: data as T }));
+      if (query.filter) {
+        const { field, op, value } = query.filter;
+        rows = rows.filter(row => {
+          const actual = getField(row.data, field);
+          if (op === '==') return actual === value;
+          return Array.isArray(actual) && actual.includes(value);
+        });
+      }
+      if (query.timestampGte !== undefined) {
+        rows = rows.filter(row => String(getField(row.data, query.timestampField)) >= query.timestampGte!);
+      }
+      if (query.timestampLte !== undefined) {
+        rows = rows.filter(row => String(getField(row.data, query.timestampField)) <= query.timestampLte!);
+      }
+      rows.sort((a, b) => {
+        const ta = String(getField(a.data, query.timestampField));
+        const tb = String(getField(b.data, query.timestampField));
+        if (ta !== tb) return ta < tb ? 1 : -1;
+        return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+      });
+      if (query.startAfter) {
+        const { timestamp, id } = query.startAfter;
+        const startIndex = rows.findIndex(row => {
+          const t = String(getField(row.data, query.timestampField));
+          if (t !== timestamp) return t < timestamp;
+          return row.id < id;
+        });
+        rows = startIndex === -1 ? [] : rows.slice(startIndex);
+      }
+      return rows.slice(0, query.limit);
     },
     // Test-setup escape hatch: replaces the document wholesale (no merge), so a test can state
     // the exact stored shape it wants to start from.
@@ -129,6 +236,13 @@ export function createInMemoryFirestoreClient(): FirestoreLikeClient & {
             const key = JSON.stringify([collection, id]);
             const base = pendingWrites.get(key)?.data ?? (collectionMap(collection).get(id) as object | undefined);
             pendingWrites.set(key, { collection, id, data: base ? { ...base, ...data } : { ...data } });
+          },
+          async createDoc<D extends object>(collection: string, id: string, data: D): Promise<void> {
+            const key = JSON.stringify([collection, id]);
+            if (pendingWrites.has(key) || collectionMap(collection).has(id)) {
+              throw new Error(`Document already exists: ${collection}/${id}`);
+            }
+            pendingWrites.set(key, { collection, id, data: { ...data } });
           },
         };
         const result = await fn(tx);

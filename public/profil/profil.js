@@ -484,8 +484,14 @@ function showSaved() {
 initGoogleSignIn({
   buttonIds: ['google-signin-button', 'google-reauth-button'],
   whoamiPath: '/wojownicy-upload/whoami',
-  onSignedIn: async () => {
+  onSignedIn: async identity => {
     try {
+      // Historia deep link (KRKG-0050 batch 5/6) - member:{email}, the same resource key
+      // profile.member.updated (and every role/membership event) is stored under (see
+      // implementation-contract.md's "Action registry" intro paragraph).
+      const historyLink = document.getElementById('profile-history-link');
+      historyLink.href = `/audyt/?resourceKey=${encodeURIComponent(`member:${identity.email}`)}`;
+      historyLink.hidden = false;
       const lookupLists = await loadLookupLists();
       await initForm(lookupLists);
     } catch (err) {
