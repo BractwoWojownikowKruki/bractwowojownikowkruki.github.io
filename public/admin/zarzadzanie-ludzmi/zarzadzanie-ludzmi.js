@@ -231,7 +231,7 @@ function roleCheckboxesHtml(roles) {
 function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections, categories) {
   const tbody = document.getElementById('membership-members-list');
   if (!members.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="czl-empty">Brak członków w tym statusie.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     return;
   }
   // Grouped by section, alphabetical within it (KRKG-0051) - same rule as czlonkowie.js's Sekcja
@@ -258,8 +258,12 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       const currentValue = m.driveFolderId ? (labelByFolderId.get(m.driveFolderId) ?? m.driveFolderId) : '';
       return `
     <tr class="membership-member" data-email="${escapeAttr(m.email)}" data-section="${escapeAttr(m.sectionId ?? '')}">
-      <td><input type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" /></td>
-      <td><input type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" /></td>
+      <td>
+        <div class="czl-name-cell">
+          <input type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" />
+          <input type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" />
+        </div>
+      </td>
       <td><select class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
       <td><select class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>
       <td>${escapeHtml(m.email)}</td>

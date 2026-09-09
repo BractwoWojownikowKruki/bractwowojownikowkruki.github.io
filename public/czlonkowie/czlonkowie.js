@@ -113,18 +113,18 @@ function renderTable() {
   for (const m of sorted) {
     const row = document.createElement('tr');
     row.dataset.section = m.sectionId ?? '';
-    const fullNameCell = canManageSkladki
-      ? `<input type="text" class="czl-field" data-email="${escapeAttr(m.email)}" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" />`
-      : cell(m.fullName);
-    const nicknameCell = canManageSkladki
-      ? `<input type="text" class="czl-field" data-email="${escapeAttr(m.email)}" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" />`
-      : cell(m.nickname);
+    // Imię i nazwisko + Ksywa share one cell, name above nickname below (KRKG-0053) - one fewer
+    // column on a table that's already dense.
+    const nameCell = canManageSkladki
+      ? `<input type="text" class="czl-field" data-email="${escapeAttr(m.email)}" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" />
+         <input type="text" class="czl-field" data-email="${escapeAttr(m.email)}" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" />`
+      : `<span class="${m.fullName ? '' : 'czl-empty'}">${cell(m.fullName)}</span>
+         <span class="czl-name-secondary ${m.nickname ? '' : 'czl-empty'}">${cell(m.nickname)}</span>`;
     const sectionCell = canManageSkladki
       ? `<select class="czl-field" data-email="${escapeAttr(m.email)}" data-field="sectionId">${sectionOptions(m.sectionId)}</select>`
       : (m.sectionLabel ? sectionPillHtml(m.sectionId, m.sectionLabel) : EMPTY);
     row.innerHTML = `
-      <td class="${!canManageSkladki && !m.fullName ? 'czl-empty' : ''}">${fullNameCell}</td>
-      <td class="${!canManageSkladki && !m.nickname ? 'czl-empty' : ''}">${nicknameCell}</td>
+      <td><div class="czl-name-cell">${nameCell}</div></td>
       <td class="${!canManageSkladki && !m.sectionLabel ? 'czl-empty' : ''}">${sectionCell}</td>
       <td class="${m.categoryLabel ? '' : 'czl-empty'}">${cell(m.categoryLabel)}</td>
       <td>${escapeHtml(m.email)}</td>

@@ -213,7 +213,7 @@ function renderRoster(roster, signups) {
 
   const tbody = document.getElementById('roster-content');
   if (visible.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="czl-empty">Brak osób do wyświetlenia.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="czl-empty">Brak osób do wyświetlenia.</td></tr>';
     return;
   }
 
@@ -238,8 +238,12 @@ function renderRoster(roster, signups) {
       const weaponLabels = member.weaponIds.map((id) => weaponLabelById.get(id) ?? id);
       return `
     <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
-      <td>${escapeHtml(displayName(member))}</td>
-      <td class="${member.nickname ? '' : 'czl-empty'}">${member.nickname ? escapeHtml(member.nickname) : EMPTY}</td>
+      <td>
+        <div class="czl-name-cell">
+          <span>${escapeHtml(displayName(member))}</span>
+          <span class="czl-name-secondary ${member.nickname ? '' : 'czl-empty'}">${member.nickname ? escapeHtml(member.nickname) : EMPTY}</span>
+        </div>
+      </td>
       <td>
         <button type="button" class="lw-attend-toggle" data-email="${emailAttr}" data-attending="${attending}" aria-pressed="${attending}">
           <span class="lw-attend-toggle-track" aria-hidden="true"></span>

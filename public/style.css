@@ -52,16 +52,13 @@
   color: color-mix(in srgb, var(--section-c, var(--section-color-default)) 60%, white);
 }
 
-/* .section-row-accent itself is declared at the very end of this file (search for it there) -
-   it overrides a `border: ...` shorthand (e.g. .lw-roster-row's), and CSS resolves that kind of
-   same-specificity clash by source order, not by which rule "looks" more specific - defined here
-   it would just get clobbered by every row class's own border rule further down the file. */
+/* .section-row-accent is declared at the end of this file - it overrides a `border: ...`
+   shorthand (e.g. .lw-skladki-row's), and same-specificity clashes resolve by source order, so
+   defining it here would just get clobbered by every row class's own border rule below. */
 
-/* Dense data table (KRKG-0045, moved here from czlonkowie.css in KRKG-0051 so Zarządzanie ludźmi
-   can share the exact same look instead of a visually inconsistent hand-rolled one) - every page
-   with a member/person table (Spis Ludności, Zarządzanie ludźmi) uses this one class. Sortable-
-   column-header styling (the <button>/aria-sort arrow rules) stays in czlonkowie.css, since only
-   Spis Ludności's headers are actually clickable - Zarządzanie ludźmi's are plain text. */
+/* Dense data table (KRKG-0045/KRKG-0051) shared by every member/person table (Spis Ludności,
+   Zarządzanie ludźmi, Lista Wyjazdowa). Sortable-header styling stays in czlonkowie.css - only
+   Spis Ludności's headers are clickable buttons. */
 .czl-filter-wrap {
   max-width: 320px;
   margin-bottom: 0.75rem;
@@ -98,11 +95,8 @@
   background: var(--surface);
 }
 
-/* Tapping a row (KRKG-0052) - a persistent gold highlight, toggled by each page's own tbody click
-   listener (see e.g. czlonkowie.js), so the row someone is editing/reading stays identifiable on
-   touch devices, which have no hover state to fall back on. Same specificity as tbody tr:hover
-   above (one class + two type selectors each) - placed after it so source order breaks the tie in
-   its favor rather than depending on selector-writing tricks. */
+/* Tapped-row highlight (KRKG-0052) - touch has no hover, so a click/tap toggles this class
+   instead (see e.g. czlonkowie.js). Placed after tbody tr:hover to win the same-specificity tie. */
 .czl-table tbody tr.czl-row-active {
   background: color-mix(in srgb, var(--gold) 20%, var(--surface));
 }
@@ -111,16 +105,15 @@
   color: var(--text);
 }
 
-.czl-table tbody td.czl-empty {
+.czl-table tbody td.czl-empty,
+.czl-table tbody .czl-empty {
   color: var(--text-faint);
   font-style: italic;
 }
 
-/* Keep the section-accented first column in view on mobile when the table is scrolled
-   horizontally (KRKG-0052) - the accent bar identifies the row's section, so it shouldn't be the
-   one thing that scrolls away. Needs its own opaque background per row state: a sticky cell paints
-   itself above the row's natural (scrolling) background, so without this the page background would
-   show through at the wrong horizontal position as the rest of the row slides underneath it. */
+/* Keeps the accented first column in view when scrolled horizontally on mobile (KRKG-0052). A
+   sticky cell needs its own opaque background (matching .content-section's, not --bg) or the
+   page background shows through at the wrong spot as the rest of the row scrolls under it. */
 .czl-table th:first-child,
 .czl-table td:first-child {
   position: sticky;
@@ -133,9 +126,6 @@
 }
 
 .czl-table tbody td:first-child {
-  /* Matches .content-section's own background, not --bg (the page background one level further
-     out) - every non-sticky cell is transparent and shows that ancestor through, so the sticky
-     cell has to paint the same color rather than a darker one of its own. */
   background: var(--surface);
 }
 
@@ -172,6 +162,27 @@
 .czl-table td select.czl-field:focus {
   border-color: var(--accent);
   outline: none;
+}
+
+/* Imię i nazwisko + Ksywa share one cell, name above nickname below (KRKG-0053) - one fewer
+   column on every member table. Used for both plain text and the two stacked .czl-field inputs. */
+.czl-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.czl-name-cell .czl-name-secondary {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.czl-name-cell .czl-name-secondary.czl-empty {
+  color: var(--text-faint);
+}
+
+.czl-name-cell input.czl-field {
+  min-width: 90px;
 }
 
 /* Zarządzanie ludźmi's Rola column (KRKG-0049/KRKG-0051) - a checkbox per assignable role, since a
@@ -3740,6 +3751,14 @@ button.nav-item {
   cursor: default;
 }
 
+/* Roster table's Status cell (KRKG-0053): label stacks under the toggle track, not beside it.
+   Scoped to .czl-table - lista-wyjazdowa.js reuses .lw-attend-toggle inline, side-by-side. */
+.czl-table .lw-attend-toggle {
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 12px;
+}
+
 /* Kasa icon standing in for "Składka: opłacona/nieopłacona" text - a red/green badge behind the
    emoji says the same thing at a glance without taking up a line of its own (a CSS filter on the
    emoji itself would depend on the platform's emoji font actually being grayscale-tintable, which
@@ -3920,6 +3939,23 @@ button.lw-skladka-icon:disabled {
 
   .lw-skladki-row button {
     align-self: flex-start;
+  }
+
+  /* Member tables (KRKG-0053) - .content-section already borders the whole page section, so
+     .czl-table-wrap's own border on top was a double frame eating into a phone's little width.
+     Tighter padding/font for the same reason. */
+  .czl-table-wrap {
+    border: none;
+    border-radius: 0;
+  }
+
+  .czl-table {
+    font-size: 0.82rem;
+  }
+
+  .czl-table th,
+  .czl-table td {
+    padding: 0.3rem 0.45rem;
   }
 }
 
