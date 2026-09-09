@@ -62,6 +62,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # KRKG-0050 (fix round 1): the Scheduler/IAM verification steps below call
+      # upload-service/scripts/deploy-validation.ts - the same, unit-tested module covered by
+      # scripts/deploy-validation.test.ts (see the "test" job above) - instead of duplicating that
+      # logic as hand-maintained inline bash that can drift out of sync with what's actually
+      # tested.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: upload-service/package-lock.json
+      - name: Install dependencies
+        working-directory: upload-service
+        run: npm ci
+
       # KRKG-0032: the runtime SA now exists and is verified working in production, so a
       # deploy without it is a regression, not a bootstrap state to tolerate - fail before
       # ever calling `gcloud run deploy`, rather than silently falling back to the default
@@ -85,12 +100,10 @@ jobs:
       # a separately authorized, one-time prerequisite - see
       # reconciler-runbook.md in the KRKG-0050 story folder.
       - name: Require audit reconciler service account
+        working-directory: upload-service
         env:
           AUDIT_RECONCILER_SERVICE_ACCOUNT: ${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}
-        if: ${{ env.AUDIT_RECONCILER_SERVICE_ACCOUNT == '' }}
-        run: |
-          echo "::error::AUDIT_RECONCILER_SERVICE_ACCOUNT secret is not set - refusing to deploy without a configured audit reconciler identity. See reconciler-runbook.md."
-          exit 1
+        run: npx tsx scripts/deploy-validation.ts require-secret AUDIT_RECONCILER_SERVICE_ACCOUNT "$AUDIT_RECONCILER_SERVICE_ACCOUNT"
 
       - id: auth
         name: Authenticate to GCP
@@ -166,6 +179,17 @@ jobs:
             --member="serviceAccount:${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}" \
             --role="roles/run.invoker"
 
+      # A successful add-iam-policy-binding call is not itself proof the binding is live (e.g. an
+      # IAM propagation delay, or a policy that silently rejected an unexpected member format) -
+      # read the policy back and check for the exact binding, same principle as the Scheduler
+      # job-describe verification below.
+      - name: Verify audit reconciler invoker binding
+        working-directory: upload-service
+        run: |
+          gcloud run services get-iam-policy krucze-galery-upload \
+            --region=europe-west1 --project=krucze-galery-upload --format=json \
+            | npx tsx scripts/deploy-validation.ts verify-invoker-binding "${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}"
+
       # Create-or-update: the job may not exist yet on a repo's first KRKG-0050 deploy, and must
       # be kept in sync with the current service URL/reconciler service account on every deploy
       # after that - implementation-contract.md's 15-minute cadence and 30-minute request lease
@@ -197,27 +221,8 @@ jobs:
       # correctly (plan-addendum.md: "Deployment is not complete until `gcloud scheduler jobs
       # describe` confirms the 15-minute OIDC job").
       - name: Verify audit reconcile Scheduler job configuration
+        working-directory: upload-service
         run: |
           SERVICE_URL="${{ steps.reconcile_audience.outputs.service_url }}"
-          JOB_JSON=$(gcloud scheduler jobs describe audit-reconcile --location=europe-west1 --project=krucze-galery-upload --format=json)
-          SCHEDULE=$(echo "$JOB_JSON" | jq -r '.schedule')
-          URI=$(echo "$JOB_JSON" | jq -r '.httpTarget.uri')
-          OIDC_SA=$(echo "$JOB_JSON" | jq -r '.httpTarget.oidcToken.serviceAccountEmail')
-          OIDC_AUD=$(echo "$JOB_JSON" | jq -r '.httpTarget.oidcToken.audience')
-          if [ "$SCHEDULE" != "*/15 * * * *" ]; then
-            echo "::error::audit-reconcile job schedule is '$SCHEDULE', expected '*/15 * * * *'."
-            exit 1
-          fi
-          if [ "$URI" != "$SERVICE_URL/internal/audit/reconcile" ]; then
-            echo "::error::audit-reconcile job URI is '$URI', expected '$SERVICE_URL/internal/audit/reconcile'."
-            exit 1
-          fi
-          if [ "$OIDC_SA" != "${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}" ]; then
-            echo "::error::audit-reconcile job OIDC service account does not match AUDIT_RECONCILER_SERVICE_ACCOUNT."
-            exit 1
-          fi
-          if [ "$OIDC_AUD" != "$SERVICE_URL" ]; then
-            echo "::error::audit-reconcile job OIDC audience does not match the deployed service URL."
-            exit 1
-          fi
-          echo "audit-reconcile Scheduler job verified: 15-minute OIDC job targeting $SERVICE_URL."
+          gcloud scheduler jobs describe audit-reconcile --location=europe-west1 --project=krucze-galery-upload --format=json \
+            | npx tsx scripts/deploy-validation.ts verify-scheduler-job "$SERVICE_URL" "${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}"

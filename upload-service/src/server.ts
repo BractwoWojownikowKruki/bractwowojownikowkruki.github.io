@@ -2703,11 +2703,13 @@ async function handleAuditEventDetailPublic(req: IncomingMessage, res: ServerRes
 
 /**
  * Resource-specific idempotent final-state probes (implementation-contract.md's Scheduler
- * contract), keyed by the audited resource kind. Only kinds reachable through
- * `executeAuditedExternalMutation` ever appear in `auditOperations`, so this table only needs to
- * cover those: Drive-folder resources (gallery/person/memberSubmission - the three pre-effect-
- * protocol routes, plus settings' Drive-backed writes) and GitHub-backed redirects. None of these
- * probes ever repeats the original effect - they only observe whether it already happened.
+ * contract), keyed by the audited resource kind. Every resource kind that can appear through
+ * `executeAuditedExternalMutation` must have an entry here - not to guarantee a positive
+ * existence check for all of them (some genuinely can't, see below), but so that
+ * `handleInternalAuditReconcile` always calls `reconcileExternalOperation` and lets its 24-hour
+ * `requires_review` boundary apply, instead of short-circuiting to a permanent `not_eligible`
+ * that would leave a stuck operation `pending` forever. None of these probes ever repeats the
+ * original effect - they only observe whether it already happened, or admit they can't tell.
  */
 function buildReconciliationProbes(deps: ServerDeps): Partial<Record<AuditOperationIntent['resource']['kind'], ExternalOperationProbe>> {
   const driveFolderProbe = (kind: 'gallery' | 'person' | 'memberSubmission'): ExternalOperationProbe => async intent => {
@@ -2732,10 +2734,44 @@ function buildReconciliationProbes(deps: ServerDeps): Partial<Record<AuditOperat
       },
     };
   };
+
+  // GitHub-backed redirects: `redirects.json`'s presence/absence of the path *is* the final
+  // state, and `listRedirects` is a plain read - a genuine idempotent existence probe, unlike the
+  // two fallback probes below.
+  const redirectProbe: ExternalOperationProbe = async intent => {
+    const path = intent.resource.key.slice('redirect:'.length);
+    const redirects = await deps.github.listRedirects();
+    const exists = redirects.some(r => r.path === path);
+    const wantsExistence = intent.action === 'site.redirect.created';
+    if (exists !== wantsExistence) return { state: 'pending' };
+    return {
+      state: 'succeeded',
+      eventInput: { action: intent.action, actor: intent.actor, resource: intent.resource, changes: [{ field: 'path', after: path }] },
+    };
+  };
+
+  // `settings:facebook` is Drive-backed (settings.ts), but `AuditOperationIntent` doesn't carry
+  // the write's expected value, and the settings file always exists (bootstrapped, default
+  // fallback) whether or not this specific update landed - so reading it back can't distinguish
+  // "this write happened" from "some earlier write happened". `settings:social-media-cache`
+  // clears an in-process cache with no persisted state at all to read back. Neither can produce a
+  // real existence check within this batch's scope, so both stay `pending` forever and rely on
+  // `reconcileExternalOperation`'s 24h `requires_review` boundary rather than a fabricated probe.
+  const settingsProbe: ExternalOperationProbe = async () => ({ state: 'pending' });
+
+  // Sheets-backed member sync (`membership.sheet_backup.synchronized`): `SheetsClient` has no
+  // read-back method (see sheets.ts) to confirm a write landed, and building one is out of this
+  // batch's scope (flagged as a follow-up in the batch-4 report). Same fallback as settings above
+  // - `pending` forever, so the 24h boundary still applies instead of a permanent `not_eligible`.
+  const memberProbe: ExternalOperationProbe = async () => ({ state: 'pending' });
+
   return {
     gallery: driveFolderProbe('gallery'),
     person: driveFolderProbe('person'),
     memberSubmission: driveFolderProbe('memberSubmission'),
+    redirect: redirectProbe,
+    settings: settingsProbe,
+    member: memberProbe,
   };
 }
 
@@ -2756,15 +2792,21 @@ async function handleInternalAuditReconcile(req: IncomingMessage, res: ServerRes
   await verifyReconcilerOidcToken(authHeader.slice('Bearer '.length), deps.auditReconcileAudience, deps.auditReconcilerServiceAccountEmail);
 
   const probes = buildReconciliationProbes(deps);
+  // Every kind `buildReconciliationProbes` currently returns is reachable through
+  // `executeAuditedExternalMutation`, so this fallback should never actually fire - it exists so
+  // a resource kind added later without a matching probe entry still reaches
+  // `reconcileExternalOperation`'s 24h `requires_review` boundary instead of silently regressing
+  // to a permanent `not_eligible`, the exact bug this fixes for redirect/settings/member today.
+  const fallbackPendingProbe: ExternalOperationProbe = async () => ({ state: 'pending' });
   const correlationIds = await listOpenOperationCorrelationIds(deps.firestore);
   const results = [];
   for (const correlationId of correlationIds) {
     const intent = await deps.firestore.getDoc<AuditOperationIntent>('auditOperations', correlationId);
-    const probe = intent ? probes[intent.resource.kind] : undefined;
-    if (!intent || !probe) {
+    if (!intent) {
       results.push({ correlationId, outcome: 'not_eligible' as const });
       continue;
     }
+    const probe = probes[intent.resource.kind] ?? fallbackPendingProbe;
     results.push(await reconcileExternalOperation(deps.firestore, correlationId, probe));
   }
   sendJson(res, 200, { results });

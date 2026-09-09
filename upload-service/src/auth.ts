@@ -132,7 +132,12 @@ export async function verifyGoogleIdToken(
  * configured service account, not just "is this a valid Google-signed token" - an OIDC token
  * that's merely well-formed and unexpired but issued for some *other* identity must not be
  * accepted, since only one service account is meant to be able to trigger reconciliation
- * (plan-addendum.md "Scheduler operational delivery").
+ * (plan-addendum.md "Scheduler operational delivery"). Checks `email`, not the JWT `sub` claim
+ * (a stable numeric subject id) that plan-addendum.md's wording literally names: for a Google
+ * service account the `email` *is* the stable, unique identifier (it isn't reassignable the way
+ * a human's email can be), so checking it is equivalent in practice and avoids a second
+ * configured value (the service account's numeric subject id) that operators would have to look
+ * up and keep in sync alongside its email.
  */
 export function checkReconcilerOidcClaims(
   payload: Record<string, unknown>,

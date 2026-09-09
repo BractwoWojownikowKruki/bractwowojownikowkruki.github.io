@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { AuthError } from './auth.ts';
 import {
   createRequestListener,
@@ -5222,4 +5222,146 @@ test('POST /internal/audit/reconcile fails closed (503) when the reconciler secr
     const res = await fetch(`${baseUrl}/internal/audit/reconcile`, { method: 'POST' });
     assert.equal(res.status, 401);
   });
+});
+
+// --- Real OIDC round-trip for the reconcile dispatch loop past the fail-closed cases above -----
+//
+// `handleInternalAuditReconcile` verifies its Bearer token against the real Google JWKS endpoint
+// (auth.ts's `fetchGoogleJwks`, not something `ServerDeps` lets tests inject), so exercising the
+// route's actual dispatch loop - not just its 503/401 short-circuits - means signing a real RS256
+// token and intercepting only the JWKS fetch, letting every other request (including the test's
+// own calls into the loopback test server) go through unmodified.
+
+function base64UrlForReconcilerTest(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+const { publicKey: reconcilerPublicKey, privateKey: reconcilerPrivateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const reconcilerJwk = (() => {
+  const exported = reconcilerPublicKey.export({ format: 'jwk' }) as { n: string; e: string; kty: string };
+  return { kid: 'reconciler-test-kid', kty: exported.kty, n: exported.n, e: exported.e };
+})();
+
+function makeReconcilerOidcToken(payload: Record<string, unknown>): string {
+  const header = { alg: 'RS256', typ: 'JWT', kid: reconcilerJwk.kid };
+  const headerB64 = base64UrlForReconcilerTest(Buffer.from(JSON.stringify(header)));
+  const payloadB64 = base64UrlForReconcilerTest(Buffer.from(JSON.stringify(payload)));
+  const signingInput = `${headerB64}.${payloadB64}`;
+  const signature = cryptoSign('RSA-SHA256', Buffer.from(signingInput), reconcilerPrivateKey);
+  return `${signingInput}.${base64UrlForReconcilerTest(signature)}`;
+}
+
+// Intercepts only the Google JWKS endpoint; every other URL (including the test's own requests
+// into the loopback server started by withServer) is delegated to the real, captured fetch.
+async function withMockedGoogleJwks<T>(run: () => Promise<T>): Promise<T> {
+  const wrapped = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === 'https://www.googleapis.com/oauth2/v3/certs') {
+      return new Response(JSON.stringify({ keys: [reconcilerJwk] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return nodeFetch(input as never, init as never);
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).fetch = wrapped;
+  try {
+    return await run();
+  } finally {
+    globalThis.fetch = nodeFetch;
+  }
+}
+
+const RECONCILER_EMAIL = 'audit-reconciler@project.iam.gserviceaccount.com';
+const RECONCILER_AUDIENCE = 'https://upload-service-xyz.run.app';
+
+function makeValidReconcilerBearer(): string {
+  return makeReconcilerOidcToken({
+    iss: 'https://accounts.google.com',
+    aud: RECONCILER_AUDIENCE,
+    exp: Math.floor(Date.now() / 1000) + 300,
+    email: RECONCILER_EMAIL,
+  });
+}
+
+test('POST /internal/audit/reconcile: a previously-uncovered kind (redirect) that never settles reaches requires_review after the 24h boundary via the real dispatch loop', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  // Backdated well past both the 30-minute request lease and the 24-hour requires_review
+  // boundary, so a single real-time reconcile call resolves it immediately.
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'site.redirect.created',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'redirect', key: 'redirect:discord', display: 'discord' },
+      changes: [{ field: 'path', after: 'discord' }],
+    },
+    { correlationId: 'redirect-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The redirect never actually landed in redirects.json, so `buildReconciliationProbes`'s
+    // redirect probe keeps reporting `pending` - proving this is the real probe/dispatch path,
+    // not a stub that always resolves.
+    github: makeFakeGithub({ listRedirects: async () => [] }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const outcome = await firestore.getDoc<{ state: string; determinedBy: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(outcome!.state, 'requires_review');
+  assert.equal(outcome!.determinedBy, 'reconciler');
+});
+
+test('POST /internal/audit/reconcile: the redirect probe recognizes a genuinely completed operation as succeeded, not just pending-forever', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  // Past the 30-minute request lease (so it's eligible), but well within the 24h boundary - the
+  // only way this resolves as `claimed_succeeded` is the probe actually finding the redirect.
+  const startedAt = new Date(Date.now() - 45 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'site.redirect.created',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'redirect', key: 'redirect:discord', display: 'discord' },
+      changes: [{ field: 'path', after: 'discord' }],
+    },
+    { correlationId: 'redirect-done-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    github: makeFakeGithub({ listRedirects: async () => [{ path: 'discord', target: 'https://discord.gg/abc123' }] }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_succeeded' }]);
+    }),
+  );
+
+  const outcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(outcome!.state, 'succeeded');
+  assert.equal(outcome!.determinedBy, 'reconciler');
+  assert.ok(outcome!.auditEventId);
 });
