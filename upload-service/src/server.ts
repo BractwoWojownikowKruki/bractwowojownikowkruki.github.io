@@ -27,7 +27,7 @@ import {
   type AdminDepartment,
 } from './about-us.ts';
 import { createFirestoreClient, type FirestoreLikeClient, type FirestoreTransaction } from './firestore.ts';
-import { executeAuditedFirestoreMutation, type AuditAction, type CanonicalAuditEventInput } from './audit.ts';
+import { createCanonicalAuditEvent, executeAuditedExternalMutation, executeAuditedFirestoreMutation, type AuditAction, type CanonicalAuditEventInput } from './audit.ts';
 import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberCategoryId, setMemberHidden, recordLastLogin, type MemberDoc, type MemberWritableFields } from './members.ts';
 import { applyForMembershipInTransaction, applyAdminTransitionInTransaction, listMembersByStatus, type AdminTransition } from './membership.ts';
 import type { MembershipStatus } from './members.ts';
@@ -683,14 +683,41 @@ async function handleSessionLogin(req: IncomingMessage, res: ServerResponse, dep
   const { idToken } = await readJsonBody<{ idToken?: string }>(req, deps.maxJsonBodyBytes);
   if (!idToken) throw new AuthError('Brak tokenu Google ID.', 400);
   const identity = await deps.authenticateSessionLogin(idToken);
+  await executeAuditedFirestoreMutation(
+    deps.firestore,
+    {
+      action: 'session.login.succeeded',
+      actor: { email: identity.email },
+      resource: { kind: 'session', key: `session:${identity.email.toLowerCase()}`, display: identity.email.toLowerCase() },
+      changes: [{ field: 'status', after: 'succeeded' }],
+    },
+    async tx => recordLastLogin(tx, identity.email),
+  );
   const now = Date.now();
   const token = issueSessionToken(identity, deps.sessionSigningKeys[0], now, deps.sessionSlidingWindowMs);
   setSessionCookie(res, token, deps.sessionSlidingWindowMs);
-  // KRKG-0049: recorded once per real sign-in (not per page load, since a returning visit reuses
-  // the session cookie without ever hitting this endpoint again) - a no-op for anyone with no
-  // members/{email} doc, see recordLastLogin's comment.
-  await recordLastLogin(deps.firestore, identity.email);
   sendJson(res, 200, identityResponseBody(identity));
+}
+
+/** Records the browser-confirmed PWA installation once per signed-in member and fixed app id. */
+async function handlePwaInstallation(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const email = identity.email.toLowerCase();
+  const markerId = `pwa:${email}`;
+  const recorded = await deps.firestore.runTransaction(async tx => {
+    const existing = await tx.getDoc('applicationInstallations', markerId);
+    if (existing) return false;
+    const auditEvent = createCanonicalAuditEvent({
+      action: 'application.pwa.installation_reported',
+      actor: { email },
+      resource: { kind: 'application', key: 'application:kruki-pwa', display: 'Kruki PWA' },
+      changes: [{ field: 'appId', after: 'kruki-pwa' }],
+    });
+    await tx.createDoc('applicationInstallations', markerId, { actorEmail: email, appId: 'kruki-pwa' });
+    await tx.createDoc('auditEvents', auditEvent.id, auditEvent);
+    return true;
+  });
+  sendJson(res, 200, { recorded });
 }
 
 // Stateless design (see design-v2.md Phase 1 point 10) - this clears the cookie on this device
@@ -799,8 +826,17 @@ async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerRespons
 // Not scoped to About Us specifically - clears the Instagram/Facebook posts cache so the
 // homepage's Aktualności feed picks up new posts immediately, instead of waiting out the 6h TTL.
 async function handleAdminRefreshSocialCache(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
-  clearSocialMediaCache();
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'site.social_cache.refreshed',
+      actor: { email: identity.email },
+      resource: { kind: 'settings', key: 'settings:social-media-cache', display: 'social-media-cache' },
+      changes: [{ field: 'status', after: 'refreshed' }],
+    },
+    async () => { clearSocialMediaCache(); },
+  );
   sendJson(res, 200, { ok: true });
 }
 
@@ -811,9 +847,10 @@ async function handleAdminGetSettings(req: IncomingMessage, res: ServerResponse,
 }
 
 async function handleAdminUpdateSettings(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { liveFetchPostCount } = await readJsonBody<{ liveFetchPostCount?: number }>(req, deps.maxJsonBodyBytes);
-  await setFacebookSettings(deps.drive, { liveFetchPostCount: Number(liveFetchPostCount) });
+  const count = Number(liveFetchPostCount);
+  await executeAuditedExternalMutation(deps.firestore, { action: 'site.settings.updated', actor: { email: identity.email }, resource: { kind: 'settings', key: 'settings:facebook', display: 'facebook' }, changes: [{ field: 'liveFetchPostCount', after: count }] }, async () => setFacebookSettings(deps.drive, { liveFetchPostCount: count }));
   sendJson(res, 200, { ok: true });
 }
 
@@ -899,9 +936,9 @@ async function handleAdminSetMemberDriveFolder(req: IncomingMessage, res: Server
 }
 
 async function handleAdminMembersSynchronize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminOrModeratorWithStepUp(req, res);
+  const identity = await deps.authenticateAdminOrModeratorWithStepUp(req, res);
   const allMembers = await listAllMembers(deps.firestore);
-  const sheetSyncStatus = await deps.sheetsClient.syncAllMembers(allMembers);
+  const { result: sheetSyncStatus } = await executeAuditedExternalMutation(deps.firestore, { action: 'membership.sheet_backup.synchronized', actor: { email: identity.email }, resource: { kind: 'member', key: 'member:sheet-backup', display: 'sheet-backup' }, changes: [{ field: 'sheetBackup', after: 'requested' }] }, async () => deps.sheetsClient.syncAllMembers(allMembers), { eventInput: status => ({ action: 'membership.sheet_backup.synchronized', actor: { email: identity.email }, resource: { kind: 'member', key: 'member:sheet-backup', display: 'sheet-backup' }, changes: [{ field: 'sheetBackup', after: status }] }) });
   sendJson(res, 200, { sheetSyncStatus });
 }
 
@@ -983,7 +1020,7 @@ async function handleAdminListRedirects(req: IncomingMessage, res: ServerRespons
 }
 
 async function handleAdminCreateRedirect(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { path, target } = await readJsonBody<{ path?: string; target?: string }>(req, deps.maxJsonBodyBytes);
   const trimmedPath = (path ?? '').trim().toLowerCase();
   const trimmedTarget = (target ?? '').trim();
@@ -996,15 +1033,33 @@ async function handleAdminCreateRedirect(req: IncomingMessage, res: ServerRespon
   if (!isValidRedirectTarget(trimmedTarget)) {
     throw new AuthError('Docelowy adres musi być pełnym adresem URL zaczynającym się od http:// lub https://.', 400);
   }
-  await deps.github.appendRedirectToMain({ path: trimmedPath, target: trimmedTarget });
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'site.redirect.created',
+      actor: { email: identity.email },
+      resource: { kind: 'redirect', key: `redirect:${trimmedPath}`, display: trimmedPath },
+      changes: [{ field: 'path', after: trimmedPath }, { field: 'target', after: trimmedTarget }],
+    },
+    async () => deps.github.appendRedirectToMain({ path: trimmedPath, target: trimmedTarget }),
+  );
   sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminDeleteRedirect(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const path = url.searchParams.get('path');
   if (!path) throw new AuthError('Brak aliasu.', 400);
-  await deps.github.removeRedirectFromMain(path);
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'site.redirect.deleted',
+      actor: { email: identity.email },
+      resource: { kind: 'redirect', key: `redirect:${path}`, display: path },
+      changes: [{ field: 'path', after: path }],
+    },
+    async () => deps.github.removeRedirectFromMain(path),
+  );
   sendJson(res, 200, { ok: true });
 }
 
@@ -1020,7 +1075,7 @@ function rejectIfRateLimited(req: IncomingMessage, res: ServerResponse): boolean
 }
 
 async function handleAdminCreatePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { category, name, order, description } = await readJsonBody<{
     category?: string;
     name?: string;
@@ -1030,31 +1085,37 @@ async function handleAdminCreatePerson(req: IncomingMessage, res: ServerResponse
   const validCategory = parseAboutUsCategory(category ?? null);
   if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
 
-  const folders = await bootstrapAboutUsStructure(deps.drive);
   const folderName = buildPersonFolderName(name, order ?? null);
-  const folderId = await deps.drive.createAlbumFolder(folders.categories[validCategory], folderName);
-  if (description) {
-    await deps.drive.writeTextFile(folderId, 'Opis.txt', description);
-  }
+  const { result: folderId } = await executeAuditedExternalMutation(deps.firestore, {
+    action: 'profile.person.created', actor: { email: identity.email },
+    resource: { kind: 'person', key: `person:pending:${identity.sub}`, display: name.trim() },
+    changes: [{ field: 'name', after: name.trim() }, { field: 'category', after: validCategory }],
+  }, async () => {
+    const folders = await bootstrapAboutUsStructure(deps.drive);
+    const id = await deps.drive.createAlbumFolder(folders.categories[validCategory], folderName);
+    if (description) await deps.drive.writeTextFile(id, 'Opis.txt', description);
+    return id;
+  }, { eventInput: id => ({ action: 'profile.person.created', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${id}`, display: name.trim() }, changes: [{ field: 'name', after: name.trim() }, { field: 'category', after: validCategory }] }) });
   invalidateAboutUsCache();
   sendJson(res, 200, { folderId });
 }
 
 async function handleAdminUpdateDescription(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const folderId = url.searchParams.get('folderId');
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   const { description } = await readJsonBody<{ description?: string }>(req, deps.maxJsonBodyBytes);
-  await deps.drive.writeTextFile(folderId, 'Opis.txt', description ?? '');
+  const value = description ?? '';
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.description.updated', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'descriptionHash', after: createHash('sha256').update(value).digest('hex') }, { field: 'descriptionLength', after: value.length }] }, async () => deps.drive.writeTextFile(folderId, 'Opis.txt', value));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const folderId = url.searchParams.get('folderId');
   if (!folderId) throw new AuthError('Brak folderId.', 400);
-  await deps.drive.deleteFolder(folderId);
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.deleted', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'folderId', after: folderId }] }, async () => deps.drive.deleteFolder(folderId));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -1071,14 +1132,14 @@ async function handleAdminListPeople(req: IncomingMessage, res: ServerResponse, 
 // together (see buildPersonFolderName) so the admin panel sends both, even when only one
 // actually changed, rather than this handler needing to fetch the current folder name first.
 async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, name, order } = await readJsonBody<{ folderId?: string; name?: string; order?: number | null }>(
     req,
     deps.maxJsonBodyBytes,
   );
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
-  await deps.drive.renameFolder(folderId, buildPersonFolderName(name, order ?? null));
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.order.updated', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: name.trim() }, changes: [{ field: 'name', after: name.trim() }, { field: 'order', after: order ?? null }] }, async () => deps.drive.renameFolder(folderId, buildPersonFolderName(name, order ?? null)));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -1094,50 +1155,36 @@ async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerRes
 // which prepends instead - by design, not something the admin panel asks for explicitly.
 // "upload"/"deleted" skip this entirely since order is meaningless there.
 async function handleAdminMovePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, category } = await readJsonBody<{ folderId?: string; category?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   const department = parseAdminDepartment(category ?? null);
-  const folders = await bootstrapAboutUsStructure(deps.drive);
-  const targetFolderId = departmentFolderId(folders, department);
-  const { name: currentFolderName } = await deps.drive.moveFolder(folderId, targetFolderId);
-
-  if (isAboutUsCategory(department)) {
-    const siblings = await deps.drive.listGalleryFolders(targetFolderId);
-    const newOrder = computeOrderForDepartmentMove(
-      department,
-      siblings.filter(f => f.id !== folderId).map(f => f.name),
-    );
-    const { name: personName } = parsePersonFolderName(currentFolderName);
-    await deps.drive.renameFolder(folderId, buildPersonFolderName(personName, newOrder));
-  }
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.category.changed', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'category', after: department }] }, async () => {
+    const folders = await bootstrapAboutUsStructure(deps.drive); const targetFolderId = departmentFolderId(folders, department); const { name: currentFolderName } = await deps.drive.moveFolder(folderId, targetFolderId);
+    if (isAboutUsCategory(department)) { const siblings = await deps.drive.listGalleryFolders(targetFolderId); const newOrder = computeOrderForDepartmentMove(department, siblings.filter(f => f.id !== folderId).map(f => f.name)); const { name: personName } = parsePersonFolderName(currentFolderName); await deps.drive.renameFolder(folderId, buildPersonFolderName(personName, newOrder)); }
+  });
 
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const folderId = url.searchParams.get('folderId');
   const fileName = url.searchParams.get('fileName');
   const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
   if (!folderId || !fileName) throw new AuthError('Brak folderId lub fileName.', 400);
   requireAllowedMimeType(mimeType, deps.allowedMimeTypes);
-  await deps.drive.uploadFileStream(
-    folderId,
-    decodeURIComponent(fileName),
-    mimeType,
-    validatedUploadStream(req, deps.maxFileBytes, mimeType),
-  );
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: 'pending' }] }, async () => deps.drive.uploadFileStream(folderId, decodeURIComponent(fileName), mimeType, validatedUploadStream(req, deps.maxFileBytes, mimeType)), { eventInput: file => ({ action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: file.id }] }) });
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
 
 async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const fileId = url.searchParams.get('fileId');
   if (!fileId) throw new AuthError('Brak fileId.', 400);
-  await deps.drive.deleteFolder(fileId);
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.deleted', actor: { email: identity.email }, resource: { kind: 'person', key: `person:photo:${fileId}`, display: fileId }, changes: [{ field: 'fileId', after: fileId }] }, async () => deps.drive.deleteFolder(fileId));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -1147,19 +1194,10 @@ async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse,
 // handleWojownicyUploadPhoto below for why "!" specifically) - strips the prefix from whatever
 // other file currently has it first, so exactly one photo is ever marked main at a time.
 async function handleAdminSetMainPhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, fileId } = await readJsonBody<{ folderId?: string; fileId?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId || !fileId) throw new AuthError('Brak folderId lub fileId.', 400);
-  const images = await deps.drive.listImageFiles(folderId);
-  for (const image of images) {
-    const isTarget = image.id === fileId;
-    const hasMainPrefix = image.name.startsWith('!');
-    if (isTarget && !hasMainPrefix) {
-      await deps.drive.renameFolder(image.id, `!${image.name}`);
-    } else if (!isTarget && hasMainPrefix) {
-      await deps.drive.renameFolder(image.id, image.name.slice(1));
-    }
-  }
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.main.changed', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'mainPhoto', after: fileId }] }, async () => { const images = await deps.drive.listImageFiles(folderId); for (const image of images) { const isTarget = image.id === fileId; const hasMainPrefix = image.name.startsWith('!'); if (isTarget && !hasMainPrefix) await deps.drive.renameFolder(image.id, `!${image.name}`); else if (!isTarget && hasMainPrefix) await deps.drive.renameFolder(image.id, image.name.slice(1)); } });
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -1167,13 +1205,13 @@ async function handleAdminSetMainPhoto(req: IncomingMessage, res: ServerResponse
 // Moves a single photo into a different person's folder - see moveFile in drive.ts for why
 // (reviewing an upload-staging submission for someone who already has an existing profile).
 async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { fileId, targetFolderId } = await readJsonBody<{ fileId?: string; targetFolderId?: string }>(
     req,
     deps.maxJsonBodyBytes,
   );
   if (!fileId || !targetFolderId) throw new AuthError('Brak fileId lub targetFolderId.', 400);
-  await deps.drive.moveFile(fileId, targetFolderId);
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.transferred', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${targetFolderId}`, display: targetFolderId }, changes: [{ field: 'fileId', after: fileId }, { field: 'folderId', after: targetFolderId }] }, async () => deps.drive.moveFile(fileId, targetFolderId));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -1181,10 +1219,10 @@ async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerRespons
 // Toggles the "Oznacz jako in memoriam" marker (see IN_MEMORIAM_FILE_NAME in about-us.ts) - the
 // public site renders this person's photos grayscale with a black diagonal ribbon once set.
 async function handleAdminSetInMemoriam(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, inMemoriam } = await readJsonBody<{ folderId?: string; inMemoriam?: boolean }>(req, deps.maxJsonBodyBytes);
   if (!folderId || typeof inMemoriam !== 'boolean') throw new AuthError('Brak folderId lub inMemoriam.', 400);
-  await deps.drive.writeTextFile(folderId, IN_MEMORIAM_FILE_NAME, inMemoriam ? 'true' : 'false');
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.in_memoriam.changed', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'inMemoriam', after: inMemoriam }] }, async () => deps.drive.writeTextFile(folderId, IN_MEMORIAM_FILE_NAME, inMemoriam ? 'true' : 'false'));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -1229,10 +1267,29 @@ async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResp
   const { name } = await readJsonBody<{ name?: string }>(req, deps.maxJsonBodyBytes);
   if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
 
-  const folders = await bootstrapAboutUsStructure(deps.drive);
   const date = new Date().toISOString().slice(0, 10);
   const folderName = `${name.trim()} - ${identity.email} - ${date}`;
-  const folderId = await deps.drive.createAlbumFolder(folders.uploadRoot, folderName);
+  const { result: folderId } = await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'profile.photo_submission.created',
+      actor: { email: identity.email },
+      resource: { kind: 'memberSubmission', key: `memberSubmission:pending:${identity.sub}`, display: name.trim() },
+      changes: [{ field: 'name', after: name.trim() }],
+    },
+    async () => {
+      const folders = await bootstrapAboutUsStructure(deps.drive);
+      return deps.drive.createAlbumFolder(folders.uploadRoot, folderName);
+    },
+    {
+      eventInput: createdFolderId => ({
+        action: 'profile.photo_submission.created',
+        actor: { email: identity.email },
+        resource: { kind: 'memberSubmission', key: `memberSubmission:${createdFolderId}`, display: name.trim() },
+        changes: [{ field: 'name', after: name.trim() }],
+      }),
+    },
+  );
   const submissionToken = issueSubmissionToken(
     { folderId, sub: identity.sub, exp: Date.now() + SUBMISSION_TTL_MS },
     deps.submissionTokenSecret,
@@ -1259,23 +1316,41 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
 
-  const reserved = await reserveUploadSlot(deps.drive, folderId, deps.maxFilesPerSubmission);
-  if (!reserved) {
-    throw new AuthError(`Zgłoszenie osiągnęło maksymalną liczbę zdjęć (${deps.maxFilesPerSubmission}).`, 400);
-  }
-
   const targetName = isMain ? `!main.${extensionForMimeType(mimeType)}` : decodeURIComponent(fileName);
-  try {
-    await deps.drive.uploadFileStream(
-      folderId,
-      targetName,
-      mimeType,
-      validatedUploadStream(req, deps.maxFileBytes, mimeType),
-    );
-  } catch (err) {
-    releaseUploadSlot(folderId);
-    throw err;
-  }
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'profile.photo_submission.photo_added',
+      actor: { email: identity.email },
+      resource: { kind: 'memberSubmission', key: `memberSubmission:${folderId}`, display: folderId },
+      changes: [{ field: 'fileId', after: 'pending' }],
+    },
+    async () => {
+      const reserved = await reserveUploadSlot(deps.drive, folderId, deps.maxFilesPerSubmission);
+      if (!reserved) {
+        throw new AuthError(`Zgłoszenie osiągnęło maksymalną liczbę zdjęć (${deps.maxFilesPerSubmission}).`, 400);
+      }
+      try {
+        return await deps.drive.uploadFileStream(
+          folderId,
+          targetName,
+          mimeType,
+          validatedUploadStream(req, deps.maxFileBytes, mimeType),
+        );
+      } catch (err) {
+        releaseUploadSlot(folderId);
+        throw err;
+      }
+    },
+    {
+      eventInput: uploaded => ({
+        action: 'profile.photo_submission.photo_added',
+        actor: { email: identity.email },
+        resource: { kind: 'memberSubmission', key: `memberSubmission:${folderId}`, display: folderId },
+        changes: [{ field: 'fileId', after: uploaded.id }],
+      }),
+    },
+  );
   sendJson(res, 200, { ok: true });
 }
 
@@ -2014,7 +2089,15 @@ async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerRespons
   const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   try {
-    await deps.drive.deleteFolder(folderId);
+    await executeAuditedExternalMutation(
+      deps.firestore,
+      {
+        action: 'gallery.deleted', actor: { email: identity.email },
+        resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId },
+        changes: [{ field: 'name', after: folderId }],
+      },
+      async () => deps.drive.deleteFolder(folderId),
+    );
   } catch (err) {
     logDestructiveAction('delete-drive-gallery', identity.email, folderId, 'error', err);
     throw err;
@@ -2031,14 +2114,31 @@ async function handleStart(req: IncomingMessage, res: ServerResponse, deps: Serv
   const { name, date } = await readJsonBody<{ name?: string; date: string }>(req, deps.maxJsonBodyBytes);
   if (!date) throw new AuthError('Brak daty albumu.', 400);
   const folderName = name ? `${date} ${name}` : date;
-  const folderId = await deps.drive.createAlbumFolder(deps.driveParentFolderId, folderName);
-  // Made public right away, not deferred to /finalize: the gallery detail view fetches photos
-  // client-side straight from Drive's public API (see app.js's DRIVE_API_KEY_PUBLIC), so any
-  // file already uploaded needs to be visible even if the submission never reaches /finalize -
-  // e.g. some files fail and the uploader never retries. Previously this only happened in
-  // /finalize, which left the folder permanently private (Drive shows nothing to that public
-  // API key) whenever the very first upload attempt for a new gallery had any failures.
-  await deps.drive.setFolderPublic(folderId);
+  const { result: folderId } = await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'gallery.created',
+      actor: { email: identity.email },
+      resource: { kind: 'gallery', key: `gallery:pending:${identity.sub}`, display: name ?? date },
+      changes: [{ field: 'name', after: name ?? date }, { field: 'date', after: date }],
+    },
+    async () => {
+      const createdFolderId = await deps.drive.createAlbumFolder(deps.driveParentFolderId, folderName);
+      // Made public right away, not deferred to /finalize: the gallery detail view fetches photos
+      // client-side straight from Drive's public API (see app.js's DRIVE_API_KEY_PUBLIC), so any
+      // file already uploaded needs to be visible even if the submission never reaches /finalize.
+      await deps.drive.setFolderPublic(createdFolderId);
+      return createdFolderId;
+    },
+    {
+      eventInput: createdFolderId => ({
+        action: 'gallery.created',
+        actor: { email: identity.email },
+        resource: { kind: 'gallery', key: `gallery:${createdFolderId}`, display: name ?? date },
+        changes: [{ field: 'name', after: name ?? date }, { field: 'date', after: date }],
+      }),
+    },
+  );
   const submissionToken = issueSubmissionToken(
     { folderId, sub: identity.sub, exp: Date.now() + SUBMISSION_TTL_MS },
     deps.submissionTokenSecret,
@@ -2174,11 +2274,24 @@ async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: S
   // The folder was already made public by /start (see its comment) - nothing to do here for
   // that. A failure writing the manifest below simply fails /finalize with no compensating
   // action needed.
-  await deps.drive.writeManifest(folderId, {
-    ...(name ? { name } : {}),
-    date,
-    contributors: [identity.email],
-  });
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'gallery.finalized',
+      actor: { email: identity.email },
+      resource: { kind: 'gallery', key: `gallery:${folderId}`, display: name ?? folderId },
+      changes: [
+        ...(name ? [{ field: 'name' as const, after: name }] : []),
+        { field: 'date' as const, after: date },
+        { field: 'finalized' as const, after: 'true' },
+      ],
+    },
+    async () => deps.drive.writeManifest(folderId, {
+      ...(name ? { name } : {}),
+      date,
+      contributors: [identity.email],
+    }),
+  );
 
   // No albums.json/GitHub commit needed here - the app owns this folder (it created it), so
   // GET /galleries already discovers it live via the manifest just written above. Registering
@@ -2236,15 +2349,26 @@ async function handleGalleryPhotosFinalize(req: IncomingMessage, res: ServerResp
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
 
-  await deps.drive.setFolderPublic(folderId);
   const existing = await deps.drive.readManifest(folderId);
   const contributors = new Set(existing?.contributors ?? []);
   contributors.add(identity.email);
-  await deps.drive.writeManifest(folderId, {
-    ...(existing?.name ? { name: existing.name } : {}),
-    date: existing?.date ?? new Date().toISOString().slice(0, 10),
-    contributors: [...contributors],
-  });
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'gallery.photo.contribution.finalized',
+      actor: { email: identity.email },
+      resource: { kind: 'gallery', key: `gallery:${folderId}`, display: existing?.name ?? folderId },
+      changes: [{ field: 'contributorEmail', after: identity.email.toLowerCase() }],
+    },
+    async () => {
+      await deps.drive.setFolderPublic(folderId);
+      await deps.drive.writeManifest(folderId, {
+        ...(existing?.name ? { name: existing.name } : {}),
+        date: existing?.date ?? new Date().toISOString().slice(0, 10),
+        contributors: [...contributors],
+      });
+    },
+  );
   galleriesCache = null;
   sendJson(res, 200, { ok: true });
 }
@@ -2296,16 +2420,24 @@ function canonicalizeGalleryUrl(rawUrl: string): string {
 // scope (see KRKG-0025's design.md), which can never write into a folder it didn't create, so
 // there is no faster path for Drive URLs than the same albums.json + CI pipeline Photos uses.
 async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticate(req, res);
+  const identity = await deps.authenticate(req, res);
   const { url, name, date } = await readJsonBody<{ url?: string; name?: string; date: string }>(req, deps.maxJsonBodyBytes);
   if (!url || !date) throw new AuthError('Brak adresu URL galerii lub daty.', 400);
   const canonicalUrl = canonicalizeGalleryUrl(url);
 
-  await deps.github.appendAlbumToMain({
-    url: canonicalUrl,
-    ...(name ? { nameOverride: name } : {}),
-    dateOverride: date,
-  });
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'gallery.registered', actor: { email: identity.email },
+      resource: { kind: 'gallery', key: `gallery:${canonicalUrl}`, display: name ?? canonicalUrl },
+      changes: [{ field: 'url', after: canonicalUrl }, { field: 'date', after: date }],
+    },
+    async () => deps.github.appendAlbumToMain({
+      url: canonicalUrl,
+      ...(name ? { nameOverride: name } : {}),
+      dateOverride: date,
+    }),
+  );
   sendJson(res, 200, { ok: true });
 }
 
@@ -2317,7 +2449,15 @@ async function handleUnregister(req: IncomingMessage, res: ServerResponse, deps:
   const { url } = await readJsonBody<{ url?: string }>(req, deps.maxJsonBodyBytes);
   if (!url) throw new AuthError('Brak adresu URL galerii.', 400);
   try {
-    await deps.github.removeAlbumFromMain(url);
+    await executeAuditedExternalMutation(
+      deps.firestore,
+      {
+        action: 'gallery.unregistered', actor: { email: identity.email },
+        resource: { kind: 'gallery', key: `gallery:${url}`, display: url },
+        changes: [{ field: 'url', after: url }],
+      },
+      async () => deps.github.removeAlbumFromMain(url),
+    );
   } catch (err) {
     logDestructiveAction('unregister', identity.email, url, 'error', err);
     throw err;
@@ -2432,6 +2572,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleSessionLogin(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/session/logout') {
         await handleSessionLogout(req, res);
+      } else if (req.method === 'POST' && url.pathname === '/application/pwa-installation') {
+        await handlePwaInstallation(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/membership/whoami') {
         await handleMembershipWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/membership/sections') {

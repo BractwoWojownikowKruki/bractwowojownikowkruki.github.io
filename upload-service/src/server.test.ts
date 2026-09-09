@@ -544,6 +544,57 @@ test('POST /session/login records lastLoginAt for an existing member', async () 
   assert.equal(typeof stored?.lastLoginAt, 'string');
 });
 
+test('POST /session/login records a canonical session event with the signed-in member as actor', async () => {
+  const client = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore: client,
+    authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/session/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: 'fake-google-id-token' }),
+    });
+    assert.equal(res.status, 200);
+  });
+
+  const [audit] = await client.listDocs<{ action: string; actor: { email: string }; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.deepEqual(audit, {
+    id: audit.id,
+    data: {
+      ...audit.data,
+      action: 'session.login.succeeded',
+      actor: { email: 'alice@gmail.com' },
+      resource: { kind: 'session', key: 'session:alice@gmail.com', display: 'alice@gmail.com' },
+      changes: [{ field: 'status', after: 'succeeded', visibility: 'roleRestricted' }],
+    },
+  });
+});
+
+test('POST /application/pwa-installation records one canonical installation event per signed-in member', async () => {
+  const client = createInMemoryFirestoreClient();
+  const deps = makeDeps({ firestore: client, authenticate: async () => fakeSessionClaims({ email: 'alice@gmail.com' }) });
+  await withServer(deps, async baseUrl => {
+    const first = await fetch(`${baseUrl}/application/pwa-installation`, { method: 'POST' });
+    const repeated = await fetch(`${baseUrl}/application/pwa-installation`, { method: 'POST' });
+    assert.equal(first.status, 200);
+    assert.equal(repeated.status, 200);
+    assert.deepEqual(await first.json(), { recorded: true });
+    assert.deepEqual(await repeated.json(), { recorded: false });
+  });
+
+  const events = await client.listDocs<{ action: string; actor: { email: string }; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.equal(events.length, 1);
+  assert.equal(events[0].data.action, 'application.pwa.installation_reported');
+  assert.equal(events[0].data.actor.email, 'alice@gmail.com');
+  assert.equal(events[0].data.resource.key, 'application:kruki-pwa');
+  assert.deepEqual(events[0].data.changes, [{ field: 'appId', after: 'kruki-pwa', visibility: 'roleRestricted' }]);
+  assert.deepEqual(await client.getDoc('applicationInstallations', 'pwa:alice@gmail.com'), {
+    actorEmail: 'alice@gmail.com', appId: 'kruki-pwa',
+  });
+});
+
 test('POST /session/login rejects a body with no idToken', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
@@ -2668,7 +2719,9 @@ test('POST /admin/redirects rejects a non-http(s) target without touching GitHub
 
 test('POST /admin/redirects commits the new alias to redirects.json', async () => {
   let appendedEntry: unknown = null;
+  const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
+    firestore,
     github: makeFakeGithub({ appendRedirectToMain: async entry => { appendedEntry = entry; } }),
   });
   await withServer(deps, async baseUrl => {
@@ -2682,6 +2735,14 @@ test('POST /admin/redirects commits the new alias to redirects.json', async () =
     assert.deepEqual(body, { ok: true });
     assert.deepEqual(appendedEntry, { path: 'discord', target: 'https://discord.gg/abc123' });
   });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.equal(event.data.action, 'site.redirect.created');
+  assert.equal(event.data.resource.key, 'redirect:discord');
+  assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [
+    ['path', 'discord'], ['target', 'https://discord.gg/abc123'],
+  ]);
+  assert.equal((await firestore.listDocs('auditOperations')).length, 1);
+  assert.equal((await firestore.listDocs('auditOperationOutcomes')).length, 1);
 });
 
 test('DELETE /admin/redirects rejects an unauthenticated caller before touching GitHub', async () => {
@@ -2701,7 +2762,9 @@ test('DELETE /admin/redirects rejects an unauthenticated caller before touching 
 
 test('DELETE /admin/redirects removes the matching redirects.json entry', async () => {
   let removedPath: string | null = null;
+  const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
+    firestore,
     github: makeFakeGithub({ removeRedirectFromMain: async path => { removedPath = path; } }),
   });
   await withServer(deps, async baseUrl => {
@@ -2711,6 +2774,9 @@ test('DELETE /admin/redirects removes the matching redirects.json entry', async 
     assert.deepEqual(body, { ok: true });
     assert.equal(removedPath, 'discord');
   });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents');
+  assert.equal(event.data.action, 'site.redirect.deleted');
+  assert.equal(event.data.resource.key, 'redirect:discord');
 });
 
 test('/delete-drive-gallery rejects an unauthenticated caller before touching Drive', async () => {
@@ -2836,7 +2902,8 @@ test('/start rejects an unauthenticated caller before touching Drive', async () 
 });
 
 test('/start creates a folder and returns a submission token bound to the caller and folder', async () => {
-  const deps = makeDeps({ drive: makeFakeDrive({ createAlbumFolder: async () => 'folder-created-by-start' }) });
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({ firestore, drive: makeFakeDrive({ createAlbumFolder: async () => 'folder-created-by-start' }) });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/start`, {
       method: 'POST',
@@ -2848,6 +2915,10 @@ test('/start creates a folder and returns a submission token bound to the caller
     assert.equal(body.folderId, 'folder-created-by-start');
     assert.ok(typeof body.submissionToken === 'string' && body.submissionToken.length > 0);
   });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.equal(event.data.action, 'gallery.created');
+  assert.equal(event.data.resource.key, 'gallery:folder-created-by-start');
+  assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [['name', 'Wolin'], ['date', '2026-08-09']]);
 });
 
 test('/start makes the new folder public immediately, before any files are uploaded', async () => {
@@ -3229,7 +3300,9 @@ test('/finalize rejects a folder with no uploaded files', async () => {
 test('/finalize writes a gallery manifest with name, date, and the uploader as contributor before publishing', async () => {
   let writtenFolderId: string | null = null;
   let writtenManifest: { name?: string; date: string; contributors: string[] } | null = null;
+  const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
+    firestore,
     drive: makeFakeDrive({
       listFiles: async () => [{ name: 'a.jpg', size: 10 }],
       writeManifest: async (folderId, manifest) => {
@@ -3250,6 +3323,10 @@ test('/finalize writes a gallery manifest with name, date, and the uploader as c
     assert.equal(writtenFolderId, folderId);
     assert.deepEqual(writtenManifest, { name: 'Zlot Wolin', date: '2026-08-09', contributors: ['alice@gmail.com'] });
   });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.equal(event.data.action, 'gallery.finalized');
+  assert.equal(event.data.resource.key, `gallery:${folderId}`);
+  assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [['name', 'Zlot Wolin'], ['date', '2026-08-09'], ['finalized', 'true']]);
 });
 
 test('/finalize succeeds and does not touch GitHub', async () => {
@@ -3402,7 +3479,9 @@ test('POST /gallery-photos/start rejects a folderId that is not an existing gall
 
 test('POST /gallery-photos/finalize adds the uploader to contributors without duplicating or touching name/date', async () => {
   let writtenManifest: unknown;
+  const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
+    firestore,
     authenticate: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
     drive: makeFakeDrive({
       readManifest: async () => ({ name: 'Wolin', date: '2026-01-01', contributors: ['bob@gmail.com', 'alice@gmail.com'] }),
@@ -3422,6 +3501,9 @@ test('POST /gallery-photos/finalize adds the uploader to contributors without du
     assert.equal(res.status, 200);
   });
   assert.deepEqual(writtenManifest, { name: 'Wolin', date: '2026-01-01', contributors: ['bob@gmail.com', 'alice@gmail.com'] });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents');
+  assert.equal(event.data.action, 'gallery.photo.contribution.finalized');
+  assert.equal(event.data.resource.key, `gallery:${folderId}`);
 });
 
 test('POST /gallery-photos/finalize re-asserts public sharing, healing a gallery whose original /finalize was never reached', async () => {
@@ -3699,7 +3781,9 @@ test('/wojownicy-upload/submit creates a folder named "Imię - email - data" und
   resetAboutUsBootstrapForTests();
   let createdParent: string | undefined;
   let createdName: string | undefined;
+  const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
+    firestore,
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
     drive: makeFakeDrive({
       ensureFolder: async (parent, name) => (name === 'upload' ? 'upload-root' : `ensured-${name}`),
@@ -3724,6 +3808,10 @@ test('/wojownicy-upload/submit creates a folder named "Imię - email - data" und
     const today = new Date().toISOString().slice(0, 10);
     assert.equal(createdName, `Jan Kowalski - ktos@gmail.com - ${today}`);
   });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.equal(event.data.action, 'profile.photo_submission.created');
+  assert.equal(event.data.resource.key, 'memberSubmission:submission-folder');
+  assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [['name', 'Jan Kowalski']]);
 });
 
 test('/wojownicy-upload/photo rejects a request with no X-Submission-Token', async () => {
@@ -3753,7 +3841,9 @@ test('/wojownicy-upload/photo rejects a submission token minted for a different 
 
 test('/wojownicy-upload/photo with isMain=true uploads the file as !main.<ext>, ignoring the original filename', async () => {
   let uploadedName: string | undefined;
+  const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
+    firestore,
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
     drive: makeFakeDrive({
       listFiles: async () => [],
@@ -3776,6 +3866,10 @@ test('/wojownicy-upload/photo with isMain=true uploads the file as !main.<ext>, 
     assert.equal(res.status, 200);
     assert.equal(uploadedName, '!main.jpg');
   });
+  const [event] = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  assert.equal(event.data.action, 'profile.photo_submission.photo_added');
+  assert.equal(event.data.resource.key, `memberSubmission:${folderId}`);
+  assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [['fileId', 'fake-uploaded-file-id']]);
 });
 
 test('/wojownicy-upload/photo without isMain keeps the original filename', async () => {

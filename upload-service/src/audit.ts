@@ -196,6 +196,32 @@ export interface AuditEventDependencies {
   now: () => Date;
 }
 
+/** Immutable pre-effect evidence for a Drive, GitHub, or other non-transactional write. */
+export interface AuditOperationIntent {
+  id: string;
+  schemaVersion: 1;
+  state: 'pending';
+  startedAt: string;
+  actor: AuditActor;
+  action: AuditAction;
+  resource: AuditResource;
+}
+
+/** Immutable terminal evidence paired with exactly one successful canonical audit event. */
+export interface AuditOperationOutcome {
+  id: string;
+  schemaVersion: 1;
+  state: 'succeeded' | 'failed';
+  completedAt: string;
+  auditEventId?: string;
+}
+
+/** Optional deterministic values and a final resource mapping for an external operation. */
+export interface AuditedExternalMutationDependencies<T> extends Partial<AuditEventDependencies> {
+  correlationId?: string;
+  eventInput?: (result: T) => CanonicalAuditEventInput;
+}
+
 /** Builds audit inputs from the same transactional read snapshot as their business mutation. */
 export type CanonicalAuditEventInputFactory = (
   tx: FirestoreTransaction,
@@ -220,11 +246,10 @@ export function formatTechnicalValue(resourceDisplay: string, field: string, val
   return `${resourceDisplay}.${field}=${displayValue(value)}`;
 }
 
-/** Builds a validated, server-owned audit record from a registered action and controlled diff. */
-export function createCanonicalAuditEvent(
-  input: CanonicalAuditEventInput,
-  dependencies: AuditEventDependencies = defaultDependencies,
-): CanonicalAuditEvent {
+function normalizeAuditInput(input: CanonicalAuditEventInput): {
+  definition: AuditActionDefinition;
+  changes: Array<AuditChangeInput & { visibility: AuditFieldVisibility }>;
+} {
   const definition = (ACTION_REGISTRY as Record<string, AuditActionDefinition>)[input.action];
   if (!definition) throw new AuditInputError(`Audit action is not registered: ${String(input.action)}`);
   if (!input.actor.email.trim()) throw new AuditInputError('Audit actor email is required.');
@@ -233,19 +258,30 @@ export function createCanonicalAuditEvent(
   }
   if (input.changes.length === 0) throw new AuditInputError('Audit event requires a controlled change.');
 
-  const changes = input.changes.map(change => {
-    const visibility = definition.fields[change.field];
-    if (!visibility) throw new AuditInputError(`Audit field is not allowed or is never stored: ${change.field}`);
-    if (change.before !== undefined && !isAuditScalar(change.before)) throw new AuditInputError(`Audit field is not scalar: ${change.field}`);
-    if (change.after !== undefined && !isAuditScalar(change.after)) throw new AuditInputError(`Audit field is not scalar: ${change.field}`);
-    if (change.before === undefined && change.after === undefined) throw new AuditInputError(`Audit change has no value: ${change.field}`);
-    return {
-      field: change.field,
-      ...(change.before !== undefined ? { before: change.before } : {}),
-      ...(change.after !== undefined ? { after: change.after } : {}),
-      visibility,
-    };
-  });
+  return {
+    definition,
+    changes: input.changes.map(change => {
+      const visibility = definition.fields[change.field];
+      if (!visibility) throw new AuditInputError(`Audit field is not allowed or is never stored: ${change.field}`);
+      if (change.before !== undefined && !isAuditScalar(change.before)) throw new AuditInputError(`Audit field is not scalar: ${change.field}`);
+      if (change.after !== undefined && !isAuditScalar(change.after)) throw new AuditInputError(`Audit field is not scalar: ${change.field}`);
+      if (change.before === undefined && change.after === undefined) throw new AuditInputError(`Audit change has no value: ${change.field}`);
+      return {
+        field: change.field,
+        ...(change.before !== undefined ? { before: change.before } : {}),
+        ...(change.after !== undefined ? { after: change.after } : {}),
+        visibility,
+      };
+    }),
+  };
+}
+
+/** Builds a validated, server-owned audit record from a registered action and controlled diff. */
+export function createCanonicalAuditEvent(
+  input: CanonicalAuditEventInput,
+  dependencies: AuditEventDependencies = defaultDependencies,
+): CanonicalAuditEvent {
+  const { definition, changes } = normalizeAuditInput(input);
   const valueChange = changes[0];
   const value = valueChange.after ?? valueChange.before;
   if (value === undefined) throw new AuditInputError('Audit event has no technical value.');
@@ -261,6 +297,65 @@ export function createCanonicalAuditEvent(
     changes,
     value: formatTechnicalValue(input.resource.display, valueChange.field, value),
   };
+}
+
+/**
+ * Audits an external write with a durable intent before the provider call and immutable terminal
+ * evidence afterwards. A terminal-write failure deliberately leaves the intent pending so Batch
+ * 4's reconciler can determine the real provider outcome instead of recording a false failure.
+ */
+export async function executeAuditedExternalMutation<T>(
+  firestore: FirestoreLikeClient,
+  intentInput: CanonicalAuditEventInput,
+  effect: (correlationId: string) => Promise<T>,
+  dependencies: AuditedExternalMutationDependencies<T> = {},
+): Promise<{ result: T; correlationId: string; auditEvent: CanonicalAuditEvent }> {
+  normalizeAuditInput(intentInput);
+  const auditDependencies: AuditEventDependencies = { ...defaultDependencies, ...dependencies };
+  const correlationId = dependencies.correlationId ?? auditDependencies.createId();
+  const startedAt = auditDependencies.now().toISOString();
+  const intent: AuditOperationIntent = {
+    id: correlationId,
+    schemaVersion: 1,
+    state: 'pending',
+    startedAt,
+    actor: { email: intentInput.actor.email.trim().toLowerCase(), ...(intentInput.actor.name ? { name: intentInput.actor.name } : {}) },
+    action: intentInput.action,
+    resource: intentInput.resource,
+  };
+  await firestore.createDoc('auditOperations', correlationId, intent);
+
+  let result: T;
+  try {
+    result = await effect(correlationId);
+  } catch (error) {
+    const outcome: AuditOperationOutcome = {
+      id: correlationId,
+      schemaVersion: 1,
+      state: 'failed',
+      completedAt: auditDependencies.now().toISOString(),
+    };
+    await firestore.createDoc('auditOperationOutcomes', correlationId, outcome);
+    throw error;
+  }
+
+  const eventInput = dependencies.eventInput ? dependencies.eventInput(result) : intentInput;
+  if (eventInput.action !== intentInput.action || eventInput.actor.email.trim().toLowerCase() !== intent.actor.email) {
+    throw new AuditInputError('External audit outcome must keep the declared action and actor.');
+  }
+  const auditEvent = createCanonicalAuditEvent(eventInput, auditDependencies);
+  const outcome: AuditOperationOutcome = {
+    id: correlationId,
+    schemaVersion: 1,
+    state: 'succeeded',
+    completedAt: auditDependencies.now().toISOString(),
+    auditEventId: auditEvent.id,
+  };
+  await firestore.runTransaction(async tx => {
+    await tx.createDoc('auditOperationOutcomes', correlationId, outcome);
+    await tx.createDoc('auditEvents', auditEvent.id, auditEvent);
+  });
+  return { result, correlationId, auditEvent };
 }
 
 /** Commits a Firestore mutation and its immutable canonical audit event in the same transaction. */

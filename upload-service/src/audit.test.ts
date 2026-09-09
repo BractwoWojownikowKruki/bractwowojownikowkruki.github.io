@@ -6,6 +6,7 @@ import {
   ACTION_REGISTRY,
   AuditInputError,
   createCanonicalAuditEvent,
+  executeAuditedExternalMutation,
   executeAuditedFirestoreMutation,
   formatTechnicalValue,
 } from './audit.ts';
@@ -154,5 +155,90 @@ test('audited Firestore mutation commits all declared canonical events or none o
     /business failure/,
   );
   assert.equal(await firestore.getDoc('events', 'wolin'), null);
+  assert.deepEqual(await firestore.listDocs('auditEvents'), []);
+});
+
+test('audited external mutation persists its immutable intent before the effect and terminal evidence after success', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const observedIntents: unknown[] = [];
+  const result = await executeAuditedExternalMutation(
+    firestore,
+    {
+      action: 'gallery.created',
+      actor: { email: 'maja@example.test' },
+      resource: { kind: 'gallery', key: 'gallery:pending:create-1', display: 'Jesienny Wolin' },
+      changes: [{ field: 'name', after: 'Jesienny Wolin' }],
+    },
+    async correlationId => {
+      observedIntents.push(await firestore.getDoc('auditOperations', correlationId));
+      return { folderId: 'drive-folder-1' };
+    },
+    {
+      correlationId: 'create-1',
+      createId: () => 'audit-gallery-created',
+      now: () => new Date('2026-09-09T12:00:00.000Z'),
+      eventInput: result => ({
+        action: 'gallery.created',
+        actor: { email: 'maja@example.test' },
+        resource: { kind: 'gallery', key: `gallery:${result.folderId}`, display: 'Jesienny Wolin' },
+        changes: [{ field: 'name', after: 'Jesienny Wolin' }],
+      }),
+    },
+  );
+
+  assert.deepEqual(result.result, { folderId: 'drive-folder-1' });
+  assert.deepEqual(observedIntents, [{
+    id: 'create-1',
+    schemaVersion: 1,
+    state: 'pending',
+    startedAt: '2026-09-09T12:00:00.000Z',
+    actor: { email: 'maja@example.test' },
+    action: 'gallery.created',
+    resource: { kind: 'gallery', key: 'gallery:pending:create-1', display: 'Jesienny Wolin' },
+  }]);
+  assert.deepEqual(await firestore.getDoc('auditOperationOutcomes', 'create-1'), {
+    id: 'create-1',
+    schemaVersion: 1,
+    state: 'succeeded',
+    completedAt: '2026-09-09T12:00:00.000Z',
+    auditEventId: 'audit-gallery-created',
+  });
+  assert.deepEqual(await firestore.getDoc('auditEvents', 'audit-gallery-created'), {
+    id: 'audit-gallery-created',
+    schemaVersion: 1,
+    timestamp: '2026-09-09T12:00:00.000Z',
+    actor: { email: 'maja@example.test' },
+    category: 'gallery',
+    action: 'gallery.created',
+    audience: 'members',
+    resource: { kind: 'gallery', key: 'gallery:drive-folder-1', display: 'Jesienny Wolin' },
+    changes: [{ field: 'name', after: 'Jesienny Wolin', visibility: 'memberVisible' }],
+    value: 'Jesienny Wolin.name=Jesienny Wolin',
+  });
+});
+
+test('audited external mutation stores a failed terminal outcome without inventing a canonical success event', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await assert.rejects(
+    () => executeAuditedExternalMutation(
+      firestore,
+      {
+        action: 'site.redirect.created',
+        actor: { email: 'maja@example.test' },
+        resource: { kind: 'redirect', key: 'redirect:discord', display: 'discord' },
+        changes: [{ field: 'path', after: 'discord' }],
+      },
+      async () => { throw new Error('GitHub unavailable'); },
+      { correlationId: 'redirect-1', now: () => new Date('2026-09-09T12:01:00.000Z') },
+    ),
+    /GitHub unavailable/,
+  );
+
+  assert.deepEqual(await firestore.getDoc('auditOperationOutcomes', 'redirect-1'), {
+    id: 'redirect-1',
+    schemaVersion: 1,
+    state: 'failed',
+    completedAt: '2026-09-09T12:01:00.000Z',
+  });
   assert.deepEqual(await firestore.listDocs('auditEvents'), []);
 });

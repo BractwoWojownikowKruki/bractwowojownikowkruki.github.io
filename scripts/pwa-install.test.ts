@@ -59,8 +59,14 @@ function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDeskt
     },
   };
   const context = vm.createContext({ window, document, navigator, console });
+  const apiFetchCalls: Array<{ path: string; options: unknown }> = [];
+  context.apiFetch = async (path: string, fetchOptions: unknown) => {
+    apiFetchCalls.push({ path, options: fetchOptions });
+    return { recorded: true };
+  };
 
   return {
+    apiFetchCalls,
     context,
     controls,
     emit: async (type: string, event: unknown) => {
@@ -226,4 +232,16 @@ test('hides install controls and messages after installation', async () => {
 
   assert.ok(harness.controls.every(control => control.hidden));
   assert.ok(harness.messages.every(message => message.hidden));
+});
+
+test('reports a confirmed installation once through the authenticated API', async () => {
+  const harness = createHarness();
+  await loadInstallController(harness);
+
+  await harness.emit('appinstalled', {});
+
+  assert.deepEqual(harness.apiFetchCalls, [{
+    path: '/application/pwa-installation',
+    options: { method: 'POST' },
+  }]);
 });
