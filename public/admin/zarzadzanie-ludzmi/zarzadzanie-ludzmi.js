@@ -266,8 +266,12 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       // convention of showing a raw id rather than hiding an unresolved reference (see
       // KRKG-0037's known-gaps note on raw section-id fallbacks).
       const currentValue = m.driveFolderId ? (labelByFolderId.get(m.driveFolderId) ?? m.driveFolderId) : '';
+      // KRKG-0062: flags a member with neither a real Sekcja nor a Typ assigned - "nieznana" is
+      // migrate-existing-members.ts's own fallback for "no known section", so it counts as
+      // missing here the same as an empty sectionId does.
+      const isFlagged = (!m.sectionId || m.sectionId === 'nieznana') && !m.categoryId;
       return `
-    <tr class="membership-member" data-email="${escapeAttr(m.email)}" data-section="${escapeAttr(m.sectionId ?? '')}">
+    <tr class="membership-member${isFlagged ? ' membership-member--flagged' : ''}" data-email="${escapeAttr(m.email)}" data-section="${escapeAttr(m.sectionId ?? '')}">
       <td>
         <div class="czl-name-cell">
           <input type="text" class="czl-field category-name-pill" ${categoryNamePillAttrs(m.categoryId, categories)} data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" />
@@ -365,6 +369,12 @@ document.getElementById('membership-members-list').addEventListener('change', as
       const nameInput = row.querySelector('input[data-field="fullName"]');
       nameInput.dataset.category = profileField.value;
       nameInput.title = profileField.selectedOptions[0]?.textContent || 'Brak typu';
+    }
+    if (profileField.dataset.field === 'sectionId' || profileField.dataset.field === 'categoryId') {
+      const sectionValue = row.querySelector('select[data-field="sectionId"]').value;
+      const categoryValue = row.querySelector('select[data-field="categoryId"]').value;
+      const stillFlagged = (!sectionValue || sectionValue === 'nieznana') && !categoryValue;
+      row.classList.toggle('membership-member--flagged', stillFlagged);
     }
     saveMemberProfileField(row, row.dataset.email);
     return;

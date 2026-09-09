@@ -137,8 +137,21 @@
   background: var(--surface);
 }
 
+/* Missing both Sekcja and Typ (KRKG-0062, Zarządzanie ludźmi only) - flags a member whose
+   profile is meaningfully incomplete. Whole row, not just the two empty-looking cells, so it's
+   obvious scanning down a long list. The :hover variant needs its own rule (an extra pseudo-class
+   beats plain tbody tr:hover's specificity outright) so the flag doesn't vanish on hover. */
+.czl-table tbody tr.membership-member--flagged {
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+}
+
+.czl-table tbody tr.membership-member--flagged:hover {
+  background: color-mix(in srgb, var(--accent) 30%, var(--surface));
+}
+
 /* Tapped-row highlight (KRKG-0052) - touch has no hover, so a click/tap toggles this class
-   instead (see e.g. czlonkowie.js). Placed after tbody tr:hover to win the same-specificity tie. */
+   instead (see e.g. czlonkowie.js). Placed after tbody tr:hover/.membership-member--flagged to
+   win every same-specificity tie - an active tap always shows gold, flagged or not. */
 .czl-table tbody tr.czl-row-active {
   background: color-mix(in srgb, var(--gold) 20%, var(--surface));
 }
@@ -256,6 +269,14 @@
 
 .lw-weapon-icon--text {
   font-size: 0.85em;
+}
+
+/* Zarządzanie ludźmi's table is the densest one on the site (9 columns) - .main-content's default
+   1400px cap (style.css) leaves the sidebar's fixed 350px eating into that badly on a wide
+   desktop screen. Widening only the cap here, not the grid itself, keeps the sidebar column at
+   its normal width while giving .content-left (and the table inside it) the rest. */
+.main-content--wide {
+  max-width: 1700px;
 }
 
 /* ── Panel Admina: manage-people list (public/admin/admin.js) ── */
@@ -531,14 +552,11 @@ button.lw-skladka-icon:disabled {
   padding: 0.25rem 0.5rem;
 }
 
-/* Roster's name column (KRKG-0059) - just the computed display name in its outline pill, right-
-   aligned and a size down from the table's own base font, unlike Spis Ludności/Zarządzanie
-   ludźmi's .category-name-pill (full-size, left-aligned, still paired with a separate Ksywa line
-   there since Typ and Ksywa are two independent pieces of information on those tables). */
-.czl-table .lw-roster-name-cell {
-  text-align: right;
-}
-
+/* Roster's name column (KRKG-0059/KRKG-0062) - just the computed display name in its pill, a
+   size down from the table's own base font, unlike Spis Ludności/Zarządzanie ludźmi's
+   .category-name-pill (full-size, still paired with a separate Ksywa line there since Typ and
+   Ksywa are two independent pieces of information on those tables). Left-aligned like every
+   other column - right-alignment was tried and reverted. */
 .lw-roster-name-cell .category-name-pill {
   font-size: 0.85em;
 }
