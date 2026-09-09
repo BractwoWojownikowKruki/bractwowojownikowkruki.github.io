@@ -5752,3 +5752,98 @@ test('POST /internal/audit/reconcile: gallery.deleted never resolves claimed_suc
   assert.equal(deletedOutcome!.determinedBy, 'reconciler');
   assert.equal(deletedOutcome!.auditEventId, undefined, 'no audit event should be manufactured for a deletion that never happened');
 });
+
+// GPT-5 follow-up review: the same allowlist-vs-blocklist bug exists for the `person` resource
+// kind, which shares `driveFolderProbe` with `gallery`. Only `profile.person.created` is the case
+// where "the person's Drive folder now exists" proves that operation's own effect (its intent
+// always carries a provisional `person:pending:{correlationId}` key - see
+// handleAdminCreatePerson - mirroring `gallery.created`). Every other `person`-kind action reuses
+// a folder that already existed before it ran, and `profile.person.deleted` is the inverted case:
+// the folder still existing means the deletion did NOT happen. Before this fix, both tests below
+// would have failed (outcome would have been 'claimed_succeeded' instead of
+// 'claimed_requires_review').
+
+test('POST /internal/audit/reconcile: profile.person.deleted never resolves claimed_succeeded via folder existence - the folder still existing means the deletion did NOT happen', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'person-folder-1';
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'profile.person.deleted',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'person', key: `person:${folderId}`, display: folderId },
+      changes: [{ field: 'name', after: folderId }],
+    },
+    { correlationId: 'person-deleted-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The folder STILL exists - i.e. the deletion never actually happened. A probe that reads
+    // existence as success would get this exactly backwards.
+    drive: makeFakeDrive({ folderExists: async () => true }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const deletedOutcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(deletedOutcome!.state, 'requires_review', 'must never be fabricated as succeeded merely because the (undeleted) person folder still exists');
+  assert.equal(deletedOutcome!.determinedBy, 'reconciler');
+  assert.equal(deletedOutcome!.auditEventId, undefined, 'no audit event should be manufactured for a deletion that never happened');
+});
+
+test('POST /internal/audit/reconcile: profile.person.description.updated never resolves claimed_succeeded via folder existence (the person folder pre-exists regardless of whether the update ran)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'person-folder-2';
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'profile.person.description.updated',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'person', key: `person:${folderId}`, display: folderId },
+      changes: [{ field: 'descriptionLength', after: 42 }],
+    },
+    { correlationId: 'person-description-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The person folder DOES genuinely exist here - it was created long before this (stuck)
+    // description update. This is the exact scenario that would fabricate a false
+    // `claimed_succeeded` if driveFolderProbe's allowlist didn't cover `person` too.
+    drive: makeFakeDrive({ folderExists: async () => true }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const updatedOutcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(updatedOutcome!.state, 'requires_review', 'must never be fabricated as succeeded merely because the (pre-existing) person folder exists');
+  assert.equal(updatedOutcome!.determinedBy, 'reconciler');
+  assert.equal(updatedOutcome!.auditEventId, undefined, 'no audit event should be manufactured for an unconfirmed description update');
+});

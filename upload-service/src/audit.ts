@@ -88,16 +88,15 @@ const galleryFields = {
   photoCount: 'memberVisible',
   finalized: 'memberVisible',
   // Reported only by the reconciler's `driveFolderProbe` (server.ts) when it positively confirms
-  // a still-open operation from folder existence. In practice that is never `gallery.created`
-  // itself - that action's intent always carries a provisional `gallery:pending:{correlationId}`
-  // key (see handleStart), which the reconciler can only ever observe as still-pending, so it
-  // never reaches this probe's real `folderExists` branch. It is the *other* gallery actions
-  // that start with a real, non-provisional `gallery:{folderId}` key from the outset (e.g. an
-  // operation left open by `gallery.finalized` or `gallery.photo.contribution.finalized`) that
-  // can actually land here via `driveFolderProbe`'s `gallery.created`-only allowlist - mirrors
-  // `person`'s own `folderId` entry in `profileFields` above, which the same shared probe helper
-  // already relies on. Previously missing here, so a genuine reconciler-confirmed success would
-  // have thrown `AuditInputError` (uncovered until the gallery.photo.added reconciliation fix
+  // a still-open operation from folder existence - which, post-allowlist-fix, only `gallery.created`
+  // can ever reach (every other gallery action now falls back to `alwaysPendingProbe`). In
+  // practice even `gallery.created` never reaches this branch in production: that action's intent
+  // always carries a provisional `gallery:pending:{correlationId}` key (see handleStart), which
+  // the reconciler can only ever observe as still-pending. This field is therefore not exercised
+  // by any current production handler - it exists for defensiveness and for a hypothetical future
+  // non-provisional-key `gallery.created` variant, and is covered directly by a test that hands
+  // the probe a synthetic non-provisional `gallery.created` intent. Without it, that reconciler
+  // path would throw `AuditInputError` (uncovered until the gallery.photo.added reconciliation fix
   // added a passing-case test for this exact path).
   folderId: 'memberVisible',
 } as const;
