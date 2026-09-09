@@ -929,15 +929,19 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
   // Independent audited sub-operation, correlated to the transition above only by both sharing
   // this request - not by any shared transaction. The Firestore transition already committed
   // via executeDeclaredAuditedMutation, so a Sheets failure here must not roll back or discard
-  // it; this mirrors handleAdminMembersSynchronize's own treatment of the identical Sheets call
-  // as fully self-contained (plan-addendum.md).
+  // it. Unlike handleAdminMembersSynchronize's own identical Sheets call - which is genuinely
+  // global/whole-list in scope and keeps the shared `member:sheet-backup` key - this sub-operation
+  // is triggered by, and scoped to, one specific member's transition, so it is member-attributed
+  // with that same member's own `member:{email}` resource key (plan-addendum.md), matching the
+  // primary transition event's resource key above so it also surfaces in that member's own
+  // Historia filter.
   const allMembers = await listAllMembers(deps.firestore);
   const { result: sheetSyncStatus } = await executeAuditedExternalMutation(
     deps.firestore,
     {
       action: 'membership.sheet_backup.synchronized',
       actor: { email: identity.email },
-      resource: { kind: 'member', key: 'member:sheet-backup', display: 'sheet-backup' },
+      resource: { kind: 'member', key: `member:${body.email.toLowerCase()}`, display: body.email.toLowerCase() },
       changes: [{ field: 'sheetBackup', after: 'requested' }],
     },
     async () => deps.sheetsClient.syncAllMembers(allMembers),
@@ -945,7 +949,7 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
       eventInput: status => ({
         action: 'membership.sheet_backup.synchronized',
         actor: { email: identity.email },
-        resource: { kind: 'member', key: 'member:sheet-backup', display: 'sheet-backup' },
+        resource: { kind: 'member', key: `member:${body.email!.toLowerCase()}`, display: body.email!.toLowerCase() },
         changes: [{ field: 'sheetBackup', after: status }],
       }),
     },
@@ -2824,7 +2828,24 @@ async function handleAuditEventDetailPublic(req: IncomingMessage, res: ServerRes
  * original effect - they only observe whether it already happened, or admit they can't tell.
  */
 function buildReconciliationProbes(deps: ServerDeps): Partial<Record<AuditOperationIntent['resource']['kind'], ExternalOperationProbe>> {
+  // Always-pending fallback shared by any action whose success can never be positively confirmed
+  // by a probe (per implementation-contract.md: never fabricate `succeeded`, never fabricate
+  // `failed` merely because the final state can't be observed) - relies entirely on
+  // `reconcileExternalOperation`'s 24h `requires_review` boundary. Reused below by
+  // `gallery.photo.added` (see driveFolderProbe's comment) as well as by `settingsProbe`/
+  // `memberProbe` further down.
+  const alwaysPendingProbe: ExternalOperationProbe = async () => ({ state: 'pending' });
+
   const driveFolderProbe = (kind: 'gallery' | 'person'): ExternalOperationProbe => async intent => {
+    // `gallery.photo.added` shares the `gallery` resource kind with `gallery.created`, but its
+    // gallery folder already existed *before* the upload started - so folder existence is
+    // trivially always true and would fabricate `succeeded` for an upload that never completed
+    // (the exact false positive this comment block exists to rule out). There is also no
+    // deterministic per-file signal available at intent-creation time to probe for instead (the
+    // intent is created before the Drive upload effect runs, so no file id is known yet). So this
+    // action can never be positively confirmed here - same always-pending fallback as
+    // `settings`/`member` below, resolved only via the 24h `requires_review` boundary.
+    if (intent.action === 'gallery.photo.added') return alwaysPendingProbe(intent);
     // The provisional key is `{kind}:pending:{correlationId}` - there is no folder id to probe
     // for until the effect has actually created one, so a still-provisional intent can only ever
     // be "pending" here (never "failed": Drive folder creation is a single all-or-nothing call,
@@ -2893,13 +2914,13 @@ function buildReconciliationProbes(deps: ServerDeps): Partial<Record<AuditOperat
   // clears an in-process cache with no persisted state at all to read back. Neither can produce a
   // real existence check within this batch's scope, so both stay `pending` forever and rely on
   // `reconcileExternalOperation`'s 24h `requires_review` boundary rather than a fabricated probe.
-  const settingsProbe: ExternalOperationProbe = async () => ({ state: 'pending' });
+  const settingsProbe: ExternalOperationProbe = alwaysPendingProbe;
 
   // Sheets-backed member sync (`membership.sheet_backup.synchronized`): `SheetsClient` has no
   // read-back method (see sheets.ts) to confirm a write landed, and building one is out of this
   // batch's scope (flagged as a follow-up in the batch-4 report). Same fallback as settings above
   // - `pending` forever, so the 24h boundary still applies instead of a permanent `not_eligible`.
-  const memberProbe: ExternalOperationProbe = async () => ({ state: 'pending' });
+  const memberProbe: ExternalOperationProbe = alwaysPendingProbe;
 
   return {
     gallery: driveFolderProbe('gallery'),

@@ -2063,12 +2063,17 @@ test('C2: POST /admin/members/transition audits the Sheets mirror as a correlate
     });
     assert.equal(res.status, 200);
   });
-  const events = await client.listDocs<{ action: string; changes: Array<{ field: string; after?: string }> }>('auditEvents');
+  const events = await client.listDocs<{ action: string; resource: { kind: string; key: string }; changes: Array<{ field: string; after?: string }> }>('auditEvents');
   const transitionEvent = events.find(e => e.data.action === 'membership.status.approved');
   const sheetEvent = events.find(e => e.data.action === 'membership.sheet_backup.synchronized');
   assert.ok(transitionEvent, 'the primary transition must still be audited, unchanged');
   assert.ok(sheetEvent, 'the Sheets mirror write must be its own audited event, not silently unaudited');
   assert.equal(sheetEvent!.data.changes.find(c => c.field === 'sheetBackup')?.after, 'ok');
+  // GPT-5 follow-up finding: this sub-operation must be member-attributed with the transitioned
+  // member's own canonical `member:{email}` key, not the old shared `member:sheet-backup` key -
+  // otherwise it's invisible from that member's own Historia resource-key filter.
+  assert.equal(sheetEvent!.data.resource.key, 'member:pending@example.com', 'must use the transitioned member\'s own resource key, not a shared sheet-backup key');
+  assert.equal(sheetEvent!.data.resource.key, transitionEvent!.data.resource.key, 'must match the primary transition event\'s own resource key');
 });
 
 test('POST /admin/members/transition still returns 200 (Firestore succeeded) even when the Sheets sync fails', async () => {
@@ -5534,6 +5539,104 @@ test('POST /internal/audit/reconcile: the redirect probe recognizes a genuinely 
   const deps = makeDeps({
     firestore,
     github: makeFakeGithub({ listRedirects: async () => [{ path: 'discord', target: 'https://discord.gg/abc123' }] }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_succeeded' }]);
+    }),
+  );
+
+  const outcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(outcome!.state, 'succeeded');
+  assert.equal(outcome!.determinedBy, 'reconciler');
+  assert.ok(outcome!.auditEventId);
+});
+
+// GPT-5 follow-up review (Finding 1, Critical): `gallery.photo.added` shares the `gallery`
+// resource kind with `gallery.created`, but its gallery folder already exists *before* the photo
+// upload starts - so a folder-existence probe is trivially always true for it and would fabricate
+// `succeeded` for an interrupted/ambiguous upload that never actually added a photo. The two
+// tests below prove: (1) that false positive no longer happens - reconciling a stuck
+// `gallery.photo.added` operation whose gallery folder genuinely exists still does NOT resolve as
+// `claimed_succeeded`, and instead only ever resolves via the 24h `requires_review` boundary, same
+// as the always-pending `member`/`settings` kinds; and (2) `gallery.created`'s own reconciliation
+// is unchanged - it still resolves `claimed_succeeded` via a real folder-existence probe.
+
+test('POST /internal/audit/reconcile: gallery.photo.added never resolves claimed_succeeded via folder existence (false positive), and reaches requires_review after the 24h boundary', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'gallery-folder-1';
+  // Backdated well past both the 30-minute request lease and the 24-hour requires_review
+  // boundary, so a single real-time reconcile call resolves it immediately.
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'gallery.photo.added',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId },
+      changes: [{ field: 'photoCount', after: 1 }],
+    },
+    { correlationId: 'gallery-photo-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The gallery folder DOES genuinely exist here - this is the exact scenario that used to
+    // fabricate a false `claimed_succeeded` via `driveFolderProbe`'s existence check, even though
+    // the interrupted upload never actually added a photo. Before the fix, this test's assertion
+    // below would have failed (outcome would have been 'claimed_succeeded' instead).
+    drive: makeFakeDrive({ folderExists: async () => true }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const outcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(outcome!.state, 'requires_review', 'must never be fabricated as succeeded merely because the (pre-existing) gallery folder exists');
+  assert.equal(outcome!.determinedBy, 'reconciler');
+  assert.equal(outcome!.auditEventId, undefined, 'no audit event should be manufactured for an unconfirmed upload');
+});
+
+test('POST /internal/audit/reconcile: gallery.created is unaffected by the gallery.photo.added fix - still resolves claimed_succeeded via a real folder-existence probe', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'gallery-folder-2';
+  // Past the 30-minute request lease (so it's eligible), but well within the 24h boundary - the
+  // only way this resolves as `claimed_succeeded` is the probe actually finding the folder.
+  const startedAt = new Date(Date.now() - 45 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'gallery.created',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId },
+      changes: [{ field: 'name', after: 'Test Album' }],
+    },
+    { correlationId: 'gallery-created-done-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({ folderExists: async id => id === folderId }),
     auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
     auditReconcileAudience: RECONCILER_AUDIENCE,
   });

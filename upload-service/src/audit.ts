@@ -87,6 +87,13 @@ const galleryFields = {
   contributorEmail: 'memberVisible',
   photoCount: 'memberVisible',
   finalized: 'memberVisible',
+  // Reported only by the reconciler's `driveFolderProbe` (server.ts) when it positively confirms
+  // a still-open `gallery.created` operation from folder existence - mirrors `person`'s own
+  // `folderId` entry in `profileFields` above, which the same shared probe helper already relies
+  // on. Previously missing here, so a genuine reconciler-confirmed `gallery.created` success would
+  // have thrown `AuditInputError` (uncovered until the gallery.photo.added reconciliation fix
+  // added a passing-case test for this exact path).
+  folderId: 'memberVisible',
 } as const;
 const siteFields = { path: 'roleRestricted', target: 'roleRestricted', liveFetchPostCount: 'roleRestricted', status: 'roleRestricted' } as const;
 
