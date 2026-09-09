@@ -26,13 +26,13 @@
 [data-section="warszawa"]  { --section-c: var(--section-color-warszawa); }
 [data-section="wroclaw"]   { --section-c: var(--section-color-wroclaw); }
 
-/* KRKG-0056: Typ członka (categoryId) shown as a colored pill under the name instead of its own
-   table column - same [data-x] -> --x-c custom-property pattern as Sekcja above, keyed by
-   lookupLists/categories' id instead. Kept independent of whether a Typ <select>/column also
-   exists on a given table (Zarządzanie ludźmi keeps both) - the pill's own data-category/text are
-   the single source of truth, synced to the dropdown's value on change where one exists. Always
-   rendered (even with no category, as a muted "Brak typu") rather than added/removed from the
-   DOM, so that sync is just updating an existing element's attribute and text. */
+/* KRKG-0057: Typ członka (categoryId) shown by wrapping the name itself in a colored pill,
+   instead of its own table column or a second pill next to the name - same [data-x] -> --x-c
+   custom-property pattern as Sekcja above, keyed by lookupLists/categories' id. Kept independent
+   of whether a Typ <select>/column also exists (Zarządzanie ludźmi keeps both) - the name
+   element's own data-category is the single source of truth, synced to the dropdown's value on
+   change where one exists. Deliberately just an outline (unlike .section-pill's filled
+   background below) so the two kinds of pill don't read as the same signal. */
 :root {
   --category-color-brokul:    #4caf50;
   --category-color-niewiasta: #d9709f;
@@ -50,20 +50,21 @@
 [data-category="kandydat"]  { --category-c: var(--category-color-kandydat); }
 [data-category="bobo"]      { --category-c: var(--category-color-bobo); }
 
-/* Same look as .section-pill below, just keyed by --category-c instead - self-contained (the
-   pill carries its own data-category directly) rather than inherited from an ancestor, since it
-   can sit inside a table cell that has no other reason to carry section-style row-level state. */
-.category-pill {
+.category-name-pill {
   display: inline-flex;
   align-items: center;
-  margin-top: 0.2rem;
-  padding: 0.1rem 0.55rem;
+  padding: 0.15rem 0.65rem;
   border-radius: 999px;
-  font-size: 0.78em;
-  font-weight: 600;
-  white-space: nowrap;
-  background: color-mix(in srgb, var(--category-c, var(--category-color-default)) 24%, var(--surface-deep));
-  color: color-mix(in srgb, var(--category-c, var(--category-color-default)) 60%, white);
+  border: 1.5px solid var(--category-c, var(--category-color-default));
+  background: transparent;
+}
+
+/* Overrides .czl-field's own border/radius on the editable fullName <input> (Zarządzanie ludźmi,
+   Spis Ludności's editable view) - needs the fuller selector to out-specificity that rule rather
+   than relying on source order. */
+.czl-table td input.czl-field.category-name-pill {
+  border: 1.5px solid var(--category-c, var(--category-color-default));
+  border-radius: 999px;
 }
 
 /* Rendered by each page's own sectionPillHtml() helper (duplicated per page, same convention as

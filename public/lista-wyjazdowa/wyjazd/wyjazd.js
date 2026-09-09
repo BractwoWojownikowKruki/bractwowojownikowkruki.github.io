@@ -39,12 +39,13 @@ function weaponIconHtml(id, label) {
     : `<span class="lw-weapon-icon lw-weapon-icon--text" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
 }
 
-// Typ (categoryId) shown as a colored pill under the name instead of its own column (KRKG-0056) -
-// same never-a-color-value-in-JS convention as sectionPillHtml elsewhere; the colors themselves
-// live in member-area.css's [data-category="..."] rules. This page never lets anyone edit Typ, so
-// it's always read-only here - no sync-on-change counterpart needed.
-function categoryPillHtml(categoryId, label) {
-  return `<span class="category-pill" data-category="${escapeAttr(categoryId ?? '')}">${escapeHtml(label || 'Brak typu')}</span>`;
+// Typ (categoryId) shown by wrapping the name itself in a colored outline pill, instead of its
+// own column or a second pill next to the name (KRKG-0057) - same never-a-color-value-in-JS
+// convention as sectionPillHtml elsewhere; the colors themselves live in member-area.css's
+// [data-category="..."] rules. This page never lets anyone edit Typ, so it's always read-only
+// here - no sync-on-change counterpart needed.
+function categoryNamePillAttrs(categoryId, label) {
+  return `class="category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak typu')}"`;
 }
 
 // fullName falls back to email because the roster now enumerates the whole club allowlist (see
@@ -266,9 +267,8 @@ function renderRoster(roster, signups) {
     <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
       <td>
         <div class="czl-name-cell">
-          <span>${escapeHtml(displayName(member))}</span>
+          <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
           <span class="czl-name-secondary ${member.nickname ? '' : 'czl-empty'}">${member.nickname ? escapeHtml(member.nickname) : EMPTY}</span>
-          ${categoryPillHtml(member.categoryId, categoryLabel)}
         </div>
       </td>
       <td>

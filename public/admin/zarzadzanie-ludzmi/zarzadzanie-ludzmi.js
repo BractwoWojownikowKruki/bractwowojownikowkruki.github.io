@@ -158,14 +158,14 @@ function categoryOptions(categories, currentCategoryId) {
   return options.join('');
 }
 
-// Typ (categoryId) shown as a colored pill under the name (KRKG-0056), independent of the Typ
-// <select> column below - unlike Sekcja's dot (removed in KRKG-0051 in favor of the row's own
-// accent bar), Typ has no bar of its own here, so this pill is the only visual cue and has to
-// stay in sync with the select's value on every change (see the change handler's categoryId
-// branch).
-function categoryPillHtml(categoryId, categories) {
+// Typ (categoryId) shown by wrapping the name <input> itself in a colored outline pill (KRKG-0057),
+// independent of the Typ <select> column below - unlike Sekcja's dot (removed in KRKG-0051 in
+// favor of the row's own accent bar), Typ has no bar of its own here, so this outline is the only
+// visual cue and has to stay in sync with the select's value on every change (see the change
+// handler's categoryId branch, which updates the fullName input's own data-category/title).
+function categoryNamePillAttrs(categoryId, categories) {
   const label = categories.find(c => c.id === categoryId)?.label;
-  return `<span class="category-pill" data-category="${escapeAttr(categoryId ?? '')}">${escapeHtml(label || 'Brak typu')}</span>`;
+  return `data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak typu')}"`;
 }
 
 // A member can hold more than one of these at once (e.g. accountant + admin), so the Rola column
@@ -270,9 +270,8 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
     <tr class="membership-member" data-email="${escapeAttr(m.email)}" data-section="${escapeAttr(m.sectionId ?? '')}">
       <td>
         <div class="czl-name-cell">
-          <input type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" />
+          <input type="text" class="czl-field category-name-pill" ${categoryNamePillAttrs(m.categoryId, categories)} data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" />
           <input type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" />
-          ${categoryPillHtml(m.categoryId, categories)}
         </div>
       </td>
       <td><select class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
@@ -337,9 +336,9 @@ document.getElementById('membership-members-list').addEventListener('change', as
       row.dataset.section = profileField.value;
     }
     if (profileField.dataset.field === 'categoryId') {
-      const pill = row.querySelector('.category-pill');
-      pill.dataset.category = profileField.value;
-      pill.textContent = profileField.selectedOptions[0]?.textContent || 'Brak typu';
+      const nameInput = row.querySelector('input[data-field="fullName"]');
+      nameInput.dataset.category = profileField.value;
+      nameInput.title = profileField.selectedOptions[0]?.textContent || 'Brak typu';
     }
     saveMemberProfileField(row, row.dataset.email);
     return;
