@@ -1960,6 +1960,123 @@ test('PUT /admin/members/drive-folder requires step-up freshness (rejects a stal
   });
 });
 
+test('PUT /admin/members/profile updates fullName/nickname/sectionId for an existing member', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', fullName: 'Ala Nowak', nickname: 'Alka', sectionId: 'krakow' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.member.fullName, 'Ala Nowak');
+    assert.equal(body.member.nickname, 'Alka');
+    assert.equal(body.member.updatedBy, 'admin@example.com');
+  });
+});
+
+test('PUT /admin/members/profile 404s for an unknown member', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'nobody@example.com', fullName: 'X', nickname: null, sectionId: 'krakow' }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('PUT /admin/members/profile rejects an unknown sectionId', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'nieznana' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/members/profile rejects a missing email', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ fullName: 'Ala', nickname: null, sectionId: 'krakow' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/members/profile requires step-up freshness (rejects a stale reauthAt)', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => {
+      throw new AuthError('Wymagane ponowne logowanie.', 401);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow' }),
+    });
+    assert.equal(res.status, 401);
+  });
+});
+
+test('GET /admin/lookup-lists returns sections/categories/weapons', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
+  const deps = makeDeps({ firestore: client });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/lookup-lists`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.sections, [{ id: 'krakow', label: 'Kraków', retired: false }]);
+  });
+});
+
+test('GET /admin/lookup-lists rejects an unauthenticated caller', async () => {
+  const deps = makeDeps({
+    authenticateAdmin: async () => {
+      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/lookup-lists`);
+    assert.equal(res.status, 401);
+  });
+});
+
 test('GET /admin/roles lists granted roles', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('userRoles', 'ala@example.com', { roles: ['accountant'] });

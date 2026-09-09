@@ -115,7 +115,7 @@ const ADMIN_ZONE_MENU = {
   items: [
     { href: '/admin/', label: 'Ogólne', icon: 'tool' },
     { href: '/admin/zgloszenia/', label: 'Zgłoszenia', icon: 'scroll' },
-    { href: '/admin/zarzadzanie-ludzmi/', label: 'Zarządzanie ludźmi', icon: 'users' },
+    { href: '/admin/zarzadzanie-ludzmi/', label: 'Spis Ludności', icon: 'users' },
     { href: '/admin/publiczne-wizytowki/', label: 'Publiczne wizytówki', icon: 'user' },
   ],
 };

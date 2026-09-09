@@ -746,6 +746,17 @@ async function handleAdminMembersSynchronize(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, { sheetSyncStatus });
 }
 
+// KRKG-0049: lets the admin panel (Spis Ludności page's Sekcja dropdown) read lookupLists
+// without requiring kruki-group membership - GET /lista-wyjazdowa/lookup-lists needs
+// authenticateWojownicyUpload, which an admin-allowlist account is not guaranteed to satisfy
+// (the two gates are deliberately independent, same reasoning as handleAdminUpdateMemberProfile
+// existing instead of reusing the accountant-role-gated PUT /lista-wyjazdowa/member).
+async function handleAdminGetLookupLists(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req, res);
+  const lists = await getAllLookupLists(deps.firestore);
+  sendJson(res, 200, lists);
+}
+
 // KRKG-0049: admin-only role assignment UI (Zarządzanie ludźmi page) - the first way to grant
 // userRoles other than a direct Firestore-console edit. GET is a plain read (handleAdminListMembers
 // pattern); PUT uses the step-up gate like the other admin mutations here, since granting 'admin'
@@ -1150,19 +1161,10 @@ async function handleListaWyjazdowaGetMember(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, { member });
 }
 
-// Self-service by default (targets the caller); an accountant/admin editing someone else's
-// record from the Lista Członków page (KRKG-0047) passes ?memberEmail=, gated by requireRole -
-// the same ?memberEmail= convention as the wpisowe/dues endpoints below, rather than a separate
-// admin-only route, since the validation (name/nickname length, known sectionId) is identical
-// either way.
-async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateWojownicyUpload(req, res);
-  const targetEmailParam = url.searchParams.get('memberEmail');
-  if (targetEmailParam) {
-    await requireRole(deps.firestore, identity.email, 'accountant');
-  }
-  const targetEmail = targetEmailParam ?? identity.email;
-  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+// Shared by handleListaWyjazdowaPutMember (self-service + accountant/admin from Lista Członków)
+// and handleAdminUpdateMemberProfile (admin panel's Spis Ludności page, KRKG-0049) - same field
+// validation either way, only the auth gate and target-resolution differ.
+async function parseMemberWritableFields(deps: ServerDeps, body: Record<string, unknown>): Promise<MemberWritableFields> {
   const fullNameInput = optionalTrimmedString(
     body.fullName,
     LW_MAX_NAME_LENGTH,
@@ -1188,7 +1190,43 @@ async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerRe
   };
   const lookupLists = await getAllLookupLists(deps.firestore);
   requireKnownLookupId(lookupLists.sections, fields.sectionId, 'Wybrana sekcja nie istnieje.');
+  return fields;
+}
+
+// Self-service by default (targets the caller); an accountant/admin editing someone else's
+// record from the Lista Członków page (KRKG-0047) passes ?memberEmail=, gated by requireRole -
+// the same ?memberEmail= convention as the wpisowe/dues endpoints below, rather than a separate
+// admin-only route, since the validation (name/nickname length, known sectionId) is identical
+// either way.
+async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const targetEmailParam = url.searchParams.get('memberEmail');
+  if (targetEmailParam) {
+    await requireRole(deps.firestore, identity.email, 'accountant');
+  }
+  const targetEmail = targetEmailParam ?? identity.email;
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const fields = await parseMemberWritableFields(deps, body);
   const member = await saveMember(deps.firestore, targetEmail, fields, identity.email);
+  sendJson(res, 200, { member });
+}
+
+// Admin-panel counterpart (KRKG-0049's Spis Ludności page) to the accountant/admin-role-gated
+// endpoint above - gated by the admin allowlist (authenticateAdminWithStepUp) instead of
+// requireRole('accountant'), matching every other member-editing action on that page (transition,
+// drive-folder link, role assignment). Requires the member to already exist, unlike
+// handleListaWyjazdowaPutMember's self-service path, which may be creating a brand-new doc -
+// an admin editing from a list of already-known members should never accidentally create one
+// from a mistyped email.
+async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const email = body.email;
+  if (typeof email !== 'string' || !email.trim()) throw new AuthError('Brak email.', 400);
+  const existing = await getMember(deps.firestore, email);
+  if (!existing) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  const fields = await parseMemberWritableFields(deps, body);
+  const member = await saveMember(deps.firestore, email, fields, identity.email);
   sendJson(res, 200, { member });
 }
 
@@ -2065,6 +2103,10 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminMemberTransition(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/members/drive-folder') {
         await handleAdminSetMemberDriveFolder(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/members/profile') {
+        await handleAdminUpdateMemberProfile(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/lookup-lists') {
+        await handleAdminGetLookupLists(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/members/synchronize') {
         await handleAdminMembersSynchronize(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/roles') {

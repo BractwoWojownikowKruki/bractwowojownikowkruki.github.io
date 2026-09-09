@@ -96,6 +96,33 @@ async function loadRolesByEmail() {
   return new Map(roles.map(r => [r.email, r.roles]));
 }
 
+// Sections don't change within one open admin session - cached the same way driveFolderOptions
+// is above. Uses GET /admin/lookup-lists (admin-allowlist-gated), not
+// GET /lista-wyjazdowa/lookup-lists, since an admin-allowlist account isn't guaranteed to also be
+// a kruki-group member.
+let sectionsPromise = null;
+function loadSections() {
+  if (!sectionsPromise) {
+    sectionsPromise = apiFetch('/admin/lookup-lists', { method: 'GET' }, showReauth, hideReauth).then(data => data.sections ?? []);
+  }
+  return sectionsPromise;
+}
+
+// A retired section (design.md §5, mirrors czlonkowie.js/profil.js) is withdrawn from *new*
+// selection, but must still resolve for a member who already has it. A sectionId with no
+// matching entry at all (e.g. "nieznana", migrate-existing-members.ts's fallback for an unknown
+// section) gets a synthesized fallback option instead of vanishing from the dropdown entirely -
+// same "never hide an unresolved reference" fix as czlonkowie.js/profil.js.
+function sectionOptions(sections, currentSectionId) {
+  const options = sections
+    .filter(s => !s.retired || s.id === currentSectionId)
+    .map(s => `<option value="${escapeAttr(s.id)}" ${s.id === currentSectionId ? 'selected' : ''}>${escapeHtml(s.label)}</option>`);
+  if (currentSectionId && !sections.some(s => s.id === currentSectionId)) {
+    options.unshift(`<option value="${escapeAttr(currentSectionId)}" selected>${escapeHtml(currentSectionId)}</option>`);
+  }
+  return options.join('');
+}
+
 // Collapses a roles array down to the single tier this column offers - 'admin' wins over
 // 'accountant' if a doc somehow has both, empty/unknown roles show as no assigned role ('').
 function roleTier(roles) {
@@ -119,20 +146,21 @@ async function renderRolesAuditLog() {
 
 // Cached from the last successful load so the free-text filter can re-render instantly without
 // re-fetching - cleared/replaced on every status change or data-changing action.
-let membershipMembersCache = { members: [], status: 'active', driveFolderOptions: [], rolesByEmail: new Map() };
+let membershipMembersCache = { members: [], status: 'active', driveFolderOptions: [], rolesByEmail: new Map(), sections: [] };
 
 async function loadMembershipMembers() {
   const status = document.getElementById('membership-status-filter').value;
   const list = document.getElementById('membership-members-list');
   list.textContent = 'Ładowanie...';
   try {
-    const [{ members }, driveFolderOptions, rolesByEmail] = await Promise.all([
+    const [{ members }, driveFolderOptions, rolesByEmail, sections] = await Promise.all([
       apiFetch(`/admin/members?status=${encodeURIComponent(status)}`, { method: 'GET' }, showReauth, hideReauth),
       loadDriveFolderOptions(),
       loadRolesByEmail(),
+      loadSections(),
     ]);
-    membershipMembersCache = { members, status, driveFolderOptions, rolesByEmail };
-    renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail);
+    membershipMembersCache = { members, status, driveFolderOptions, rolesByEmail, sections };
+    renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections);
   } catch (err) {
     list.textContent = `Błąd: ${err.message}`;
   }
@@ -147,8 +175,8 @@ function filterMembershipMembers(members) {
 }
 
 document.getElementById('membership-members-filter').addEventListener('input', () => {
-  const { members, status, driveFolderOptions, rolesByEmail } = membershipMembersCache;
-  renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail);
+  const { members, status, driveFolderOptions, rolesByEmail, sections } = membershipMembersCache;
+  renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections);
 });
 
 function roleSelectHtml(email, roles) {
@@ -161,7 +189,7 @@ function roleSelectHtml(email, roles) {
     </select>`;
 }
 
-function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail) {
+function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections) {
   const list = document.getElementById('membership-members-list');
   if (!members.length) {
     list.innerHTML = '<p>Brak członków w tym statusie.</p>';
@@ -185,9 +213,13 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
         const currentValue = m.driveFolderId ? (labelByFolderId.get(m.driveFolderId) ?? m.driveFolderId) : '';
         return `
     <div class="membership-member" data-email="${escapeAttr(m.email)}" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; padding:0.3rem 0; border-bottom:1px solid var(--border);">
-      <div style="flex:1; min-width:200px;">
-        <strong>${escapeHtml(m.fullName)}</strong>${m.nickname ? ` (${escapeHtml(m.nickname)})` : ''}
-        <br><span style="color:var(--text-muted);">${escapeHtml(m.email)} - ${escapeHtml(m.sectionId)}</span>
+      <div style="flex:1; min-width:280px;">
+        <div style="display:flex; gap:0.35rem; flex-wrap:wrap; margin-bottom:0.2rem;">
+          <input type="text" class="member-field" data-email="${escapeAttr(m.email)}" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" style="width:160px; font-size:12px;" />
+          <input type="text" class="member-field" data-email="${escapeAttr(m.email)}" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" style="width:100px; font-size:12px;" />
+          <select class="member-field" data-email="${escapeAttr(m.email)}" data-field="sectionId" style="font-size:12px;">${sectionOptions(sections, m.sectionId)}</select>
+        </div>
+        <span style="color:var(--text-muted);">${escapeHtml(m.email)}</span>
         <br><span style="color:var(--text-faint); font-size:12px;">Ostatnie logowanie: ${m.lastLoginAt ? escapeHtml(formatDateTime(m.lastLoginAt)) : 'Nigdy'}</span>
       </div>
       <div style="display:flex; align-items:center; gap:0.4rem;">
@@ -208,7 +240,47 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       .join('');
 }
 
+// Saves fullName/nickname/sectionId together (one PUT, not per-field) using each field's
+// *current* DOM value - mirrors czlonkowie.js's saveMemberField. Doesn't call
+// loadMembershipMembers()/renderMembershipMembers() on success: re-rendering would resort/refilter
+// the list out from under whichever field the admin is about to edit next, so `members` is
+// patched in place instead and the DOM is left exactly as shown.
+async function saveMemberProfileField(row, email) {
+  const fullNameInput = row.querySelector('[data-field="fullName"]');
+  const nicknameInput = row.querySelector('[data-field="nickname"]');
+  const sectionSelect = row.querySelector('[data-field="sectionId"]');
+  const fullName = fullNameInput.value.trim();
+  const nickname = nicknameInput.value.trim();
+  const sectionId = sectionSelect.value;
+  try {
+    await apiFetch(
+      '/admin/members/profile',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, fullName: fullName || null, nickname: nickname || null, sectionId }),
+      },
+      showReauth,
+      hideReauth,
+    );
+    const member = membershipMembersCache.members.find(m => m.email === email);
+    if (member) {
+      member.fullName = fullName || null;
+      member.nickname = nickname || null;
+      member.sectionId = sectionId;
+    }
+  } catch (err) {
+    window.alert(`Błąd zapisu: ${err.message}`);
+  }
+}
+
 document.getElementById('membership-members-list').addEventListener('change', async e => {
+  const profileField = e.target.closest('.member-field');
+  if (profileField) {
+    saveMemberProfileField(profileField.closest('.membership-member'), profileField.dataset.email);
+    return;
+  }
+
   const roleSelect = e.target.closest('.member-role');
   if (roleSelect) {
     const email = roleSelect.dataset.email;
