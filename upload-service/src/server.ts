@@ -2892,8 +2892,19 @@ function buildReconciliationProbes(deps: ServerDeps): Partial<Record<AuditOperat
   // resource protocol"), not the generic `{kind}:{folderId}` shape driveFolderProbe assumes -
   // handleWojownicyUploadPhoto's own intent (I4 fix) now uses that exact same final shape from
   // the start, so both this kind's mutation routes share one parsing rule here.
+  //
+  // Same allowlist-vs-blocklist bug as driveFolderProbe above, third instance (see a83ab0a and
+  // 13b4709): `profile.photo_submission.created` is the only memberSubmission action where "the
+  // submission folder now exists" is proof of success (before it ran, the folder did not exist).
+  // `profile.photo_submission.photo_added` (handleWojownicyUploadPhoto) reuses the submission
+  // folder that `.created` already made - by I4's own fix it uses that same real, non-provisional
+  // key from the outset - so `folderExists` on it is trivially always true and would fabricate
+  // `succeeded` for a photo upload that never completed. Allowlist, not blocklist, so a future
+  // third memberSubmission-kind action defaults safely to always-pending without anyone having to
+  // touch this probe again.
   const memberSubmissionProbe: ExternalOperationProbe = async intent => {
     if (intent.resource.key.startsWith('memberSubmission:pending:')) return { state: 'pending' };
+    if (intent.action !== 'profile.photo_submission.created') return alwaysPendingProbe(intent);
     const match = /:submission:([^:]+)$/.exec(intent.resource.key);
     if (!match) return { state: 'pending' };
     const folderId = match[1];

@@ -5847,3 +5847,102 @@ test('POST /internal/audit/reconcile: profile.person.description.updated never r
   assert.equal(updatedOutcome!.determinedBy, 'reconciler');
   assert.equal(updatedOutcome!.auditEventId, undefined, 'no audit event should be manufactured for an unconfirmed description update');
 });
+
+// GPT-5 follow-up review: the same allowlist-vs-blocklist bug exists a third time, for the
+// `memberSubmission` resource kind, which shares `ACTION_REGISTRY`'s two `profile.photo_submission.*`
+// actions. Only `profile.photo_submission.created` (handleWojownicyUploadSubmit) is the case where
+// "the submission folder now exists" proves that operation's own effect - its intent starts with a
+// provisional `memberSubmission:pending:{correlationId}` key that only upgrades to the real
+// `member:{email}:submission:{folderId}` key on success, mirroring `gallery.created`/
+// `profile.person.created`. `profile.photo_submission.photo_added` (handleWojownicyUploadPhoto)
+// reuses the submission folder that `.created` already made, and - per the I4 fix - uses that same
+// real, non-provisional key from the very start, so folder existence there is trivially always true
+// and proves nothing about whether that specific photo upload completed. Before this fix, the test
+// below would have failed (outcome would have been 'claimed_succeeded' instead of
+// 'claimed_requires_review').
+
+test('POST /internal/audit/reconcile: profile.photo_submission.photo_added never resolves claimed_succeeded via folder existence (the submission folder pre-exists regardless of whether the photo upload ran)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'submission-folder-1';
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'profile.photo_submission.photo_added',
+      actor: { email: 'member@example.test' },
+      resource: { kind: 'memberSubmission', key: `member:member@example.test:submission:${folderId}`, display: folderId },
+      changes: [{ field: 'fileId', after: 'pending' }],
+    },
+    { correlationId: 'submission-photo-added-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The submission folder DOES genuinely exist here - it was created long before this (stuck)
+    // photo-add attempt, by the earlier .created call. This is the exact scenario that would
+    // fabricate a false `claimed_succeeded` if memberSubmissionProbe still only excluded via the
+    // provisional-key check instead of allowlisting the action itself.
+    drive: makeFakeDrive({ folderExists: async () => true }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const outcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(outcome!.state, 'requires_review', 'must never be fabricated as succeeded merely because the (pre-existing) submission folder exists');
+  assert.equal(outcome!.determinedBy, 'reconciler');
+  assert.equal(outcome!.auditEventId, undefined, 'no audit event should be manufactured for an unconfirmed photo upload');
+});
+
+test('POST /internal/audit/reconcile: profile.photo_submission.created is unaffected by the photo_added fix - still resolves claimed_succeeded via a real folder-existence probe', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'submission-folder-2';
+  // Past the 30-minute request lease (so it's eligible), but well within the 24h boundary - the
+  // only way this resolves as `claimed_succeeded` is the probe actually finding the folder.
+  const startedAt = new Date(Date.now() - 45 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'profile.photo_submission.created',
+      actor: { email: 'member@example.test' },
+      resource: { kind: 'memberSubmission', key: `member:member@example.test:submission:${folderId}`, display: 'Jan Kowalski' },
+      changes: [{ field: 'name', after: 'Jan Kowalski' }],
+    },
+    { correlationId: 'submission-created-done-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({ folderExists: async id => id === folderId }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_succeeded' }]);
+    }),
+  );
+
+  const outcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(outcome!.state, 'succeeded');
+  assert.equal(outcome!.determinedBy, 'reconciler');
+  assert.ok(outcome!.auditEventId);
+});
