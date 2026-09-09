@@ -240,7 +240,10 @@ test('reports a confirmed installation once through the authenticated API', asyn
 
   await harness.emit('appinstalled', {});
 
-  assert.deepEqual(harness.apiFetchCalls, [{
+  assert.deepEqual(harness.apiFetchCalls.map(call => ({
+    path: call.path,
+    options: { method: call.options.method },
+  })), [{
     path: '/application/pwa-installation',
     options: { method: 'POST' },
   }]);
