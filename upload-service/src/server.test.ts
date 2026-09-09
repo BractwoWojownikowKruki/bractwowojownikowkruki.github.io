@@ -1794,6 +1794,23 @@ test('GET /admin/members?status=pending lists pending applications', async () =>
   });
 });
 
+test('GET /admin/members includes a member marked hidden - the one listing allowed to show them', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'skryty@example.com', {
+    email: 'skryty@example.com', fullName: 'Skryty', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x',
+    approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x', hidden: true,
+  });
+  const deps = makeDeps({ firestore: client });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members?status=active`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.members.length, 1);
+    assert.equal(body.members[0].hidden, true);
+  });
+});
+
 test('GET /admin/members rejects an unknown status value', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
@@ -2128,6 +2145,119 @@ test('PUT /admin/members/profile rejects an unknown categoryId', async () => {
       method: 'PUT',
       headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
       body: JSON.stringify({ email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow', categoryId: 'bogus' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/members/profile sets hidden when present in the body', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x', hidden: false,
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', hidden: true }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.member.hidden, true);
+  });
+  const stored = await client.getDoc<{ hidden: boolean }>('members', 'ala@example.com');
+  assert.equal(stored?.hidden, true);
+});
+
+test('PUT /admin/members/profile setting hidden alone does not require fullName/nickname/sectionId', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x', hidden: false,
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', hidden: true }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ fullName: string; hidden: boolean }>('members', 'ala@example.com');
+  assert.equal(stored?.hidden, true);
+  assert.equal(stored?.fullName, 'Ala', 'unrelated fields must survive untouched');
+});
+
+test('PUT /admin/members/profile can clear hidden back to false', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x', hidden: true,
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', hidden: false }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ hidden: boolean }>('members', 'ala@example.com');
+  assert.equal(stored?.hidden, false);
+});
+
+test('PUT /admin/members/profile leaves hidden untouched when omitted from the body', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x', hidden: true,
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', fullName: 'Ala Nowak', nickname: null, sectionId: 'krakow' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ hidden: boolean }>('members', 'ala@example.com');
+  assert.equal(stored?.hidden, true);
+});
+
+test('PUT /admin/members/profile rejects a non-boolean hidden value', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x', hidden: false,
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', hidden: 'yes' }),
     });
     assert.equal(res.status, 400);
   });
@@ -4263,6 +4393,27 @@ test('GET /lista-wyjazdowa/roster includes allowlisted members with no members/{
   });
 });
 
+test('GET /lista-wyjazdowa/roster excludes a member marked hidden', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  firestore.seed('members', 'skryty@gmail.com', {
+    fullName: 'Skryty Wojownik',
+    nickname: null,
+    sectionId: 'krakow',
+    categoryId: null,
+    driveFolderId: null,
+    updatedAt: '2027-01-01T00:00:00.000Z',
+    updatedBy: 'skryty@gmail.com',
+    hidden: true,
+  });
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com', 'skryty@gmail.com'] });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
+    assert.equal(body.roster.length, 1);
+    assert.equal(body.roster[0].email, 'wojownik@gmail.com');
+  });
+});
+
 test('GET /lista-wyjazdowa/signups returns the full raw roster of signups for an event', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'wojownik@gmail.com');
@@ -4567,6 +4718,30 @@ test('GET /members/directory requires the same gate as authenticateWojownicyUplo
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/members/directory`);
     assert.equal(res.status, 403);
+  });
+});
+
+test('GET /members/directory excludes a member marked hidden', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'zprofilem@example.test');
+  firestore.seed('members', 'skryty@example.test', {
+    fullName: 'Skryty',
+    nickname: null,
+    sectionId: 'krakow',
+    categoryId: null,
+    driveFolderId: null,
+    updatedAt: '2027-01-01T00:00:00.000Z',
+    updatedBy: 'skryty@example.test',
+    hidden: true,
+  });
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['zprofilem@example.test', 'skryty@example.test'],
+  });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/members/directory`)).json();
+    assert.equal(body.members.length, 1);
+    assert.equal(body.members[0].email, 'zprofilem@example.test');
   });
 });
 

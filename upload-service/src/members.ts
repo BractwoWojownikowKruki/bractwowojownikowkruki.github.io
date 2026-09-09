@@ -20,6 +20,12 @@ export interface MemberDoc {
   // that). null until this member's first login recorded under this field, which for anyone
   // approved before KRKG-0049 shipped means null-until-next-sign-in, not "never signed in".
   lastLoginAt: string | null;
+  // KRKG-0060: admin-owned, same as categoryId/driveFolderId (see saveMember's comment) - settable
+  // only from Zarządzanie ludźmi (setMemberHidden below), which is also the only listing endpoint
+  // that shows a hidden member at all. Every other member-listing endpoint (Spis Ludności, the
+  // Lista Wyjazdowa roster) excludes them entirely, rather than showing them greyed out or with a
+  // separate visibility flag - a member marked hidden should read as absent everywhere but there.
+  hidden: boolean;
 }
 
 export interface MemberWritableFields {
@@ -79,6 +85,7 @@ export async function saveMember(
         approvedAt: null,
         approvedBy: null,
         lastLoginAt: null,
+        hidden: false,
       };
   await client.setDoc(COLLECTION, id, record);
   return record;
@@ -116,6 +123,20 @@ export async function setMemberCategoryId(
   const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
   if (!existing) throw new Error(`Nie znaleziono członka: ${id}`);
   await client.setDoc(COLLECTION, id, { categoryId });
+}
+
+// KRKG-0060: whether this member is hidden from every listing endpoint except Zarządzanie
+// ludźmi's own (see MemberDoc.hidden's comment) - same shape as setMemberCategoryId, since it's
+// only ever called from that same admin panel page, editing someone already in the list.
+export async function setMemberHidden(
+  client: FirestoreLikeClient,
+  email: string,
+  hidden: boolean,
+): Promise<void> {
+  const id = email.toLowerCase();
+  const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
+  if (!existing) throw new Error(`Nie znaleziono członka: ${id}`);
+  await client.setDoc(COLLECTION, id, { hidden });
 }
 
 // KRKG-0049: called from handleSessionLogin on every real Google Sign-In. Silently does nothing

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
-import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberCategoryId, recordLastLogin } from './members.ts';
+import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberCategoryId, setMemberHidden, recordLastLogin } from './members.ts';
 
 test('getMember returns null when no record exists', async () => {
   const client = createInMemoryFirestoreClient();
@@ -287,6 +287,60 @@ test('setMemberCategoryId can clear categoryId back to null', async () => {
 test('setMemberCategoryId throws when the member does not exist', async () => {
   const client = createInMemoryFirestoreClient();
   await assert.rejects(() => setMemberCategoryId(client, 'nobody@example.test', 'thing'));
+});
+
+test('setMemberHidden sets hidden on an existing member without touching other fields', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.test', {
+    email: 'ala@example.test',
+    fullName: 'Ala Kowalska',
+    nickname: 'Alka',
+    sectionId: 'krakow',
+    categoryId: null,
+    driveFolderId: null,
+    status: 'active',
+    appliedAt: '2026-01-01T00:00:00.000Z',
+    approvedAt: '2026-01-02T00:00:00.000Z',
+    approvedBy: 'admin@example.test',
+    updatedAt: '2026-01-02T00:00:00.000Z',
+    updatedBy: 'ala@example.test',
+    hidden: false,
+  });
+
+  await setMemberHidden(client, 'ala@example.test', true);
+
+  const stored = await getMember(client, 'ala@example.test');
+  assert.equal(stored?.hidden, true);
+  assert.equal(stored?.fullName, 'Ala Kowalska', 'unrelated fields must survive untouched');
+});
+
+test('setMemberHidden can clear hidden back to false', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.test', {
+    email: 'ala@example.test',
+    fullName: 'Ala Kowalska',
+    nickname: null,
+    sectionId: 'krakow',
+    categoryId: null,
+    driveFolderId: null,
+    status: 'active',
+    appliedAt: 'x',
+    approvedAt: null,
+    approvedBy: null,
+    updatedAt: 'x',
+    updatedBy: 'x',
+    hidden: true,
+  });
+
+  await setMemberHidden(client, 'ala@example.test', false);
+
+  const stored = await getMember(client, 'ala@example.test');
+  assert.equal(stored?.hidden, false);
+});
+
+test('setMemberHidden throws when the member does not exist', async () => {
+  const client = createInMemoryFirestoreClient();
+  await assert.rejects(() => setMemberHidden(client, 'nobody@example.test', true));
 });
 
 test('recordLastLogin sets lastLoginAt on an existing member without touching other fields', async () => {

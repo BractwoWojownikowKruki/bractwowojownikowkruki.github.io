@@ -111,6 +111,7 @@ export async function migrateActiveMembers(
           updatedAt: now,
           updatedBy: 'migration-script',
           lastLoginAt: null,
+          hidden: false,
         };
         await client.setDoc('members', email, record);
       }

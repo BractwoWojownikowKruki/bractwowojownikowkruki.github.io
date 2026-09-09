@@ -241,7 +241,7 @@ function roleCheckboxesHtml(roles) {
 function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections, categories) {
   const tbody = document.getElementById('membership-members-list');
   if (!members.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="czl-empty">Brak członków w tym statusie.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     return;
   }
   // Grouped by section, alphabetical within it (KRKG-0051) - same rule as czlonkowie.js's Sekcja
@@ -276,6 +276,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       </td>
       <td><select class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
       <td><select class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>
+      <td><input type="checkbox" class="member-hidden-checkbox" data-field="hidden" ${m.hidden ? 'checked' : ''} /></td>
       <td>${escapeHtml(m.email)}</td>
       <td>${m.lastLoginAt ? escapeHtml(formatDateTime(m.lastLoginAt)) : 'Nigdy'}</td>
       <td>
@@ -326,7 +327,32 @@ async function saveMemberProfileField(row, email) {
   }
 }
 
+// KRKG-0060: hidden is admin/moderator-owned like categoryId, but sent on its own rather than
+// through saveMemberProfileField's combined write - toggling it shouldn't require (or risk
+// clobbering) the name/section/category fields also present in that same row.
+async function saveMemberHidden(email, hidden) {
+  try {
+    await apiFetch(
+      '/admin/members/profile',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, hidden }) },
+      showReauth,
+      hideReauth,
+    );
+    const member = membershipMembersCache.members.find(m => m.email === email);
+    if (member) member.hidden = hidden;
+  } catch (err) {
+    window.alert(`Błąd zapisu: ${err.message}`);
+  }
+}
+
 document.getElementById('membership-members-list').addEventListener('change', async e => {
+  const hiddenCheckbox = e.target.closest('.member-hidden-checkbox');
+  if (hiddenCheckbox) {
+    const row = hiddenCheckbox.closest('tr');
+    saveMemberHidden(row.dataset.email, hiddenCheckbox.checked);
+    return;
+  }
+
   const profileField = e.target.closest('.czl-field');
   if (profileField && profileField.dataset.field) {
     const row = profileField.closest('tr');

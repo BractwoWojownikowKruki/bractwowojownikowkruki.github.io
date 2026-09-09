@@ -27,7 +27,7 @@ import {
   type AdminDepartment,
 } from './about-us.ts';
 import { createFirestoreClient, type FirestoreLikeClient } from './firestore.ts';
-import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberCategoryId, recordLastLogin, type MemberWritableFields } from './members.ts';
+import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberCategoryId, setMemberHidden, recordLastLogin, type MemberWritableFields } from './members.ts';
 import { applyForMembership, applyAdminTransition, listMembersByStatus, type AdminTransition } from './membership.ts';
 import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
@@ -1263,8 +1263,15 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
   if (typeof email !== 'string' || !email.trim()) throw new AuthError('Brak email.', 400);
   const existing = await getMember(deps.firestore, email);
   if (!existing) throw new AuthError('Nie znaleziono takiego członka.', 404);
-  const fields = await parseMemberWritableFields(deps, body);
-  const member = await saveMember(deps.firestore, email, fields, identity.email);
+  // fullName/nickname/sectionId are only validated-and-saved as a bundle when at least one of
+  // them is actually present - same "send it or leave it untouched" shape as categoryId/hidden
+  // below, so e.g. zarzadzanie-ludzmi.js's hidden checkbox can PUT { email, hidden } alone without
+  // also having to resend (and re-pass validation for) the name/section fields already showing.
+  let member = existing;
+  if (body.fullName !== undefined || body.nickname !== undefined || body.sectionId !== undefined) {
+    const fields = await parseMemberWritableFields(deps, body);
+    member = await saveMember(deps.firestore, email, fields, identity.email);
+  }
   if (body.categoryId !== undefined) {
     const categoryIdRaw = body.categoryId;
     if (categoryIdRaw !== null && typeof categoryIdRaw !== 'string') {
@@ -1277,6 +1284,11 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
     }
     await setMemberCategoryId(deps.firestore, email, categoryId);
     member.categoryId = categoryId;
+  }
+  if (body.hidden !== undefined) {
+    if (typeof body.hidden !== 'boolean') throw new AuthError('Nieprawidłowa wartość hidden.', 400);
+    await setMemberHidden(deps.firestore, email, body.hidden);
+    member.hidden = body.hidden;
   }
   sendJson(res, 200, { member });
 }
@@ -1514,7 +1526,9 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
   ]);
   const memberByEmail = new Map(members.map((m) => [m.email, m]));
   const profileByEmail = new Map(profiles.map((p) => [p.email, p]));
-  const roster = emails.map((email) => {
+  // KRKG-0060: a member marked hidden (only settable from Zarządzanie ludźmi) is excluded from
+  // this roster entirely, not just their name - they read as absent, not as an anonymous row.
+  const roster = emails.filter((email) => memberByEmail.get(email)?.hidden !== true).map((email) => {
     const member = memberByEmail.get(email);
     const profile = profileByEmail.get(email);
     return {
@@ -1555,7 +1569,9 @@ async function handleMembersDirectory(req: IncomingMessage, res: ServerResponse,
   const memberByEmail = new Map(members.map((m) => [m.email, m]));
   const sectionLabelById = new Map(lookupLists.sections.map((s) => [s.id, s.label]));
   const categoryLabelById = new Map(lookupLists.categories.map((c) => [c.id, c.label]));
-  const directory = emails.map((email) => {
+  // KRKG-0060: a member marked hidden (only settable from Zarządzanie ludźmi) is excluded from
+  // this directory entirely, not just their name - they read as absent, not as an anonymous row.
+  const directory = emails.filter((email) => memberByEmail.get(email)?.hidden !== true).map((email) => {
     const member = memberByEmail.get(email);
     return {
       email,

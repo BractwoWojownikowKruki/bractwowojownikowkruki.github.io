@@ -21,7 +21,7 @@ const sections = ['Bydgoszcz', 'Czukcze', 'Kraków', 'Poznań', 'Warszawa', 'Wro
   retired: false,
 }));
 
-const categories = ['Brokuł', 'Kandydat', 'Blacha', 'Thing', 'Niewiasta', 'Bobo', 'Inne'].map((label) => ({
+const categories = ['Brokuł', 'Kandydat', 'Blacha', 'Thing', 'Niewiasta', 'Bobo', 'Emeryt', 'Inne'].map((label) => ({
   id: slugify(label),
   label,
   retired: false,
