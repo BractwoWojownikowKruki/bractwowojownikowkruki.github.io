@@ -53,12 +53,14 @@
           <div id="event-actions">
             <button type="button" id="cancel-event-btn" class="btn-cancel">Odwołaj wyjazd</button>
             <button type="button" id="restore-event-btn" class="btn-cancel" hidden>Przywróć wyjazd</button>
+            <a id="event-history-link" class="audyt-history-link" href="/audyt/">◷ Historia</a>
           </div>
 
           <!-- Fee display is always rendered; the edit controls are only unhidden when the signed-in
                member's role (fetched via /lista-wyjazdowa/my-role) grants canManageSkladki. -->
           <div id="skladka-fee-panel">
             <span id="skladka-fee-display"></span>
+            <a id="skladka-fee-history-link" class="audyt-history-link" href="/audyt/">◷ Historia składki</a>
             <span id="skladka-fee-edit" hidden>
               <input type="text" id="skladka-fee-input" placeholder="np. 50 zł / 25 zł dzieci" />
               <button type="button" id="skladka-fee-save" class="btn-cancel">Zapisz składkę</button>

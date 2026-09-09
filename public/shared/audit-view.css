@@ -1,0 +1,143 @@
+/* KRKG-0050 batch 5/6: styling for the shared audit-view module (audit-view.js) - filter bar,
+   four-column table (reuses .czl-table/.czl-table-wrap from style.css, already loaded by both
+   shell pages before this file), "load more", non-modal detail drawer, and diagnostics state
+   badges. Kept in this codebase's established visual language (.btn-add-album, var(--surface)/
+   var(--border)/var(--gold), the same red/gold/muted vocabulary as .member-action/
+   .lw-attend-toggle) rather than introducing a new component library or a visually distinct table
+   style, per plan.md. Loaded only by public/audyt/index.html and public/admin/audyt/index.html -
+   not part of style.css's PWA-precached shell budget, see style.css's .audyt-history-link comment. */
+
+.audyt-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.audyt-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.audyt-filter-field input,
+.audyt-filter-field select {
+  min-width: 10rem;
+}
+
+.audyt-selector-value {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.audyt-value {
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 13px;
+}
+
+.audyt-rows tr {
+  cursor: pointer;
+}
+
+/* Non-modal detail drawer (implementation-contract.md's "detail drawer" language) - a fixed side
+   panel, not a dialog overlay; .audyt-drawer-backdrop is just a click target to dismiss it. */
+.audyt-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.audyt-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.audyt-drawer-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 100%);
+  overflow-y: auto;
+  padding: 1.5rem;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+}
+
+.audyt-drawer-close {
+  float: right;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+}
+
+.audyt-drawer-close:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.audyt-drawer-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.audyt-drawer-meta dt {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.audyt-drawer-meta dd {
+  margin: 0;
+}
+
+.audyt-drawer-changes {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.audyt-drawer-changes li {
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 13px;
+  margin-bottom: 0.3rem;
+}
+
+/* Diagnostics state badges (pending/failed/requires_review) - visually distinguished per
+   implementation-contract.md, same red/gold/muted vocabulary as the rest of the admin panel. */
+.audyt-diagnostics-state {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.audyt-diagnostics-state--pending {
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.audyt-diagnostics-state--failed {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.audyt-diagnostics-state--requires_review {
+  color: var(--gold);
+  border: 1px solid var(--gold);
+}
+
+@media (max-width: 640px) {
+  .audyt-filters { flex-direction: column; align-items: stretch; }
+  .audyt-drawer-panel { width: 100%; }
+}

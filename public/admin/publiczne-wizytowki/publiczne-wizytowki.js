@@ -178,6 +178,7 @@ function renderManageList(people, transferTargets) {
       return `
     <div style="border:1px solid var(--border); border-radius:6px; padding:1rem;">
       <strong>${escapeHtml(p.name)}</strong>
+      <a class="audyt-history-link" style="margin-left:0.5rem;" href="/admin/audyt/?resourceKey=${encodeURIComponent(`person:${p.folderId}`)}">◷ Historia</a>
       <div style="margin:0.5rem 0;">${photosHtml}</div>
       <textarea class="edit-description" data-folder-id="${p.folderId}" rows="6" style="width:100%; margin:0.5rem 0;">${escapeHtml(p.description)}</textarea>
       <button class="save-description" data-folder-id="${p.folderId}">Zapisz opis</button>

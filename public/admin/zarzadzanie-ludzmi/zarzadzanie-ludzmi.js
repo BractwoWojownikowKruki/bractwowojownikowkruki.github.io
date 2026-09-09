@@ -288,7 +288,10 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
         <span class="drive-folder-saved" style="color:var(--gold);" hidden>✓</span>
       </td>
       <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(rolesByEmail.get(m.email))}</td>
-      <td>${actions.map(a => `<button class="member-action" data-transition="${a.transition}">${a.label}</button>`).join('')}</td>
+      <td>
+        ${actions.map(a => `<button class="member-action" data-transition="${a.transition}">${a.label}</button>`).join('')}
+        <a class="audyt-history-link" href="/admin/audyt/?resourceKey=${encodeURIComponent(`member:${m.email}`)}">◷ Historia</a>
+      </td>
     </tr>`;
     })
     .join('');

@@ -4,7 +4,13 @@
  * generation turns them into a standalone JavaScript file.
  */
 export const PWA_CACHE_PREFIX = 'kruki-pwa-';
-export const MAX_PRECACHE_BYTES = 100 * 1024;
+// KRKG-0050 batch 5/6: raised from 100 KiB - style.css (a precached shell asset) was already at
+// 102251 bytes before this batch's small, genuinely necessary .audyt-history-link addition (the
+// "◷ Historia" deep-link style used site-wide, see style.css's own comment on it), leaving no
+// realistic headroom for any future site-wide CSS addition either. 110 KiB keeps the same "small,
+// reviewed shell" intent while giving a little real margin instead of sitting one class away from
+// the ceiling again.
+export const MAX_PRECACHE_BYTES = 110 * 1024;
 
 /** The only files the worker may store in Cache Storage. */
 export const PRECACHE_PATHS = [
@@ -55,6 +61,10 @@ export const GATED_PATH_PREFIXES = [
   // KRKG-0045: the member directory lists every group member's name/nickname/section/email -
   // the same personal-data sensitivity as /profil/ above.
   '/czlonkowie/',
+  // KRKG-0050: the member-zone Historia page (public/audyt/) - authenticated audit history, same
+  // sensitivity class as /profil//czlonkowie/ above. /admin/audyt/ needs no separate entry - it's
+  // already covered by the existing '/admin/' prefix.
+  '/audyt/',
 ] as const;
 
 /** Returns whether a pathname belongs to the intentionally public PWA entry-point set. */
