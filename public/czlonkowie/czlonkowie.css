@@ -2,10 +2,10 @@
  * no JS dependency of that kind anywhere else (only vendored cropperjs, kept because cropping is
  * genuinely non-trivial to hand-roll) and this table's sort is ~20 lines, see czlonkowie.js.
  *
- * The table's base look (.czl-table/.czl-table-wrap/.czl-field/...) moved to style.css in
- * KRKG-0051 so Zarządzanie ludźmi's table can share it exactly. Only the sortable-column-header
- * bits stay here, since only this page's headers are actually clickable buttons - Zarządzanie
- * ludźmi's are plain text and use style.css's plain thead th padding unmodified. */
+ * The table's base look (.czl-table/.czl-table-wrap/.czl-field/...) moved to member-area.css in
+ * KRKG-0051/KRKG-0055 so Zarządzanie ludźmi's table can share it exactly. Only the sortable-
+ * column-header bits stay here, since only this page's headers are actually clickable buttons -
+ * Zarządzanie ludźmi's are plain text and use member-area.css's plain thead th padding unmodified. */
 
 .czl-table thead th {
   padding: 0;

@@ -19,7 +19,7 @@ function escapeAttr(str) {
 }
 
 // Section/city color coding (KRKG-0051) - same helper as wyjazd.js, see its comment: the actual
-// colors live in exactly one place, style.css's [data-section="..."] rules.
+// colors live in exactly one place, member-area.css's [data-section="..."] rules.
 function sectionPillHtml(sectionId, label) {
   return `<span class="section-pill" data-section="${escapeAttr(sectionId ?? '')}">${escapeHtml(label)}</span>`;
 }
