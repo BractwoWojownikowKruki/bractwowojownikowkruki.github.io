@@ -22,14 +22,11 @@ function escapeAttr(str) {
 // Section/city color coding (KRKG-0051) - the colors themselves live in exactly one place,
 // style.css's [data-section="..."] rules; this only ever emits the data-section attribute a CSS
 // rule keys off, never a color value, so a section's color changes by editing one line in
-// style.css, nowhere else. sectionDotHtml is for the editable <select> case (KRKG-0049's inline
-// fields) - a native <select> can't be color-coded internally, so a small swatch sits beside it
-// instead, kept in sync on change (see the czl-field change handler below).
+// style.css, nowhere else. The row itself (not just this pill) also carries data-section, for
+// style.css's .czl-table tr[data-section] td:first-child left-accent rule - kept in sync on
+// change for the editable case (see the czl-field change handler below).
 function sectionPillHtml(sectionId, label) {
   return `<span class="section-pill" data-section="${escapeAttr(sectionId ?? '')}">${escapeHtml(label)}</span>`;
-}
-function sectionDotHtml(sectionId) {
-  return `<span class="section-dot" data-section="${escapeAttr(sectionId ?? '')}"></span>`;
 }
 
 const panels = {
@@ -115,6 +112,7 @@ function renderTable() {
   tbody.replaceChildren();
   for (const m of sorted) {
     const row = document.createElement('tr');
+    row.dataset.section = m.sectionId ?? '';
     const fullNameCell = canManageSkladki
       ? `<input type="text" class="czl-field" data-email="${escapeAttr(m.email)}" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" />`
       : cell(m.fullName);
@@ -122,7 +120,7 @@ function renderTable() {
       ? `<input type="text" class="czl-field" data-email="${escapeAttr(m.email)}" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" />`
       : cell(m.nickname);
     const sectionCell = canManageSkladki
-      ? `<div style="display:flex; align-items:center; gap:0.4rem;"><select class="czl-field" data-email="${escapeAttr(m.email)}" data-field="sectionId">${sectionOptions(m.sectionId)}</select>${sectionDotHtml(m.sectionId)}</div>`
+      ? `<select class="czl-field" data-email="${escapeAttr(m.email)}" data-field="sectionId">${sectionOptions(m.sectionId)}</select>`
       : (m.sectionLabel ? sectionPillHtml(m.sectionId, m.sectionLabel) : EMPTY);
     row.innerHTML = `
       <td class="${!canManageSkladki && !m.fullName ? 'czl-empty' : ''}">${fullNameCell}</td>
@@ -202,14 +200,14 @@ async function saveMemberField(row, email) {
 document.getElementById('czl-table-body').addEventListener('change', (e) => {
   const field = e.target.closest('.czl-field');
   if (!field) return;
-  // The dot swatch beside the Sekcja <select> updates immediately, before the save even resolves -
-  // it's a visual echo of what's already selected on screen, not a reflection of saved state (the
-  // input itself already shows that; a failed save doesn't revert the <select>'s own value either).
+  const row = field.closest('tr');
+  // The row's left accent updates immediately, before the save even resolves - it's a visual
+  // echo of what's already selected on screen, not a reflection of saved state (the <select>
+  // itself already shows that; a failed save doesn't revert its value either).
   if (field.dataset.field === 'sectionId') {
-    const dot = field.parentElement.querySelector('.section-dot');
-    if (dot) dot.dataset.section = field.value;
+    row.dataset.section = field.value;
   }
-  saveMemberField(field.closest('tr'), field.dataset.email);
+  saveMemberField(row, field.dataset.email);
 });
 
 initGoogleSignIn({

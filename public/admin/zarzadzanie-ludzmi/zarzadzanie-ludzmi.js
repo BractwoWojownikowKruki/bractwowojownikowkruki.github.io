@@ -17,6 +17,7 @@ initGoogleSignIn({
     document.getElementById('admin-panel').hidden = false;
     isAdminCaller = payload.isAdmin === true;
     document.getElementById('roles-audit-log-panel').hidden = !isAdminCaller;
+    document.getElementById('membership-role-header').hidden = !isAdminCaller;
     loadMembershipMembers();
     if (isAdminCaller) renderRolesAuditLog();
   },
@@ -216,25 +217,21 @@ document.getElementById('membership-members-filter').addEventListener('input', (
   renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories);
 });
 
-function roleCheckboxesHtml(email, roles) {
-  if (!isAdminCaller) return '';
+function roleCheckboxesHtml(roles) {
   const current = new Set(roles ?? []);
-  return `
-    <div class="member-roles" data-email="${escapeAttr(email)}" style="display:flex; flex-direction:column; gap:0.15rem; font-size:12px;">
-      ${ASSIGNABLE_ROLES.map(
-        r => `
-        <label style="display:flex; align-items:center; gap:0.3rem; white-space:nowrap;">
+  return ASSIGNABLE_ROLES.map(
+    r => `
+        <label class="member-role-label">
           <input type="checkbox" class="member-role-checkbox" value="${r.value}" ${current.has(r.value) ? 'checked' : ''} />
           ${r.label}
         </label>`,
-      ).join('')}
-    </div>`;
+  ).join('');
 }
 
 function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections, categories) {
-  const list = document.getElementById('membership-members-list');
+  const tbody = document.getElementById('membership-members-list');
   if (!members.length) {
-    list.innerHTML = '<p>Brak członków w tym statusie.</p>';
+    tbody.innerHTML = '<tr><td colspan="9" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     return;
   }
   // Grouped by section, alphabetical within it (KRKG-0051) - same rule as czlonkowie.js's Sekcja
@@ -248,49 +245,34 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
   });
   const actions = MEMBERSHIP_ACTIONS_BY_STATUS[status] ?? [];
   const labelByFolderId = new Map(driveFolderOptions.map(o => [o.folderId, o.label]));
-  const datalistHtml = `
-    <datalist id="drive-folder-datalist">
-      ${driveFolderOptions.map(o => `<option value="${escapeAttr(o.label)}"></option>`).join('')}
-    </datalist>`;
-  list.innerHTML =
-    datalistHtml +
-    members
-      .map(m => {
-        // A driveFolderId pointing at a folder outside the 4 linkable categories (staging
-        // "upload"/"deleted", or a folder since removed) has no known label - fall back to the
-        // raw id so the field isn't misleadingly blank, matching this codebase's existing
-        // convention of showing a raw id rather than hiding an unresolved reference (see
-        // KRKG-0037's known-gaps note on raw section-id fallbacks).
-        const currentValue = m.driveFolderId ? (labelByFolderId.get(m.driveFolderId) ?? m.driveFolderId) : '';
-        return `
-    <div class="membership-member" data-email="${escapeAttr(m.email)}" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; padding:0.3rem 0; border-bottom:1px solid var(--border);">
-      <div style="flex:1; min-width:280px;">
-        <div style="display:flex; gap:0.35rem; flex-wrap:wrap; margin-bottom:0.2rem;">
-          <input type="text" class="member-field" data-email="${escapeAttr(m.email)}" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" style="width:160px; font-size:12px;" />
-          <input type="text" class="member-field" data-email="${escapeAttr(m.email)}" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" style="width:100px; font-size:12px;" />
-          <select class="member-field" data-email="${escapeAttr(m.email)}" data-field="sectionId" style="font-size:12px;">${sectionOptions(sections, m.sectionId)}</select>
-          ${sectionDotHtml(m.sectionId)}
-          <select class="member-field" data-email="${escapeAttr(m.email)}" data-field="categoryId" style="font-size:12px;">${categoryOptions(categories, m.categoryId)}</select>
-        </div>
-        <span style="color:var(--text-muted);">${escapeHtml(m.email)}</span>
-        <br><span style="color:var(--text-faint); font-size:12px;">Ostatnie logowanie: ${m.lastLoginAt ? escapeHtml(formatDateTime(m.lastLoginAt)) : 'Nigdy'}</span>
-      </div>
-      <div style="display:flex; align-items:center; gap:0.4rem;">
-        <input
-          type="text"
-          class="drive-folder-input"
-          list="drive-folder-datalist"
-          placeholder="Folder na stronie..."
-          value="${escapeAttr(currentValue)}"
-          style="width:220px; font-size:12px;"
-        />
+  document.getElementById('drive-folder-datalist').innerHTML = driveFolderOptions
+    .map(o => `<option value="${escapeAttr(o.label)}"></option>`)
+    .join('');
+  tbody.innerHTML = members
+    .map(m => {
+      // A driveFolderId pointing at a folder outside the 4 linkable categories (staging
+      // "upload"/"deleted", or a folder since removed) has no known label - fall back to the
+      // raw id so the field isn't misleadingly blank, matching this codebase's existing
+      // convention of showing a raw id rather than hiding an unresolved reference (see
+      // KRKG-0037's known-gaps note on raw section-id fallbacks).
+      const currentValue = m.driveFolderId ? (labelByFolderId.get(m.driveFolderId) ?? m.driveFolderId) : '';
+      return `
+    <tr class="membership-member" data-email="${escapeAttr(m.email)}" data-section="${escapeAttr(m.sectionId ?? '')}">
+      <td><input type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" /></td>
+      <td><input type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" /></td>
+      <td><select class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
+      <td><select class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>
+      <td>${escapeHtml(m.email)}</td>
+      <td>${m.lastLoginAt ? escapeHtml(formatDateTime(m.lastLoginAt)) : 'Nigdy'}</td>
+      <td>
+        <input type="text" class="czl-field drive-folder-input" list="drive-folder-datalist" placeholder="Folder na stronie..." value="${escapeAttr(currentValue)}" />
         <span class="drive-folder-saved" style="color:var(--gold);" hidden>✓</span>
-      </div>
-      ${roleCheckboxesHtml(m.email, rolesByEmail.get(m.email))}
-      ${actions.map(a => `<button class="member-action" data-transition="${a.transition}" style="color:var(--gold);">${a.label}</button>`).join('')}
-    </div>`;
-      })
-      .join('');
+      </td>
+      <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(rolesByEmail.get(m.email))}</td>
+      <td>${actions.map(a => `<button class="member-action" data-transition="${a.transition}">${a.label}</button>`).join('')}</td>
+    </tr>`;
+    })
+    .join('');
 }
 
 // Saves fullName/nickname/sectionId together (one PUT, not per-field) using each field's
@@ -331,21 +313,21 @@ async function saveMemberProfileField(row, email) {
 }
 
 document.getElementById('membership-members-list').addEventListener('change', async e => {
-  const profileField = e.target.closest('.member-field');
-  if (profileField) {
-    // Same instant-echo swatch update as czlonkowie.js's Sekcja <select> - not a reflection of
-    // saved state, just what's already visibly selected.
+  const profileField = e.target.closest('.czl-field');
+  if (profileField && profileField.dataset.field) {
+    const row = profileField.closest('tr');
+    // Same instant-echo left-accent update as czlonkowie.js's Sekcja <select> - not a reflection
+    // of saved state, just what's already visibly selected.
     if (profileField.dataset.field === 'sectionId') {
-      const dot = profileField.parentElement.querySelector('.section-dot');
-      if (dot) dot.dataset.section = profileField.value;
+      row.dataset.section = profileField.value;
     }
-    saveMemberProfileField(profileField.closest('.membership-member'), profileField.dataset.email);
+    saveMemberProfileField(row, row.dataset.email);
     return;
   }
 
   const roleCheckbox = e.target.closest('.member-role-checkbox');
   if (roleCheckbox) {
-    const container = roleCheckbox.closest('.member-roles');
+    const container = roleCheckbox.closest('.membership-member');
     const email = container.dataset.email;
     // Sends the *whole* checked set, not just the box that changed - a member can hold more than
     // one role at once (e.g. accountant + admin), and PUT /admin/roles replaces the roles array

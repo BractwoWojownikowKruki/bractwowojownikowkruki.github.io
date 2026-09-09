@@ -35,11 +35,11 @@
 [data-section="warszawa"]  { --section-c: var(--section-color-warszawa); }
 [data-section="wroclaw"]   { --section-c: var(--section-color-wroclaw); }
 
-/* Rendered by each page's own sectionPillHtml()/sectionDotHtml() helper (duplicated per page,
-   same convention as escapeHtml - but every one of them only ever emits data-section, never a
-   color value, so the colors above stay the single source of truth). --section-c is set by the
-   [data-section] rules above, inherited from an ancestor when the pill/dot itself has no
-   data-section of its own (e.g. Lista Wyjazdowa's per-row accent inheriting the group's section). */
+/* Rendered by each page's own sectionPillHtml() helper (duplicated per page, same convention as
+   escapeHtml - but every one of them only ever emits data-section, never a color value, so the
+   colors above stay the single source of truth). --section-c is set by the [data-section] rules
+   above, inherited from an ancestor when the pill itself has no data-section of its own (e.g.
+   Lista Wyjazdowa's per-row accent inheriting the group's section). */
 .section-pill {
   display: inline-flex;
   align-items: center;
@@ -52,19 +52,128 @@
   color: color-mix(in srgb, var(--section-c, var(--section-color-default)) 60%, white);
 }
 
-.section-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--section-c, var(--section-color-default));
-  flex: none;
-}
-
 /* .section-row-accent itself is declared at the very end of this file (search for it there) -
    it overrides a `border: ...` shorthand (e.g. .lw-roster-row's), and CSS resolves that kind of
    same-specificity clash by source order, not by which rule "looks" more specific - defined here
    it would just get clobbered by every row class's own border rule further down the file. */
+
+/* Dense data table (KRKG-0045, moved here from czlonkowie.css in KRKG-0051 so Zarządzanie ludźmi
+   can share the exact same look instead of a visually inconsistent hand-rolled one) - every page
+   with a member/person table (Spis Ludności, Zarządzanie ludźmi) uses this one class. Sortable-
+   column-header styling (the <button>/aria-sort arrow rules) stays in czlonkowie.css, since only
+   Spis Ludności's headers are actually clickable - Zarządzanie ludźmi's are plain text. */
+.czl-filter-wrap {
+  max-width: 320px;
+  margin-bottom: 0.75rem;
+}
+
+.czl-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.czl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.czl-table th,
+.czl-table td {
+  text-align: left;
+  padding: 0.35rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.czl-table thead th {
+  background: var(--surface);
+  padding: 0.4rem 0.7rem;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.czl-table tbody tr:hover {
+  background: var(--surface);
+}
+
+.czl-table tbody td {
+  color: var(--text);
+}
+
+.czl-table tbody td.czl-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.czl-count {
+  margin-top: 0.75rem;
+  color: var(--text-faint);
+  font-size: 0.9rem;
+}
+
+/* Accountant/admin-only inline-editable fields (KRKG-0047/KRKG-0049) - fullName/nickname/sectionId
+   render as these instead of plain text when editable, saving on change. */
+.czl-table td input.czl-field,
+.czl-table td select.czl-field {
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.3rem 0.5rem;
+  font-size: inherit;
+  font-family: inherit;
+  width: 100%;
+  min-width: 100px;
+}
+
+.czl-table td input.czl-field:focus,
+.czl-table td select.czl-field:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* Zarządzanie ludźmi's Rola column (KRKG-0049/KRKG-0051) - a checkbox per assignable role, since a
+   member can hold more than one at once. white-space:normal overrides .czl-table td's nowrap so
+   the labels stack instead of forcing the column wide. */
+.member-roles-cell {
+  white-space: normal;
+}
+
+.member-role-label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+  font-size: 0.85em;
+}
+
+.member-role-label:not(:last-child) {
+  margin-bottom: 0.15rem;
+}
+
+.czl-table .member-action {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--gold);
+  padding: 0.2rem 0.5rem;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.czl-table .member-action:hover {
+  border-color: var(--gold);
+}
+
+.czl-table .member-action:not(:last-child) {
+  margin-right: 0.3rem;
+}
+
+.czl-table .drive-folder-saved {
+  margin-left: 0.3rem;
+}
 
 body {
   background: var(--bg);
@@ -3791,11 +3900,19 @@ button.lw-skladka-icon:disabled {
   }
 }
 
-/* KRKG-0051: kept at the very end of the file on purpose - see the comment near .section-dot.
-   Overrides only the left edge of whichever row class this is combined with (.lw-roster-row,
-   .lw-skladki-row, .czl-table's own row styling, ...), leaving that class's own border-width/
-   style/radius on the other three sides untouched. */
+/* KRKG-0051: kept at the very end of the file on purpose - see the comment near .section-pill.
+   Applies to Lista Wyjazdowa/Składki's roster rows (.lw-roster-row/.lw-skladki-row), which already
+   carry a full `border: ...` shorthand - a same-specificity clash with an earlier shorthand rule
+   resolves by source order, so this full border-left shorthand has to come last either way. */
 .section-row-accent {
-  border-left-width: 4px;
-  border-left-color: var(--section-c, var(--section-color-default));
+  border-left: 4px solid var(--section-c, var(--section-color-default));
+}
+
+/* Table rows (Spis Ludności's .czl-table) can't take a visible border directly on <tr> under
+   border-collapse - only the leftmost <td> can show it. --section-c still comes from the <tr>'s
+   own [data-section="..."] rule/inheritance above; naming ".czl-table" here (rather than a bare
+   "tr[data-section]") keeps this from also matching some unrelated table elsewhere on the site. */
+.czl-table tr[data-section] td:first-child {
+  border-left: 4px solid var(--section-c, var(--section-color-default));
+  padding-left: 0.55rem;
 }

@@ -62,7 +62,27 @@
           Filtruj
           <input id="membership-members-filter" type="search" placeholder="Szukaj…" autocomplete="off" style="display:block; width:100%; margin-top:4px;" />
         </label>
-        <div id="membership-members-list">Ładowanie...</div>
+        <div class="czl-table-wrap">
+          <table class="czl-table" id="membership-table">
+            <thead>
+              <tr>
+                <th scope="col">Imię i nazwisko</th>
+                <th scope="col">Ksywa</th>
+                <th scope="col">Sekcja</th>
+                <th scope="col">Typ</th>
+                <th scope="col">Email</th>
+                <th scope="col">Ostatnie logowanie</th>
+                <th scope="col">Folder na Dysku</th>
+                <!-- Admin/moderator-only column (KRKG-0049) - shown/hidden by
+                     zarzadzanie-ludzmi.js based on payload.isAdmin from /admin/members/whoami. -->
+                <th scope="col" id="membership-role-header" hidden>Rola</th>
+                <th scope="col">Akcje</th>
+              </tr>
+            </thead>
+            <tbody id="membership-members-list"></tbody>
+          </table>
+        </div>
+        <datalist id="drive-folder-datalist"></datalist>
 
         <!-- Every Rola change lands here (roles.ts's rolesAuditLog) - collapsed by default, same
              as the Skladki page's Historia zmian, since who has admin/accountant is looked up

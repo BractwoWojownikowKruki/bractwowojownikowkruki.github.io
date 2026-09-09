@@ -1,34 +1,13 @@
 /* Lista Członków (KRKG-0045) - sortable member-directory table. No table library: the site has
  * no JS dependency of that kind anywhere else (only vendored cropperjs, kept because cropping is
- * genuinely non-trivial to hand-roll) and this table's sort is ~20 lines, see czlonkowie.js. */
-
-.czl-filter-wrap {
-  max-width: 320px;
-  margin-bottom: 0.75rem;
-}
-
-.czl-table-wrap {
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.czl-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.czl-table th,
-.czl-table td {
-  text-align: left;
-  padding: 0.35rem 0.7rem;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
+ * genuinely non-trivial to hand-roll) and this table's sort is ~20 lines, see czlonkowie.js.
+ *
+ * The table's base look (.czl-table/.czl-table-wrap/.czl-field/...) moved to style.css in
+ * KRKG-0051 so Zarządzanie ludźmi's table can share it exactly. Only the sortable-column-header
+ * bits stay here, since only this page's headers are actually clickable buttons - Zarządzanie
+ * ludźmi's are plain text and use style.css's plain thead th padding unmodified. */
 
 .czl-table thead th {
-  background: var(--surface);
   padding: 0;
 }
 
@@ -62,44 +41,4 @@
 .czl-table thead th[aria-sort="descending"] button::after {
   content: '▼';
   font-size: 0.7em;
-}
-
-.czl-table tbody tr:hover {
-  background: var(--surface);
-}
-
-.czl-table tbody td {
-  color: var(--text);
-}
-
-.czl-table tbody td.czl-empty {
-  color: var(--text-faint);
-  font-style: italic;
-}
-
-.czl-count {
-  margin-top: 0.75rem;
-  color: var(--text-faint);
-  font-size: 0.9rem;
-}
-
-/* Accountant/admin-only inline-editable fields (KRKG-0047/KRKG-0049) - fullName/nickname/sectionId
-   render as these instead of plain text when canManageSkladki, saving on change (czlonkowie.js). */
-.czl-table td input.czl-field,
-.czl-table td select.czl-field {
-  background: var(--surface-deep);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  padding: 0.3rem 0.5rem;
-  font-size: inherit;
-  font-family: inherit;
-  width: 100%;
-  min-width: 120px;
-}
-
-.czl-table td input.czl-field:focus,
-.czl-table td select.czl-field:focus {
-  border-color: var(--accent);
-  outline: none;
 }
