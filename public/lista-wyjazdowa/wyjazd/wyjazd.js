@@ -210,6 +210,10 @@ let rosterSortBy = 'section';
 let rosterFilter = 'attending';
 let cachedRoster = [];
 let cachedSignups = [];
+// Set from initGoogleSignIn's onSignedIn identity (KRKG-0058) - the viewer's own row stays
+// visible under the 'attending' filter even before they've signed up for this event, so they can
+// always find themselves to toggle Jadę/Nie jadę rather than disappearing from their own view.
+let viewerEmail = null;
 
 // Sections/categories/weapons don't change within one open page load - fetched once in loadAll()
 // alongside everything else (see the lookupLists destructure there) and read from here. Same
@@ -236,7 +240,9 @@ const EMPTY = '—';
 
 function renderRoster(roster, signups) {
   const signupByEmail = new Map(signups.map((s) => [s.memberEmail, s]));
-  const visible = rosterFilter === 'all' ? roster : roster.filter((m) => signupByEmail.get(m.email)?.attending);
+  const visible = rosterFilter === 'all'
+    ? roster
+    : roster.filter((m) => signupByEmail.get(m.email)?.attending || m.email === viewerEmail);
 
   const tbody = document.getElementById('roster-content');
   if (visible.length === 0) {
@@ -432,8 +438,9 @@ initGoogleSignIn({
   // auth.js routes only a failed whoami check to onForbidden, so a failure inside this body is
   // ours to report and must not be shown as "Brak uprawnień" (see initGoogleSignIn's comment).
   // showOnly(null) first because #lw-error lives inside #main-content, which is hidden until then.
-  onSignedIn: async () => {
+  onSignedIn: async (identity) => {
     try {
+      viewerEmail = identity.email;
       await loadAll();
       showOnly(null);
     } catch (err) {

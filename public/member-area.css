@@ -143,32 +143,6 @@
   font-style: italic;
 }
 
-/* Keeps the accented first column in view when scrolled horizontally on mobile (KRKG-0052). A
-   sticky cell needs its own opaque background (matching .content-section's, not --bg) or the
-   page background shows through at the wrong spot as the rest of the row scrolls under it. */
-.czl-table th:first-child,
-.czl-table td:first-child {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-}
-
-.czl-table thead th:first-child {
-  z-index: 2;
-}
-
-.czl-table tbody td:first-child {
-  background: var(--surface);
-}
-
-.czl-table tbody tr:hover td:first-child {
-  background: var(--surface);
-}
-
-.czl-table tbody tr.czl-row-active td:first-child {
-  background: color-mix(in srgb, var(--gold) 20%, var(--surface));
-}
-
 .czl-count {
   margin-top: 0.75rem;
   color: var(--text-faint);
