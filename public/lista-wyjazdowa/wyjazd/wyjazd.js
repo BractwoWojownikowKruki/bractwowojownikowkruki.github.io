@@ -48,12 +48,15 @@ function categoryNamePillAttrs(categoryId, label) {
   return `class="category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak typu')}"`;
 }
 
-// fullName falls back to email because the roster now enumerates the whole club allowlist (see
-// server.ts's handleListaWyjazdowaGetRoster), not just members who filled in "Mój profil" - such
-// a member has no fullName/nickname to show yet, but still needs a findable row so their
-// attendance can be set.
+// The single place a member's display name is computed (KRKG-0059) - call this rather than
+// re-deriving it inline. Ksywa wins when set (it's what most members actually go by), then
+// fullName, then the email's local part (domain stripped) so a member with neither still gets a
+// findable, non-raw-email label - the roster enumerates the whole club allowlist (see server.ts's
+// handleListaWyjazdowaGetRoster), not just members who filled in "Mój profil".
 function displayName(member) {
-  return member.fullName ?? member.email;
+  if (member.nickname) return member.nickname;
+  if (member.fullName) return member.fullName;
+  return member.email.split('@')[0];
 }
 
 // startDate is a bare calendar date ("2027-05-01"), not a timestamp - plain string slicing avoids
@@ -259,7 +262,7 @@ function renderRoster(roster, signups) {
     const aAttending = signupByEmail.get(a.email)?.attending ? 0 : 1;
     const bAttending = signupByEmail.get(b.email)?.attending ? 0 : 1;
     if (aAttending !== bAttending) return aAttending - bAttending;
-    return (a.fullName ?? '').toLocaleLowerCase('pl').localeCompare((b.fullName ?? '').toLocaleLowerCase('pl'), 'pl');
+    return displayName(a).toLocaleLowerCase('pl').localeCompare(displayName(b).toLocaleLowerCase('pl'), 'pl');
   });
 
   tbody.innerHTML = sorted
@@ -271,11 +274,8 @@ function renderRoster(roster, signups) {
       const weaponIconsHtml = member.weaponIds.map((id) => weaponIconHtml(id, weaponLabelById.get(id) ?? id)).join('');
       return `
     <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
-      <td>
-        <div class="czl-name-cell">
-          <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
-          <span class="czl-name-secondary ${member.nickname ? '' : 'czl-empty'}">${member.nickname ? escapeHtml(member.nickname) : EMPTY}</span>
-        </div>
+      <td class="lw-roster-name-cell">
+        <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
       </td>
       <td>
         <button type="button" class="lw-attend-toggle" data-email="${emailAttr}" data-attending="${attending}" aria-pressed="${attending}">

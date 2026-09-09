@@ -521,6 +521,18 @@ button.lw-skladka-icon:disabled {
   padding: 0.25rem 0.5rem;
 }
 
+/* Roster's name column (KRKG-0059) - just the computed display name in its outline pill, right-
+   aligned and a size down from the table's own base font, unlike Spis Ludności/Zarządzanie
+   ludźmi's .category-name-pill (full-size, left-aligned, still paired with a separate Ksywa line
+   there since Typ and Ksywa are two independent pieces of information on those tables). */
+.czl-table .lw-roster-name-cell {
+  text-align: right;
+}
+
+.lw-roster-name-cell .category-name-pill {
+  font-size: 0.85em;
+}
+
 /* Section headings inside the składki table (one per Sekcja, see skladki.js's renderTable()) - a
    visible divider plus gold accent so long lists of rows don't read as one undifferentiated block.
    The roster (wyjazd.js) moved to a flat .czl-table with no group headings in KRKG-0052. */
