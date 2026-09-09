@@ -21,6 +21,24 @@ function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
+// Weapon icons (KRKG-0054) - the roster's Broń column is dense enough that spelling out "Tarczownik
+// (T)"/"Włócznik (W)"/"Duńczyk (D)" for every row crowds the table, so it shows just the icon
+// (title attribute carries the full label for hover/assistive tech). Keyed by lookupLists/weapons'
+// fixed 3-item id set (see upload-service/scripts/seed-lookup-lists.ts) - an id with no icon here
+// falls back to its plain label so a future 4th weapon type doesn't just vanish.
+const WEAPON_ICONS = {
+  tarczownik: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 L19 6 V12 C19 17 15.5 20 12 21 C8.5 20 5 17 5 12 V6 Z"/></svg>',
+  wlocznik: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20 L16 8"/><path d="M14 4 L20 4 L20 10 Z" fill="currentColor" stroke="none"/></svg>',
+  dunczyk: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3 V21"/><path d="M12 4 C12 4 5.5 5.5 5 9.5 C4.7 11.8 7 13 9 13 C10.8 13 12 11.5 12 9.5 Z" fill="currentColor" stroke="none"/></svg>',
+};
+
+function weaponIconHtml(id, label) {
+  const icon = WEAPON_ICONS[id];
+  return icon
+    ? `<span class="lw-weapon-icon" title="${escapeAttr(label)}">${icon}</span>`
+    : `<span class="lw-weapon-icon lw-weapon-icon--text" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
+}
+
 // fullName falls back to email because the roster now enumerates the whole club allowlist (see
 // server.ts's handleListaWyjazdowaGetRoster), not just members who filled in "Mój profil" - such
 // a member has no fullName/nickname to show yet, but still needs a findable row so their
@@ -235,7 +253,7 @@ function renderRoster(roster, signups) {
       const attending = signup?.attending ?? false;
       const emailAttr = escapeAttr(member.email);
       const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
-      const weaponLabels = member.weaponIds.map((id) => weaponLabelById.get(id) ?? id);
+      const weaponIconsHtml = member.weaponIds.map((id) => weaponIconHtml(id, weaponLabelById.get(id) ?? id)).join('');
       return `
     <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
       <td>
@@ -252,7 +270,7 @@ function renderRoster(roster, signups) {
         ${attending ? renderSkladkaIcon(emailAttr, signup?.skladkaPaid ?? false) : ''}
       </td>
       <td class="${categoryLabel ? '' : 'czl-empty'}">${categoryLabel ? escapeHtml(categoryLabel) : EMPTY}</td>
-      <td class="${weaponLabels.length ? '' : 'czl-empty'}">${weaponLabels.length ? weaponLabels.map(escapeHtml).join(', ') : EMPTY}</td>
+      <td class="${member.weaponIds.length ? '' : 'czl-empty'}">${member.weaponIds.length ? weaponIconsHtml : EMPTY}</td>
     </tr>`;
     })
     .join('');

@@ -13,12 +13,9 @@
   --text-muted:   #a89070;
   --text-faint:   #6b5340;
 
-  /* KRKG-0051: one color per Sekcja (lookupLists/sections id -> hex), the single place a
-     section's color is declared - every page that shows Sekcja (Spis Ludności, Zarządzanie
-     ludźmi, Lista Wyjazdowa, Składki) reads it from here via the [data-section="..."] rules
-     below, never a hardcoded hex in any page's own JS/CSS. Change a section's color by editing
-     exactly one line here. --section-color-default covers any sectionId with no rule below (a
-     newly added section not yet assigned a color, or an unresolved/legacy id like "nieznana"). */
+  /* KRKG-0051: one color per Sekcja, the single place it's declared - every page reads it via
+     the [data-section="..."] rules below, never a hardcoded hex elsewhere. --section-color-default
+     covers any sectionId with no rule below (unassigned, or unresolved like "nieznana"). */
   --section-color-bydgoszcz: #4f8fd6;
   --section-color-czukcze:   #a374d6;
   --section-color-krakow:    #8a8578;
@@ -224,6 +221,22 @@
 
 .czl-table .drive-folder-saved {
   margin-left: 0.3rem;
+}
+
+/* Weapon icon (KRKG-0054, see wyjazd.js's WEAPON_ICONS) - title carries the label for hover/a11y.
+   .lw-weapon-icon--text is the plain-label fallback for an id with no icon. */
+.lw-weapon-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+.lw-weapon-icon:not(:last-child) {
+  margin-right: 0.35rem;
+}
+
+.lw-weapon-icon--text {
+  font-size: 0.85em;
 }
 
 body {
@@ -3959,10 +3972,9 @@ button.lw-skladka-icon:disabled {
   }
 }
 
-/* KRKG-0051: kept at the very end of the file on purpose - see the comment near .section-pill.
-   Applies to Lista Wyjazdowa/Składki's roster rows (.lw-roster-row/.lw-skladki-row), which already
-   carry a full `border: ...` shorthand - a same-specificity clash with an earlier shorthand rule
-   resolves by source order, so this full border-left shorthand has to come last either way. */
+/* KRKG-0051: kept at the end of the file - see the comment near .section-pill. Applies to
+   Składki's .lw-skladki-row, which already carries a full `border: ...` shorthand; a
+   same-specificity clash resolves by source order, so this has to come last either way. */
 .section-row-accent {
   border-left: 8px solid var(--section-c, var(--section-color-default));
 }

@@ -83,11 +83,20 @@ function populateSectionSelect(select, sections, currentSectionId) {
   select.innerHTML = options.join('');
 }
 
+// Same icon set as the roster's Broń column (see wyjazd.js's WEAPON_ICONS) - shown next to the
+// label here rather than instead of it, since a checkbox list is where someone actually picks
+// their weapon and needs the text to be sure what they're choosing (KRKG-0054).
+const WEAPON_ICONS = {
+  tarczownik: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 L19 6 V12 C19 17 15.5 20 12 21 C8.5 20 5 17 5 12 V6 Z"/></svg>',
+  wlocznik: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20 L16 8"/><path d="M14 4 L20 4 L20 10 Z" fill="currentColor" stroke="none"/></svg>',
+  dunczyk: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3 V21"/><path d="M12 4 C12 4 5.5 5.5 5 9.5 C4.7 11.8 7 13 9 13 C10.8 13 12 11.5 12 9.5 Z" fill="currentColor" stroke="none"/></svg>',
+};
+
 function populateWeaponCheckboxes(container, weapons, currentWeaponIds) {
   container.innerHTML = selectableLookupItems(weapons, currentWeaponIds)
     .map(
       (w) =>
-        `<label><input type="checkbox" name="weaponIds" value="${escapeAttr(w.id)}" /> ${escapeHtml(w.label)}</label>`,
+        `<label><input type="checkbox" name="weaponIds" value="${escapeAttr(w.id)}" /><span class="lw-weapon-icon" aria-hidden="true">${WEAPON_ICONS[w.id] ?? ''}</span><span>${escapeHtml(w.label)}</span></label>`,
     )
     .join('');
 }
