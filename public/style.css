@@ -133,7 +133,10 @@
 }
 
 .czl-table tbody td:first-child {
-  background: var(--bg);
+  /* Matches .content-section's own background, not --bg (the page background one level further
+     out) - every non-sticky cell is transparent and shows that ancestor through, so the sticky
+     cell has to paint the same color rather than a darker one of its own. */
+  background: var(--surface);
 }
 
 .czl-table tbody tr:hover td:first-child {
