@@ -2837,15 +2837,28 @@ function buildReconciliationProbes(deps: ServerDeps): Partial<Record<AuditOperat
   const alwaysPendingProbe: ExternalOperationProbe = async () => ({ state: 'pending' });
 
   const driveFolderProbe = (kind: 'gallery' | 'person'): ExternalOperationProbe => async intent => {
-    // `gallery.photo.added` shares the `gallery` resource kind with `gallery.created`, but its
-    // gallery folder already existed *before* the upload started - so folder existence is
-    // trivially always true and would fabricate `succeeded` for an upload that never completed
-    // (the exact false positive this comment block exists to rule out). There is also no
-    // deterministic per-file signal available at intent-creation time to probe for instead (the
-    // intent is created before the Drive upload effect runs, so no file id is known yet). So this
-    // action can never be positively confirmed here - same always-pending fallback as
-    // `settings`/`member` below, resolved only via the 24h `requires_review` boundary.
-    if (intent.action === 'gallery.photo.added') return alwaysPendingProbe(intent);
+    // Allowlist, not blocklist: `gallery.created` is the ONLY gallery action where "the folder
+    // now exists" is actual proof of success, because before that operation ran, the folder did
+    // not exist yet. Every other action sharing the `gallery` resource kind
+    // (`gallery.photo.added`, `gallery.finalized`, `gallery.photo.contribution.finalized`,
+    // `gallery.deleted`, `gallery.registered`, `gallery.unregistered`) reuses a folder (or, for
+    // the latter two, a GitHub-hosted URL string - not even a Drive folder id) that already
+    // existed for an unrelated reason, so folder existence proves nothing about whether THAT
+    // action's own effect happened:
+    //  - `gallery.photo.added`/`gallery.finalized`/`gallery.photo.contribution.finalized`: the
+    //    gallery folder already existed before the upload/finalize ran, so `folderExists` is
+    //    trivially always true and would fabricate `succeeded` regardless of whether the upload
+    //    or manifest write ever completed.
+    //  - `gallery.deleted`: inverted - the folder still existing means the deletion did NOT
+    //    happen, so a positive `folderExists` here is exactly the wrong signal to report success.
+    //  - `gallery.registered`/`gallery.unregistered`: their resource key is a GitHub-hosted
+    //    gallery URL, not a Drive folder id at all, so calling `deps.drive.folderExists` on it
+    //    would be semantically wrong regardless of the false-positive issue above.
+    // None of these can be positively confirmed here - same always-pending fallback as
+    // `settings`/`member` below, resolved only via the 24h `requires_review` boundary. (`kind`
+    // covers `person` too, where every action - only `profile.person.created` and friends -
+    // shares this same real existence-based probe; that resource kind is out of this fix's scope.)
+    if (kind === 'gallery' && intent.action !== 'gallery.created') return alwaysPendingProbe(intent);
     // The provisional key is `{kind}:pending:{correlationId}` - there is no folder id to probe
     // for until the effect has actually created one, so a still-provisional intent can only ever
     // be "pending" here (never "failed": Drive folder creation is a single all-or-nothing call,

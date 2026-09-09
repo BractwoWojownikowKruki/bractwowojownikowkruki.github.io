@@ -5658,3 +5658,97 @@ test('POST /internal/audit/reconcile: gallery.created is unaffected by the galle
   assert.equal(outcome!.determinedBy, 'reconciler');
   assert.ok(outcome!.auditEventId);
 });
+
+// GPT-5 follow-up review (Apply Review batch): widening driveFolderProbe's guard from a
+// `gallery.photo.added`-only blocklist to a `gallery.created`-only allowlist. The blocklist fix
+// above left the exact same false-positive class open for every OTHER action sharing the
+// `gallery` resource kind - `gallery.finalized` and `gallery.photo.contribution.finalized` reuse
+// a folder that already existed before finalization ran, and `gallery.deleted` is the inverted
+// case: the folder still existing means the deletion did NOT happen, so folder existence must
+// never be read as `succeeded` there either. Before this fix, both tests below would have failed
+// (outcome would have been 'claimed_succeeded' instead of 'claimed_requires_review').
+
+test('POST /internal/audit/reconcile: gallery.finalized never resolves claimed_succeeded via folder existence (the gallery folder pre-exists regardless of whether finalization ran)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'gallery-folder-3';
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'gallery.finalized',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId },
+      changes: [{ field: 'finalized', after: 'true' }],
+    },
+    { correlationId: 'gallery-finalized-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The gallery folder DOES genuinely exist here - it was created by the earlier /start call,
+    // long before this (stuck) /finalize attempt. This is the exact scenario that would fabricate
+    // a false `claimed_succeeded` if driveFolderProbe still only excluded gallery.photo.added.
+    drive: makeFakeDrive({ folderExists: async () => true }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const finalizedOutcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(finalizedOutcome!.state, 'requires_review', 'must never be fabricated as succeeded merely because the (pre-existing) gallery folder exists');
+  assert.equal(finalizedOutcome!.determinedBy, 'reconciler');
+  assert.equal(finalizedOutcome!.auditEventId, undefined, 'no audit event should be manufactured for an unconfirmed finalize');
+});
+
+test('POST /internal/audit/reconcile: gallery.deleted never resolves claimed_succeeded via folder existence - the folder still existing means the deletion did NOT happen', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const folderId = 'gallery-folder-4';
+  const startedAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  const { correlationId } = await startExternalOperation(
+    firestore,
+    {
+      action: 'gallery.deleted',
+      actor: { email: 'admin@example.test' },
+      resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId },
+      changes: [{ field: 'name', after: folderId }],
+    },
+    { correlationId: 'gallery-deleted-stuck-1', now: () => startedAt },
+  );
+
+  const deps = makeDeps({
+    firestore,
+    // The folder STILL exists - i.e. the deletion never actually happened. A probe that reads
+    // existence as success would get this exactly backwards.
+    drive: makeFakeDrive({ folderExists: async () => true }),
+    auditReconcilerServiceAccountEmail: RECONCILER_EMAIL,
+    auditReconcileAudience: RECONCILER_AUDIENCE,
+  });
+
+  await withMockedGoogleJwks(() =>
+    withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/internal/audit/reconcile`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${makeValidReconcilerBearer()}` },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.deepEqual(body.results, [{ correlationId, outcome: 'claimed_requires_review' }]);
+    }),
+  );
+
+  const deletedOutcome = await firestore.getDoc<{ state: string; determinedBy: string; auditEventId?: string }>('auditOperationOutcomes', correlationId);
+  assert.equal(deletedOutcome!.state, 'requires_review', 'must never be fabricated as succeeded merely because the (undeleted) gallery folder still exists');
+  assert.equal(deletedOutcome!.determinedBy, 'reconciler');
+  assert.equal(deletedOutcome!.auditEventId, undefined, 'no audit event should be manufactured for a deletion that never happened');
+});

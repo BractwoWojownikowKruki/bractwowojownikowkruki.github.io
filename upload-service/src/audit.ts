@@ -88,9 +88,15 @@ const galleryFields = {
   photoCount: 'memberVisible',
   finalized: 'memberVisible',
   // Reported only by the reconciler's `driveFolderProbe` (server.ts) when it positively confirms
-  // a still-open `gallery.created` operation from folder existence - mirrors `person`'s own
-  // `folderId` entry in `profileFields` above, which the same shared probe helper already relies
-  // on. Previously missing here, so a genuine reconciler-confirmed `gallery.created` success would
+  // a still-open operation from folder existence. In practice that is never `gallery.created`
+  // itself - that action's intent always carries a provisional `gallery:pending:{correlationId}`
+  // key (see handleStart), which the reconciler can only ever observe as still-pending, so it
+  // never reaches this probe's real `folderExists` branch. It is the *other* gallery actions
+  // that start with a real, non-provisional `gallery:{folderId}` key from the outset (e.g. an
+  // operation left open by `gallery.finalized` or `gallery.photo.contribution.finalized`) that
+  // can actually land here via `driveFolderProbe`'s `gallery.created`-only allowlist - mirrors
+  // `person`'s own `folderId` entry in `profileFields` above, which the same shared probe helper
+  // already relies on. Previously missing here, so a genuine reconciler-confirmed success would
   // have thrown `AuditInputError` (uncovered until the gallery.photo.added reconciliation fix
   // added a passing-case test for this exact path).
   folderId: 'memberVisible',
