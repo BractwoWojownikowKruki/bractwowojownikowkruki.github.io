@@ -123,15 +123,13 @@ function sectionOptions(sections, currentSectionId) {
   return options.join('');
 }
 
-// Collapses a roles array down to the single tier this column offers - 'admin' wins over
-// 'accountant' if a doc somehow has both, empty/unknown roles show as no assigned role ('').
-function roleTier(roles) {
-  if (roles && roles.includes('admin')) return 'admin';
-  if (roles && roles.includes('accountant')) return 'accountant';
-  return '';
-}
-
-const ROLE_TIER_LABELS = { '': 'Brak', accountant: 'Księgowy', admin: 'Admin' };
+// A member can hold more than one of these at once (e.g. accountant + admin), so the Rola column
+// is a checkbox per role rather than a single-choice dropdown - see roleCheckboxesHtml below.
+const ASSIGNABLE_ROLES = [
+  { value: 'accountant', label: 'Księgowy' },
+  { value: 'admin', label: 'Admin' },
+];
+const ROLE_LABELS = Object.fromEntries(ASSIGNABLE_ROLES.map(r => [r.value, r.label]));
 
 // KRKG-0049: every role change, admin-only same as the page itself - not gated any further since
 // reaching this page at all already requires the admin allowlist.
@@ -179,14 +177,18 @@ document.getElementById('membership-members-filter').addEventListener('input', (
   renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections);
 });
 
-function roleSelectHtml(email, roles) {
-  const tier = roleTier(roles);
+function roleCheckboxesHtml(email, roles) {
+  const current = new Set(roles ?? []);
   return `
-    <select class="member-role" data-email="${escapeAttr(email)}" style="font-size:12px;">
-      ${Object.entries(ROLE_TIER_LABELS)
-        .map(([value, label]) => `<option value="${value}"${value === tier ? ' selected' : ''}>${label}</option>`)
-        .join('')}
-    </select>`;
+    <div class="member-roles" data-email="${escapeAttr(email)}" style="display:flex; flex-direction:column; gap:0.15rem; font-size:12px;">
+      ${ASSIGNABLE_ROLES.map(
+        r => `
+        <label style="display:flex; align-items:center; gap:0.3rem; white-space:nowrap;">
+          <input type="checkbox" class="member-role-checkbox" value="${r.value}" ${current.has(r.value) ? 'checked' : ''} />
+          ${r.label}
+        </label>`,
+      ).join('')}
+    </div>`;
 }
 
 function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections) {
@@ -233,7 +235,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
         />
         <span class="drive-folder-saved" style="color:var(--gold);" hidden>✓</span>
       </div>
-      ${roleSelectHtml(m.email, rolesByEmail.get(m.email))}
+      ${roleCheckboxesHtml(m.email, rolesByEmail.get(m.email))}
       ${actions.map(a => `<button class="member-action" data-transition="${a.transition}" style="color:var(--gold);">${a.label}</button>`).join('')}
     </div>`;
       })
@@ -281,28 +283,33 @@ document.getElementById('membership-members-list').addEventListener('change', as
     return;
   }
 
-  const roleSelect = e.target.closest('.member-role');
-  if (roleSelect) {
-    const email = roleSelect.dataset.email;
-    const previousTier = roleTier(membershipMembersCache.rolesByEmail.get(email));
-    const nextTier = roleSelect.value;
-    if (!window.confirm(`Ustawić rolę „${ROLE_TIER_LABELS[nextTier]}” dla ${email}?`)) {
-      roleSelect.value = previousTier;
+  const roleCheckbox = e.target.closest('.member-role-checkbox');
+  if (roleCheckbox) {
+    const container = roleCheckbox.closest('.member-roles');
+    const email = container.dataset.email;
+    // Sends the *whole* checked set, not just the box that changed - a member can hold more than
+    // one role at once (e.g. accountant + admin), and PUT /admin/roles replaces the roles array
+    // wholesale rather than toggling a single value.
+    const nextRoles = Array.from(container.querySelectorAll('.member-role-checkbox'))
+      .filter(cb => cb.checked)
+      .map(cb => cb.value);
+    const label = nextRoles.length ? nextRoles.map(r => ROLE_LABELS[r]).join(', ') : 'Brak';
+    if (!window.confirm(`Ustawić role: ${label} dla ${email}?`)) {
+      roleCheckbox.checked = !roleCheckbox.checked;
       return;
     }
     try {
-      const roles = nextTier ? [nextTier] : [];
       await apiFetch(
         '/admin/roles',
-        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, roles }) },
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, roles: nextRoles }) },
         showReauth,
         hideReauth,
       );
-      membershipMembersCache.rolesByEmail.set(email, roles);
+      membershipMembersCache.rolesByEmail.set(email, nextRoles);
       renderRolesAuditLog();
     } catch (err) {
       window.alert(`Błąd: ${err.message}`);
-      roleSelect.value = previousTier;
+      roleCheckbox.checked = !roleCheckbox.checked;
     }
     return;
   }

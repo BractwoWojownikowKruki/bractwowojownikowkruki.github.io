@@ -90,7 +90,7 @@ const MZ_ICON_PATHS = {
  */
 const MEMBERS_ZONE_MENU = [
   { href: '/profil/', label: 'Mój profil', icon: 'user' },
-  { href: '/czlonkowie/', label: 'Lista Członków', icon: 'users' },
+  { href: '/czlonkowie/', label: 'Spis Ludności', icon: 'users' },
   { href: '/galerie/', label: 'Galerie', icon: 'image' },
   { href: '/lista-wyjazdowa/', label: 'Lista wyjazdowa', icon: 'map' },
   { href: '/lista-wyjazdowa/skladki/', label: 'Składki', icon: 'coins' },
@@ -115,7 +115,7 @@ const ADMIN_ZONE_MENU = {
   items: [
     { href: '/admin/', label: 'Ogólne', icon: 'tool' },
     { href: '/admin/zgloszenia/', label: 'Zgłoszenia', icon: 'scroll' },
-    { href: '/admin/zarzadzanie-ludzmi/', label: 'Spis Ludności', icon: 'users' },
+    { href: '/admin/zarzadzanie-ludzmi/', label: 'Zarządzanie ludźmi', icon: 'users' },
     { href: '/admin/publiczne-wizytowki/', label: 'Publiczne wizytówki', icon: 'user' },
   ],
 };
