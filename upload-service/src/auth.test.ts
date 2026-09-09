@@ -1,7 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign as cryptoSign, type KeyObject } from 'node:crypto';
-import { AuthError, checkAllowlist, checkClaims, decodeJwt, verifyGoogleIdToken, verifyJwtSignature } from './auth.ts';
+import {
+  AuthError,
+  checkAllowlist,
+  checkClaims,
+  checkReconcilerOidcClaims,
+  decodeJwt,
+  verifyGoogleIdToken,
+  verifyJwtSignature,
+  verifyReconcilerOidcToken,
+} from './auth.ts';
 
 function base64Url(buf: Buffer): string {
   return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -144,4 +153,43 @@ test('verifyGoogleIdToken rejects a token whose kid is not in the JWKS', async (
     verifyGoogleIdToken(token, 'client-123', async () => [testJwk]),
     (err: unknown) => err instanceof AuthError && err.status === 401,
   );
+});
+
+test('checkReconcilerOidcClaims accepts a current token issued for the expected service account and audience', () => {
+  const now = 1_700_000_000;
+  const identity = checkReconcilerOidcClaims(
+    { iss: 'https://accounts.google.com', aud: 'https://upload-service-xyz.run.app', exp: now + 60, email: 'Audit-Reconciler@project.iam.gserviceaccount.com' },
+    'https://upload-service-xyz.run.app',
+    'audit-reconciler@project.iam.gserviceaccount.com',
+    now,
+  );
+  assert.deepEqual(identity, { email: 'audit-reconciler@project.iam.gserviceaccount.com' });
+});
+
+test('checkReconcilerOidcClaims rejects a token for the wrong audience, an expired token, and a token for a different service account', () => {
+  const now = 1_700_000_000;
+  const base = { iss: 'https://accounts.google.com', exp: now + 60, email: 'audit-reconciler@project.iam.gserviceaccount.com' };
+  assert.throws(
+    () => checkReconcilerOidcClaims({ ...base, aud: 'https://someone-elses-service.run.app' }, 'https://upload-service-xyz.run.app', 'audit-reconciler@project.iam.gserviceaccount.com', now),
+    (err: unknown) => err instanceof AuthError && err.status === 401,
+  );
+  assert.throws(
+    () => checkReconcilerOidcClaims({ ...base, aud: 'https://upload-service-xyz.run.app', exp: now - 1 }, 'https://upload-service-xyz.run.app', 'audit-reconciler@project.iam.gserviceaccount.com', now),
+    (err: unknown) => err instanceof AuthError && err.status === 401,
+  );
+  assert.throws(
+    () => checkReconcilerOidcClaims({ ...base, aud: 'https://upload-service-xyz.run.app', email: 'someone-else@project.iam.gserviceaccount.com' }, 'https://upload-service-xyz.run.app', 'audit-reconciler@project.iam.gserviceaccount.com', now),
+    (err: unknown) => err instanceof AuthError && err.status === 403,
+  );
+});
+
+test('verifyReconcilerOidcToken performs full end-to-end verification against an injected JWKS provider', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const token = makeSignedToken(
+    { iss: 'https://accounts.google.com', aud: 'https://upload-service-xyz.run.app', exp: now + 60, email: 'audit-reconciler@project.iam.gserviceaccount.com' },
+    privateKey,
+    'test-kid',
+  );
+  const identity = await verifyReconcilerOidcToken(token, 'https://upload-service-xyz.run.app', 'audit-reconciler@project.iam.gserviceaccount.com', async () => [testJwk]);
+  assert.deepEqual(identity, { email: 'audit-reconciler@project.iam.gserviceaccount.com' });
 });

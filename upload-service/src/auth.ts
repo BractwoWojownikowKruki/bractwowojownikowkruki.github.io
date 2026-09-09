@@ -123,3 +123,53 @@ export async function verifyGoogleIdToken(
   }
   return checkClaims(decoded.payload, expectedAudience);
 }
+
+/**
+ * Claim checks for a Cloud Scheduler-issued OIDC token (KRKG-0050's internal audit-reconcile
+ * route) - same Google-signed JWT shape and JWKS as a Sign In With Google id_token, but issued
+ * for a service account rather than a human, so `email_verified`/`name`/`picture` aren't
+ * meaningful claims to require here. Deliberately checks the token's `email` against a specific
+ * configured service account, not just "is this a valid Google-signed token" - an OIDC token
+ * that's merely well-formed and unexpired but issued for some *other* identity must not be
+ * accepted, since only one service account is meant to be able to trigger reconciliation
+ * (plan-addendum.md "Scheduler operational delivery").
+ */
+export function checkReconcilerOidcClaims(
+  payload: Record<string, unknown>,
+  expectedAudience: string,
+  expectedServiceAccountEmail: string,
+  now: number = Date.now() / 1000,
+): { email: string } {
+  if (payload.iss !== 'https://accounts.google.com' && payload.iss !== 'accounts.google.com') {
+    throw new AuthError('Token wystawiony przez nieznanego wystawcę.', 401);
+  }
+  if (payload.aud !== expectedAudience) {
+    throw new AuthError('Token wystawiony dla innej aplikacji.', 401);
+  }
+  if (typeof payload.exp !== 'number' || payload.exp < now) {
+    throw new AuthError('Token wygasł.', 401);
+  }
+  const email = typeof payload.email === 'string' ? payload.email.toLowerCase() : '';
+  if (!email || email !== expectedServiceAccountEmail.toLowerCase()) {
+    throw new AuthError('Token nie należy do oczekiwanego konta usługi.', 403);
+  }
+  return { email };
+}
+
+export async function verifyReconcilerOidcToken(
+  token: string,
+  expectedAudience: string,
+  expectedServiceAccountEmail: string,
+  jwksProvider: JwksProvider = fetchGoogleJwks,
+): Promise<{ email: string }> {
+  const decoded = decodeJwt(token);
+  const jwks = await jwksProvider();
+  const jwk = jwks.find(k => k.kid === decoded.header.kid);
+  if (!jwk) {
+    throw new AuthError('Nie znaleziono klucza podpisującego token.', 401);
+  }
+  if (!verifyJwtSignature(decoded, jwk)) {
+    throw new AuthError('Nieprawidłowy podpis tokenu.', 401);
+  }
+  return checkReconcilerOidcClaims(decoded.payload, expectedAudience, expectedServiceAccountEmail);
+}

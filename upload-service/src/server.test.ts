@@ -25,6 +25,7 @@ import { resetRateLimitForTests } from './rate-limit.ts';
 import { createInMemoryFirestoreClient } from './firestore.ts';
 import { createDisabledSheetsClient } from './sheets.ts';
 import { listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
+import { executeAuditedFirestoreMutation, startExternalOperation, completeExternalOperation } from './audit.ts';
 
 const nodeFetch = globalThis.fetch;
 const ALLOWED_ORIGIN_FOR_TESTS = 'https://example.test'; // matches makeDeps()'s allowedOrigin
@@ -106,6 +107,7 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     listFiles: async () => [],
     setFolderPublic: async () => {},
     deleteFolder: async () => {},
+    folderExists: async () => true,
     renameFolder: async () => {},
     moveFolder: async () => ({ name: 'Test Person' }),
     moveFile: async () => {},
@@ -3810,7 +3812,7 @@ test('/wojownicy-upload/submit creates a folder named "Imię - email - data" und
   });
   const [event] = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
   assert.equal(event.data.action, 'profile.photo_submission.created');
-  assert.equal(event.data.resource.key, 'memberSubmission:submission-folder');
+  assert.equal(event.data.resource.key, 'member:ktos@gmail.com:submission:submission-folder');
   assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [['name', 'Jan Kowalski']]);
 });
 
@@ -5092,5 +5094,132 @@ test('PUT /lista-wyjazdowa/events preserves combined metadata and fee edits as t
       { field: 'feeDigest', before: null, after: createHash('sha256').update('100 zł').digest('hex'), visibility: 'roleRestricted' },
       { field: 'feeLength', before: null, after: 6, visibility: 'roleRestricted' },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// KRKG-0050 batch 4/6: audit query, diagnostics, and reconciliation routes.
+// ---------------------------------------------------------------------------------------------
+
+async function seedAuditEvent(firestore: ReturnType<typeof createInMemoryFirestoreClient>, id: string, timestampIso: string) {
+  await executeAuditedFirestoreMutation(
+    firestore,
+    {
+      action: 'event.created',
+      actor: { email: 'maja@example.test' },
+      resource: { kind: 'event', key: `event:${id}`, display: `Wyjazd ${id}` },
+      changes: [{ field: 'name', after: `Wyjazd ${id}` }],
+    },
+    async () => {},
+    { createId: () => id, now: () => new Date(timestampIso) },
+  );
+}
+
+test('GET /admin/audyt/events lists events for an admin viewer and rejects two primary selectors with 400', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await seedAuditEvent(firestore, 'evt-a', '2026-01-01T00:00:00.000Z');
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/audyt/events`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.rows.length, 1);
+    assert.equal(body.rows[0].id, 'evt-a');
+    assert.equal(body.rows[0].actor.email, 'maja@example.test');
+
+    const rejected = await fetch(`${baseUrl}/admin/audyt/events?category=events&actorEmail=maja@example.test`);
+    assert.equal(rejected.status, 400);
+  });
+});
+
+test('GET /audyt/events (member-zone) never exposes actor and hides an admin-only category entirely', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await seedAuditEvent(firestore, 'evt-public', '2026-01-01T00:00:00.000Z');
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'dues.annual.changed', actor: { email: 'skarbnik@example.test' }, resource: { kind: 'due', key: 'due:ula@example.test:2026', display: 'Ula 2026' }, changes: [{ field: 'paid', after: true }] },
+    async () => {},
+    { createId: () => 'evt-dues', now: () => new Date('2026-01-01T00:01:00.000Z') },
+  );
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/audyt/events`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.rows.map((r: { id: string }) => r.id), ['evt-public']);
+    assert.equal(body.rows[0].actor, undefined);
+  });
+});
+
+test('GET /admin/audyt/event returns 404 for an id the viewer cannot see, and the projected row otherwise', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'dues.annual.changed', actor: { email: 'skarbnik@example.test' }, resource: { kind: 'due', key: 'due:ula@example.test:2026', display: 'Ula 2026' }, changes: [{ field: 'paid', after: true }] },
+    async () => {},
+    { createId: () => 'evt-dues', now: () => new Date('2026-01-01T00:00:00.000Z') },
+  );
+  // A moderator-only (non-admin) viewer cannot see the dues category.
+  const firestoreWithModerator = firestore;
+  await firestoreWithModerator.setDoc('userRoles', 'wojownik@gmail.com', { roles: ['moderator'] });
+  const deps = makeDeps({
+    firestore,
+    authenticate: async () => fakeSessionClaims({ sub: 'mod-1', email: 'wojownik@gmail.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/audyt/event?id=evt-dues`);
+    assert.equal(res.status, 404);
+  });
+});
+
+test('GET /admin/audyt/diagnostics is administrator-only and filters by correlation id', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await startExternalOperation(
+    firestore,
+    { action: 'site.redirect.created', actor: { email: 'admin@example.test' }, resource: { kind: 'redirect', key: 'redirect:discord', display: 'discord' }, changes: [{ field: 'path', after: 'discord' }] },
+    { correlationId: 'diag-1', now: () => new Date('2026-01-01T00:00:00.000Z') },
+  );
+  const adminDeps = makeDeps({ firestore });
+  await withServer(adminDeps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/audyt/diagnostics`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.rows.length, 1);
+    assert.equal(body.rows[0].correlationId, 'diag-1');
+
+    const filtered = await fetch(`${baseUrl}/admin/audyt/diagnostics?correlationId=diag-1`);
+    assert.equal((await filtered.json()).rows.length, 1);
+    const empty = await fetch(`${baseUrl}/admin/audyt/diagnostics?correlationId=does-not-exist`);
+    assert.equal((await empty.json()).rows.length, 0);
+  });
+
+  // An accountant-only (non-admin) viewer must not reach diagnostics - it's administrator-only,
+  // unlike the list/detail routes.
+  const accountantDeps = makeDeps({
+    firestore,
+    authenticate: async () => fakeSessionClaims({ sub: 'acc-1', email: 'wojownik@gmail.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+  await withServer(accountantDeps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/audyt/diagnostics`);
+    assert.equal(res.status, 403);
+  });
+});
+
+test('POST /internal/audit/reconcile fails closed (503) when the reconciler secrets are not configured, and 401s a request with no bearer token once they are', async () => {
+  const notConfigured = makeDeps();
+  await withServer(notConfigured, async baseUrl => {
+    const res = await fetch(`${baseUrl}/internal/audit/reconcile`, { method: 'POST' });
+    assert.equal(res.status, 503);
+  });
+
+  const configured = makeDeps({
+    auditReconcilerServiceAccountEmail: 'audit-reconciler@project.iam.gserviceaccount.com',
+    auditReconcileAudience: 'https://upload-service-xyz.run.app',
+  });
+  await withServer(configured, async baseUrl => {
+    const res = await fetch(`${baseUrl}/internal/audit/reconcile`, { method: 'POST' });
+    assert.equal(res.status, 401);
   });
 });

@@ -27,7 +27,26 @@ import {
   type AdminDepartment,
 } from './about-us.ts';
 import { createFirestoreClient, type FirestoreLikeClient, type FirestoreTransaction } from './firestore.ts';
-import { createCanonicalAuditEvent, executeAuditedExternalMutation, executeAuditedFirestoreMutation, type AuditAction, type CanonicalAuditEventInput } from './audit.ts';
+import {
+  createCanonicalAuditEvent,
+  executeAuditedExternalMutation,
+  executeAuditedFirestoreMutation,
+  reconcileExternalOperation,
+  listOpenOperationCorrelationIds,
+  listAuditDiagnostics,
+  queryAuditEvents,
+  getAuditEventDetail,
+  AuditQueryError,
+  type AuditAction,
+  type AuditCategory,
+  type AuditPrimarySelector,
+  type AuditQueryOptions,
+  type AuditViewer,
+  type AuditOperationIntent,
+  type ExternalOperationProbe,
+  type CanonicalAuditEventInput,
+} from './audit.ts';
+import { verifyReconcilerOidcToken } from './auth.ts';
 import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberCategoryId, setMemberHidden, recordLastLogin, type MemberDoc, type MemberWritableFields } from './members.ts';
 import { applyForMembershipInTransaction, applyAdminTransitionInTransaction, listMembersByStatus, type AdminTransition } from './membership.ts';
 import type { MembershipStatus } from './members.ts';
@@ -132,6 +151,12 @@ export interface ServerDeps {
   // KRKG-0046: Google Sheets disaster-recovery backup of the members collection. Never a runtime
   // fallback for authorization - see sheets.ts's SheetsClient doc comment.
   sheetsClient: SheetsClient;
+  // KRKG-0050: Cloud Scheduler's own OIDC-authenticated service account, and the audience its
+  // token must be issued for - see config.ts's matching comment. Both undefined until the
+  // Scheduler job is separately provisioned (reconciler-runbook.md); the reconcile route fails
+  // closed (503) rather than either booting unauthenticated or refusing to boot.
+  auditReconcilerServiceAccountEmail?: string;
+  auditReconcileAudience?: string;
 }
 
 type MutationMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -1086,16 +1111,26 @@ async function handleAdminCreatePerson(req: IncomingMessage, res: ServerResponse
   if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
 
   const folderName = buildPersonFolderName(name, order ?? null);
+  // Pre-effect resource protocol (implementation-contract.md): no final Drive folder id exists
+  // before the effect runs, so the correlation id is generated first and used as the intent's
+  // immutable provisional resource key - not the browser-supplied identity.sub, which isn't a
+  // correlation id and isn't unique per attempt.
+  const correlationId = randomUUID();
+  const provisionalResourceKey = `person:pending:${correlationId}`;
   const { result: folderId } = await executeAuditedExternalMutation(deps.firestore, {
     action: 'profile.person.created', actor: { email: identity.email },
-    resource: { kind: 'person', key: `person:pending:${identity.sub}`, display: name.trim() },
+    resource: { kind: 'person', key: provisionalResourceKey, display: name.trim() },
     changes: [{ field: 'name', after: name.trim() }, { field: 'category', after: validCategory }],
   }, async () => {
     const folders = await bootstrapAboutUsStructure(deps.drive);
     const id = await deps.drive.createAlbumFolder(folders.categories[validCategory], folderName);
     if (description) await deps.drive.writeTextFile(id, 'Opis.txt', description);
     return id;
-  }, { eventInput: id => ({ action: 'profile.person.created', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${id}`, display: name.trim() }, changes: [{ field: 'name', after: name.trim() }, { field: 'category', after: validCategory }] }) });
+  }, {
+    correlationId,
+    provisionalResourceKey,
+    eventInput: id => ({ action: 'profile.person.created', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${id}`, display: name.trim() }, changes: [{ field: 'name', after: name.trim() }, { field: 'category', after: validCategory }] }),
+  });
   invalidateAboutUsCache();
   sendJson(res, 200, { folderId });
 }
@@ -1269,12 +1304,18 @@ async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResp
 
   const date = new Date().toISOString().slice(0, 10);
   const folderName = `${name.trim()} - ${identity.email} - ${date}`;
+  // Pre-effect resource protocol - see the matching comment in handleAdminCreatePerson. Final
+  // resource key format (member:{actorEmail}:submission:{folderId}) is
+  // implementation-contract.md's "Pre-effect resource protocol" list, not the generic
+  // person:{personId}/gallery:{folderId} notation.
+  const correlationId = randomUUID();
+  const provisionalResourceKey = `memberSubmission:pending:${correlationId}`;
   const { result: folderId } = await executeAuditedExternalMutation(
     deps.firestore,
     {
       action: 'profile.photo_submission.created',
       actor: { email: identity.email },
-      resource: { kind: 'memberSubmission', key: `memberSubmission:pending:${identity.sub}`, display: name.trim() },
+      resource: { kind: 'memberSubmission', key: provisionalResourceKey, display: name.trim() },
       changes: [{ field: 'name', after: name.trim() }],
     },
     async () => {
@@ -1282,10 +1323,12 @@ async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResp
       return deps.drive.createAlbumFolder(folders.uploadRoot, folderName);
     },
     {
+      correlationId,
+      provisionalResourceKey,
       eventInput: createdFolderId => ({
         action: 'profile.photo_submission.created',
         actor: { email: identity.email },
-        resource: { kind: 'memberSubmission', key: `memberSubmission:${createdFolderId}`, display: name.trim() },
+        resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${createdFolderId}`, display: name.trim() },
         changes: [{ field: 'name', after: name.trim() }],
       }),
     },
@@ -2114,12 +2157,15 @@ async function handleStart(req: IncomingMessage, res: ServerResponse, deps: Serv
   const { name, date } = await readJsonBody<{ name?: string; date: string }>(req, deps.maxJsonBodyBytes);
   if (!date) throw new AuthError('Brak daty albumu.', 400);
   const folderName = name ? `${date} ${name}` : date;
+  // Pre-effect resource protocol - see the matching comment in handleAdminCreatePerson.
+  const correlationId = randomUUID();
+  const provisionalResourceKey = `gallery:pending:${correlationId}`;
   const { result: folderId } = await executeAuditedExternalMutation(
     deps.firestore,
     {
       action: 'gallery.created',
       actor: { email: identity.email },
-      resource: { kind: 'gallery', key: `gallery:pending:${identity.sub}`, display: name ?? date },
+      resource: { kind: 'gallery', key: provisionalResourceKey, display: name ?? date },
       changes: [{ field: 'name', after: name ?? date }, { field: 'date', after: date }],
     },
     async () => {
@@ -2131,6 +2177,8 @@ async function handleStart(req: IncomingMessage, res: ServerResponse, deps: Serv
       return createdFolderId;
     },
     {
+      correlationId,
+      provisionalResourceKey,
       eventInput: createdFolderId => ({
         action: 'gallery.created',
         actor: { email: identity.email },
@@ -2547,6 +2595,181 @@ async function handleYouTubeVideos(res: ServerResponse): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// KRKG-0050 batch 4/6: audit query, diagnostics, and reconciliation routes.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Query-string parser shared by the admin and member-zone audit list/detail routes - the
+ * "zero-or-one primary selector" contract is enforced here as much as inside `queryAuditEvents`
+ * itself, since more than one selector query param is a request-shape error the route should
+ * reject before ever touching Firestore.
+ */
+function parseAuditQueryOptions(url: URL): AuditQueryOptions {
+  const params = url.searchParams;
+  const category = params.get('category');
+  const action = params.get('action');
+  const actorEmail = params.get('actorEmail');
+  const resourceKey = params.get('resourceKey');
+  const q = params.get('q');
+  if (action && !category) throw new AuditQueryError('Selektor action wymaga podania category.');
+
+  const selectors: AuditPrimarySelector[] = [];
+  if (category) selectors.push({ kind: 'categoryAction', category: category as AuditCategory, ...(action ? { action: action as AuditAction } : {}) });
+  if (actorEmail) selectors.push({ kind: 'actor', email: actorEmail });
+  if (resourceKey) selectors.push({ kind: 'resourceKey', key: resourceKey });
+  if (q) selectors.push({ kind: 'search', term: q });
+  if (selectors.length > 1) throw new AuditQueryError('Można podać tylko jeden selektor podstawowy (category/action, actorEmail, resourceKey albo q).');
+
+  const from = params.get('from') ?? undefined;
+  const to = params.get('to') ?? undefined;
+  const cursor = params.get('cursor') ?? undefined;
+  const limitParam = params.get('limit');
+  let limit: number | undefined;
+  if (limitParam !== null) {
+    limit = Number(limitParam);
+    if (!Number.isFinite(limit) || limit <= 0) throw new AuditQueryError('Nieprawidłowy limit.');
+  }
+  return { selector: selectors[0] ?? { kind: 'none' }, from, to, cursor, limit };
+}
+
+/**
+ * Resolves the admin-scope audit viewer for `/admin/audyt/*`. Full administrators (the same
+ * admin-allowlist-or-admin-role gate as every other `authenticateAdmin` route) get every
+ * category; a signed-in member who is only an accountant or only a moderator still needs to see
+ * their own domain's history (dues / profile respectively - implementation-contract.md's
+ * role-visibility rules), so this checks `authenticateAdmin` opportunistically rather than
+ * requiring it outright, and 403s only if none of the three roles apply.
+ */
+async function resolveAdminAuditViewer(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<AuditViewer> {
+  const identity = await deps.authenticate(req, res);
+  const granted = await getGrantedRoles(deps.firestore, identity.email);
+  let isAdmin = granted.includes('admin');
+  if (!isAdmin) {
+    try {
+      await deps.authenticateAdmin(req, res);
+      isAdmin = true;
+    } catch {
+      // Not an allowlisted administrator - may still be a scoped accountant/moderator below.
+    }
+  }
+  const isAccountant = isAdmin || granted.includes('accountant');
+  const isModerator = isAdmin || granted.includes('moderator');
+  if (!isAdmin && !isAccountant && !isModerator) {
+    throw new AuthError('Brak uprawnień do przeglądania audytu.', 403);
+  }
+  return { scope: 'admin', isAdmin, isAccountant, isModerator };
+}
+
+async function handleAdminAuditEventsList(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const viewer = await resolveAdminAuditViewer(req, res, deps);
+  const page = await queryAuditEvents(deps.firestore, parseAuditQueryOptions(url), viewer);
+  sendJson(res, 200, page);
+}
+
+async function handleAdminAuditEventDetail(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const viewer = await resolveAdminAuditViewer(req, res, deps);
+  const id = url.searchParams.get('id');
+  if (!id) throw new AuthError('Brak id.', 400);
+  const row = await getAuditEventDetail(deps.firestore, id, viewer);
+  if (!row) throw new AuthError('Nie znaleziono.', 404);
+  sendJson(res, 200, row);
+}
+
+/** Administrator-only, per implementation-contract.md ("Diagnostics are administrator-only and
+ * never contextual member history") - deliberately not open to accountant/moderator-only staff,
+ * unlike the list/detail routes above. */
+async function handleAdminAuditDiagnostics(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req, res);
+  const correlationId = url.searchParams.get('correlationId') ?? undefined;
+  const rows = await listAuditDiagnostics(deps.firestore, correlationId);
+  sendJson(res, 200, { rows });
+}
+
+async function handleAuditEventsListPublic(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticate(req, res);
+  const page = await queryAuditEvents(deps.firestore, parseAuditQueryOptions(url), { scope: 'member' });
+  sendJson(res, 200, page);
+}
+
+async function handleAuditEventDetailPublic(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticate(req, res);
+  const id = url.searchParams.get('id');
+  if (!id) throw new AuthError('Brak id.', 400);
+  const row = await getAuditEventDetail(deps.firestore, id, { scope: 'member' });
+  if (!row) throw new AuthError('Nie znaleziono.', 404);
+  sendJson(res, 200, row);
+}
+
+/**
+ * Resource-specific idempotent final-state probes (implementation-contract.md's Scheduler
+ * contract), keyed by the audited resource kind. Only kinds reachable through
+ * `executeAuditedExternalMutation` ever appear in `auditOperations`, so this table only needs to
+ * cover those: Drive-folder resources (gallery/person/memberSubmission - the three pre-effect-
+ * protocol routes, plus settings' Drive-backed writes) and GitHub-backed redirects. None of these
+ * probes ever repeats the original effect - they only observe whether it already happened.
+ */
+function buildReconciliationProbes(deps: ServerDeps): Partial<Record<AuditOperationIntent['resource']['kind'], ExternalOperationProbe>> {
+  const driveFolderProbe = (kind: 'gallery' | 'person' | 'memberSubmission'): ExternalOperationProbe => async intent => {
+    // The provisional key is `{kind}:pending:{correlationId}` - there is no folder id to probe
+    // for until the effect has actually created one, so a still-provisional intent can only ever
+    // be "pending" here (never "failed": Drive folder creation is a single all-or-nothing call,
+    // so if it had thrown, `executeAuditedExternalMutation`'s own catch path would already have
+    // recorded `failed` synchronously, and this reconciler branch would never see that intent as
+    // still open in the first place).
+    const provisionalPrefix = `${kind}:pending:`;
+    if (intent.resource.key.startsWith(provisionalPrefix)) return { state: 'pending' };
+    const folderId = intent.resource.key.slice(`${kind}:`.length);
+    const exists = await deps.drive.folderExists(folderId);
+    if (!exists) return { state: 'pending' };
+    return {
+      state: 'succeeded',
+      eventInput: {
+        action: intent.action,
+        actor: intent.actor,
+        resource: intent.resource,
+        changes: [{ field: 'folderId', after: folderId }],
+      },
+    };
+  };
+  return {
+    gallery: driveFolderProbe('gallery'),
+    person: driveFolderProbe('person'),
+    memberSubmission: driveFolderProbe('memberSubmission'),
+  };
+}
+
+/**
+ * Internal, OIDC-authenticated route Cloud Scheduler calls every 15 minutes
+ * (plan-addendum.md "Scheduler operational delivery"). Not reachable by any browser session -
+ * fails closed (503) if the reconciler service account/audience aren't configured yet, and 401s
+ * any caller whose OIDC token isn't a valid, current token issued to that exact service account.
+ */
+async function handleInternalAuditReconcile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  if (!deps.auditReconcilerServiceAccountEmail || !deps.auditReconcileAudience) {
+    throw new AuthError('Reconciler Schedulera nie jest skonfigurowany.', 503);
+  }
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    throw new AuthError('Brak tokenu OIDC.', 401);
+  }
+  await verifyReconcilerOidcToken(authHeader.slice('Bearer '.length), deps.auditReconcileAudience, deps.auditReconcilerServiceAccountEmail);
+
+  const probes = buildReconciliationProbes(deps);
+  const correlationIds = await listOpenOperationCorrelationIds(deps.firestore);
+  const results = [];
+  for (const correlationId of correlationIds) {
+    const intent = await deps.firestore.getDoc<AuditOperationIntent>('auditOperations', correlationId);
+    const probe = intent ? probes[intent.resource.kind] : undefined;
+    if (!intent || !probe) {
+      results.push({ correlationId, outcome: 'not_eligible' as const });
+      continue;
+    }
+    results.push(await reconcileExternalOperation(deps.firestore, correlationId, probe));
+  }
+  sendJson(res, 200, { results });
+}
+
 export function createRequestListener(deps: ServerDeps) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     setCors(res, deps.allowedOrigin);
@@ -2608,6 +2831,18 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminSetRoles(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/roles/audit-log') {
         await handleAdminListRolesAuditLog(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/audyt/events') {
+        await handleAdminAuditEventsList(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/audyt/event') {
+        await handleAdminAuditEventDetail(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/audyt/diagnostics') {
+        await handleAdminAuditDiagnostics(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/audyt/events') {
+        await handleAuditEventsListPublic(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/audyt/event') {
+        await handleAuditEventDetailPublic(req, res, url, deps);
+      } else if (req.method === 'POST' && url.pathname === '/internal/audit/reconcile') {
+        await handleInternalAuditReconcile(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/redirects') {
         await handleAdminListRedirects(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/redirects') {
@@ -2720,6 +2955,11 @@ export function createRequestListener(deps: ServerDeps) {
     } catch (err) {
       if (err instanceof AuthError) {
         sendJson(res, err.status, { error: err.message });
+      } else if (err instanceof AuditQueryError) {
+        // Deterministic rejection of an unsupported audit query shape (e.g. two primary
+        // selectors, or a malformed cursor/date) - implementation-contract.md requires this be a
+        // clean 400, never a 500 or a best-effort partial scan.
+        sendJson(res, 400, { error: err.message });
       } else {
         console.error(err);
         sendJson(res, 500, { error: 'Błąd serwera.' });
@@ -2818,6 +3058,8 @@ async function startProductionServer(): Promise<void> {
     galleriesCacheTtlMs: config.galleriesCacheTtlMs,
     listMemberEmails: () => listActiveMemberEmails(firestoreClient),
     sheetsClient,
+    auditReconcilerServiceAccountEmail: config.auditReconcilerServiceAccountEmail,
+    auditReconcileAudience: config.auditReconcileAudience,
   };
   const server = createServer(createRequestListener(productionDeps));
   server.listen(config.port, () => {

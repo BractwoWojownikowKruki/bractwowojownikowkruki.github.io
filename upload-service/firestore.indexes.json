@@ -5,7 +5,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "category", "order": "ASCENDING" },
-        { "fieldPath": "timestamp", "order": "DESCENDING" }
+        { "fieldPath": "timestamp", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
@@ -13,7 +14,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "action", "order": "ASCENDING" },
-        { "fieldPath": "timestamp", "order": "DESCENDING" }
+        { "fieldPath": "timestamp", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
@@ -21,7 +23,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "actor.email", "order": "ASCENDING" },
-        { "fieldPath": "timestamp", "order": "DESCENDING" }
+        { "fieldPath": "timestamp", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
@@ -29,7 +32,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "resource.key", "order": "ASCENDING" },
-        { "fieldPath": "timestamp", "order": "DESCENDING" }
+        { "fieldPath": "timestamp", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
@@ -37,7 +41,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "searchTokens", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "timestamp", "order": "DESCENDING" }
+        { "fieldPath": "timestamp", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     }
   ],
