@@ -910,7 +910,12 @@ export async function queryAuditEvents(
     }
     const lastConsumed = docs[consumed - 1];
     cursor = { timestamp: lastConsumed.data.timestamp, id: lastConsumed.id };
-    if (docs.length < fetchLimit) exhausted = true;
+    // Only a batch that was BOTH shorter than requested AND fully examined (the inner loop never
+    // hit its own `break` because the page filled first) proves there is nothing left to fetch.
+    // A page that filled mid-batch (`consumed < docs.length`) still has unexamined docs in this
+    // same batch, even if the batch as a whole was short - so `exhausted` must stay false and a
+    // cursor must still be produced, or those trailing docs become permanently unreachable.
+    if (consumed === docs.length && docs.length < fetchLimit) exhausted = true;
   }
 
   const page = rows.slice(0, limit);

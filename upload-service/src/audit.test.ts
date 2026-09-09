@@ -346,6 +346,65 @@ test('queryAuditEvents caps at 100 rows and paginates with a stable cursor', asy
 });
 
 /**
+ * KRKG-0050 final-review fix (finding I1): `queryAuditEvents` used to mark a batch `exhausted`
+ * purely from `docs.length < fetchLimit`, even when the inner consume-loop `break`s early
+ * because the page already filled. That silently dropped every doc after the break point in the
+ * same batch and withheld `nextCursor`, making those rows permanently unreachable. This test
+ * builds a batch with a viewer-redacted ("profile", invisible to an accountant) row in the
+ * middle, sized so the accountant's page of visible ("dues") rows fills before the whole batch
+ * of Firestore docs is examined, and proves both that `nextCursor` is still produced and that a
+ * follow-up page reaches the doc that was left unconsumed.
+ */
+test('queryAuditEvents keeps nextCursor and reaches later rows when a page fills before its Firestore batch is fully consumed', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const accountant: AuditViewer = { scope: 'admin', isAdmin: false, isAccountant: true, isModerator: false };
+
+  // Newest to oldest: dues(A), profile(hidden to accountant), dues(B), dues(C), dues(D).
+  // limit=3 -> fetchLimit=6 on the first iteration; only 5 docs exist in total (< fetchLimit),
+  // which is exactly the case the old buggy condition (`docs.length < fetchLimit`) treated as
+  // proof nothing remained - even though the inner loop breaks after consuming just 4 of the 5
+  // fetched docs (dues A, hidden profile, dues B, dues C fill the 3-row page), leaving dues D
+  // fetched-but-unconsumed in that same batch.
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'dues.annual.changed', actor: { email: 'maja@example.test' }, resource: { kind: 'due', key: 'due:x@example.test:2026', display: 'X' }, changes: [{ field: 'paid', after: true }] },
+    async () => {},
+    { createId: () => 'dues-a', now: () => new Date('2026-01-05T00:00:00.000Z') },
+  );
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'profile.person.description.updated', actor: { email: 'maja@example.test' }, resource: { kind: 'person', key: 'person:p1', display: 'P1' }, changes: [{ field: 'descriptionHash', after: 'abc' }] },
+    async () => {},
+    { createId: () => 'profile-hidden', now: () => new Date('2026-01-04T00:00:00.000Z') },
+  );
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'dues.annual.changed', actor: { email: 'maja@example.test' }, resource: { kind: 'due', key: 'due:x@example.test:2026', display: 'X' }, changes: [{ field: 'paid', after: true }] },
+    async () => {},
+    { createId: () => 'dues-b', now: () => new Date('2026-01-03T00:00:00.000Z') },
+  );
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'dues.annual.changed', actor: { email: 'maja@example.test' }, resource: { kind: 'due', key: 'due:x@example.test:2026', display: 'X' }, changes: [{ field: 'paid', after: true }] },
+    async () => {},
+    { createId: () => 'dues-c', now: () => new Date('2026-01-02T00:00:00.000Z') },
+  );
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'dues.annual.changed', actor: { email: 'maja@example.test' }, resource: { kind: 'due', key: 'due:x@example.test:2026', display: 'X' }, changes: [{ field: 'paid', after: true }] },
+    async () => {},
+    { createId: () => 'dues-d', now: () => new Date('2026-01-01T00:00:00.000Z') },
+  );
+
+  const page1 = await queryAuditEvents(firestore, { selector: { kind: 'none' }, limit: 3 }, accountant);
+  assert.deepEqual(page1.rows.map(r => r.id), ['dues-a', 'dues-b', 'dues-c']);
+  assert.ok(page1.nextCursor, 'nextCursor must survive a page that fills before its Firestore batch is fully consumed');
+
+  const page2 = await queryAuditEvents(firestore, { selector: { kind: 'none' }, limit: 3, cursor: page1.nextCursor }, accountant);
+  assert.deepEqual(page2.rows.map(r => r.id), ['dues-d']);
+});
+
+/**
  * KRKG-0050 batch 6/6: closes the remaining gaps in implementation-contract.md's "Query and
  * Firestore-index contract" matrix - every supported primary selector kind (category alone,
  * category+action, actor, resource key; `none` and `search` are already covered above), each
