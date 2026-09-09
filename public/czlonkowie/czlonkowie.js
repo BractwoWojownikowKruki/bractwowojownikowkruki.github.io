@@ -210,6 +210,16 @@ document.getElementById('czl-table-body').addEventListener('change', (e) => {
   saveMemberField(row, field.dataset.email);
 });
 
+// Tapping a row highlights it gold (KRKG-0052) - touch devices have no hover state, so this is the
+// only way to see which row you're currently reading/editing on mobile. Persists until another row
+// is tapped, unlike :hover/:active which fade the instant you lift your finger.
+document.getElementById('czl-table-body').addEventListener('click', (e) => {
+  const row = e.target.closest('tr');
+  if (!row) return;
+  document.querySelectorAll('#czl-table-body tr.czl-row-active').forEach((r) => r.classList.remove('czl-row-active'));
+  row.classList.add('czl-row-active');
+});
+
 initGoogleSignIn({
   buttonIds: ['google-signin-button'],
   whoamiPath: '/wojownicy-upload/whoami',

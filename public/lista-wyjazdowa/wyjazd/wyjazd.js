@@ -21,25 +21,12 @@ function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
-// Section/city color coding (KRKG-0051) - the actual colors live in exactly one place,
-// style.css's [data-section="..."] rules (a section's hex value changes there, nowhere else).
-// This just renders the data-section attribute a CSS rule keys off; an unrecognized/missing id
-// falls back to style.css's --section-color-default (gray) since no rule matches it.
-function sectionPillHtml(sectionId, label) {
-  return `<span class="section-pill" data-section="${escapeAttr(sectionId ?? '')}">${escapeHtml(label)}</span>`;
-}
-
-// A member's Ksywa (nickname) matters more here than in most places on the site: this roster is
-// exactly the context the sheet's "Nazwisko, Imię" + Ksywa columns existed for - people who know
-// each other by nickname need to find their own row and each other's.
-//
 // fullName falls back to email because the roster now enumerates the whole club allowlist (see
 // server.ts's handleListaWyjazdowaGetRoster), not just members who filled in "Mój profil" - such
 // a member has no fullName/nickname to show yet, but still needs a findable row so their
 // attendance can be set.
 function displayName(member) {
-  const name = member.fullName ?? member.email;
-  return member.nickname ? `${name} (${member.nickname})` : name;
+  return member.fullName ?? member.email;
 }
 
 // startDate is a bare calendar date ("2027-05-01"), not a timestamp - plain string slicing avoids
@@ -197,67 +184,74 @@ let rosterFilter = 'attending';
 let cachedRoster = [];
 let cachedSignups = [];
 
-function rosterGroupKey(member) {
-  return rosterSortBy === 'weapon' ? (member.weaponIds[0] ?? null) : member.sectionId;
+// Sections/categories/weapons don't change within one open page load - fetched once in loadAll()
+// alongside everything else (see the lookupLists destructure there) and read from here. Same
+// never-hide-an-unresolved-reference fallback as czlonkowie.js/zarzadzanie-ludzmi.js: an id with
+// no matching lookup entry shows as its own raw id rather than vanishing.
+let sectionLabelById = new Map();
+let categoryLabelById = new Map();
+let weaponLabelById = new Map();
+
+function sectionSortLabel(member) {
+  return member.sectionId ? (sectionLabelById.get(member.sectionId) ?? member.sectionId) : '';
 }
 
-function rosterGroupLabel(key) {
-  if (key !== null) return key;
-  return rosterSortBy === 'weapon' ? 'Bez broni' : 'Bez sekcji';
+function weaponSortLabel(member) {
+  const firstId = member.weaponIds[0];
+  return firstId ? (weaponLabelById.get(firstId) ?? firstId) : '';
 }
+
+// EMPTY (KRKG-0052) mirrors czlonkowie.js's dense-table convention - flat rows sorted by the
+// chosen key (Sekcja, tie-broken alphabetically; or Rodzaj broni), grouped visually only by the
+// left accent bar (this member's own sectionId), no more per-group <h3> headings - the whole
+// roster is one .czl-table now, same shape as Spis Ludności's.
+const EMPTY = '—';
 
 function renderRoster(roster, signups) {
   const signupByEmail = new Map(signups.map((s) => [s.memberEmail, s]));
   const visible = rosterFilter === 'all' ? roster : roster.filter((m) => signupByEmail.get(m.email)?.attending);
 
-  const container = document.getElementById('roster-content');
-  container.innerHTML = '';
+  const tbody = document.getElementById('roster-content');
   if (visible.length === 0) {
-    container.innerHTML = '<p>Brak osób do wyświetlenia.</p>';
+    tbody.innerHTML = '<tr><td colspan="5" class="czl-empty">Brak osób do wyświetlenia.</td></tr>';
     return;
   }
 
-  const groups = new Map();
-  for (const member of visible) {
-    const key = rosterGroupKey(member);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(member);
-  }
+  const sortLabel = rosterSortBy === 'weapon' ? weaponSortLabel : sectionSortLabel;
+  const sorted = [...visible].sort((a, b) => {
+    const cmp = sortLabel(a).toLocaleLowerCase('pl').localeCompare(sortLabel(b).toLocaleLowerCase('pl'), 'pl');
+    if (cmp !== 0) return cmp;
+    // Within a tied section/weapon, surface attending members first (the old grouped view's
+    // sub-sort), then alphabetically by name.
+    const aAttending = signupByEmail.get(a.email)?.attending ? 0 : 1;
+    const bAttending = signupByEmail.get(b.email)?.attending ? 0 : 1;
+    if (aAttending !== bAttending) return aAttending - bAttending;
+    return (a.fullName ?? '').toLocaleLowerCase('pl').localeCompare((b.fullName ?? '').toLocaleLowerCase('pl'), 'pl');
+  });
 
-  for (const [key, members] of groups.entries()) {
-    const sectionEl = document.createElement('div');
-    // The colored pill only makes sense when the group itself *is* a section (rosterSortBy ===
-    // 'section', key is a sectionId) - grouped by weapon instead, each group mixes members from
-    // several sections, so the heading stays plain text and only the per-row accent (below, keyed
-    // by that member's own sectionId regardless of grouping mode) carries the color.
-    sectionEl.innerHTML =
-      rosterSortBy === 'section' && key !== null
-        ? `<h3>${sectionPillHtml(key, rosterGroupLabel(key))}</h3>`
-        : `<h3>${escapeHtml(rosterGroupLabel(key))}</h3>`;
-    const sorted = [...members].sort((a, b) => {
-      const aAttending = signupByEmail.get(a.email)?.attending ? 0 : 1;
-      const bAttending = signupByEmail.get(b.email)?.attending ? 0 : 1;
-      return aAttending - bAttending;
-    });
-    for (const member of sorted) {
+  tbody.innerHTML = sorted
+    .map((member) => {
       const signup = signupByEmail.get(member.email);
       const attending = signup?.attending ?? false;
       const emailAttr = escapeAttr(member.email);
-      const row = document.createElement('div');
-      row.className = 'lw-roster-row section-row-accent';
-      row.dataset.section = member.sectionId ?? '';
-      row.innerHTML = `
+      const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
+      const weaponLabels = member.weaponIds.map((id) => weaponLabelById.get(id) ?? id);
+      return `
+    <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
+      <td>${escapeHtml(displayName(member))}</td>
+      <td class="${member.nickname ? '' : 'czl-empty'}">${member.nickname ? escapeHtml(member.nickname) : EMPTY}</td>
+      <td>
         <button type="button" class="lw-attend-toggle" data-email="${emailAttr}" data-attending="${attending}" aria-pressed="${attending}">
           <span class="lw-attend-toggle-track" aria-hidden="true"></span>
           ${attending ? 'Jadę' : 'Nie jadę'}
         </button>
-        <span class="lw-roster-name">${escapeHtml(displayName(member))} (${escapeHtml(member.categoryId ?? '—')}, ${member.weaponIds.map(escapeHtml).join(', ') || '—'})</span>
         ${attending ? renderSkladkaIcon(emailAttr, signup?.skladkaPaid ?? false) : ''}
-      `;
-      sectionEl.appendChild(row);
-    }
-    container.appendChild(sectionEl);
-  }
+      </td>
+      <td class="${categoryLabel ? '' : 'czl-empty'}">${categoryLabel ? escapeHtml(categoryLabel) : EMPTY}</td>
+      <td class="${weaponLabels.length ? '' : 'czl-empty'}">${weaponLabels.length ? weaponLabels.map(escapeHtml).join(', ') : EMPTY}</td>
+    </tr>`;
+    })
+    .join('');
 }
 
 // A plain, uneditable coin for a member who can't manage składki - reading the row shouldn't
@@ -317,6 +311,14 @@ document.getElementById('roster-filter-select').addEventListener('change', (e) =
 });
 
 document.getElementById('roster-content').addEventListener('click', (e) => {
+  // Tapping a row highlights it gold (KRKG-0052) - touch devices have no hover state, so this is
+  // the only way to see which row you're currently acting on on mobile.
+  const clickedRow = e.target.closest('tr');
+  if (clickedRow) {
+    document.querySelectorAll('#roster-content tr.czl-row-active').forEach((r) => r.classList.remove('czl-row-active'));
+    clickedRow.classList.add('czl-row-active');
+  }
+
   const attendBtn = e.target.closest('.lw-attend-toggle');
   if (attendBtn) {
     const nextAttending = attendBtn.dataset.attending !== 'true';
@@ -341,13 +343,17 @@ async function renderAuditLog() {
 }
 
 async function loadAll() {
-  const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue }] = await Promise.all([
+  const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue }, lookupLists] = await Promise.all([
     apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth),
+    apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
   ]);
   canManageSkladki = roleValue;
+  sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
+  categoryLabelById = new Map((lookupLists.categories ?? []).map((c) => [c.id, c.label]));
+  weaponLabelById = new Map((lookupLists.weapons ?? []).map((w) => [w.id, w.label]));
   const event = events.find((e) => e.id === eventId);
   if (!event) {
     document.getElementById('event-title').textContent = 'Nie znaleziono wyjazdu.';

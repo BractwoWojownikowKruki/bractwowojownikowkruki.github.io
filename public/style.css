@@ -98,6 +98,15 @@
   background: var(--surface);
 }
 
+/* Tapping a row (KRKG-0052) - a persistent gold highlight, toggled by each page's own tbody click
+   listener (see e.g. czlonkowie.js), so the row someone is editing/reading stays identifiable on
+   touch devices, which have no hover state to fall back on. Same specificity as tbody tr:hover
+   above (one class + two type selectors each) - placed after it so source order breaks the tie in
+   its favor rather than depending on selector-writing tricks. */
+.czl-table tbody tr.czl-row-active {
+  background: color-mix(in srgb, var(--gold) 20%, var(--surface));
+}
+
 .czl-table tbody td {
   color: var(--text);
 }
@@ -105,6 +114,34 @@
 .czl-table tbody td.czl-empty {
   color: var(--text-faint);
   font-style: italic;
+}
+
+/* Keep the section-accented first column in view on mobile when the table is scrolled
+   horizontally (KRKG-0052) - the accent bar identifies the row's section, so it shouldn't be the
+   one thing that scrolls away. Needs its own opaque background per row state: a sticky cell paints
+   itself above the row's natural (scrolling) background, so without this the page background would
+   show through at the wrong horizontal position as the rest of the row slides underneath it. */
+.czl-table th:first-child,
+.czl-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.czl-table thead th:first-child {
+  z-index: 2;
+}
+
+.czl-table tbody td:first-child {
+  background: var(--bg);
+}
+
+.czl-table tbody tr:hover td:first-child {
+  background: var(--surface);
+}
+
+.czl-table tbody tr.czl-row-active td:first-child {
+  background: color-mix(in srgb, var(--gold) 20%, var(--surface));
 }
 
 .czl-count {
@@ -3590,10 +3627,10 @@ button.nav-item {
   color: var(--gold);
 }
 
-/* Shared card look for every row-like list item across the three pages (event rows, roster rows,
-   składki rows) - one visual language instead of three ad-hoc ones. */
+/* Shared card look for every row-like list item across these pages (event rows, składki rows) -
+   the roster (KRKG-0052) moved to a dense .czl-table instead, so it's no longer part of this
+   list - one visual language for the two that remain instead of an ad-hoc one each. */
 .lw-event-row,
-.lw-roster-row,
 .lw-skladki-row {
   display: flex;
   flex-wrap: wrap;
@@ -3700,21 +3737,6 @@ button.nav-item {
   cursor: default;
 }
 
-/* Each roster row is a single line: attend toggle, name, składka icon - no more stacked
-   picker/składka blocks underneath (that per-event equipment/companion picker was dropped; a
-   member's gear for a trip now just round-trips whatever their last signup already stored). */
-.lw-roster-row {
-  flex-wrap: nowrap;
-}
-
-.lw-roster-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* Kasa icon standing in for "Składka: opłacona/nieopłacona" text - a red/green badge behind the
    emoji says the same thing at a glance without taking up a line of its own (a CSS filter on the
    emoji itself would depend on the platform's emoji font actually being grayscale-tintable, which
@@ -3783,10 +3805,9 @@ button.lw-skladka-icon:disabled {
   padding: 0.25rem 0.5rem;
 }
 
-/* Section headings inside the roster/składki tables (one per Sekcja, see wyjazd.js's/skladki.js's
-   renderRoster()/renderTable()) - a visible divider plus gold accent so long lists of rows don't
-   read as one undifferentiated block. */
-#roster-content h3,
+/* Section headings inside the składki table (one per Sekcja, see skladki.js's renderTable()) - a
+   visible divider plus gold accent so long lists of rows don't read as one undifferentiated block.
+   The roster (wyjazd.js) moved to a flat .czl-table with no group headings in KRKG-0052. */
 #skladki-content h3 {
   margin: 1.5rem 0 0.75rem;
   padding-bottom: 0.4rem;
@@ -3795,7 +3816,6 @@ button.lw-skladka-icon:disabled {
   font-size: 16px;
 }
 
-#roster-content > div:first-child h3,
 #skladki-content > div:first-child h3 {
   margin-top: 0;
 }
@@ -3905,7 +3925,7 @@ button.lw-skladka-icon:disabled {
    carry a full `border: ...` shorthand - a same-specificity clash with an earlier shorthand rule
    resolves by source order, so this full border-left shorthand has to come last either way. */
 .section-row-accent {
-  border-left: 4px solid var(--section-c, var(--section-color-default));
+  border-left: 8px solid var(--section-c, var(--section-color-default));
 }
 
 /* Table rows (Spis Ludności's .czl-table) can't take a visible border directly on <tr> under
@@ -3913,6 +3933,6 @@ button.lw-skladka-icon:disabled {
    own [data-section="..."] rule/inheritance above; naming ".czl-table" here (rather than a bare
    "tr[data-section]") keeps this from also matching some unrelated table elsewhere on the site. */
 .czl-table tr[data-section] td:first-child {
-  border-left: 4px solid var(--section-c, var(--section-color-default));
-  padding-left: 0.55rem;
+  border-left: 8px solid var(--section-c, var(--section-color-default));
+  padding-left: 0.7rem;
 }

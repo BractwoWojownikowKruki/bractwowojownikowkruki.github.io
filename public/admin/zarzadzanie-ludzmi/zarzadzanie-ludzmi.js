@@ -393,6 +393,17 @@ document.getElementById('membership-members-list').addEventListener('change', as
 document.getElementById('membership-status-filter').addEventListener('change', loadMembershipMembers);
 
 document.getElementById('membership-members-list').addEventListener('click', async e => {
+  // Tapping a row highlights it gold (KRKG-0052) - touch devices have no hover state, so this is
+  // the only way to see which row you're currently editing on mobile. Persists until another row
+  // is tapped, unlike :hover/:active which fade the instant you lift your finger. Runs for every
+  // click in the list (not just member-action ones below), same as czlonkowie.js's change-driven
+  // table.
+  const clickedRow = e.target.closest('tr');
+  if (clickedRow) {
+    document.querySelectorAll('#membership-members-list tr.czl-row-active').forEach(r => r.classList.remove('czl-row-active'));
+    clickedRow.classList.add('czl-row-active');
+  }
+
   const actionBtn = e.target.closest('.member-action');
   if (!actionBtn) return;
   const row = e.target.closest('.membership-member');
