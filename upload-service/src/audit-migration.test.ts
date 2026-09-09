@@ -163,6 +163,10 @@ test('a full run migrates a realistic mixed batch across all three legacy collec
   const d1 = stored.find(d => d.id === migratedEventId('duesAuditLog', 'd1'))!.data;
   assert.equal(d1.action, 'dues.entry_fee.changed');
   assert.equal(d1.changes.find(c => c.field === 'paid')?.after, false);
+  // I3: the migrated wpisowe resource key must match the live write path
+  // (handleListaWyjazdowaPutWpisowe) and the Historia link in skladki.js - both use
+  // `due:{email}:entry_fee`, never `due:{email}:entry`.
+  assert.equal(d1.resource.key, 'due:wojtek@example.test:entry_fee');
 
   // A second run against the same source data is a true no-op: nothing created, everything
   // reported already_migrated, and the stored event count is unchanged.
@@ -233,4 +237,90 @@ test('duesAuditLog eventFee entries never store the raw fee description text, on
   const serialized = JSON.stringify(event);
   assert.ok(!serialized.includes('100 zł'));
   assert.equal(event!.changes.find(c => c.field === 'feeLength')?.after, '100 zł za osobę, płatne do 1 maja'.length);
+});
+
+// ---------------------------------------------------------------------------------------------
+// I2 (final-review fix): signupAuditLog also historically recorded participation changes
+// (attending/equipment/companions), not just the skladkaPaid toggle. Before this fix,
+// parseSignupAuditEntry only recognized the paid/unpaid shape, so any legacy participation row
+// aborted the ENTIRE migration (all three collections) via preflight's all-or-nothing abort.
+// The exact historical strings ("Zgłoszono udział (sprzęt: N, osoby towarzyszące: M)" and
+// "Wycofano zgłoszenie udziału") come from the pre-batch-2 write call removed by commit 1cb84fb
+// (`git show 1cb84fb -- upload-service/src/server.ts`), not a guess.
+// ---------------------------------------------------------------------------------------------
+
+test('I2: a legacy "Zgłoszono udział" participation entry parses to signup.updated with counts, not unparseable', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  firestore.seed('signupAuditLog', 's-join', {
+    eventId: 'wolin-2025', targetMemberEmail: 'ula@example.test', changedBy: 'ula@example.test',
+    changedAt: '2025-03-01T00:00:00.000Z', changeSummary: 'Zgłoszono udział (sprzęt: 3, osoby towarzyszące: 1)',
+  });
+  const preflight = await preflightAuditMigration(firestore);
+  assert.equal(preflight.canProceed, true);
+  assert.equal(preflight.rows[0].parseStatus, 'ok');
+
+  const report = await migrateAuditLogs(firestore, { dryRun: false });
+  assert.equal(report.createdCount, 1);
+  const event = await firestore.getDoc<CanonicalAuditEvent>('auditEvents', migratedEventId('signupAuditLog', 's-join'));
+  assert.ok(event);
+  assert.equal(event!.action, 'signup.updated');
+  assert.equal(event!.resource.key, 'signup:wolin-2025:ula@example.test');
+  assert.equal(event!.changes.find(c => c.field === 'attending')?.after, true);
+  assert.equal(event!.changes.find(c => c.field === 'equipmentCount')?.after, 3);
+  assert.equal(event!.changes.find(c => c.field === 'companionCount')?.after, 1);
+});
+
+test('I2: a legacy "Wycofano zgłoszenie udziału" withdrawal entry parses to signup.updated with attending=false', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  firestore.seed('signupAuditLog', 's-withdraw', {
+    eventId: 'wolin-2025', targetMemberEmail: 'ula@example.test', changedBy: 'ula@example.test',
+    changedAt: '2025-03-02T00:00:00.000Z', changeSummary: 'Wycofano zgłoszenie udziału',
+  });
+  const report = await migrateAuditLogs(firestore, { dryRun: false });
+  assert.equal(report.createdCount, 1);
+  const event = await firestore.getDoc<CanonicalAuditEvent>('auditEvents', migratedEventId('signupAuditLog', 's-withdraw'));
+  assert.ok(event);
+  assert.equal(event!.action, 'signup.updated');
+  assert.equal(event!.changes.find(c => c.field === 'attending')?.after, false);
+  assert.ok(!event!.changes.some(c => c.field === 'equipmentCount' || c.field === 'companionCount'), 'a withdrawal never restated counts in the legacy string, so none should be fabricated');
+});
+
+test('I2: a full migration run across all three legacy collections, including a legacy participation row, no longer aborts', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  firestore.seed('rolesAuditLog', 'r1', {
+    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['moderator'],
+    changedBy: 'admin@example.test', changedAt: '2025-01-01T00:00:00.000Z', changeSummary: 'x',
+  });
+  firestore.seed('signupAuditLog', 's-join', {
+    eventId: 'wolin-2025', targetMemberEmail: 'ula@example.test', changedBy: 'ula@example.test',
+    changedAt: '2025-03-01T00:00:00.000Z', changeSummary: 'Zgłoszono udział (sprzęt: 0, osoby towarzyszące: 0)',
+  });
+  firestore.seed('signupAuditLog', 's-paid', {
+    eventId: 'wolin-2025', targetMemberEmail: 'ula@example.test', changedBy: 'skarbnik@example.test',
+    changedAt: '2025-03-02T00:00:00.000Z', changeSummary: 'Oznaczono składkę jako opłaconą',
+  });
+  firestore.seed('duesAuditLog', 'd1', {
+    context: 'wpisowe', targetMemberEmail: 'ula@example.test', eventId: null, eventName: null, year: null,
+    changedBy: 'skarbnik@example.test', changedAt: '2025-03-03T00:00:00.000Z',
+    changeSummary: 'Oznaczono wpisowe jako opłacone',
+  });
+
+  const preflight = await preflightAuditMigration(firestore);
+  assert.equal(preflight.totalDocuments, 4);
+  assert.equal(preflight.canProceed, true, 'a legacy participation row must no longer block preflight for the whole batch');
+
+  const result = await migrateAuditLogs(firestore, { dryRun: false });
+  assert.equal(result.createdCount, 4);
+  assert.equal((await firestore.listDocs('auditEvents')).length, 4);
+});
+
+test('I2: an unrecognized signupAuditLog changeSummary (neither paid/unpaid nor a known participation shape) is still reported unparseable, not silently guessed', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  firestore.seed('signupAuditLog', 's-bad', {
+    eventId: 'e1', targetMemberEmail: 'ula@example.test', changedBy: 'admin@example.test',
+    changedAt: '2025-01-02T00:00:00.000Z', changeSummary: 'Zgłoszono coś zupełnie innego',
+  });
+  const report = await preflightAuditMigration(firestore);
+  assert.equal(report.canProceed, false);
+  assert.equal(report.rows[0].parseStatus, 'unparseable');
 });

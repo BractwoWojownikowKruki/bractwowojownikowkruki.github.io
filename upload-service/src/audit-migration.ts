@@ -87,26 +87,79 @@ function parseRoleAuditEntry(doc: LegacySourceDoc): LegacyParseResult {
   };
 }
 
-/** `signupAuditLog` → `dues.event_fee.changed` on the member's own `signup:{eventId}:{email}`
- * resource - implementation-contract.md's "Compatibility clarification" section explicitly
- * assigns this exact resource/action pair to a member's own `skladkaPaid` flag. */
+// Historical strings the pre-batch-2 write path used for participation changes (removed by
+// commit 1cb84fb - "KRKG-0050 batch 2/6" - which stopped all new legacy-log writes; recovered
+// from that commit's own diff of the removed `handleListaWyjazdowaPutSignup` call:
+// `git show 1cb84fb -- upload-service/src/server.ts`). "Zgłoszono udział" always carried the
+// exact equipment/companion counts at the moment of signing up; "Wycofano zgłoszenie udziału" is
+// a fixed string with no counts (a withdrawal never restated them).
+const PARTICIPATION_SIGNED_UP_RE = /^Zgłoszono udział \(sprzęt: (\d+), osoby towarzyszące: (\d+)\)$/;
+const PARTICIPATION_WITHDRAWN = 'Wycofano zgłoszenie udziału';
+
+/** `signupAuditLog` historically recorded two independent kinds of member-signup change under
+ * the identical `AuditLogEntry` shape: the `skladkaPaid` toggle (`dues.event_fee.changed`, per
+ * implementation-contract.md's "Compatibility clarification"), and the participation change
+ * itself (attending/equipment/companions) - which maps to the registered `signup.updated` action
+ * on the same `signup:{eventId}:{email}` resource. A single legacy entry never records whether it
+ * was the member's very first signup for that event (no cross-document state is consulted here,
+ * to keep "one legacy document to one expected event" a pure per-document mapping), so every
+ * participation change - including a first-time sign-up - migrates as `signup.updated`, which is
+ * always an accurate description of "this signup's state changed to X", never a claim of some
+ * different resource state that can't be confirmed from the document alone. */
 function parseSignupAuditEntry(doc: LegacySourceDoc): LegacyParseResult {
   const data = doc.data;
   if (!isRecord(data) || typeof data.eventId !== 'string' || typeof data.targetMemberEmail !== 'string' || typeof data.changedBy !== 'string' || typeof data.changedAt !== 'string' || typeof data.changeSummary !== 'string') {
     return { status: 'unparseable', reason: 'signupAuditLog document is missing a required field.' };
   }
   const summary = data.changeSummary;
+  const resource = { kind: 'signup' as const, key: `signup:${data.eventId}:${data.targetMemberEmail}`, display: data.targetMemberEmail };
+  const actor = { email: data.changedBy };
+
+  const signedUpMatch = PARTICIPATION_SIGNED_UP_RE.exec(summary);
+  if (signedUpMatch) {
+    return {
+      status: 'ok',
+      timestamp: data.changedAt,
+      input: {
+        action: 'signup.updated',
+        actor,
+        resource,
+        changes: [
+          { field: 'attending', after: true },
+          { field: 'equipmentCount', after: Number(signedUpMatch[1]) },
+          { field: 'companionCount', after: Number(signedUpMatch[2]) },
+          { field: 'memberEmail', after: data.targetMemberEmail },
+        ],
+      },
+    };
+  }
+  if (summary === PARTICIPATION_WITHDRAWN) {
+    return {
+      status: 'ok',
+      timestamp: data.changedAt,
+      input: {
+        action: 'signup.updated',
+        actor,
+        resource,
+        changes: [
+          { field: 'attending', after: false },
+          { field: 'memberEmail', after: data.targetMemberEmail },
+        ],
+      },
+    };
+  }
+
   let paid: boolean;
   if (/nieopłacon/.test(summary)) paid = false;
   else if (/opłacon/.test(summary)) paid = true;
-  else return { status: 'unparseable', reason: `signupAuditLog changeSummary does not state paid/unpaid: "${summary}"` };
+  else return { status: 'unparseable', reason: `signupAuditLog changeSummary does not match a recognized shape (paid/unpaid or participation): "${summary}"` };
   return {
     status: 'ok',
     timestamp: data.changedAt,
     input: {
       action: 'dues.event_fee.changed',
-      actor: { email: data.changedBy },
-      resource: { kind: 'signup', key: `signup:${data.eventId}:${data.targetMemberEmail}`, display: data.targetMemberEmail },
+      actor,
+      resource,
       changes: [
         { field: 'paid', after: paid },
         { field: 'memberEmail', after: data.targetMemberEmail },
@@ -150,7 +203,10 @@ function parseDuesAuditEntry(doc: LegacySourceDoc): LegacyParseResult {
       input: {
         action: 'dues.entry_fee.changed',
         actor,
-        resource: { kind: 'due', key: `due:${data.targetMemberEmail}:entry`, display: data.targetMemberEmail },
+        // Matches the live write path's own key (handleListaWyjazdowaPutWpisowe in server.ts)
+        // and the Historia link in public/lista-wyjazdowa/skladki/skladki.js - both already use
+        // `entry_fee`, not `entry` (finding I3 of the final review).
+        resource: { kind: 'due', key: `due:${data.targetMemberEmail}:entry_fee`, display: data.targetMemberEmail },
         changes: [{ field: 'paid', after: paid }, { field: 'memberEmail', after: data.targetMemberEmail }],
       },
     };
