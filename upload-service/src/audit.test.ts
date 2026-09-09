@@ -345,6 +345,74 @@ test('queryAuditEvents caps at 100 rows and paginates with a stable cursor', asy
   assert.equal(clamped.rows.length, 5);
 });
 
+/**
+ * KRKG-0050 batch 6/6: closes the remaining gaps in implementation-contract.md's "Query and
+ * Firestore-index contract" matrix - every supported primary selector kind (category alone,
+ * category+action, actor, resource key; `none` and `search` are already covered above), each
+ * combinable with a date range and a cursor. The `none`/`search` cases above already proved date
+ * range and cursor pagination work at all; this test's job is to prove the other three selector
+ * *kinds* actually filter (not just that the query call succeeds), and that a primary selector
+ * still composes with date range and cursor rather than being mutually exclusive with them.
+ */
+test('queryAuditEvents: category, category+action, actor, and resourceKey selectors each filter correctly and compose with a date range and cursor', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'event.created', actor: { email: 'maja@example.test' }, resource: { kind: 'event', key: 'event:wolin', display: 'Wolin' }, changes: [{ field: 'name', after: 'Wolin' }] },
+    async () => {},
+    { createId: () => 'evt-created', now: () => new Date('2026-01-01T00:00:00.000Z') },
+  );
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'event.updated', actor: { email: 'maja@example.test' }, resource: { kind: 'event', key: 'event:wolin', display: 'Wolin' }, changes: [{ field: 'startDate', after: '2026-06-01' }] },
+    async () => {},
+    { createId: () => 'evt-updated', now: () => new Date('2026-01-02T00:00:00.000Z') },
+  );
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'event.created', actor: { email: 'bartek@example.test' }, resource: { kind: 'event', key: 'event:zima', display: 'Zima' }, changes: [{ field: 'name', after: 'Zima' }] },
+    async () => {},
+    { createId: () => 'evt-other-actor-resource', now: () => new Date('2026-01-03T00:00:00.000Z') },
+  );
+  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isModerator: false };
+
+  // category alone (no action): matches every "events" category row regardless of action.
+  const byCategory = await queryAuditEvents(firestore, { selector: { kind: 'categoryAction', category: 'events' } }, admin);
+  assert.deepEqual(byCategory.rows.map(r => r.id).sort(), ['evt-created', 'evt-other-actor-resource', 'evt-updated']);
+
+  // category + action: narrows to exactly one action within the category.
+  const byCategoryAction = await queryAuditEvents(firestore, { selector: { kind: 'categoryAction', category: 'events', action: 'event.updated' } }, admin);
+  assert.deepEqual(byCategoryAction.rows.map(r => r.id), ['evt-updated']);
+
+  // actor: matches only that actor's events, case-insensitively normalized the same way writes are.
+  const byActor = await queryAuditEvents(firestore, { selector: { kind: 'actor', email: 'MAJA@example.test' } }, admin);
+  assert.deepEqual(byActor.rows.map(r => r.id).sort(), ['evt-created', 'evt-updated']);
+
+  // resourceKey: matches only events on that resource, across different actions/actors.
+  const byResource = await queryAuditEvents(firestore, { selector: { kind: 'resourceKey', key: 'event:wolin' } }, admin);
+  assert.deepEqual(byResource.rows.map(r => r.id).sort(), ['evt-created', 'evt-updated']);
+
+  // A primary selector composes with a date range - bounding the actor selector to exclude the
+  // earlier of its two matches.
+  const actorWithDateRange = await queryAuditEvents(
+    firestore,
+    { selector: { kind: 'actor', email: 'maja@example.test' }, from: '2026-01-02T00:00:00.000Z' },
+    admin,
+  );
+  assert.deepEqual(actorWithDateRange.rows.map(r => r.id), ['evt-updated']);
+
+  // A primary selector composes with cursor pagination too, not just the `none` selector.
+  const resourcePage1 = await queryAuditEvents(firestore, { selector: { kind: 'resourceKey', key: 'event:wolin' }, limit: 1 }, admin);
+  assert.deepEqual(resourcePage1.rows.map(r => r.id), ['evt-updated']); // newest first
+  assert.ok(resourcePage1.nextCursor);
+  const resourcePage2 = await queryAuditEvents(
+    firestore,
+    { selector: { kind: 'resourceKey', key: 'event:wolin' }, limit: 1, cursor: resourcePage1.nextCursor },
+    admin,
+  );
+  assert.deepEqual(resourcePage2.rows.map(r => r.id), ['evt-created']);
+});
+
 test('projectAuditEvent: admin sees actor and every allowed field; accountant-only is scoped to dues; member never sees actor', () => {
   const duesEvent = createCanonicalAuditEvent(
     {

@@ -104,6 +104,121 @@ test('migration is idempotent: running it twice against the same source data cre
   assert.equal((await firestore.listDocs('auditEvents')).length, 1);
 });
 
+test('a full run migrates a realistic mixed batch across all three legacy collections in one pass, with correct deterministic ids, and a second run is a true no-op', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  firestore.seed('rolesAuditLog', 'r1', {
+    targetEmail: 'ula@example.test', previousRoles: ['moderator'], newRoles: ['moderator', 'accountant'],
+    changedBy: 'admin@example.test', changedAt: '2025-02-01T10:00:00.000Z', changeSummary: 'x',
+  });
+  firestore.seed('rolesAuditLog', 'r2', {
+    targetEmail: 'wojtek@example.test', previousRoles: ['admin', 'accountant'], newRoles: ['admin'],
+    changedBy: 'admin@example.test', changedAt: '2025-02-02T10:00:00.000Z', changeSummary: 'x',
+  });
+  firestore.seed('signupAuditLog', 's1', {
+    eventId: 'wolin-2025', targetMemberEmail: 'ula@example.test', changedBy: 'skarbnik@example.test',
+    changedAt: '2025-02-03T10:00:00.000Z', changeSummary: 'Oznaczono składkę jako opłaconą',
+  });
+  firestore.seed('duesAuditLog', 'd1', {
+    context: 'wpisowe', targetMemberEmail: 'wojtek@example.test', eventId: null, eventName: null, year: null,
+    changedBy: 'skarbnik@example.test', changedAt: '2025-02-04T10:00:00.000Z',
+    changeSummary: 'Oznaczono wpisowe jako nieopłacone',
+  });
+  firestore.seed('duesAuditLog', 'd2', {
+    context: 'roczna', targetMemberEmail: 'ula@example.test', eventId: null, eventName: null, year: 2025,
+    changedBy: 'skarbnik@example.test', changedAt: '2025-02-05T10:00:00.000Z',
+    changeSummary: 'Ustawiono roczną 2025 na: 150 zł',
+  });
+
+  const preflight = await preflightAuditMigration(firestore);
+  assert.equal(preflight.totalDocuments, 5);
+  assert.equal(preflight.canProceed, true);
+
+  const first = await migrateAuditLogs(firestore, { dryRun: false });
+  assert.equal(first.createdCount, 5);
+  assert.equal(first.alreadyMigratedCount, 0);
+
+  // Deterministic ids: exactly `migrated:{collection}:{documentId}`, nothing improvised.
+  const expectedIds = [
+    migratedEventId('rolesAuditLog', 'r1'), migratedEventId('rolesAuditLog', 'r2'),
+    migratedEventId('signupAuditLog', 's1'), migratedEventId('duesAuditLog', 'd1'), migratedEventId('duesAuditLog', 'd2'),
+  ];
+  const stored = await firestore.listDocs<CanonicalAuditEvent>('auditEvents');
+  assert.deepEqual(stored.map(d => d.id).sort(), expectedIds.sort());
+
+  // Original timestamp/actor/resource/inferred action preserved per document.
+  const r1 = stored.find(d => d.id === migratedEventId('rolesAuditLog', 'r1'))!.data;
+  assert.equal(r1.timestamp, '2025-02-01T10:00:00.000Z');
+  assert.equal(r1.actor.email, 'admin@example.test');
+  assert.equal(r1.resource.key, 'member:ula@example.test');
+  assert.equal(r1.action, 'role.granted'); // newRoles grew by one → inferred grant
+
+  const r2 = stored.find(d => d.id === migratedEventId('rolesAuditLog', 'r2'))!.data;
+  assert.equal(r2.action, 'role.revoked'); // newRoles shrank by one → inferred revoke
+
+  const s1 = stored.find(d => d.id === migratedEventId('signupAuditLog', 's1'))!.data;
+  assert.equal(s1.action, 'dues.event_fee.changed');
+  assert.equal(s1.resource.key, 'signup:wolin-2025:ula@example.test');
+  assert.equal(s1.actor.email, 'skarbnik@example.test');
+
+  const d1 = stored.find(d => d.id === migratedEventId('duesAuditLog', 'd1'))!.data;
+  assert.equal(d1.action, 'dues.entry_fee.changed');
+  assert.equal(d1.changes.find(c => c.field === 'paid')?.after, false);
+
+  // A second run against the same source data is a true no-op: nothing created, everything
+  // reported already_migrated, and the stored event count is unchanged.
+  const second = await migrateAuditLogs(firestore, { dryRun: false });
+  assert.equal(second.createdCount, 0);
+  assert.equal(second.alreadyMigratedCount, 5);
+  assert.deepEqual(second.rows.map(r => r.action), ['already_migrated', 'already_migrated', 'already_migrated', 'already_migrated', 'already_migrated']);
+  const storedAfterSecondRun = await firestore.listDocs('auditEvents');
+  assert.equal(storedAfterSecondRun.length, 5);
+});
+
+test('migration leaves a missing legacy diff absent rather than fabricating a before value', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  // signupAuditLog/duesAuditLog entries never carry a "before" state in the legacy schema (only
+  // duesAuditLog's role-array delta happens to reconstruct one) - the migration must not invent
+  // one just to fill the field.
+  firestore.seed('signupAuditLog', 's1', {
+    eventId: 'wolin-2025', targetMemberEmail: 'ula@example.test', changedBy: 'skarbnik@example.test',
+    changedAt: '2025-02-03T10:00:00.000Z', changeSummary: 'Oznaczono składkę jako opłaconą',
+  });
+  const report = await migrateAuditLogs(firestore, { dryRun: false });
+  assert.equal(report.createdCount, 1);
+  const event = await firestore.getDoc<CanonicalAuditEvent>('auditEvents', migratedEventId('signupAuditLog', 's1'));
+  assert.ok(event);
+  const paidChange = event!.changes.find(c => c.field === 'paid');
+  assert.ok(paidChange);
+  assert.equal(paidChange!.after, true);
+  assert.ok(!('before' in paidChange!), 'a change the legacy document never recorded a prior state for must have no "before" key at all, not before: undefined');
+});
+
+test('an all-or-nothing preflight abort holds even when most documents in the batch are well-formed', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  firestore.seed('rolesAuditLog', 'r-good', {
+    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['moderator'],
+    changedBy: 'admin@example.test', changedAt: '2025-01-01T00:00:00.000Z', changeSummary: 'x',
+  });
+  firestore.seed('duesAuditLog', 'd-good', {
+    context: 'wpisowe', targetMemberEmail: 'ula@example.test', eventId: null, eventName: null, year: null,
+    changedBy: 'admin@example.test', changedAt: '2025-01-02T00:00:00.000Z', changeSummary: 'Oznaczono wpisowe jako opłacone',
+  });
+  firestore.seed('signupAuditLog', 's-bad', {
+    eventId: 'e1', targetMemberEmail: 'ula@example.test', changedBy: 'admin@example.test',
+    changedAt: '2025-01-03T00:00:00.000Z', changeSummary: 'A free-text sentence with no paid/unpaid marker at all',
+  });
+
+  const preflight = await preflightAuditMigration(firestore);
+  assert.equal(preflight.totalDocuments, 3);
+  assert.equal(preflight.okCount, 2);
+  assert.equal(preflight.abortCount, 1);
+  assert.equal(preflight.canProceed, false);
+
+  await assert.rejects(() => migrateAuditLogs(firestore, { dryRun: false }), /preflight/i);
+  // Not even the two well-formed documents are migrated - abort is all-or-nothing.
+  assert.deepEqual(await firestore.listDocs('auditEvents'), []);
+});
+
 test('duesAuditLog eventFee entries never store the raw fee description text, only a digest/length', async () => {
   const firestore = createInMemoryFirestoreClient();
   firestore.seed('duesAuditLog', 'd-fee', {

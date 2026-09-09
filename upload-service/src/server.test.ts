@@ -5132,6 +5132,36 @@ test('GET /admin/audyt/events lists events for an admin viewer and rejects two p
   });
 });
 
+test('GET /admin/audyt/events: action without category is a deterministic 400, and every single supported selector (category, category+action, actorEmail, resourceKey, q) is individually accepted', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await seedAuditEvent(firestore, 'evt-a', '2026-01-01T00:00:00.000Z');
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    // action alone, with no category, is rejected before Firestore is ever touched.
+    const actionWithoutCategory = await fetch(`${baseUrl}/admin/audyt/events?action=event.created`);
+    assert.equal(actionWithoutCategory.status, 400);
+
+    // Each of the five selector shapes is independently accepted (zero-or-one primary selector).
+    const byCategory = await fetch(`${baseUrl}/admin/audyt/events?category=events`);
+    assert.equal(byCategory.status, 200);
+    const byCategoryAction = await fetch(`${baseUrl}/admin/audyt/events?category=events&action=event.created`);
+    assert.equal(byCategoryAction.status, 200);
+    const byActor = await fetch(`${baseUrl}/admin/audyt/events?actorEmail=maja@example.test`);
+    assert.equal(byActor.status, 200);
+    const byResource = await fetch(`${baseUrl}/admin/audyt/events?resourceKey=event:evt-a`);
+    assert.equal(byResource.status, 200);
+    const byQuery = await fetch(`${baseUrl}/admin/audyt/events?q=evt`);
+    assert.equal(byQuery.status, 200);
+
+    // A primary selector still composes with date-range and cursor query params, and combining
+    // two of the other primary-selector kinds is rejected regardless of which two.
+    const withDateRange = await fetch(`${baseUrl}/admin/audyt/events?actorEmail=maja@example.test&from=2026-01-01T00:00:00.000Z&to=2026-12-31T00:00:00.000Z`);
+    assert.equal(withDateRange.status, 200);
+    const resourceAndQuery = await fetch(`${baseUrl}/admin/audyt/events?resourceKey=event:evt-a&q=evt`);
+    assert.equal(resourceAndQuery.status, 400);
+  });
+});
+
 test('GET /audyt/events (member-zone) never exposes actor and hides an admin-only category entirely', async () => {
   const firestore = createInMemoryFirestoreClient();
   await seedAuditEvent(firestore, 'evt-public', '2026-01-01T00:00:00.000Z');
