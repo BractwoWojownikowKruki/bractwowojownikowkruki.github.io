@@ -1973,6 +1973,33 @@ test('POST /admin/members/transition reports sheetSyncStatus and includes the fu
   assert.deepEqual(syncedEmails.sort(), ['other@example.com', 'pending@example.com']);
 });
 
+test('C2: POST /admin/members/transition audits the Sheets mirror as a correlated membership.sheet_backup.synchronized event, alongside the primary transition event', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'pending@example.com', {
+    email: 'pending@example.com', fullName: 'P', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'pending', appliedAt: 'x', approvedAt: null, approvedBy: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    sheetsClient: { syncAllMembers: async () => 'ok' },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/transition`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'pending@example.com', transition: 'approve' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const events = await client.listDocs<{ action: string; changes: Array<{ field: string; after?: string }> }>('auditEvents');
+  const transitionEvent = events.find(e => e.data.action === 'membership.status.approved');
+  const sheetEvent = events.find(e => e.data.action === 'membership.sheet_backup.synchronized');
+  assert.ok(transitionEvent, 'the primary transition must still be audited, unchanged');
+  assert.ok(sheetEvent, 'the Sheets mirror write must be its own audited event, not silently unaudited');
+  assert.equal(sheetEvent!.data.changes.find(c => c.field === 'sheetBackup')?.after, 'ok');
+});
+
 test('POST /admin/members/transition still returns 200 (Firestore succeeded) even when the Sheets sync fails', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('members', 'pending@example.com', {
@@ -3055,6 +3082,64 @@ test('/upload skips a file that already exists in the folder with the same name 
     assert.deepEqual(body, { ok: true, skipped: true });
   });
   assert.equal(uploadFileStreamCalled, false);
+});
+
+test('C1: POST /upload audits gallery.photo.added for a genuinely new file', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      listFiles: async () => [],
+      uploadFileStream: async (_f, _n, _m, stream) => {
+        for await (const _chunk of stream) {
+          // drain
+        }
+        return { id: 'fake-uploaded-file-id' };
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 200);
+  });
+  const events = await firestore.listDocs<{ action: string; actor: { email: string }; resource: { key: string; kind: string } }>('auditEvents');
+  const uploadEvents = events.filter(e => e.data.action === 'gallery.photo.added');
+  assert.equal(uploadEvents.length, 1, 'exactly one gallery.photo.added event per real upload');
+  assert.equal(uploadEvents[0].data.actor.email, 'alice@gmail.com');
+  assert.equal(uploadEvents[0].data.resource.key, `gallery:${folderId}`);
+});
+
+test('C1: POST /upload does not audit anything on the duplicate-skip fast path (no new state changed)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      listFiles: async () => [{ name: 'a.jpg', size: VALID_JPEG_BYTES.length }],
+      uploadFileStream: async () => {
+        throw new Error('must not upload on the duplicate-skip path');
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body, { ok: true, skipped: true });
+  });
+  const events = await firestore.listDocs('auditEvents');
+  assert.equal(events.length, 0, 'a skip changes no state, so it must not be audited');
 });
 
 test('/upload does not skip a same-named file whose size differs from what is already in the folder', async () => {

@@ -926,8 +926,30 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
     },
     tx => applyAdminTransitionInTransaction(tx, body.email!, transition, identity.email),
   );
+  // Independent audited sub-operation, correlated to the transition above only by both sharing
+  // this request - not by any shared transaction. The Firestore transition already committed
+  // via executeDeclaredAuditedMutation, so a Sheets failure here must not roll back or discard
+  // it; this mirrors handleAdminMembersSynchronize's own treatment of the identical Sheets call
+  // as fully self-contained (plan-addendum.md).
   const allMembers = await listAllMembers(deps.firestore);
-  const sheetSyncStatus = await deps.sheetsClient.syncAllMembers(allMembers);
+  const { result: sheetSyncStatus } = await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'membership.sheet_backup.synchronized',
+      actor: { email: identity.email },
+      resource: { kind: 'member', key: 'member:sheet-backup', display: 'sheet-backup' },
+      changes: [{ field: 'sheetBackup', after: 'requested' }],
+    },
+    async () => deps.sheetsClient.syncAllMembers(allMembers),
+    {
+      eventInput: status => ({
+        action: 'membership.sheet_backup.synchronized',
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: 'member:sheet-backup', display: 'sheet-backup' },
+        changes: [{ field: 'sheetBackup', after: status }],
+      }),
+    },
+  );
   sendJson(res, 200, { member, sheetSyncStatus });
 }
 
@@ -2237,6 +2259,39 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
     }
   }
 
+  // Only a genuinely new file reaches Drive, so the audit event (gallery.photo.added) is only
+  // ever emitted here, wrapping just the real upload effect - never the duplicate-skip fast
+  // path above, which changes no state and must stay silent per the story's "successful
+  // state-changing action" scope. The intent/correlation is created immediately before the
+  // effect, matching every other Drive-writing route in this file (external-operation protocol).
+  async function uploadAudited(): Promise<{ id: string }> {
+    const { result } = await executeAuditedExternalMutation(
+      deps.firestore,
+      {
+        action: 'gallery.photo.added',
+        actor: { email: identity.email },
+        resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId as string },
+        changes: [{ field: 'photoCount', after: 1 }],
+      },
+      uploadNow,
+      {
+        // gallery's field allowlist has no fileId (implementation-contract.md's per-action
+        // stored-field allowlist table lists only the controlled photoCount/name/date/etc. for
+        // this category), so - unlike handleWojownicyUploadPhoto's profile-scoped fileId - the
+        // final event stays on the same photoCount=1 change declared in the intent above; there
+        // is no final-resource substitution to make here (no provisional key is used either,
+        // since /upload always has a real folderId up front).
+        eventInput: () => ({
+          action: 'gallery.photo.added',
+          actor: { email: identity.email },
+          resource: { kind: 'gallery', key: `gallery:${folderId}`, display: folderId as string },
+          changes: [{ field: 'photoCount', after: 1 }],
+        }),
+      },
+    );
+    return result;
+  }
+
   let uploaded: { id: string };
   if (sizeKnown) {
     // A file with this exact (name, size, mtime) already sits in the folder - skip outright
@@ -2259,7 +2314,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
       }
       const key = fileKeyFor(decodedFileName, contentLength, lastModifiedMs);
       if (known.has(key)) return null;
-      const uploadResult = await uploadNow();
+      const uploadResult = await uploadAudited();
       known.add(key);
       return uploadResult;
     });
@@ -2270,7 +2325,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
     }
     uploaded = result;
   } else {
-    uploaded = await uploadNow();
+    uploaded = await uploadAudited();
   }
   // Best-effort: a failure here shouldn't fail an otherwise-successful upload (the photo is
   // already safely in Drive), just leave it unattributed in the detail view's "Dodane przez".
