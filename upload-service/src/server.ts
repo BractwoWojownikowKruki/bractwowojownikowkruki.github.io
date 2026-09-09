@@ -735,10 +735,10 @@ async function handlePwaInstallation(req: IncomingMessage, res: ServerResponse, 
     const auditEvent = createCanonicalAuditEvent({
       action: 'application.pwa.installation_reported',
       actor: { email },
-      resource: { kind: 'application', key: 'application:kruki-pwa', display: 'Kruki PWA' },
-      changes: [{ field: 'appId', after: 'kruki-pwa' }],
+      resource: { kind: 'application', key: `application:${email}:/`, display: email },
+      changes: [{ field: 'appId', after: '/' }],
     });
-    await tx.createDoc('applicationInstallations', markerId, { actorEmail: email, appId: 'kruki-pwa' });
+    await tx.createDoc('applicationInstallations', markerId, { actorEmail: email, appId: '/' });
     await tx.createDoc('auditEvents', auditEvent.id, auditEvent);
     return true;
   });

@@ -586,14 +586,16 @@ test('POST /application/pwa-installation records one canonical installation even
     assert.deepEqual(await repeated.json(), { recorded: false });
   });
 
-  const events = await client.listDocs<{ action: string; actor: { email: string }; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
+  const events = await client.listDocs<{ action: string; actor: { email: string }; resource: { key: string; display: string }; changes: Array<{ field: string; after: string }>; value: string }>('auditEvents');
   assert.equal(events.length, 1);
   assert.equal(events[0].data.action, 'application.pwa.installation_reported');
   assert.equal(events[0].data.actor.email, 'alice@gmail.com');
-  assert.equal(events[0].data.resource.key, 'application:kruki-pwa');
-  assert.deepEqual(events[0].data.changes, [{ field: 'appId', after: 'kruki-pwa', visibility: 'roleRestricted' }]);
+  assert.equal(events[0].data.resource.key, 'application:alice@gmail.com:/');
+  assert.equal(events[0].data.resource.display, 'alice@gmail.com');
+  assert.deepEqual(events[0].data.changes, [{ field: 'appId', after: '/', visibility: 'roleRestricted' }]);
+  assert.equal(events[0].data.value, 'alice@gmail.com.appId=/');
   assert.deepEqual(await client.getDoc('applicationInstallations', 'pwa:alice@gmail.com'), {
-    actorEmail: 'alice@gmail.com', appId: 'kruki-pwa',
+    actorEmail: 'alice@gmail.com', appId: '/',
   });
 });
 
