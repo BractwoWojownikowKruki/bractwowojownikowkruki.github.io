@@ -76,7 +76,7 @@ function renderTable() {
   const filtered = !needle
     ? members
     : members.filter((m) =>
-        [m.fullName, m.nickname, m.sectionLabel, m.email].some((v) =>
+        [m.fullName, m.nickname, m.sectionLabel, m.categoryLabel, m.email].some((v) =>
           (v ?? '').toString().toLocaleLowerCase('pl').includes(needle),
         ),
       );
@@ -104,6 +104,7 @@ function renderTable() {
       <td class="${!canManageSkladki && !m.fullName ? 'czl-empty' : ''}">${fullNameCell}</td>
       <td class="${!canManageSkladki && !m.nickname ? 'czl-empty' : ''}">${nicknameCell}</td>
       <td class="${!canManageSkladki && !m.sectionLabel ? 'czl-empty' : ''}">${sectionCell}</td>
+      <td class="${m.categoryLabel ? '' : 'czl-empty'}">${cell(m.categoryLabel)}</td>
       <td>${escapeHtml(m.email)}</td>
     `;
     tbody.append(row);

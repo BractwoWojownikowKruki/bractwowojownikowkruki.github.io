@@ -2039,6 +2039,100 @@ test('PUT /admin/members/profile updates fullName/nickname/sectionId for an exis
   });
 });
 
+test('PUT /admin/members/profile sets categoryId when present in the body', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
+  client.seed('lookupLists', 'categories', { items: [{ id: 'thing', label: 'Thing', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow', categoryId: 'thing' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.member.categoryId, 'thing');
+  });
+  const stored = await client.getDoc<{ categoryId: string | null }>('members', 'ala@example.com');
+  assert.equal(stored?.categoryId, 'thing');
+});
+
+test('PUT /admin/members/profile can clear categoryId back to null', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: 'thing', driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow', categoryId: null }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ categoryId: string | null }>('members', 'ala@example.com');
+  assert.equal(stored?.categoryId, null);
+});
+
+test('PUT /admin/members/profile leaves categoryId untouched when omitted from the body', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: 'thing', driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', fullName: 'Ala Nowak', nickname: null, sectionId: 'krakow' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ categoryId: string | null }>('members', 'ala@example.com');
+  assert.equal(stored?.categoryId, 'thing');
+});
+
+test('PUT /admin/members/profile rejects an unknown categoryId', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
+  client.seed('lookupLists', 'categories', { items: [{ id: 'thing', label: 'Thing', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow', categoryId: 'bogus' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
 test('PUT /admin/members/profile 404s for an unknown member', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
@@ -4498,6 +4592,21 @@ test('GET /members/directory lists every allowlisted email, filling in profile f
     assert.equal(withoutProfile.nickname, null);
     assert.equal(withoutProfile.sectionId, null);
     assert.equal(withoutProfile.sectionLabel, null);
+  });
+});
+
+test('GET /members/directory includes categoryId/categoryLabel ("typ członka", KRKG-0050)', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('lookupLists', 'categories', { items: [{ id: 'thing', label: 'Thing', retired: false }] });
+  firestore.seed('members', 'wojownik@gmail.com', {
+    fullName: 'Ktoś', nickname: null, sectionId: 'krakow', categoryId: 'thing', driveFolderId: null,
+    updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/members/directory`)).json();
+    assert.equal(body.members[0].categoryId, 'thing');
+    assert.equal(body.members[0].categoryLabel, 'Thing');
   });
 });
 

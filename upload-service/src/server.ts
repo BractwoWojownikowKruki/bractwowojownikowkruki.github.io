@@ -27,7 +27,7 @@ import {
   type AdminDepartment,
 } from './about-us.ts';
 import { createFirestoreClient, type FirestoreLikeClient } from './firestore.ts';
-import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, recordLastLogin, type MemberWritableFields } from './members.ts';
+import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberCategoryId, recordLastLogin, type MemberWritableFields } from './members.ts';
 import { applyForMembership, applyAdminTransition, listMembersByStatus, type AdminTransition } from './membership.ts';
 import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
@@ -1248,6 +1248,14 @@ async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerRe
 // Requires the member to already exist, unlike handleListaWyjazdowaPutMember's self-service path,
 // which may be creating a brand-new doc - an admin/moderator editing from a list of already-known
 // members should never accidentally create one from a mistyped email.
+//
+// categoryId ("typ członka", KRKG-0050) is handled separately from parseMemberWritableFields on
+// purpose: that helper is shared with the self-service PUT above, and categoryId is admin-owned
+// only (design.md §7, same as driveFolderId) - self-service must never be able to set it. Omitting
+// it from the body leaves it untouched (so older callers/tests that only ever sent
+// fullName/nickname/sectionId keep working); the Zarządzanie ludźmi page always sends the row's
+// current value alongside those on every save (see zarzadzanie-ludzmi.js's saveMemberProfileField),
+// with null meaning "no type assigned" - same as sending an explicit null, not "leave unchanged".
 async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminOrModeratorWithStepUp(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
@@ -1257,6 +1265,19 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
   if (!existing) throw new AuthError('Nie znaleziono takiego członka.', 404);
   const fields = await parseMemberWritableFields(deps, body);
   const member = await saveMember(deps.firestore, email, fields, identity.email);
+  if (body.categoryId !== undefined) {
+    const categoryIdRaw = body.categoryId;
+    if (categoryIdRaw !== null && typeof categoryIdRaw !== 'string') {
+      throw new AuthError('Nieprawidłowy typ członka.', 400);
+    }
+    const categoryId = categoryIdRaw === null || categoryIdRaw === '' ? null : categoryIdRaw;
+    if (categoryId !== null) {
+      const lookupLists = await getAllLookupLists(deps.firestore);
+      requireKnownLookupId(lookupLists.categories, categoryId, 'Wybrany typ członka nie istnieje.');
+    }
+    await setMemberCategoryId(deps.firestore, email, categoryId);
+    member.categoryId = categoryId;
+  }
   sendJson(res, 200, { member });
 }
 
@@ -1533,6 +1554,7 @@ async function handleMembersDirectory(req: IncomingMessage, res: ServerResponse,
   ]);
   const memberByEmail = new Map(members.map((m) => [m.email, m]));
   const sectionLabelById = new Map(lookupLists.sections.map((s) => [s.id, s.label]));
+  const categoryLabelById = new Map(lookupLists.categories.map((c) => [c.id, c.label]));
   const directory = emails.map((email) => {
     const member = memberByEmail.get(email);
     return {
@@ -1541,6 +1563,8 @@ async function handleMembersDirectory(req: IncomingMessage, res: ServerResponse,
       nickname: member?.nickname ?? null,
       sectionId: member?.sectionId ?? null,
       sectionLabel: member?.sectionId ? (sectionLabelById.get(member.sectionId) ?? member.sectionId) : null,
+      categoryId: member?.categoryId ?? null,
+      categoryLabel: member?.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null,
     };
   });
   directory.sort((a, b) => a.email.localeCompare(b.email));

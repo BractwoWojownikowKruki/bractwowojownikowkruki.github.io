@@ -102,6 +102,22 @@ export async function setMemberDriveFolderId(
   await client.setDoc(COLLECTION, id, { driveFolderId: folderId });
 }
 
+// KRKG-0050: the "typ członka" (Brokuł/Kandydat/Blacha/Thing/Niewiasta/Bobo/Inne, sourced from
+// lookupLists/categories - "Rola" in the original sheet) is the other admin-owned field besides
+// driveFolderId (see saveMember's comment) - self-service never sends it. Same shape as
+// setMemberDriveFolderId: throws if the member doc doesn't exist, since this is only ever called
+// from the admin panel's Zarządzanie ludźmi page, editing someone already in the list.
+export async function setMemberCategoryId(
+  client: FirestoreLikeClient,
+  email: string,
+  categoryId: string | null,
+): Promise<void> {
+  const id = email.toLowerCase();
+  const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
+  if (!existing) throw new Error(`Nie znaleziono członka: ${id}`);
+  await client.setDoc(COLLECTION, id, { categoryId });
+}
+
 // KRKG-0049: called from handleSessionLogin on every real Google Sign-In. Silently does nothing
 // for an email with no members/{email} doc (never applied, or a stray/unrelated Google account) -
 // unlike setMemberDriveFolderId above, a login must never fail because of this side effect, and
