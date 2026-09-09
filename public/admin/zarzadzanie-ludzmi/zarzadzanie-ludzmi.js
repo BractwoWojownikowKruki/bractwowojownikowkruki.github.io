@@ -158,6 +158,16 @@ function categoryOptions(categories, currentCategoryId) {
   return options.join('');
 }
 
+// Typ (categoryId) shown as a colored pill under the name (KRKG-0056), independent of the Typ
+// <select> column below - unlike Sekcja's dot (removed in KRKG-0051 in favor of the row's own
+// accent bar), Typ has no bar of its own here, so this pill is the only visual cue and has to
+// stay in sync with the select's value on every change (see the change handler's categoryId
+// branch).
+function categoryPillHtml(categoryId, categories) {
+  const label = categories.find(c => c.id === categoryId)?.label;
+  return `<span class="category-pill" data-category="${escapeAttr(categoryId ?? '')}">${escapeHtml(label || 'Brak typu')}</span>`;
+}
+
 // A member can hold more than one of these at once (e.g. accountant + admin), so the Rola column
 // is a checkbox per role rather than a single-choice dropdown - see roleCheckboxesHtml below.
 // Only rendered for an admin caller (see roleCheckboxesHtml/isAdminCaller) - a moderator can see
@@ -262,6 +272,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
         <div class="czl-name-cell">
           <input type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" />
           <input type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" />
+          ${categoryPillHtml(m.categoryId, categories)}
         </div>
       </td>
       <td><select class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
@@ -320,10 +331,15 @@ document.getElementById('membership-members-list').addEventListener('change', as
   const profileField = e.target.closest('.czl-field');
   if (profileField && profileField.dataset.field) {
     const row = profileField.closest('tr');
-    // Same instant-echo left-accent update as czlonkowie.js's Sekcja <select> - not a reflection
-    // of saved state, just what's already visibly selected.
+    // Same instant-echo update as czlonkowie.js's Sekcja <select> - not a reflection of saved
+    // state, just what's already visibly selected.
     if (profileField.dataset.field === 'sectionId') {
       row.dataset.section = profileField.value;
+    }
+    if (profileField.dataset.field === 'categoryId') {
+      const pill = row.querySelector('.category-pill');
+      pill.dataset.category = profileField.value;
+      pill.textContent = profileField.selectedOptions[0]?.textContent || 'Brak typu';
     }
     saveMemberProfileField(row, row.dataset.email);
     return;

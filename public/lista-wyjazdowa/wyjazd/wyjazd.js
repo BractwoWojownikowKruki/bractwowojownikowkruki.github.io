@@ -39,6 +39,14 @@ function weaponIconHtml(id, label) {
     : `<span class="lw-weapon-icon lw-weapon-icon--text" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
 }
 
+// Typ (categoryId) shown as a colored pill under the name instead of its own column (KRKG-0056) -
+// same never-a-color-value-in-JS convention as sectionPillHtml elsewhere; the colors themselves
+// live in member-area.css's [data-category="..."] rules. This page never lets anyone edit Typ, so
+// it's always read-only here - no sync-on-change counterpart needed.
+function categoryPillHtml(categoryId, label) {
+  return `<span class="category-pill" data-category="${escapeAttr(categoryId ?? '')}">${escapeHtml(label || 'Brak typu')}</span>`;
+}
+
 // fullName falls back to email because the roster now enumerates the whole club allowlist (see
 // server.ts's handleListaWyjazdowaGetRoster), not just members who filled in "Mój profil" - such
 // a member has no fullName/nickname to show yet, but still needs a findable row so their
@@ -231,7 +239,7 @@ function renderRoster(roster, signups) {
 
   const tbody = document.getElementById('roster-content');
   if (visible.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="czl-empty">Brak osób do wyświetlenia.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="3" class="czl-empty">Brak osób do wyświetlenia.</td></tr>';
     return;
   }
 
@@ -260,6 +268,7 @@ function renderRoster(roster, signups) {
         <div class="czl-name-cell">
           <span>${escapeHtml(displayName(member))}</span>
           <span class="czl-name-secondary ${member.nickname ? '' : 'czl-empty'}">${member.nickname ? escapeHtml(member.nickname) : EMPTY}</span>
+          ${categoryPillHtml(member.categoryId, categoryLabel)}
         </div>
       </td>
       <td>
@@ -269,7 +278,6 @@ function renderRoster(roster, signups) {
         </button>
         ${attending ? renderSkladkaIcon(emailAttr, signup?.skladkaPaid ?? false) : ''}
       </td>
-      <td class="${categoryLabel ? '' : 'czl-empty'}">${categoryLabel ? escapeHtml(categoryLabel) : EMPTY}</td>
       <td class="${member.weaponIds.length ? '' : 'czl-empty'}">${member.weaponIds.length ? weaponIconsHtml : EMPTY}</td>
     </tr>`;
     })

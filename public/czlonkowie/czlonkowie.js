@@ -29,6 +29,14 @@ function sectionPillHtml(sectionId, label) {
   return `<span class="section-pill" data-section="${escapeAttr(sectionId ?? '')}">${escapeHtml(label)}</span>`;
 }
 
+// Typ (categoryId) shown as a colored pill under the name instead of its own column (KRKG-0056) -
+// same never-a-color-value-in-JS convention as sectionPillHtml above; the actual colors live in
+// member-area.css's [data-category="..."] rules. Spis Ludności never lets anyone edit Typ (unlike
+// Sekcja), so this is always read-only here - no sync-on-change counterpart needed.
+function categoryPillHtml(categoryId, label) {
+  return `<span class="category-pill" data-category="${escapeAttr(categoryId ?? '')}">${escapeHtml(label || 'Brak typu')}</span>`;
+}
+
 const panels = {
   checking: document.getElementById('czl-checking'),
   signedOut: document.getElementById('signed-out-panel'),
@@ -114,19 +122,20 @@ function renderTable() {
     const row = document.createElement('tr');
     row.dataset.section = m.sectionId ?? '';
     // Imię i nazwisko + Ksywa share one cell, name above nickname below (KRKG-0053) - one fewer
-    // column on a table that's already dense.
-    const nameCell = canManageSkladki
+    // column on a table that's already dense. The category pill (KRKG-0056) sits below both, as
+    // a third line.
+    const nameLine = canManageSkladki
       ? `<input type="text" class="czl-field" data-email="${escapeAttr(m.email)}" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" />
          <input type="text" class="czl-field" data-email="${escapeAttr(m.email)}" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" />`
       : `<span class="${m.fullName ? '' : 'czl-empty'}">${cell(m.fullName)}</span>
          <span class="czl-name-secondary ${m.nickname ? '' : 'czl-empty'}">${cell(m.nickname)}</span>`;
+    const categoryPill = categoryPillHtml(m.categoryId, m.categoryLabel);
     const sectionCell = canManageSkladki
       ? `<select class="czl-field" data-email="${escapeAttr(m.email)}" data-field="sectionId">${sectionOptions(m.sectionId)}</select>`
       : (m.sectionLabel ? sectionPillHtml(m.sectionId, m.sectionLabel) : EMPTY);
     row.innerHTML = `
-      <td><div class="czl-name-cell">${nameCell}</div></td>
+      <td><div class="czl-name-cell">${nameLine}${categoryPill}</div></td>
       <td class="${!canManageSkladki && !m.sectionLabel ? 'czl-empty' : ''}">${sectionCell}</td>
-      <td class="${m.categoryLabel ? '' : 'czl-empty'}">${cell(m.categoryLabel)}</td>
       <td>${escapeHtml(m.email)}</td>
     `;
     tbody.append(row);
