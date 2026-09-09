@@ -251,7 +251,16 @@ export interface AuditOperationOutcome {
   schemaVersion: 1;
   state: 'succeeded' | 'failed' | 'requires_review';
   completedAt: string;
+  /** The first (or only) canonical event this operation produced. Kept singular for every
+   * existing single-effect caller and for the "recover the winning event" lost-race path in
+   * `executeAuditedExternalMutation`, which only ever needs one representative event. */
   auditEventId?: string;
+  /** Present only when the same external effect atomically produced more than one canonical
+   * event (implementation-contract.md: "a single backwards-compatible request that changes more
+   * than one independent effect may atomically emit one event per effect") - e.g.
+   * `profile.person.photo.transferred`, which must appear in both the source and destination
+   * person's own Historia. Always includes `auditEventId` as its first entry when present. */
+  auditEventIds?: string[];
   provisionalResourceKey?: string;
   finalResourceKey?: string;
   /** Which path recorded the terminal state - diagnostics evidence, not a retry control. */
@@ -297,7 +306,7 @@ export interface AuditOperationStartOptions extends Partial<AuditEventDependenci
 
 /** Optional deterministic values and a final resource mapping for an external operation. */
 export interface AuditedExternalMutationDependencies<T> extends AuditOperationStartOptions {
-  eventInput?: (result: T) => CanonicalAuditEventInput;
+  eventInput?: (result: T) => CanonicalAuditEventInput | readonly CanonicalAuditEventInput[];
 }
 
 /** Builds audit inputs from the same transactional read snapshot as their business mutation. */
@@ -492,7 +501,12 @@ export async function startExternalOperation(
 }
 
 export type CompleteExternalOperationInput =
-  | { state: 'succeeded'; correlationId: string; eventInput: CanonicalAuditEventInput; determinedBy: 'request' | 'reconciler' }
+  // `eventInput` accepts more than one input for the same reason `executeAuditedFirestoreMutation`
+  // does (implementation-contract.md: "a single backwards-compatible request that changes more
+  // than one independent effect may atomically emit one event per effect") - e.g.
+  // `profile.person.photo.transferred`, which must land in both the source and destination
+  // person's own Historia from the one Drive move.
+  | { state: 'succeeded'; correlationId: string; eventInput: CanonicalAuditEventInput | readonly CanonicalAuditEventInput[]; determinedBy: 'request' | 'reconciler' }
   | { state: 'failed' | 'requires_review'; correlationId: string; determinedBy: 'request' | 'reconciler' };
 
 /**
@@ -509,7 +523,7 @@ export async function completeExternalOperation(
   firestore: FirestoreLikeClient,
   input: CompleteExternalOperationInput,
   dependencies: AuditEventDependencies = defaultDependencies,
-): Promise<{ outcome: AuditOperationOutcome; auditEvent?: CanonicalAuditEvent; won: boolean }> {
+): Promise<{ outcome: AuditOperationOutcome; auditEvent?: CanonicalAuditEvent; auditEvents?: CanonicalAuditEvent[]; won: boolean }> {
   return firestore.runTransaction(async tx => {
     const existing = await tx.getDoc<AuditOperationOutcome>(AUDIT_OPERATION_OUTCOMES_COLLECTION, input.correlationId);
     if (existing) return { outcome: existing, won: false };
@@ -517,8 +531,12 @@ export async function completeExternalOperation(
     const completedAt = dependencies.now().toISOString();
     let outcome: AuditOperationOutcome;
     let auditEvent: CanonicalAuditEvent | undefined;
+    let auditEvents: CanonicalAuditEvent[] | undefined;
     if (input.state === 'succeeded') {
-      auditEvent = createCanonicalAuditEvent({ ...input.eventInput, correlationId: input.correlationId }, dependencies);
+      const eventInputs = Array.isArray(input.eventInput) ? input.eventInput : [input.eventInput as CanonicalAuditEventInput];
+      if (eventInputs.length === 0) throw new AuditInputError('External operation completion requires at least one event.');
+      auditEvents = eventInputs.map(oneInput => createCanonicalAuditEvent({ ...oneInput, correlationId: input.correlationId }, dependencies));
+      auditEvent = auditEvents[0];
       outcome = {
         id: input.correlationId,
         schemaVersion: 1,
@@ -528,8 +546,11 @@ export async function completeExternalOperation(
         determinedBy: input.determinedBy,
         ...(auditEvent.provisionalResourceKey ? { provisionalResourceKey: auditEvent.provisionalResourceKey } : {}),
         finalResourceKey: auditEvent.resource.key,
+        ...(auditEvents.length > 1 ? { auditEventIds: auditEvents.map(e => e.id) } : {}),
       };
-      await tx.createDoc(AUDIT_EVENTS_COLLECTION, auditEvent.id, auditEvent);
+      for (const oneEvent of auditEvents) {
+        await tx.createDoc(AUDIT_EVENTS_COLLECTION, oneEvent.id, oneEvent);
+      }
     } else {
       outcome = { id: input.correlationId, schemaVersion: 1, state: input.state, completedAt, determinedBy: input.determinedBy };
     }
@@ -537,7 +558,7 @@ export async function completeExternalOperation(
     // Same transaction, so a caller can never observe the outcome without the open marker
     // already reflecting it - closes the window the reconciler's eligibility check depends on.
     await tx.setDoc(AUDIT_OPERATIONS_OPEN_COLLECTION, input.correlationId, { resolved: true });
-    return { outcome, auditEvent, won: true };
+    return { outcome, auditEvent, auditEvents, won: true };
   });
 }
 
@@ -555,7 +576,7 @@ export async function executeAuditedExternalMutation<T>(
   intentInput: CanonicalAuditEventInput,
   effect: (correlationId: string) => Promise<T>,
   dependencies: AuditedExternalMutationDependencies<T> = {},
-): Promise<{ result: T; correlationId: string; auditEvent: CanonicalAuditEvent }> {
+): Promise<{ result: T; correlationId: string; auditEvent: CanonicalAuditEvent; auditEvents: readonly CanonicalAuditEvent[] }> {
   const auditDependencies: AuditEventDependencies = { ...defaultDependencies, ...dependencies };
   const { correlationId, intent } = await startExternalOperation(firestore, intentInput, dependencies);
 
@@ -567,28 +588,34 @@ export async function executeAuditedExternalMutation<T>(
     throw error;
   }
 
-  const eventInput = dependencies.eventInput ? dependencies.eventInput(result) : intentInput;
-  if (eventInput.action !== intentInput.action || eventInput.actor.email.trim().toLowerCase() !== intent.actor.email) {
-    throw new AuditInputError('External audit outcome must keep the declared action and actor.');
+  const rawEventInput = dependencies.eventInput ? dependencies.eventInput(result) : intentInput;
+  const eventInputs = Array.isArray(rawEventInput) ? rawEventInput : [rawEventInput as CanonicalAuditEventInput];
+  for (const oneInput of eventInputs) {
+    if (oneInput.action !== intentInput.action || oneInput.actor.email.trim().toLowerCase() !== intent.actor.email) {
+      throw new AuditInputError('External audit outcome must keep the declared action and actor.');
+    }
   }
-  const finalEventInput: CanonicalAuditEventInput = dependencies.provisionalResourceKey
-    ? { ...eventInput, provisionalResourceKey: dependencies.provisionalResourceKey }
-    : eventInput;
-  const { outcome, auditEvent, won } = await completeExternalOperation(
+  const finalEventInputs: readonly CanonicalAuditEventInput[] = dependencies.provisionalResourceKey
+    ? eventInputs.map(oneInput => ({ ...oneInput, provisionalResourceKey: dependencies.provisionalResourceKey }))
+    : eventInputs;
+  const { outcome, auditEvent, auditEvents, won } = await completeExternalOperation(
     firestore,
-    { state: 'succeeded', correlationId, eventInput: finalEventInput, determinedBy: 'request' },
+    { state: 'succeeded', correlationId, eventInput: finalEventInputs, determinedBy: 'request' },
     auditDependencies,
   );
-  if (won && auditEvent) return { result, correlationId, auditEvent };
+  if (won && auditEvent && auditEvents) return { result, correlationId, auditEvent, auditEvents };
 
   // Lost the single-winner race - only possible if this request outlived its own 30-minute
   // request lease and the reconciler already claimed and resolved the operation first. The
   // provider effect above did succeed (`result` is valid), so recover the winning event rather
   // than fabricate a second one; only a genuine conflict (reconciler recorded failed/
   // requires_review while this request's effect actually succeeded) surfaces as an error, since
-  // that combination needs administrator review, not a silent guess.
+  // that combination needs administrator review, not a silent guess. (The reconciler itself only
+  // ever produces one event per probe, so there is nothing further to recover for the multi-event
+  // case here - a stuck multi-effect operation is a known limitation, see photo.transferred's
+  // handler comment.)
   const winningEvent = outcome.auditEventId ? await firestore.getDoc<CanonicalAuditEvent>(AUDIT_EVENTS_COLLECTION, outcome.auditEventId) : null;
-  if (winningEvent) return { result, correlationId, auditEvent: winningEvent };
+  if (winningEvent) return { result, correlationId, auditEvent: winningEvent, auditEvents: [winningEvent] };
   throw new AuditInputError(`External operation ${correlationId} was already reconciled as "${outcome.state}" before this request completed.`);
 }
 

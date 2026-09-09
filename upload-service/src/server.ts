@@ -1240,8 +1240,16 @@ async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse,
 async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
   const fileId = url.searchParams.get('fileId');
-  if (!fileId) throw new AuthError('Brak fileId.', 400);
-  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.deleted', actor: { email: identity.email }, resource: { kind: 'person', key: `person:photo:${fileId}`, display: fileId }, changes: [{ field: 'fileId', after: fileId }] }, async () => deps.drive.deleteFolder(fileId));
+  // I4: this resource key must be `person:{folderId}`, matching photo.added/photo.main.changed/
+  // in_memoriam.changed (the rest of this same person-photo action family) and the contract's
+  // canonical `person:{personId}` notation - not the ad hoc `person:photo:{fileId}` it used
+  // before, which isn't a notation the contract defines at all. folderId comes from the same
+  // request-body/query source those sibling handlers use, supplied by the client the same way
+  // (publiczne-wizytowki.js's delete-photo button now carries data-folder-id alongside
+  // data-file-id).
+  const folderId = url.searchParams.get('folderId');
+  if (!fileId || !folderId) throw new AuthError('Brak fileId lub folderId.', 400);
+  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.deleted', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: fileId }] }, async () => deps.drive.deleteFolder(fileId));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -1261,6 +1269,18 @@ async function handleAdminSetMainPhoto(req: IncomingMessage, res: ServerResponse
 
 // Moves a single photo into a different person's folder - see moveFile in drive.ts for why
 // (reviewing an upload-staging submission for someone who already has an existing profile).
+//
+// I4 (final review): a transfer must show up in BOTH people's own Historia, not only the
+// destination's - the source person's photo genuinely left their folder, which is exactly the
+// kind of change their own history should record. The source folder id isn't known until the
+// Drive move itself reads the file's current parent (moveFile now returns it - see its comment
+// in drive.ts), so the intent declared before the effect still only names the destination (the
+// one resource identifier this handler already had up front); the second, source-keyed event is
+// added only in the final `eventInput`, atomically alongside the destination event, via
+// executeAuditedExternalMutation's array support (implementation-contract.md: "a single
+// backwards-compatible request that changes more than one independent effect may atomically emit
+// one event per effect"). If Drive reports no previous parent at all (shouldn't happen for a real
+// photo, but not assumed), only the destination event is emitted - never a fabricated source key.
 async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { fileId, targetFolderId } = await readJsonBody<{ fileId?: string; targetFolderId?: string }>(
@@ -1268,7 +1288,34 @@ async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerRespons
     deps.maxJsonBodyBytes,
   );
   if (!fileId || !targetFolderId) throw new AuthError('Brak fileId lub targetFolderId.', 400);
-  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.transferred', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${targetFolderId}`, display: targetFolderId }, changes: [{ field: 'fileId', after: fileId }, { field: 'folderId', after: targetFolderId }] }, async () => deps.drive.moveFile(fileId, targetFolderId));
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'profile.person.photo.transferred',
+      actor: { email: identity.email },
+      resource: { kind: 'person', key: `person:${targetFolderId}`, display: targetFolderId },
+      changes: [{ field: 'fileId', after: fileId }, { field: 'folderId', after: targetFolderId }],
+    },
+    async () => deps.drive.moveFile(fileId, targetFolderId),
+    {
+      eventInput: ({ previousFolderId }) => {
+        const destinationEvent: CanonicalAuditEventInput = {
+          action: 'profile.person.photo.transferred',
+          actor: { email: identity.email },
+          resource: { kind: 'person', key: `person:${targetFolderId}`, display: targetFolderId },
+          changes: [{ field: 'fileId', after: fileId }, { field: 'folderId', after: targetFolderId }],
+        };
+        if (!previousFolderId || previousFolderId === targetFolderId) return destinationEvent;
+        const sourceEvent: CanonicalAuditEventInput = {
+          action: 'profile.person.photo.transferred',
+          actor: { email: identity.email },
+          resource: { kind: 'person', key: `person:${previousFolderId}`, display: previousFolderId },
+          changes: [{ field: 'fileId', before: fileId }, { field: 'folderId', after: targetFolderId }],
+        };
+        return [destinationEvent, sourceEvent];
+      },
+    },
+  );
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -1387,7 +1434,12 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
     {
       action: 'profile.photo_submission.photo_added',
       actor: { email: identity.email },
-      resource: { kind: 'memberSubmission', key: `memberSubmission:${folderId}`, display: folderId },
+      // I4: matches profile.photo_submission.created's own final resource key
+      // (`member:{actorEmail}:submission:{folderId}`, implementation-contract.md's canonical
+      // notation) - not the ad hoc `memberSubmission:{folderId}` this used before, which meant
+      // the two halves of the same submission were unreachable via the same Historia/resourceKey
+      // filter.
+      resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${folderId}`, display: folderId },
       changes: [{ field: 'fileId', after: 'pending' }],
     },
     async () => {
@@ -1411,7 +1463,12 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
       eventInput: uploaded => ({
         action: 'profile.photo_submission.photo_added',
         actor: { email: identity.email },
-        resource: { kind: 'memberSubmission', key: `memberSubmission:${folderId}`, display: folderId },
+        // I4: matches profile.photo_submission.created's own final resource key
+        // (`member:{actorEmail}:submission:{folderId}`, implementation-contract.md's canonical
+        // notation) - not the ad hoc `memberSubmission:{folderId}` this used before, which meant
+        // the two halves of the same submission were unreachable via the same Historia/resourceKey
+        // filter.
+        resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${folderId}`, display: folderId },
         changes: [{ field: 'fileId', after: uploaded.id }],
       }),
     },
@@ -2767,7 +2824,7 @@ async function handleAuditEventDetailPublic(req: IncomingMessage, res: ServerRes
  * original effect - they only observe whether it already happened, or admit they can't tell.
  */
 function buildReconciliationProbes(deps: ServerDeps): Partial<Record<AuditOperationIntent['resource']['kind'], ExternalOperationProbe>> {
-  const driveFolderProbe = (kind: 'gallery' | 'person' | 'memberSubmission'): ExternalOperationProbe => async intent => {
+  const driveFolderProbe = (kind: 'gallery' | 'person'): ExternalOperationProbe => async intent => {
     // The provisional key is `{kind}:pending:{correlationId}` - there is no folder id to probe
     // for until the effect has actually created one, so a still-provisional intent can only ever
     // be "pending" here (never "failed": Drive folder creation is a single all-or-nothing call,
@@ -2777,6 +2834,30 @@ function buildReconciliationProbes(deps: ServerDeps): Partial<Record<AuditOperat
     const provisionalPrefix = `${kind}:pending:`;
     if (intent.resource.key.startsWith(provisionalPrefix)) return { state: 'pending' };
     const folderId = intent.resource.key.slice(`${kind}:`.length);
+    const exists = await deps.drive.folderExists(folderId);
+    if (!exists) return { state: 'pending' };
+    return {
+      state: 'succeeded',
+      eventInput: {
+        action: intent.action,
+        actor: intent.actor,
+        resource: intent.resource,
+        changes: [{ field: 'folderId', after: folderId }],
+      },
+    };
+  };
+
+  // memberSubmission's provisional key (`memberSubmission:pending:{correlationId}`, from
+  // handleWojownicyUploadSubmit) upgrades on success to the canonical
+  // `member:{actorEmail}:submission:{folderId}` shape (implementation-contract.md's "Pre-effect
+  // resource protocol"), not the generic `{kind}:{folderId}` shape driveFolderProbe assumes -
+  // handleWojownicyUploadPhoto's own intent (I4 fix) now uses that exact same final shape from
+  // the start, so both this kind's mutation routes share one parsing rule here.
+  const memberSubmissionProbe: ExternalOperationProbe = async intent => {
+    if (intent.resource.key.startsWith('memberSubmission:pending:')) return { state: 'pending' };
+    const match = /:submission:([^:]+)$/.exec(intent.resource.key);
+    if (!match) return { state: 'pending' };
+    const folderId = match[1];
     const exists = await deps.drive.folderExists(folderId);
     if (!exists) return { state: 'pending' };
     return {
@@ -2823,7 +2904,7 @@ function buildReconciliationProbes(deps: ServerDeps): Partial<Record<AuditOperat
   return {
     gallery: driveFolderProbe('gallery'),
     person: driveFolderProbe('person'),
-    memberSubmission: driveFolderProbe('memberSubmission'),
+    memberSubmission: memberSubmissionProbe,
     redirect: redirectProbe,
     settings: settingsProbe,
     member: memberProbe,

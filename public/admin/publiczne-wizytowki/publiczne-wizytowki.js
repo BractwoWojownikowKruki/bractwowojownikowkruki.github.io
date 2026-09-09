@@ -148,7 +148,7 @@ function photoItemHtml(folderId, photo, isMain, transferTargets) {
             : `<button class="set-main-photo" data-folder-id="${folderId}" data-file-id="${photo.id}">Ustaw główne</button>`
         }
       </div>
-      <button class="delete-photo" data-file-id="${photo.id}" style="color:var(--accent); font-size:11px; margin-top:2px;">Usuń zdjęcie</button>
+      <button class="delete-photo" data-folder-id="${folderId}" data-file-id="${photo.id}" style="color:var(--accent); font-size:11px; margin-top:2px;">Usuń zdjęcie</button>
       <div style="margin-top:4px;">
         <select class="transfer-target" data-file-id="${photo.id}" style="width:100%; font-size:11px;">
           <option value="">Transferuj do...</option>
@@ -275,7 +275,12 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
   const deletePhotoBtn = e.target.closest('.delete-photo');
   if (deletePhotoBtn) {
     if (!window.confirm('Na pewno usunąć to zdjęcie?')) return;
-    await apiFetch(`/admin/people/photo?fileId=${encodeURIComponent(deletePhotoBtn.dataset.fileId)}`, { method: 'DELETE' }, showReauth, hideReauth);
+    await apiFetch(
+      `/admin/people/photo?fileId=${encodeURIComponent(deletePhotoBtn.dataset.fileId)}&folderId=${encodeURIComponent(deletePhotoBtn.dataset.folderId)}`,
+      { method: 'DELETE' },
+      showReauth,
+      hideReauth,
+    );
     loadManageList();
     return;
   }

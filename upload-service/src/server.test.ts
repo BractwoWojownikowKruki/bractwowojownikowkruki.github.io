@@ -110,7 +110,7 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     folderExists: async () => true,
     renameFolder: async () => {},
     moveFolder: async () => ({ name: 'Test Person' }),
-    moveFile: async () => {},
+    moveFile: async () => ({}),
     writeManifest: async () => {},
     readManifest: async () => null,
     listGalleryFolders: async () => [],
@@ -1464,10 +1464,33 @@ test('DELETE /admin/people/photo trashes the photo file', async () => {
     drive: makeFakeDrive({ deleteFolder: async fileId => { deletedId = fileId; } }),
   });
   await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/admin/people/photo?fileId=photo-1`, { method: 'DELETE' });
+    const res = await fetch(`${baseUrl}/admin/people/photo?fileId=photo-1&folderId=person-1`, { method: 'DELETE' });
     assert.equal(res.status, 200);
   });
   assert.equal(deletedId, 'photo-1');
+});
+
+test('DELETE /admin/people/photo rejects a missing folderId (I4: resource key needs person:{folderId}, not fileId alone)', async () => {
+  const deps = makeDeps({ drive: makeFakeDrive({}) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo?fileId=photo-1`, { method: 'DELETE' });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('DELETE /admin/people/photo audits profile.person.photo.deleted on the person:{folderId} resource, matching its sibling person-photo actions', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    drive: makeFakeDrive({ deleteFolder: async () => {} }),
+    firestore,
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo?fileId=photo-1&folderId=person-1`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+  });
+  const events = await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents');
+  const event = events.find(e => e.data.action === 'profile.person.photo.deleted')!.data;
+  assert.equal(event.resource.key, 'person:person-1');
 });
 
 test('PUT /admin/people/photo/main prefixes the target photo and strips any previous main prefix', async () => {
@@ -1539,6 +1562,7 @@ test('PUT /admin/people/photo/transfer moves the photo into the target folder', 
       moveFile: async (fileId, newParentFolderId) => {
         movedFileId = fileId;
         movedToParent = newParentFolderId;
+        return {};
       },
     }),
   });
@@ -1552,6 +1576,53 @@ test('PUT /admin/people/photo/transfer moves the photo into the target folder', 
   });
   assert.equal(movedFileId, 'photo-1');
   assert.equal(movedToParent, 'person-2');
+});
+
+test('PUT /admin/people/photo/transfer audits profile.person.photo.transferred on BOTH the source and destination person (I4)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      moveFile: async () => ({ previousFolderId: 'person-1' }),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/transfer`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'photo-1', targetFolderId: 'person-2' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const events = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; before?: string; after?: string }> }>('auditEvents');
+  const transferEvents = events.filter(e => e.data.action === 'profile.person.photo.transferred');
+  assert.equal(transferEvents.length, 2, 'one event per affected person - source and destination');
+  const byResourceKey = Object.fromEntries(transferEvents.map(e => [e.data.resource.key, e.data]));
+  assert.ok(byResourceKey['person:person-2'], 'destination person must see the transfer in their own Historia');
+  assert.ok(byResourceKey['person:person-1'], 'source person must also see the transfer in their own Historia (not just the destination)');
+  assert.equal(byResourceKey['person:person-1'].changes.find(c => c.field === 'fileId')?.before, 'photo-1');
+});
+
+test('PUT /admin/people/photo/transfer emits only the destination event when Drive reports no previous parent', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      moveFile: async () => ({}),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/transfer`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'photo-1', targetFolderId: 'person-2' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const events = await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents');
+  const transferEvents = events.filter(e => e.data.action === 'profile.person.photo.transferred');
+  assert.equal(transferEvents.length, 1, 'no fabricated source event when Drive reports no previous parent');
+  assert.equal(transferEvents[0].data.resource.key, 'person:person-2');
 });
 
 test('PUT /admin/people/photo/transfer rejects a missing targetFolderId', async () => {
@@ -3957,7 +4028,9 @@ test('/wojownicy-upload/photo with isMain=true uploads the file as !main.<ext>, 
   });
   const [event] = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: string }> }>('auditEvents');
   assert.equal(event.data.action, 'profile.photo_submission.photo_added');
-  assert.equal(event.data.resource.key, `memberSubmission:${folderId}`);
+  // I4: matches profile.photo_submission.created's own final resource key shape so both halves
+  // of the same submission share one resourceKey filter.
+  assert.equal(event.data.resource.key, `member:ktos@gmail.com:submission:${folderId}`);
   assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [['fileId', 'fake-uploaded-file-id']]);
 });
 
