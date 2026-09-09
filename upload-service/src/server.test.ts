@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { createHash } from 'node:crypto';
 import { AuthError } from './auth.ts';
 import {
   createRequestListener,
@@ -2263,6 +2264,27 @@ test('PUT /admin/members/profile rejects a non-boolean hidden value', async () =
   });
 });
 
+test('PUT /admin/members/profile with no mutable field remains a no-op and emits no audit event', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x', hidden: false,
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.deepEqual(await client.listDocs('auditEvents'), []);
+});
+
 test('PUT /admin/members/profile 404s for an unknown member', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
@@ -2379,7 +2401,7 @@ test('GET /admin/roles rejects an unauthenticated caller', async () => {
   });
 });
 
-test('PUT /admin/roles grants a role to a member', async () => {
+test('PUT /admin/roles grants a role to a member and records only canonical evidence', async () => {
   const client = createInMemoryFirestoreClient();
   const deps = makeDeps({
     firestore: client,
@@ -2398,15 +2420,14 @@ test('PUT /admin/roles grants a role to a member', async () => {
   const { entries } = await withServer(makeDeps({ firestore: client }), baseUrl =>
     fetch(`${baseUrl}/admin/roles/audit-log`).then(r => r.json()),
   );
-  assert.equal(entries.length, 1);
-  assert.equal(entries[0].targetEmail, 'ala@example.com');
-  assert.deepEqual(entries[0].previousRoles, []);
-  assert.deepEqual(entries[0].newRoles, ['admin']);
-  assert.equal(entries[0].changedBy, 'admin@example.com');
-  assert.equal(entries[0].changeSummary, 'Zmieniono role: Brak → Admin');
+  assert.deepEqual(entries, []);
+  const [audit] = await client.listDocs<{ action: string; actor: { email: string }; changes: Array<{ field: string; before: string; after: string }> }>('auditEvents');
+  assert.equal(audit.data.action, 'role.granted');
+  assert.equal(audit.data.actor.email, 'admin@example.com');
+  assert.deepEqual(audit.data.changes, [{ field: 'roles', before: 'Brak', after: 'Admin', visibility: 'roleRestricted' }]);
 });
 
-test('PUT /admin/roles can revoke every role by passing an empty array', async () => {
+test('PUT /admin/roles can revoke every role by passing an empty array without appending legacy evidence', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('userRoles', 'ala@example.com', { roles: ['accountant'] });
   const deps = makeDeps({
@@ -2423,11 +2444,10 @@ test('PUT /admin/roles can revoke every role by passing an empty array', async (
   });
   const stored = await client.getDoc<{ roles: string[] }>('userRoles', 'ala@example.com');
   assert.deepEqual(stored?.roles, []);
-  const auditEntries = await listRoleAuditLog(client);
-  assert.equal(auditEntries.length, 1);
-  assert.deepEqual(auditEntries[0].previousRoles, ['accountant']);
-  assert.deepEqual(auditEntries[0].newRoles, []);
-  assert.equal(auditEntries[0].changeSummary, 'Zmieniono role: Księgowy → Brak');
+  assert.deepEqual(await listRoleAuditLog(client), []);
+  const [audit] = await client.listDocs<{ action: string; changes: Array<{ field: string; before: string; after: string }> }>('auditEvents');
+  assert.equal(audit.data.action, 'role.revoked');
+  assert.deepEqual(audit.data.changes, [{ field: 'roles', before: 'Księgowy', after: 'Brak', visibility: 'roleRestricted' }]);
 });
 
 test('GET /admin/roles/audit-log lists entries', async () => {
@@ -4218,7 +4238,7 @@ test('PUT /lista-wyjazdowa/signups rejects an equipmentId that does not belong t
   });
 });
 
-test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and logs it', async () => {
+test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and records canonical evidence', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'inny@example.test');
   const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com', 'inny@example.test'] });
@@ -4236,9 +4256,13 @@ test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and l
 
     const auditRes = await fetch(`${baseUrl}/lista-wyjazdowa/signups/audit-log?eventId=${created.event.id}`);
     const auditBody = await auditRes.json();
-    assert.equal(auditBody.entries.length, 1);
-    assert.equal(auditBody.entries[0].targetMemberEmail, 'inny@example.test');
-    assert.equal(auditBody.entries[0].changedBy, 'wojownik@gmail.com');
+    assert.deepEqual(auditBody.entries, []);
+    const [audit] = await firestore.listDocs<{ action: string; actor: { email: string }; resource: { key: string } }>('auditEvents');
+    assert.equal(audit.data.action, 'event.created');
+    const signupAudit = (await firestore.listDocs<{ action: string; actor: { email: string }; resource: { key: string } }>('auditEvents'))
+      .find(entry => entry.data.action === 'signup.created');
+    assert.equal(signupAudit?.data.actor.email, 'wojownik@gmail.com');
+    assert.equal(signupAudit?.data.resource.key, `signup:${created.event.id}:inny@example.test`);
   });
 });
 
@@ -4591,7 +4615,7 @@ test('PUT /lista-wyjazdowa/dues requires accountant, validates member exists, an
   });
 });
 
-test('GET /lista-wyjazdowa/dues/audit-log records wpisowe, roczna, and event-fee changes, oldest first', async () => {
+test('GET /lista-wyjazdowa/dues/audit-log retains readable legacy entries while new dues writes are canonical', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const deps = makeDepsWithRole('accountant', firestore);
   await withServer(deps, async baseUrl => {
@@ -4602,18 +4626,35 @@ test('GET /lista-wyjazdowa/dues/audit-log records wpisowe, roczna, and event-fee
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { skladkaFee: '50 zł' });
 
+    firestore.seed('duesAuditLog', 'legacy-entry-fee', {
+      context: 'wpisowe', targetMemberEmail: 'legacy@example.test', eventId: null, eventName: null, year: null,
+      changedBy: 'legacy-admin@example.test', changedAt: '2026-01-01T00:00:00.000Z', changeSummary: 'legacy wpisowe',
+    });
+    firestore.seed('duesAuditLog', 'legacy-annual', {
+      context: 'roczna', targetMemberEmail: 'legacy@example.test', eventId: null, eventName: null, year: 2026,
+      changedBy: 'legacy-admin@example.test', changedAt: '2026-01-02T00:00:00.000Z', changeSummary: 'legacy roczna',
+    });
+    firestore.seed('duesAuditLog', 'legacy-event', {
+      context: 'eventFee', targetMemberEmail: null, eventId: 'legacy-event', eventName: 'Legacy', year: null,
+      changedBy: 'legacy-admin@example.test', changedAt: '2026-01-03T00:00:00.000Z', changeSummary: 'legacy event fee',
+    });
+
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.entries.length, 3);
     assert.equal(body.entries[0].context, 'wpisowe');
-    assert.equal(body.entries[0].targetMemberEmail, 'wojownik@gmail.com');
+    assert.equal(body.entries[0].targetMemberEmail, 'legacy@example.test');
     assert.equal(body.entries[1].context, 'roczna');
-    assert.equal(body.entries[1].year, 2027);
+    assert.equal(body.entries[1].year, 2026);
     assert.equal(body.entries[2].context, 'eventFee');
-    assert.equal(body.entries[2].eventId, created.event.id);
-    assert.equal(body.entries[2].eventName, 'Zjazd');
-    assert.ok(body.entries[2].changeSummary.includes('50 zł'));
+    assert.equal(body.entries[2].eventId, 'legacy-event');
+    assert.equal(body.entries[2].eventName, 'Legacy');
+    assert.equal(body.entries[2].changeSummary, 'legacy event fee');
+    const canonical = await firestore.listDocs<{ action: string }>('auditEvents');
+    assert.ok(canonical.some(entry => entry.data.action === 'dues.entry_fee.changed'));
+    assert.ok(canonical.some(entry => entry.data.action === 'dues.annual.changed'));
+    assert.ok(canonical.some(entry => entry.data.action === 'dues.event_fee.changed'));
   });
 });
 
@@ -4640,7 +4681,7 @@ test('GET /lista-wyjazdowa/dues/audit-log requires accountant, 403 for a plain m
   });
 });
 
-test('PUT /lista-wyjazdowa/dues can set/clear amount independently of paid, and each produces its own audit entry', async () => {
+test('PUT /lista-wyjazdowa/dues can set/clear amount independently of paid with canonical audit entries', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const deps = makeDepsWithRole('accountant', firestore);
   await withServer(deps, async baseUrl => {
@@ -4657,9 +4698,12 @@ test('PUT /lista-wyjazdowa/dues can set/clear amount independently of paid, and 
 
     const auditRes = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
     const entries = (await auditRes.json()).entries;
-    assert.equal(entries.length, 2);
-    assert.ok(entries[0].changeSummary.includes('100 zł'));
-    assert.equal(entries[1].changeSummary, 'Oznaczono składkę roczną 2027 jako opłaconą');
+    assert.deepEqual(entries, []);
+    const canonical = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; after: string | boolean }> }>('auditEvents'))
+      .filter(entry => entry.data.action === 'dues.annual.changed');
+    assert.equal(canonical.length, 2);
+    assert.deepEqual(canonical[0].data.changes, [{ field: 'amount', after: '100 zł', visibility: 'roleRestricted' }]);
+    assert.deepEqual(canonical[1].data.changes, [{ field: 'paid', before: false, after: true, visibility: 'roleRestricted' }]);
   });
 });
 
@@ -4672,6 +4716,115 @@ test('GET /lista-wyjazdowa/roster includes wpisowePaid per member', async () => 
     const body = await res.json();
     assert.equal(body.roster[0].wpisowePaid, false);
     assert.equal(body.roster[0].hasProfile, true);
+  });
+});
+
+// KRKG-0050 Batch 2: this is deliberately a route-level contract rather than a unit test of
+// audit.ts. It proves the actor came from the route's verified identity, business writes and the
+// canonical record committed together, and the retired per-feature audit collections stay
+// read-only while their GET endpoints remain available for migration in Batch 6.
+test('Firestore member and Wyjazdy mutations emit canonical audit records and leave legacy logs read-only', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore, {
+    authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'applicant-1', email: 'applicant@example.test' }),
+    listMemberEmails: async () => ['wojownik@gmail.com'],
+  });
+
+  await withServer(deps, async baseUrl => {
+    const application = await postListaWyjazdowa(baseUrl, '/membership/apply', {
+      fullName: 'Kandydat',
+      sectionId: 'krakow',
+    });
+    assert.equal(application.status, 200);
+
+    const transition = await postListaWyjazdowa(baseUrl, '/admin/members/transition', {
+      email: 'applicant@example.test',
+      transition: 'approve',
+    });
+    assert.equal(transition.status, 200);
+
+    const eventResponse = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', {
+      name: 'Zjazd',
+      startDate: '2027-05-01',
+    });
+    assert.equal(eventResponse.status, 200);
+    const { event } = await eventResponse.json();
+
+    const signup = await putListaWyjazdowa(
+      baseUrl,
+      `/lista-wyjazdowa/signups?eventId=${event.id}&memberEmail=wojownik@gmail.com`,
+      { attending: true, equipmentIds: [], companionIds: [] },
+    );
+    assert.equal(signup.status, 200);
+
+    const paid = await putListaWyjazdowa(
+      baseUrl,
+      `/lista-wyjazdowa/signups/skladka?eventId=${event.id}&memberEmail=wojownik@gmail.com`,
+      { paid: true },
+    );
+    assert.equal(paid.status, 200);
+
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
+    const entryFee = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
+    assert.equal(entryFee.status, 200);
+
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
+    const annualDue = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', {
+      paid: true,
+      amount: '100 zł',
+    });
+    assert.equal(annualDue.status, 200);
+
+    const auditEvents = (await firestore.listDocs('auditEvents')).map(doc => doc.data as {
+      actor: { email: string };
+      category: string;
+      action: string;
+      audience: string;
+      resource: { key: string };
+      changes: Array<{ field: string; before?: string | boolean | null; after?: string | boolean | null; visibility: string }>;
+      value: string;
+    });
+    const byAction = new Map(auditEvents.map(auditEvent => [auditEvent.action, auditEvent]));
+
+    const membershipApplication = byAction.get('membership.application.submitted');
+    assert.ok(membershipApplication);
+    assert.deepEqual({
+      actor: membershipApplication.actor,
+      category: membershipApplication.category,
+      action: membershipApplication.action,
+      audience: membershipApplication.audience,
+      resource: { ...membershipApplication.resource, display: 'member' },
+      changes: membershipApplication.changes,
+      value: membershipApplication.value,
+    }, {
+      actor: { email: 'applicant@example.test' },
+      category: 'membership',
+      action: 'membership.application.submitted',
+      audience: 'admin',
+      resource: { kind: 'member', key: 'member:applicant@example.test', display: 'member' },
+      changes: [{ field: 'status', after: 'pending', visibility: 'roleRestricted' }],
+      value: 'member.status=pending',
+    });
+    assert.equal(byAction.get('membership.status.approved')?.actor.email, 'admin@gmail.com');
+    assert.equal(byAction.get('event.created')?.category, 'events');
+    assert.equal(byAction.get('event.created')?.audience, 'members');
+    assert.equal(byAction.get('signup.created')?.actor.email, 'wojownik@gmail.com');
+    assert.equal(byAction.get('signup.created')?.resource.key, `signup:${event.id}:wojownik@gmail.com`);
+    assert.equal(byAction.get('signup.created')?.value, 'wojownik@gmail.com.attending=true');
+    assert.deepEqual(byAction.get('signup.created')?.changes, [
+      { field: 'attending', after: true, visibility: 'memberVisible' },
+      { field: 'equipmentCount', after: 0, visibility: 'memberVisible' },
+      { field: 'companionCount', after: 0, visibility: 'memberVisible' },
+    ]);
+    assert.equal(byAction.get('dues.event_fee.changed')?.audience, 'adminOrAccountant');
+    assert.equal(byAction.get('dues.entry_fee.changed')?.changes[0]?.field, 'paid');
+    assert.deepEqual(byAction.get('dues.annual.changed')?.changes, [
+      { field: 'paid', after: true, visibility: 'roleRestricted' },
+      { field: 'amount', after: '100 zł', visibility: 'roleRestricted' },
+    ]);
+    assert.equal((await firestore.listDocs('signupAuditLog')).length, 0);
+    assert.equal((await firestore.listDocs('duesAuditLog')).length, 0);
+    assert.equal((await firestore.listDocs('rolesAuditLog')).length, 0);
   });
 });
 
@@ -4819,5 +4972,31 @@ test('PUT /lista-wyjazdowa/signups still works for a member with no listaWyjazdo
       { attending: true, equipmentIds: [], companionIds: [] },
     );
     assert.equal(res.status, 200);
+  });
+});
+
+test('PUT /lista-wyjazdowa/events preserves combined metadata and fee edits as two atomic canonical events', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', {
+      name: 'Zjazd', startDate: '2027-05-01',
+    })).json();
+
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, {
+      name: 'Zjazd zimowy',
+      skladkaFee: '100 zł',
+    });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).event.name, 'Zjazd zimowy');
+
+    const events = (await firestore.listDocs('auditEvents')).map(doc => doc.data as { action: string; changes: Array<{ field: string }> });
+    const updateEvents = events.filter(event => event.action !== 'event.created');
+    assert.deepEqual(updateEvents.map(event => event.action).sort(), ['dues.event_fee.changed', 'event.updated']);
+    assert.deepEqual(updateEvents.find(event => event.action === 'event.updated')?.changes, [{ field: 'name', before: 'Zjazd', after: 'Zjazd zimowy', visibility: 'memberVisible' }]);
+    assert.deepEqual(updateEvents.find(event => event.action === 'dues.event_fee.changed')?.changes, [
+      { field: 'feeDigest', before: null, after: createHash('sha256').update('100 zł').digest('hex'), visibility: 'roleRestricted' },
+      { field: 'feeLength', before: null, after: 6, visibility: 'roleRestricted' },
+    ]);
   });
 });

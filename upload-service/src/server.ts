@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AuthError, checkAllowlist, fetchGoogleJwks, verifyGoogleIdToken, type VerifiedIdentity } from './auth.ts';
 import { createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
@@ -26,27 +26,28 @@ import {
   type AboutUsCategory,
   type AdminDepartment,
 } from './about-us.ts';
-import { createFirestoreClient, type FirestoreLikeClient } from './firestore.ts';
-import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberCategoryId, setMemberHidden, recordLastLogin, type MemberWritableFields } from './members.ts';
-import { applyForMembership, applyAdminTransition, listMembersByStatus, type AdminTransition } from './membership.ts';
+import { createFirestoreClient, type FirestoreLikeClient, type FirestoreTransaction } from './firestore.ts';
+import { executeAuditedFirestoreMutation, type AuditAction, type CanonicalAuditEventInput } from './audit.ts';
+import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberCategoryId, setMemberHidden, recordLastLogin, type MemberDoc, type MemberWritableFields } from './members.ts';
+import { applyForMembershipInTransaction, applyAdminTransitionInTransaction, listMembersByStatus, type AdminTransition } from './membership.ts';
 import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
 import { createDisabledSheetsClient, createSheetsClient, type SheetsClient } from './sheets.ts';
-import { getProfile, listAllProfiles, saveProfile, setWpisowePaid, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
+import { getProfile, listAllProfiles, saveProfile, setWpisowePaid, type ListaWyjazdowaProfileDoc, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 import { getAllLookupLists, getLookupList } from './lookup-lists.ts';
-import { listEvents, getEvent, createEvent, updateEvent, type EventWritableFields } from './events.ts';
+import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWritableFields } from './events.ts';
 import {
   listAllSignups,
   listSignupsForEvent,
   getSignup,
   saveSignup,
   setSkladkaPaid,
-  appendAuditLogEntry,
   listAuditLogForEvent,
+  type SignupDoc,
   type SignupWritableFields,
 } from './signups.ts';
-import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, appendRoleAuditEntry, listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
-import { listDuesForYear, saveDues, type DuesWritableFields, appendDuesAuditEntry, listDuesAuditLog } from './dues.ts';
+import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
+import { listDuesForYear, saveDues, type DuesDoc, type DuesWritableFields, listDuesAuditLog } from './dues.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -131,6 +132,86 @@ export interface ServerDeps {
   // KRKG-0046: Google Sheets disaster-recovery backup of the members collection. Never a runtime
   // fallback for authorization - see sheets.ts's SheetsClient doc comment.
   sheetsClient: SheetsClient;
+}
+
+type MutationMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+/** A Firestore route's reviewed set of canonical actions. */
+export interface AuditedMutationRouteDescriptor<Actions extends readonly AuditAction[] = readonly AuditAction[]> {
+  method: MutationMethod;
+  path: string;
+  actions: Actions;
+}
+
+function auditedRoute<const Actions extends readonly AuditAction[]>(
+  method: MutationMethod,
+  path: string,
+  actions: Actions,
+): AuditedMutationRouteDescriptor<Actions> {
+  return { method, path, actions };
+}
+
+/**
+ * Batch 2's Firestore-owned mutation inventory. A handler must use its own descriptor through
+ * executeDeclaredAuditedMutation, so a typo or an action borrowed from another route fails
+ * before either the business document or immutable evidence can be committed.
+ */
+export const AUDITED_MEMBER_MUTATION_ROUTES = {
+  membershipApply: auditedRoute('POST', '/membership/apply', ['membership.application.submitted']),
+  memberTransition: auditedRoute('POST', '/admin/members/transition', [
+    'membership.status.approved',
+    'membership.status.rejected',
+    'membership.status.suspended',
+    'membership.status.reactivated',
+    'membership.status.removed',
+  ]),
+  memberDriveFolder: auditedRoute('PUT', '/admin/members/drive-folder', ['profile.drive_folder.changed']),
+  memberProfile: auditedRoute('PUT', '/admin/members/profile', ['profile.member.updated']),
+  roles: auditedRoute('PUT', '/admin/roles', ['role.granted', 'role.revoked', 'role.replaced']),
+  tripMember: auditedRoute('PUT', '/lista-wyjazdowa/member', ['profile.member.updated']),
+  tripProfile: auditedRoute('PUT', '/lista-wyjazdowa/profile', ['profile.member.updated']),
+  eventCreate: auditedRoute('POST', '/lista-wyjazdowa/events', ['event.created']),
+  eventUpdate: auditedRoute('PUT', '/lista-wyjazdowa/events', ['event.updated', 'event.cancelled', 'dues.event_fee.changed']),
+  signup: auditedRoute('PUT', '/lista-wyjazdowa/signups', ['signup.created', 'signup.updated']),
+  signupFee: auditedRoute('PUT', '/lista-wyjazdowa/signups/skladka', ['dues.event_fee.changed']),
+  entryFee: auditedRoute('PUT', '/lista-wyjazdowa/wpisowe', ['dues.entry_fee.changed']),
+  annualDues: auditedRoute('PUT', '/lista-wyjazdowa/dues', ['dues.annual.changed']),
+} as const;
+
+export const AUDITED_MEMBER_MUTATION_ROUTE_DESCRIPTORS = Object.values(AUDITED_MEMBER_MUTATION_ROUTES);
+
+/** Returns the descriptor only for a Batch-2 Firestore mutation route. */
+export function findAuditedMemberMutationRoute(method: string, path: string): AuditedMutationRouteDescriptor | undefined {
+  return AUDITED_MEMBER_MUTATION_ROUTE_DESCRIPTORS.find(route => route.method === method && route.path === path);
+}
+
+async function executeDeclaredAuditedMutation<T, Actions extends readonly AuditAction[]>(
+  deps: ServerDeps,
+  descriptor: AuditedMutationRouteDescriptor<Actions>,
+  action: Actions[number] | readonly Actions[number][],
+  input:
+    | Omit<CanonicalAuditEventInput, 'action'>
+    | readonly Omit<CanonicalAuditEventInput, 'action'>[]
+    | ((tx: FirestoreTransaction) => Promise<Omit<CanonicalAuditEventInput, 'action'> | readonly Omit<CanonicalAuditEventInput, 'action'>[]>),
+  mutation: (tx: FirestoreTransaction) => Promise<T>,
+): ReturnType<typeof executeAuditedFirestoreMutation<T>> {
+  const actions = Array.isArray(action) ? action : [action];
+  if (actions.some(candidate => !(descriptor.actions as readonly AuditAction[]).includes(candidate))) {
+    throw new Error(`Undeclared audit action for ${descriptor.method} ${descriptor.path}.`);
+  }
+  const withAction = typeof input === 'function'
+    ? async (tx: FirestoreTransaction) => {
+        const resolvedInput = await input(tx);
+        const inputs = Array.isArray(resolvedInput) ? resolvedInput : [resolvedInput];
+        if (inputs.length !== actions.length) throw new Error(`Audit input count does not match actions for ${descriptor.method} ${descriptor.path}.`);
+        return inputs.map((auditInput, index) => ({ action: actions[index], ...auditInput }));
+      }
+    : (() => {
+        const inputs = Array.isArray(input) ? input : [input];
+        if (inputs.length !== actions.length) throw new Error(`Audit input count does not match actions for ${descriptor.method} ${descriptor.path}.`);
+        return inputs.map((auditInput, index) => ({ action: actions[index], ...auditInput }));
+      })();
+  return executeAuditedFirestoreMutation(deps.firestore, withAction, mutation);
 }
 
 // Per-folder exact file-count reservation, in-process. This is what actually enforces
@@ -577,7 +658,20 @@ async function handleMembershipApply(req: IncomingMessage, res: ServerResponse, 
   const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
   const lookupLists = await getAllLookupLists(deps.firestore);
   requireKnownLookupId(lookupLists.sections, sectionId, 'Wybrana sekcja nie istnieje.');
-  const member = await applyForMembership(deps.firestore, identity.email, { fullName, nickname: nicknameInput, sectionId });
+  const { result: member } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.membershipApply,
+    'membership.application.submitted',
+    async tx => {
+      const existing = await tx.getDoc<MemberDoc>('members', identity.email.toLowerCase());
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${identity.email.toLowerCase()}`, display: 'member' },
+        changes: [{ field: 'status', ...(existing ? { before: existing.status } : {}), after: 'pending' }],
+      };
+    },
+    tx => applyForMembershipInTransaction(tx, identity.email, { fullName, nickname: nicknameInput, sectionId }),
+  );
   sendJson(res, 200, { member });
 }
 
@@ -747,7 +841,29 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
   if (!body.transition || !(ADMIN_TRANSITIONS as readonly string[]).includes(body.transition)) {
     throw new AuthError('Nieprawidłowe przejście statusu.', 400);
   }
-  const member = await applyAdminTransition(deps.firestore, body.email, body.transition as AdminTransition, identity.email);
+  const transition = body.transition as AdminTransition;
+  const actionByTransition = {
+    approve: 'membership.status.approved',
+    reject: 'membership.status.rejected',
+    suspend: 'membership.status.suspended',
+    reactivate: 'membership.status.reactivated',
+    remove: 'membership.status.removed',
+  } as const;
+  const { result: member } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.memberTransition,
+    actionByTransition[transition],
+    async tx => {
+      const existing = await tx.getDoc<MemberDoc>('members', body.email!.toLowerCase());
+      const statusByTransition = { approve: 'active', reject: 'rejected', suspend: 'suspended', reactivate: 'active', remove: 'removed' } as const;
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${body.email!.toLowerCase()}`, display: 'member' },
+        changes: [{ field: 'status', before: existing?.status ?? null, after: statusByTransition[transition] }],
+      };
+    },
+    tx => applyAdminTransitionInTransaction(tx, body.email!, transition, identity.email),
+  );
   const allMembers = await listAllMembers(deps.firestore);
   const sheetSyncStatus = await deps.sheetsClient.syncAllMembers(allMembers);
   sendJson(res, 200, { member, sheetSyncStatus });
@@ -760,12 +876,25 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
 // MemberWritableFields, driveFolderId is deliberately not member-settable - this is the one
 // admin-only write path for it (see setMemberDriveFolderId's comment).
 async function handleAdminSetMemberDriveFolder(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminOrModeratorWithStepUp(req, res);
+  const identity = await deps.authenticateAdminOrModeratorWithStepUp(req, res);
   const { email, folderId } = await readJsonBody<{ email?: string; folderId?: string | null }>(req, deps.maxJsonBodyBytes);
   if (!email) throw new AuthError('Brak email.', 400);
   const member = await getMember(deps.firestore, email);
   if (!member) throw new AuthError('Nie znaleziono takiego członka.', 404);
-  await setMemberDriveFolderId(deps.firestore, email, folderId ?? null);
+  await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.memberDriveFolder,
+    'profile.drive_folder.changed',
+    async tx => {
+      const current = await tx.getDoc<MemberDoc>('members', email.toLowerCase());
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${email.toLowerCase()}`, display: 'member' },
+        changes: [{ field: 'folderId', before: current?.driveFolderId ?? null, after: folderId ?? null }],
+      };
+    },
+    tx => setMemberDriveFolderId(tx, email, folderId ?? null),
+  );
   sendJson(res, 200, { ok: true });
 }
 
@@ -817,14 +946,25 @@ async function handleAdminSetRoles(req: IncomingMessage, res: ServerResponse, de
   }
   const newRoles = roles as string[];
   const previousRoles = await getGrantedRoles(deps.firestore, email);
-  await setGrantedRoles(deps.firestore, email, newRoles);
-  await appendRoleAuditEntry(deps.firestore, {
-    targetEmail: email.toLowerCase(),
-    previousRoles,
-    newRoles,
-    changedBy: identity.email,
-    changeSummary: `Zmieniono role: ${rolesLabel(previousRoles)} → ${rolesLabel(newRoles)}`,
-  });
+  const action = previousRoles.length === 0 && newRoles.length > 0
+    ? 'role.granted'
+    : previousRoles.length > 0 && newRoles.length === 0
+      ? 'role.revoked'
+      : 'role.replaced';
+  await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.roles,
+    action,
+    async tx => {
+      const current = await tx.getDoc<{ roles: string[] }>('userRoles', email.toLowerCase());
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${email.toLowerCase()}`, display: 'target' },
+        changes: [{ field: 'roles', before: rolesLabel(current?.roles ?? []), after: rolesLabel(newRoles) }],
+      };
+    },
+    tx => setGrantedRoles(tx, email, newRoles),
+  );
   sendJson(res, 200, { ok: true });
 }
 
@@ -1238,7 +1378,24 @@ async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerRe
   const targetEmail = targetEmailParam ?? identity.email;
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const fields = await parseMemberWritableFields(deps, body);
-  const member = await saveMember(deps.firestore, targetEmail, fields, identity.email);
+  const { result: member } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.tripMember,
+    'profile.member.updated',
+    async tx => {
+      const existing = await tx.getDoc<MemberDoc>('members', targetEmail.toLowerCase());
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${targetEmail.toLowerCase()}`, display: 'member' },
+        changes: [
+          { field: 'name', ...(existing ? { before: existing.fullName } : {}), after: fields.fullName },
+          { field: 'nickname', ...(existing ? { before: existing.nickname } : {}), after: fields.nickname },
+          { field: 'sectionId', ...(existing ? { before: existing.sectionId } : {}), after: fields.sectionId },
+        ],
+      };
+    },
+    tx => saveMember(tx, targetEmail, fields, identity.email),
+  );
   sendJson(res, 200, { member });
 }
 
@@ -1267,29 +1424,62 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
   // them is actually present - same "send it or leave it untouched" shape as categoryId/hidden
   // below, so e.g. zarzadzanie-ludzmi.js's hidden checkbox can PUT { email, hidden } alone without
   // also having to resend (and re-pass validation for) the name/section fields already showing.
-  let member = existing;
-  if (body.fullName !== undefined || body.nickname !== undefined || body.sectionId !== undefined) {
-    const fields = await parseMemberWritableFields(deps, body);
-    member = await saveMember(deps.firestore, email, fields, identity.email);
-  }
+  const hasMemberFields = body.fullName !== undefined || body.nickname !== undefined || body.sectionId !== undefined;
+  const fields = hasMemberFields ? await parseMemberWritableFields(deps, body) : undefined;
+  let categoryId: string | null | undefined;
   if (body.categoryId !== undefined) {
     const categoryIdRaw = body.categoryId;
     if (categoryIdRaw !== null && typeof categoryIdRaw !== 'string') {
       throw new AuthError('Nieprawidłowy typ członka.', 400);
     }
-    const categoryId = categoryIdRaw === null || categoryIdRaw === '' ? null : categoryIdRaw;
+    categoryId = categoryIdRaw === null || categoryIdRaw === '' ? null : categoryIdRaw;
     if (categoryId !== null) {
       const lookupLists = await getAllLookupLists(deps.firestore);
       requireKnownLookupId(lookupLists.categories, categoryId, 'Wybrany typ członka nie istnieje.');
     }
-    await setMemberCategoryId(deps.firestore, email, categoryId);
-    member.categoryId = categoryId;
   }
+  let hidden: boolean | undefined;
   if (body.hidden !== undefined) {
     if (typeof body.hidden !== 'boolean') throw new AuthError('Nieprawidłowa wartość hidden.', 400);
-    await setMemberHidden(deps.firestore, email, body.hidden);
-    member.hidden = body.hidden;
+    hidden = body.hidden;
   }
+  if (!fields && categoryId === undefined && hidden === undefined) {
+    sendJson(res, 200, { member: existing });
+    return;
+  }
+  const { result: member } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.memberProfile,
+    'profile.member.updated',
+    async tx => {
+      const current = await tx.getDoc<MemberDoc>('members', email.toLowerCase());
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${email.toLowerCase()}`, display: 'member' },
+        changes: [
+          ...(fields ? [
+            { field: 'name', before: current?.fullName ?? null, after: fields.fullName },
+            { field: 'nickname', before: current?.nickname ?? null, after: fields.nickname },
+            { field: 'sectionId', before: current?.sectionId ?? null, after: fields.sectionId },
+          ] : []),
+          ...(categoryId !== undefined ? [{ field: 'category', before: current?.categoryId ?? null, after: categoryId }] : []),
+          ...(hidden !== undefined ? [{ field: 'hidden', before: current?.hidden ?? false, after: hidden }] : []),
+        ],
+      };
+    },
+    async tx => {
+      const saved = fields ? await saveMember(tx, email, fields, identity.email) : { ...existing };
+      if (categoryId !== undefined) {
+        await setMemberCategoryId(tx, email, categoryId);
+        saved.categoryId = categoryId;
+      }
+      if (hidden !== undefined) {
+        await setMemberHidden(tx, email, hidden);
+        saved.hidden = hidden;
+      }
+      return saved;
+    },
+  );
   sendJson(res, 200, { member });
 }
 
@@ -1346,7 +1536,24 @@ async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerR
   for (const weaponId of fields.weaponIds) {
     requireKnownLookupId(lookupLists.weapons, weaponId, 'Wybrana broń nie istnieje.');
   }
-  const profile = await saveProfile(deps.firestore, identity.email, fields);
+  const { result: profile } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.tripProfile,
+    'profile.member.updated',
+    async tx => {
+      const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', identity.email.toLowerCase());
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${identity.email.toLowerCase()}`, display: 'member' },
+        changes: [
+          { field: 'weaponCount', ...(existing ? { before: existing.weaponIds.length } : {}), after: fields.weaponIds.length },
+          { field: 'equipmentCount', ...(existing ? { before: existing.equipment.length } : {}), after: fields.equipment.length },
+          { field: 'companionCount', ...(existing ? { before: existing.companions.length } : {}), after: fields.companions.length },
+        ],
+      };
+    },
+    tx => saveProfile(tx, identity.email, fields),
+  );
   sendJson(res, 200, { profile });
 }
 
@@ -1391,7 +1598,18 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const name = requireTrimmedString(body.name, LW_MAX_NAME_LENGTH, 'Nazwa wyjazdu jest wymagana.');
   const startDate = requireDateString(body.startDate, 'Data rozpoczęcia jest wymagana (RRRR-MM-DD).');
-  const event = await createEvent(deps.firestore, { name, startDate }, identity.email);
+  const eventId = randomUUID();
+  const { result: event } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.eventCreate,
+    'event.created',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'event', key: `event:${eventId}`, display: name },
+      changes: [{ field: 'name', after: name }, { field: 'startDate', after: startDate }, { field: 'status', after: 'active' }],
+    },
+    tx => createEvent(tx, { name, startDate }, identity.email, eventId),
+  );
   sendJson(res, 200, { event });
 }
 
@@ -1411,21 +1629,49 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
     await requireRole(deps.firestore, identity.email, 'accountant');
     fields.skladkaFee = body.skladkaFee === null ? null : requireTrimmedString(body.skladkaFee, LW_MAX_NAME_LENGTH, 'Opis składki jest nieprawidłowy.');
   }
-  const event = await updateEvent(deps.firestore, eventId, fields);
-  if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
-  if (fields.skladkaFee !== undefined) {
-    await appendDuesAuditEntry(deps.firestore, {
-      context: 'eventFee',
-      targetMemberEmail: null,
-      eventId,
-      eventName: event.name,
-      year: null,
-      changedBy: identity.email,
-      changeSummary: fields.skladkaFee
-        ? `Ustawiono składkę wyjazdu „${event.name}” na: ${fields.skladkaFee}`
-        : `Usunięto składkę wyjazdu „${event.name}”`,
-    });
+  const eventFieldCount = Number(fields.name !== undefined) + Number(fields.startDate !== undefined) + Number(fields.status !== undefined);
+  if (eventFieldCount === 0 && fields.skladkaFee === undefined) {
+    throw new AuthError('Podaj co najmniej jedno pole wyjazdu do zmiany.', 400);
   }
+  const metadataAction = fields.status === 'cancelled' ? 'event.cancelled' : 'event.updated';
+  const actions = fields.skladkaFee !== undefined
+    ? eventFieldCount > 0
+      ? [metadataAction, 'dues.event_fee.changed'] as const
+      : ['dues.event_fee.changed'] as const
+    : [metadataAction] as const;
+  const { result: event } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.eventUpdate,
+    actions,
+    async tx => {
+      const existing = await tx.getDoc<EventDoc>('events', eventId);
+      if (!existing) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+      const metadataInput = {
+        actor: { email: identity.email },
+        resource: { kind: 'event' as const, key: `event:${eventId}`, display: fields.name ?? existing.name },
+        changes: [
+          ...(fields.name !== undefined ? [{ field: 'name', before: existing.name, after: fields.name }] : []),
+          ...(fields.startDate !== undefined ? [{ field: 'startDate', before: existing.startDate, after: fields.startDate }] : []),
+          ...(fields.status !== undefined ? [{ field: 'status', before: existing.status, after: fields.status }] : []),
+        ],
+      };
+      if (fields.skladkaFee === undefined) return metadataInput;
+      const feeDigest = (fee: string | null): string | null => fee === null ? null : createHash('sha256').update(fee).digest('hex');
+      const feeInput = {
+        actor: { email: identity.email },
+        resource: { kind: 'eventFee' as const, key: `eventFee:${eventId}`, display: fields.name ?? existing.name },
+        changes: [
+          { field: 'feeDigest', before: feeDigest(existing.skladkaFee), after: feeDigest(fields.skladkaFee) },
+          { field: 'feeLength', before: existing.skladkaFee?.length ?? null, after: fields.skladkaFee?.length ?? 0 },
+        ],
+      };
+      return eventFieldCount > 0 ? [metadataInput, feeInput] : [feeInput];
+    },
+    tx => updateEvent(tx, eventId, fields).then(event => {
+      if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+      return event;
+    }),
+  );
   sendJson(res, 200, { event });
 }
 
@@ -1491,15 +1737,27 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
   }
 
   const fields: SignupWritableFields = { attending: body.attending, equipmentIds, companionIds };
-  const signup = await saveSignup(deps.firestore, eventId, memberEmail, fields, identity.email);
-  await appendAuditLogEntry(deps.firestore, {
-    eventId,
-    targetMemberEmail: memberEmail.toLowerCase(),
-    changedBy: identity.email,
-    changeSummary: fields.attending
-      ? `Zgłoszono udział (sprzęt: ${equipmentIds.length}, osoby towarzyszące: ${companionIds.length})`
-      : 'Wycofano zgłoszenie udziału',
-  });
+  const normalizedMemberEmail = memberEmail.toLowerCase();
+  const existingSignup = await getSignup(deps.firestore, eventId, normalizedMemberEmail);
+  const action = existingSignup ? 'signup.updated' : 'signup.created';
+  const { result: signup } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.signup,
+    action,
+    async tx => {
+      const existing = await tx.getDoc<SignupDoc>('signups', `${eventId}_${normalizedMemberEmail}`);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'signup', key: `signup:${eventId}:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        changes: [
+          { field: 'attending', ...(existing ? { before: existing.attending } : {}), after: fields.attending },
+          { field: 'equipmentCount', ...(existing ? { before: existing.equipmentIds.length } : {}), after: equipmentIds.length },
+          { field: 'companionCount', ...(existing ? { before: existing.companionIds.length } : {}), after: companionIds.length },
+        ],
+      };
+    },
+    tx => saveSignup(tx, eventId, normalizedMemberEmail, fields, identity.email),
+  );
   sendJson(res, 200, { signup });
 }
 
@@ -1606,14 +1864,30 @@ async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: Ser
   if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
-  const signup = await setSkladkaPaid(deps.firestore, eventId, memberEmail, body.paid, identity.email);
-  if (!signup) throw new AuthError('Ten członek nie jest zapisany na ten wyjazd.', 404);
-  await appendAuditLogEntry(deps.firestore, {
-    eventId,
-    targetMemberEmail: memberEmail.toLowerCase(),
-    changedBy: identity.email,
-    changeSummary: body.paid ? 'Oznaczono składkę jako opłaconą' : 'Oznaczono składkę jako nieopłaconą',
-  });
+  const paid = body.paid;
+  const normalizedMemberEmail = memberEmail.toLowerCase();
+  const { result: signup } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.signupFee,
+    'dues.event_fee.changed',
+    async tx => {
+      const existing = await tx.getDoc<SignupDoc>('signups', `${eventId}_${normalizedMemberEmail}`);
+      if (!existing) throw new AuthError('Ten członek nie jest zapisany na ten wyjazd.', 404);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'signup', key: `signup:${eventId}:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        changes: [
+          { field: 'memberEmail', after: normalizedMemberEmail },
+          { field: 'paid', before: existing.skladkaPaid, after: paid },
+        ],
+      };
+    },
+    async tx => {
+      const updated = await setSkladkaPaid(tx, eventId, normalizedMemberEmail, paid, identity.email);
+      if (!updated) throw new AuthError('Ten członek nie jest zapisany na ten wyjazd.', 404);
+      return updated;
+    },
+  );
   sendJson(res, 200, { signup });
 }
 
@@ -1624,17 +1898,27 @@ async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerR
   if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
-  const profile = await setWpisowePaid(deps.firestore, memberEmail, body.paid, identity.email);
-  if (!profile) throw new AuthError('Ten członek nie ma jeszcze profilu Listy Wyjazdowej.', 404);
-  await appendDuesAuditEntry(deps.firestore, {
-    context: 'wpisowe',
-    targetMemberEmail: memberEmail.toLowerCase(),
-    eventId: null,
-    eventName: null,
-    year: null,
-    changedBy: identity.email,
-    changeSummary: body.paid ? 'Oznaczono wpisowe jako opłacone' : 'Oznaczono wpisowe jako nieopłacone',
-  });
+  const paid = body.paid;
+  const normalizedMemberEmail = memberEmail.toLowerCase();
+  const { result: profile } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.entryFee,
+    'dues.entry_fee.changed',
+    async tx => {
+      const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', normalizedMemberEmail);
+      if (!existing) throw new AuthError('Ten członek nie ma jeszcze profilu Listy Wyjazdowej.', 404);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'due', key: `due:${normalizedMemberEmail}:entry_fee`, display: normalizedMemberEmail },
+        changes: [{ field: 'paid', before: existing.wpisowePaid, after: paid }],
+      };
+    },
+    async tx => {
+      const updated = await setWpisowePaid(tx, normalizedMemberEmail, paid, identity.email);
+      if (!updated) throw new AuthError('Ten członek nie ma jeszcze profilu Listy Wyjazdowej.', 404);
+      return updated;
+    },
+  );
   sendJson(res, 200, { profile });
 }
 
@@ -1672,33 +1956,27 @@ async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResp
     fields.amount =
       body.amount === null ? null : requireTrimmedString(body.amount, LW_MAX_NAME_LENGTH, 'Kwota składki jest nieprawidłowa.');
   }
-  const dues = await saveDues(deps.firestore, memberEmail, year, fields, identity.email);
-  if (fields.paid !== undefined) {
-    await appendDuesAuditEntry(deps.firestore, {
-      context: 'roczna',
-      targetMemberEmail: memberEmail.toLowerCase(),
-      eventId: null,
-      eventName: null,
-      year,
-      changedBy: identity.email,
-      changeSummary: fields.paid
-        ? `Oznaczono składkę roczną ${year} jako opłaconą`
-        : `Oznaczono składkę roczną ${year} jako nieopłaconą`,
-    });
+  if (fields.paid === undefined && fields.amount === undefined) {
+    throw new AuthError('Podaj paid lub amount do zmiany.', 400);
   }
-  if (fields.amount !== undefined) {
-    await appendDuesAuditEntry(deps.firestore, {
-      context: 'roczna',
-      targetMemberEmail: memberEmail.toLowerCase(),
-      eventId: null,
-      eventName: null,
-      year,
-      changedBy: identity.email,
-      changeSummary: fields.amount
-        ? `Ustawiono kwotę składki rocznej ${year} dla ${memberEmail.toLowerCase()} na: ${fields.amount}`
-        : `Usunięto kwotę składki rocznej ${year} dla ${memberEmail.toLowerCase()}`,
-    });
-  }
+  const normalizedMemberEmail = memberEmail.toLowerCase();
+  const { result: dues } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.annualDues,
+    'dues.annual.changed',
+    async tx => {
+      const existing = await tx.getDoc<DuesDoc>('duesAnnual', `${normalizedMemberEmail}_${year}`);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'due', key: `due:${normalizedMemberEmail}:${year}`, display: normalizedMemberEmail },
+        changes: [
+          ...(fields.paid !== undefined ? [{ field: 'paid', ...(existing ? { before: existing.paid } : {}), after: fields.paid }] : []),
+          ...(fields.amount !== undefined ? [{ field: 'amount', ...(existing ? { before: existing.amount } : {}), after: fields.amount }] : []),
+        ],
+      };
+    },
+    tx => saveDues(tx, normalizedMemberEmail, year, fields, identity.email),
+  );
   sendJson(res, 200, { dues });
 }
 

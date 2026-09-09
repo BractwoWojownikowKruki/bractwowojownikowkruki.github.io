@@ -125,3 +125,34 @@ test('audited Firestore mutation commits its business state and exactly one immu
   assert.equal(await firestore.getDoc('events', 'other'), null);
   assert.equal(await firestore.getDoc('auditEvents', 'audit-failed'), null);
 });
+
+test('audited Firestore mutation commits all declared canonical events or none of them', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await assert.rejects(
+    () =>
+      executeAuditedFirestoreMutation(
+        firestore,
+        [
+          {
+            action: 'event.updated',
+            actor: { email: 'maja@example.test' },
+            resource: { kind: 'event', key: 'event:wolin', display: 'Wolin' },
+            changes: [{ field: 'name', before: 'Wolin', after: 'Wolin zimowy' }],
+          },
+          {
+            action: 'dues.event_fee.changed',
+            actor: { email: 'maja@example.test' },
+            resource: { kind: 'eventFee', key: 'eventFee:wolin', display: 'Wolin zimowy' },
+            changes: [{ field: 'feeDigest', before: null, after: 'digest' }],
+          },
+        ],
+        async tx => {
+          await tx.setDoc('events', 'wolin', { name: 'Wolin zimowy', skladkaFee: '100 zł' });
+          throw new Error('business failure');
+        },
+      ),
+    /business failure/,
+  );
+  assert.equal(await firestore.getDoc('events', 'wolin'), null);
+  assert.deepEqual(await firestore.listDocs('auditEvents'), []);
+});

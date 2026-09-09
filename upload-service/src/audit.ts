@@ -50,7 +50,15 @@ const signupFields = {
   equipmentCount: 'memberVisible',
   companionCount: 'memberVisible',
 } as const;
-const duesFields = { memberEmail: 'roleRestricted', year: 'roleRestricted', eventId: 'roleRestricted', paid: 'roleRestricted', amount: 'roleRestricted', fee: 'roleRestricted' } as const;
+const duesFields = {
+  memberEmail: 'roleRestricted',
+  year: 'roleRestricted',
+  eventId: 'roleRestricted',
+  paid: 'roleRestricted',
+  amount: 'roleRestricted',
+  feeDigest: 'roleRestricted',
+  feeLength: 'roleRestricted',
+} as const;
 const profileFields = {
   memberEmail: 'roleRestricted',
   name: 'roleRestricted',
@@ -65,6 +73,10 @@ const profileFields = {
   inMemoriam: 'roleRestricted',
   descriptionHash: 'roleRestricted',
   descriptionLength: 'roleRestricted',
+  weaponCount: 'roleRestricted',
+  equipmentCount: 'roleRestricted',
+  companionCount: 'roleRestricted',
+  hidden: 'roleRestricted',
 } as const;
 const sessionFields = { status: 'roleRestricted' } as const;
 const applicationFields = { appId: 'roleRestricted' } as const;
@@ -109,7 +121,7 @@ export const ACTION_REGISTRY = {
   'signup.updated': action('signups', 'members', ['signup'], signupFields),
   'dues.annual.changed': action('dues', 'adminOrAccountant', ['due'], duesFields),
   'dues.entry_fee.changed': action('dues', 'adminOrAccountant', ['due'], duesFields),
-  'dues.event_fee.changed': action('dues', 'adminOrAccountant', ['eventFee'], duesFields),
+  'dues.event_fee.changed': action('dues', 'adminOrAccountant', ['eventFee', 'signup'], duesFields),
   'profile.member.updated': action('profile', 'adminOrModerator', ['member'], profileFields),
   'profile.drive_folder.changed': action('profile', 'adminOrModerator', ['member'], profileFields),
   'profile.person.created': action('profile', 'adminOrModerator', ['person'], profileFields),
@@ -184,6 +196,11 @@ export interface AuditEventDependencies {
   now: () => Date;
 }
 
+/** Builds audit inputs from the same transactional read snapshot as their business mutation. */
+export type CanonicalAuditEventInputFactory = (
+  tx: FirestoreTransaction,
+) => Promise<CanonicalAuditEventInput | readonly CanonicalAuditEventInput[]>;
+
 const defaultDependencies: AuditEventDependencies = { createId: randomUUID, now: () => new Date() };
 
 /** Input rejection for attempts to create evidence outside the reviewed audit schema. */
@@ -249,15 +266,22 @@ export function createCanonicalAuditEvent(
 /** Commits a Firestore mutation and its immutable canonical audit event in the same transaction. */
 export async function executeAuditedFirestoreMutation<T>(
   firestore: FirestoreLikeClient,
-  input: CanonicalAuditEventInput,
+  input: CanonicalAuditEventInput | readonly CanonicalAuditEventInput[] | CanonicalAuditEventInputFactory,
   mutation: (tx: FirestoreTransaction) => Promise<T>,
   dependencies: AuditEventDependencies = defaultDependencies,
-): Promise<{ result: T; auditEvent: CanonicalAuditEvent }> {
-  const auditEvent = createCanonicalAuditEvent(input, dependencies);
+): Promise<{ result: T; auditEvent: CanonicalAuditEvent; auditEvents: readonly CanonicalAuditEvent[] }> {
+  let auditEvents: readonly CanonicalAuditEvent[] | undefined;
   const result = await firestore.runTransaction(async tx => {
+    const resolvedInput = typeof input === 'function' ? await input(tx) : input;
+    const inputs = Array.isArray(resolvedInput) ? resolvedInput : [resolvedInput];
+    if (inputs.length === 0) throw new AuditInputError('Audited mutation requires at least one audit event.');
+    auditEvents = inputs.map(auditInput => createCanonicalAuditEvent(auditInput, dependencies));
     const mutationResult = await mutation(tx);
-    await tx.createDoc('auditEvents', auditEvent.id, auditEvent);
+    for (const auditEvent of auditEvents) {
+      await tx.createDoc('auditEvents', auditEvent.id, auditEvent);
+    }
     return mutationResult;
   });
-  return { result, auditEvent };
+  if (!auditEvents?.length) throw new AuditInputError('Audited mutation did not produce an audit event.');
+  return { result, auditEvent: auditEvents[0], auditEvents };
 }

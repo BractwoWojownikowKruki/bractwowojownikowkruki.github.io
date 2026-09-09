@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { FirestoreLikeClient } from './firestore.ts';
 
+type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
+
 export interface DuesDoc {
   email: string;
   year: number;
@@ -55,7 +57,7 @@ export async function listDuesForYear(client: FirestoreLikeClient, year: number)
 }
 
 export async function saveDues(
-  client: FirestoreLikeClient,
+  client: FirestoreWriteContext,
   email: string,
   year: number,
   fields: DuesWritableFields,
