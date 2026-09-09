@@ -10,6 +10,7 @@ import {
   listAllGrantedRoles,
   appendRoleAuditEntry,
   listRoleAuditLog,
+  createRoleAuthorizer,
 } from './roles.ts';
 
 test('getGrantedRoles returns [] when no userRoles doc exists', async () => {
@@ -40,6 +41,29 @@ test('satisfiesRole: accountant requirement needs accountant or admin', () => {
 test('satisfiesRole: admin requirement needs admin specifically', () => {
   assert.equal(satisfiesRole(['accountant'], 'admin'), false);
   assert.equal(satisfiesRole(['admin'], 'admin'), true);
+});
+
+test('satisfiesRole: moderator requirement needs moderator or admin', () => {
+  assert.equal(satisfiesRole([], 'moderator'), false);
+  assert.equal(satisfiesRole(['moderator'], 'moderator'), true);
+  assert.equal(satisfiesRole(['admin'], 'moderator'), true);
+  assert.equal(satisfiesRole(['accountant'], 'moderator'), false);
+});
+
+test('createRoleAuthorizer resolves silently when the identity has the required role', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('userRoles', 'mod@example.test', { roles: ['moderator'] });
+  const authorizer = createRoleAuthorizer(client, 'moderator');
+  await authorizer.authorize({ sub: 's1', email: 'mod@example.test' });
+});
+
+test('createRoleAuthorizer throws 403 AuthError when the identity lacks the required role', async () => {
+  const client = createInMemoryFirestoreClient();
+  const authorizer = createRoleAuthorizer(client, 'moderator');
+  await assert.rejects(
+    () => authorizer.authorize({ sub: 's1', email: 'plain@example.test' }),
+    (err: unknown) => err instanceof AuthError && err.status === 403,
+  );
 });
 
 test('requireRole resolves silently when satisfied', async () => {

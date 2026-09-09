@@ -1,8 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { FirestoreLikeClient } from './firestore.ts';
 import { AuthError } from './auth.ts';
+import type { Authorizer } from './server.ts';
 
-export type AccessRole = 'member' | 'accountant' | 'admin';
+// 'moderator' (KRKG-0049) replaces the old Google-Group-backed moderator mechanism (KRKG-0027,
+// which gated gallery deletion and was never actually configured in production - see the removed
+// moderatorGroupUrl/authenticateModerator in server.ts/config.ts). It's scoped to people
+// management - admin-like powers over the Zarządzanie ludźmi page (member status/profile/Drive-
+// folder, not galleries), deliberately excluding role assignment itself (see ASSIGNABLE_ROLES in
+// server.ts - only an admin can grant/revoke any role, including 'moderator').
+export type AccessRole = 'member' | 'accountant' | 'moderator' | 'admin';
 
 interface UserRolesDoc {
   roles: string[];
@@ -55,6 +62,7 @@ export async function listAllGrantedRoles(client: FirestoreLikeClient): Promise<
 export function satisfiesRole(grantedRoles: string[], required: AccessRole): boolean {
   if (required === 'member') return true;
   if (required === 'accountant') return grantedRoles.includes('accountant') || grantedRoles.includes('admin');
+  if (required === 'moderator') return grantedRoles.includes('moderator') || grantedRoles.includes('admin');
   return grantedRoles.includes('admin');
 }
 
@@ -67,4 +75,16 @@ export async function requireRole(
   if (!satisfiesRole(granted, required)) {
     throw new AuthError('Brak uprawnień do tej operacji.', 403);
   }
+}
+
+// An Authorizer (server.ts) backed by a Firestore userRoles doc, for composing into
+// authenticateAdminOrModerator alongside the admin-allowlist Authorizer via server.ts's anyOf() -
+// same role check as requireRole above, wrapped to fit the Authorizer shape verifySessionRequest
+// expects.
+export function createRoleAuthorizer(client: FirestoreLikeClient, required: AccessRole): Authorizer {
+  return {
+    async authorize(identity) {
+      await requireRole(client, identity.email, required);
+    },
+  };
 }

@@ -2,16 +2,23 @@
 // Zawieś/Usuń/Przywróć, and the new Rola column), plus the Sheets backup sync. Split out of the
 // original single-page admin.js. showReauth/hideReauth/escapeHtml/escapeAttr/
 // sheetSyncStatusMessage/formatDateTime come from ../admin-shared.js, loaded before this file.
+// whoamiPath is this page's own /admin/members/whoami (not /admin/whoami like the other 3 admin
+// pages) - it also accepts a Firestore 'moderator'/'admin' role, not just the admin allowlist, and
+// reports isAdmin so a plain moderator never triggers the role-assignment-only fetches below
+// (GET /admin/roles(+/audit-log) are still admin-only and would 403 for them).
+let isAdminCaller = false;
 initGoogleSignIn({
   buttonIds: ['google-signin-button', 'google-reauth-button'],
-  whoamiPath: '/admin/whoami',
+  whoamiPath: '/admin/members/whoami',
   onSignedIn: payload => {
     document.getElementById('admin-checking').hidden = true;
     document.getElementById('admin-signin').hidden = true;
     document.getElementById('admin-email').textContent = payload.email;
     document.getElementById('admin-panel').hidden = false;
+    isAdminCaller = payload.isAdmin === true;
+    document.getElementById('roles-audit-log-panel').hidden = !isAdminCaller;
     loadMembershipMembers();
-    renderRolesAuditLog();
+    if (isAdminCaller) renderRolesAuditLog();
   },
   onSignedOut: () => {
     document.getElementById('admin-checking').hidden = true;
@@ -90,8 +97,11 @@ function loadDriveFolderOptions() {
 // KRKG-0049: every granted role at once (GET /admin/roles), so the Rola column doesn't need one
 // fetch per row. Re-fetched on every loadMembershipMembers() call (unlike driveFolderOptions
 // above) since role changes happen on this same page and must show up on the next status-filter
-// switch or reload - a Map from email to that member's roles array.
+// switch or reload - a Map from email to that member's roles array. Admin-only endpoint (role
+// assignment is more sensitive than plain people-management) - skipped entirely for a moderator,
+// who would just get a 403 that would otherwise fail the whole Promise.all in loadMembershipMembers.
 async function loadRolesByEmail() {
+  if (!isAdminCaller) return new Map();
   const { roles } = await apiFetch('/admin/roles', { method: 'GET' }, showReauth, hideReauth);
   return new Map(roles.map(r => [r.email, r.roles]));
 }
@@ -125,8 +135,12 @@ function sectionOptions(sections, currentSectionId) {
 
 // A member can hold more than one of these at once (e.g. accountant + admin), so the Rola column
 // is a checkbox per role rather than a single-choice dropdown - see roleCheckboxesHtml below.
+// Only rendered for an admin caller (see roleCheckboxesHtml/isAdminCaller) - a moderator can see
+// and edit member profiles/status/Drive-folder on this page, but not grant roles, including
+// 'moderator' itself.
 const ASSIGNABLE_ROLES = [
   { value: 'accountant', label: 'Księgowy' },
+  { value: 'moderator', label: 'Moderator' },
   { value: 'admin', label: 'Admin' },
 ];
 const ROLE_LABELS = Object.fromEntries(ASSIGNABLE_ROLES.map(r => [r.value, r.label]));
@@ -178,6 +192,7 @@ document.getElementById('membership-members-filter').addEventListener('input', (
 });
 
 function roleCheckboxesHtml(email, roles) {
+  if (!isAdminCaller) return '';
   const current = new Set(roles ?? []);
   return `
     <div class="member-roles" data-email="${escapeAttr(email)}" style="display:flex; flex-direction:column; gap:0.15rem; font-size:12px;">

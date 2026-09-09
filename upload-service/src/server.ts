@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { AuthError, checkAllowlist, fetchGoogleJwks, verifyGoogleIdToken, type VerifiedIdentity } from './auth.ts';
-import { createAppsScriptAllowlist, createEmptyAllowlist, createSheetAllowlist } from './allowlist.ts';
+import { createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
 import { checkReauthFreshness, issueSessionToken, maybeRenewSessionToken, verifySessionToken, type SessionClaims, type SessionSigningKey } from './session.ts';
 import type { SheetAllowlist } from './allowlist.ts';
@@ -45,7 +45,7 @@ import {
   listAuditLogForEvent,
   type SignupWritableFields,
 } from './signups.ts';
-import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, appendRoleAuditEntry, listRoleAuditLog } from './roles.ts';
+import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, appendRoleAuditEntry, listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
 import { listDuesForYear, saveDues, type DuesWritableFields, appendDuesAuditEntry, listDuesAuditLog } from './dues.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
@@ -87,16 +87,15 @@ export interface ServerDeps {
   // "Wrzucam swoje zdjęcie" flow in the Wojownicy section. No step-up variant: every route
   // gated by this creates/uploads-to-its-own-just-created folder, never someone else's.
   authenticateWojownicyUpload: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
-  // Gates destructive gallery actions (/delete-drive-gallery, /unregister) - a narrower,
-  // purpose-specific allowlist than the general kruki `authenticate`, so any allowlisted member
-  // can no longer delete or unregister a gallery they don't moderate (KRKG-0027). See
-  // config.ts's moderatorGroupUrl for why this fails closed (denies everyone) until that group
-  // actually exists.
-  authenticateModerator: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
-  // authenticateModerator plus step-up - both of its two mutating routes (/delete-drive-gallery,
-  // /unregister) are destructive, so both use this rather than the plain variant; unlike admin
-  // there's no read-only moderator route besides /moderator/whoami.
-  authenticateModeratorWithStepUp: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
+  // KRKG-0049: admin-allowlist OR Firestore 'moderator'/'admin' role (see roles.ts's
+  // createRoleAuthorizer and this file's anyOf()) - gates the "Zarządzanie ludźmi" page's people-
+  // management actions (member list/transition/drive-folder/profile/sync, lookup-lists) to a
+  // moderator without giving them the rest of the admin panel. Replaces the old Google-Group-
+  // backed authenticateModerator (KRKG-0027, gated gallery deletion, never actually configured in
+  // production) - galleries are plain-admin-gated now, see handleDeleteDriveGallery/handleUnregister.
+  authenticateAdminOrModerator: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
+  // authenticateAdminOrModerator plus step-up, for the mutating routes in that same set.
+  authenticateAdminOrModeratorWithStepUp: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
   // Verifies a raw Google ID token (from POST /session/login's body, not an Authorization
   // header - that's the whole exchange this endpoint performs) against the same general kruki
   // allowlist as `authenticate`. Kept as its own dep function, matching the authenticate*
@@ -351,13 +350,34 @@ export interface Authorizer {
 }
 
 // Adapts an existing list-shaped SheetAllowlist (the Sheet CSV / Apps Script Group sources) into
-// an Authorizer - unchanged behavior for authenticateAdmin/authenticateModerator, which only have
-// a "fetch the whole list" source to work with (a Sheet export, an Apps Script group).
+// an Authorizer - unchanged behavior for authenticateAdmin, which only has a "fetch the whole
+// list" source to work with (a Sheet export).
 export function fromAllowlist(allowlist: SheetAllowlist): Authorizer {
   return {
     async authorize(identity, options) {
       const allowedEmails = await allowlist.getEmails(options);
       checkAllowlist(identity, allowedEmails);
+    },
+  };
+}
+
+// KRKG-0049: succeeds if ANY of the given Authorizers succeeds (e.g. admin-allowlist OR Firestore
+// 'moderator' role for authenticateAdminOrModerator), trying each in order and rejecting only
+// once every one has - the error surfaced is the last one's, an arbitrary but harmless choice
+// since none of today's callers inspect the message beyond its 4xx status.
+export function anyOf(...authorizers: Authorizer[]): Authorizer {
+  return {
+    async authorize(identity, options) {
+      let lastError: unknown;
+      for (const authorizer of authorizers) {
+        try {
+          await authorizer.authorize(identity, options);
+          return;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      throw lastError;
     },
   };
 }
@@ -664,12 +684,22 @@ async function handleAdminWhoami(req: IncomingMessage, res: ServerResponse, deps
   sendJson(res, 200, identityResponseBody(identity));
 }
 
-// Lets a caller (or an operator, via curl) confirm they pass the moderator gate (KRKG-0027)
-// without needing to actually delete or unregister a gallery just to find out - the two
-// destructive endpoints were previously the only way to test this.
-async function handleModeratorWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateModerator(req, res);
-  sendJson(res, 200, identityResponseBody(identity));
+// KRKG-0049: the Zarządzanie ludźmi page's own whoami, separate from /admin/whoami - a moderator
+// (Firestore role, not necessarily on the admin allowlist) must see this one admin-panel page
+// without the other three revealing themselves too. Drives both this page's own sign-in gate and
+// nav.js's narrower visibility toggle for that one nav entry. Also reports isAdmin so the page can
+// hide the Rola column/audit log for a plain moderator - role assignment stays admin-only
+// (see ASSIGNABLE_ROLES/handleAdminSetRoles), and GET /admin/roles(+/audit-log) would just 403 for
+// them, which would otherwise break Promise.all-loading the whole member list.
+async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdminOrModerator(req, res);
+  let isAdmin = true;
+  try {
+    await deps.authenticateAdmin(req, res);
+  } catch {
+    isAdmin = false;
+  }
+  sendJson(res, 200, { ...identityResponseBody(identity), isAdmin });
 }
 
 // Not scoped to About Us specifically - clears the Instagram/Facebook posts cache so the
@@ -696,7 +726,7 @@ async function handleAdminUpdateSettings(req: IncomingMessage, res: ServerRespon
 const MEMBERSHIP_STATUSES = ['pending', 'active', 'suspended', 'removed', 'rejected'] as const;
 
 async function handleAdminListMembers(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req, res);
+  await deps.authenticateAdminOrModerator(req, res);
   const status = url.searchParams.get('status');
   if (!status || !(MEMBERSHIP_STATUSES as readonly string[]).includes(status)) {
     throw new AuthError('Nieprawidłowy status.', 400);
@@ -711,7 +741,7 @@ const ADMIN_TRANSITIONS = ['approve', 'reject', 'suspend', 'reactivate', 'remove
 // never just the one changed member - a partial sync would blank out everyone else's row (see
 // design.md's Sheets failure/consistency contract and the plan review that caught this).
 async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminOrModeratorWithStepUp(req, res);
   const body = await readJsonBody<{ email?: string; transition?: string }>(req, deps.maxJsonBodyBytes);
   if (!body.email) throw new AuthError('Brak email.', 400);
   if (!body.transition || !(ADMIN_TRANSITIONS as readonly string[]).includes(body.transition)) {
@@ -730,7 +760,7 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
 // MemberWritableFields, driveFolderId is deliberately not member-settable - this is the one
 // admin-only write path for it (see setMemberDriveFolderId's comment).
 async function handleAdminSetMemberDriveFolder(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  await deps.authenticateAdminOrModeratorWithStepUp(req, res);
   const { email, folderId } = await readJsonBody<{ email?: string; folderId?: string | null }>(req, deps.maxJsonBodyBytes);
   if (!email) throw new AuthError('Brak email.', 400);
   const member = await getMember(deps.firestore, email);
@@ -740,19 +770,19 @@ async function handleAdminSetMemberDriveFolder(req: IncomingMessage, res: Server
 }
 
 async function handleAdminMembersSynchronize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminWithStepUp(req, res);
+  await deps.authenticateAdminOrModeratorWithStepUp(req, res);
   const allMembers = await listAllMembers(deps.firestore);
   const sheetSyncStatus = await deps.sheetsClient.syncAllMembers(allMembers);
   sendJson(res, 200, { sheetSyncStatus });
 }
 
-// KRKG-0049: lets the admin panel (Spis Ludności page's Sekcja dropdown) read lookupLists
+// KRKG-0049: lets the admin panel (Zarządzanie ludźmi page's Sekcja dropdown) read lookupLists
 // without requiring kruki-group membership - GET /lista-wyjazdowa/lookup-lists needs
-// authenticateWojownicyUpload, which an admin-allowlist account is not guaranteed to satisfy
-// (the two gates are deliberately independent, same reasoning as handleAdminUpdateMemberProfile
+// authenticateWojownicyUpload, which an admin-allowlist/moderator account is not guaranteed to
+// satisfy (the gates are deliberately independent, same reasoning as handleAdminUpdateMemberProfile
 // existing instead of reusing the accountant-role-gated PUT /lista-wyjazdowa/member).
 async function handleAdminGetLookupLists(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req, res);
+  await deps.authenticateAdminOrModerator(req, res);
   const lists = await getAllLookupLists(deps.firestore);
   sendJson(res, 200, lists);
 }
@@ -767,14 +797,15 @@ async function handleAdminListRoles(req: IncomingMessage, res: ServerResponse, d
   sendJson(res, 200, { roles });
 }
 
-const ASSIGNABLE_ROLES = ['accountant', 'admin'] as const;
+const ASSIGNABLE_ROLES = ['accountant', 'moderator', 'admin'] as const;
 
-// Collapses a roles array to the single tier the Zarządzanie ludźmi UI offers, for the audit
-// entry's human-readable summary - mirrors zarzadzanie-ludzmi.js's roleTier()/ROLE_TIER_LABELS.
-function roleTierLabel(roles: string[]): string {
-  if (roles.includes('admin')) return 'Admin';
-  if (roles.includes('accountant')) return 'Księgowy';
-  return 'Brak';
+// A member can hold more than one of these at once (KRKG-0049) - mirrors
+// zarzadzanie-ludzmi.js's ROLE_LABELS, for the audit entry's human-readable summary.
+const ROLE_LABELS: Record<string, string> = { accountant: 'Księgowy', moderator: 'Moderator', admin: 'Admin' };
+
+function rolesLabel(roles: string[]): string {
+  if (!roles.length) return 'Brak';
+  return roles.map((r) => ROLE_LABELS[r] ?? r).join(', ');
 }
 
 async function handleAdminSetRoles(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -792,7 +823,7 @@ async function handleAdminSetRoles(req: IncomingMessage, res: ServerResponse, de
     previousRoles,
     newRoles,
     changedBy: identity.email,
-    changeSummary: `Zmieniono rolę: ${roleTierLabel(previousRoles)} → ${roleTierLabel(newRoles)}`,
+    changeSummary: `Zmieniono role: ${rolesLabel(previousRoles)} → ${rolesLabel(newRoles)}`,
   });
   sendJson(res, 200, { ok: true });
 }
@@ -1211,15 +1242,14 @@ async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, { member });
 }
 
-// Admin-panel counterpart (KRKG-0049's Spis Ludności page) to the accountant/admin-role-gated
-// endpoint above - gated by the admin allowlist (authenticateAdminWithStepUp) instead of
-// requireRole('accountant'), matching every other member-editing action on that page (transition,
-// drive-folder link, role assignment). Requires the member to already exist, unlike
-// handleListaWyjazdowaPutMember's self-service path, which may be creating a brand-new doc -
-// an admin editing from a list of already-known members should never accidentally create one
-// from a mistyped email.
+// Admin-panel counterpart (KRKG-0049's Zarządzanie ludźmi page) to the accountant/admin-role-gated
+// endpoint above - gated by the admin-or-moderator authorizer instead of requireRole('accountant'),
+// matching every other member-editing action on that page (transition, drive-folder link).
+// Requires the member to already exist, unlike handleListaWyjazdowaPutMember's self-service path,
+// which may be creating a brand-new doc - an admin/moderator editing from a list of already-known
+// members should never accidentally create one from a mistyped email.
 async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  const identity = await deps.authenticateAdminOrModeratorWithStepUp(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const email = body.email;
   if (typeof email !== 'string' || !email.trim()) throw new AuthError('Brak email.', 400);
@@ -1658,8 +1688,11 @@ function logDestructiveAction(action: string, actorEmail: string, target: string
 
 // Only for galleries this service itself created (drive.file scope can't touch anything else -
 // see KRKG-0025's design.md) - a folder registered by URL instead goes through /unregister.
+// Admin-gated (KRKG-0049) - previously moderator-gated (KRKG-0027), but that Google-Group
+// mechanism was never actually configured in production (always denied everyone), and galleries
+// don't need their own moderator concept per this repo's current direction.
 async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateModeratorWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId) throw new AuthError('Brak folderId.', 400);
   try {
@@ -1962,7 +1995,7 @@ async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: S
 // albums.json entry, see handleRegister above) by removing that entry, same auth gate as
 // everything else. An app-owned Drive folder is deleted via /delete-drive-gallery instead.
 async function handleUnregister(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateModeratorWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { url } = await readJsonBody<{ url?: string }>(req, deps.maxJsonBodyBytes);
   if (!url) throw new AuthError('Brak adresu URL galerii.', 400);
   try {
@@ -2093,8 +2126,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAboutUs(res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/whoami') {
         await handleAdminWhoami(req, res, deps);
-      } else if (req.method === 'GET' && url.pathname === '/moderator/whoami') {
-        await handleModeratorWhoami(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/members/whoami') {
+        await handleAdminMembersWhoami(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/social-media/refresh') {
         await handleAdminRefreshSocialCache(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/members') {
@@ -2256,16 +2289,13 @@ async function startProductionServer(): Promise<void> {
   const adminAuthorizer = fromAllowlist(adminAllowlist);
   // KRKG-0046: replaces the Apps-Script/Google-Group-backed allowlist that hit Google's daily
   // Groups-read quota in production. A single Firestore members/{email} read is now the sole
-  // authorization check for ordinary member site access - see design.md's scope inventory for
-  // which two mechanisms (admin, moderator) deliberately stay on their own, unrelated sources.
+  // authorization check for ordinary member site access - admin stays on its own Sheet allowlist
+  // (design.md's scope inventory); moderator moved onto Firestore roles too as of KRKG-0049.
   const memberAuthorizer = createFirestoreMemberAuthorizer(firestoreClient);
-  // See config.ts's moderatorGroupUrl - undefined until the moderator group actually exists,
-  // in which case every /delete-drive-gallery and /unregister call is denied (fail closed)
-  // rather than falling back to the broader kruki group.
-  const moderatorAllowlistSource = config.moderatorGroupUrl
-    ? createAppsScriptAllowlist({ url: config.moderatorGroupUrl })
-    : createEmptyAllowlist();
-  const moderatorAuthorizer = fromAllowlist(moderatorAllowlistSource);
+  // KRKG-0049: the "Zarządzanie ludźmi" page's gate - either the admin allowlist, or a Firestore
+  // 'moderator'/'admin' userRoles grant (see roles.ts's createRoleAuthorizer). anyOf tries each in
+  // order and only rejects if every one does.
+  const adminOrModeratorAuthorizer = anyOf(adminAuthorizer, createRoleAuthorizer(firestoreClient, 'moderator'));
   const sessionVerifyConfig: SessionVerifyConfig = {
     sessionSigningKeys: config.sessionSigningKeys,
     sessionSlidingWindowMs: config.sessionSlidingWindowMs,
@@ -2304,8 +2334,8 @@ async function startProductionServer(): Promise<void> {
     authenticateAdmin: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, adminAuthorizer),
     authenticateAdminWithStepUp: withStepUp(adminAuthorizer),
     authenticateWojownicyUpload: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, memberAuthorizer),
-    authenticateModerator: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, moderatorAuthorizer),
-    authenticateModeratorWithStepUp: withStepUp(moderatorAuthorizer),
+    authenticateAdminOrModerator: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, adminOrModeratorAuthorizer),
+    authenticateAdminOrModeratorWithStepUp: withStepUp(adminOrModeratorAuthorizer),
     // KRKG-0046: no longer checks any allowlist - it must succeed for any verified Google
     // identity, member or not, so a not-yet-approved applicant can reach /membership/apply.
     // Authorization for every actual privileged route is still enforced independently and
@@ -2334,16 +2364,15 @@ async function startProductionServer(): Promise<void> {
     console.log(`upload-service listening on :${config.port}`);
   });
 
-  // Pre-warms the auth caches (Google's JWKS, the admin/moderator allowlists) as soon as the
-  // container boots, in the background - not awaited before listen() above, so this never
-  // delays Cloud Run's readiness check. A cold instance already pays real startup latency;
-  // without this, whichever visitor's request happens to arrive first also pays for a JWKS
-  // fetch plus an allowlist fetch (a Sheet CSV, or the Apps Script moderator-group check)
-  // stacked on top of that, lazily, inline with their own request. Warming here means that cost
-  // is paid once at boot instead. KRKG-0046: the member authorizer has no cache to warm (a plain
-  // Firestore document read per request, no daily quota to protect), so it's deliberately not
-  // included here.
-  Promise.all([fetchGoogleJwks(), adminAllowlist.getEmails(), moderatorAllowlistSource.getEmails()]).catch(err => {
+  // Pre-warms the auth caches (Google's JWKS, the admin allowlist) as soon as the container
+  // boots, in the background - not awaited before listen() above, so this never delays Cloud
+  // Run's readiness check. A cold instance already pays real startup latency; without this,
+  // whichever visitor's request happens to arrive first also pays for a JWKS fetch plus an
+  // allowlist fetch (the Sheet CSV) stacked on top of that, lazily, inline with their own
+  // request. Warming here means that cost is paid once at boot instead. KRKG-0046/KRKG-0049: the
+  // member and moderator-role authorizers have no cache to warm (a plain Firestore document read
+  // per request, no daily quota to protect), so neither is included here.
+  Promise.all([fetchGoogleJwks(), adminAllowlist.getEmails()]).catch(err => {
     console.error('Nie udało się wstępnie rozgrzać pamięci podręcznej uwierzytelniania:', err);
   });
 }

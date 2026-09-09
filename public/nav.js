@@ -109,14 +109,20 @@ const MEMBERS_ZONE_MENU = [
 // this group's toggle itself must stay admin-gated (not just its sub-links) - a plain member must
 // never see a "Panel admina" heading revealing the panel exists, even collapsed/empty. See
 // makeGroup's gateToggle param below.
+// KRKG-0049: each item declares its own visibilityClass explicitly, since this group mixes two
+// audiences - "Zarządzanie ludźmi" is reachable by a Firestore-role moderator too (gated the same
+// way server-side, via /admin/members/whoami), the other three stay admin-allowlist-only. The
+// toggle itself uses the broader 'admin-or-moderator-zone-link' (passed to makeGroup below) so it
+// reveals for either audience - a single gate, not the OR of two independently-set classes, which
+// would race (see the comment on the third initGoogleSignIn call further down).
 const ADMIN_ZONE_MENU = {
   label: 'Panel admina',
   icon: 'tool',
   items: [
-    { href: '/admin/', label: 'Ogólne', icon: 'tool' },
-    { href: '/admin/zgloszenia/', label: 'Zgłoszenia', icon: 'scroll' },
-    { href: '/admin/zarzadzanie-ludzmi/', label: 'Zarządzanie ludźmi', icon: 'users' },
-    { href: '/admin/publiczne-wizytowki/', label: 'Publiczne wizytówki', icon: 'user' },
+    { href: '/admin/', label: 'Ogólne', icon: 'tool', visibilityClass: 'admin-zone-link' },
+    { href: '/admin/zgloszenia/', label: 'Zgłoszenia', icon: 'scroll', visibilityClass: 'admin-zone-link' },
+    { href: '/admin/zarzadzanie-ludzmi/', label: 'Zarządzanie ludźmi', icon: 'users', visibilityClass: 'admin-or-moderator-zone-link' },
+    { href: '/admin/publiczne-wizytowki/', label: 'Publiczne wizytówki', icon: 'user', visibilityClass: 'admin-zone-link' },
   ],
 };
 
@@ -127,8 +133,9 @@ const ADMIN_ZONE_MENU = {
  * sidebar box) and `data-members-zone-exclude` (used on the Galerie page's header variant, which
  * has no reason to link back to the page it's already on) drops one href from that mount only.
  * Links start `hidden` - the membership/admin gates below reveal them, exactly as when they were
- * static HTML - and Panel admina is appended last as a group carrying `.admin-zone-link` on both
- * its toggle and its sub-links, so its own separate gate keeps working unchanged.
+ * static HTML - and Panel admina is appended last as a group whose toggle and most sub-links
+ * carry `.admin-zone-link` (admin-allowlist only), except "Zarządzanie ludźmi" which carries
+ * `.admin-or-moderator-zone-link` instead (see ADMIN_ZONE_MENU's comment above).
  */
 function renderMembersZoneMenus() {
   document.querySelectorAll('.members-zone-links').forEach(mount => {
@@ -177,7 +184,7 @@ function renderMembersZoneMenus() {
       sublist.className = 'mz-group-items';
       sublist.hidden = true;
       item.items.forEach(sub => {
-        const link = makeLink(sub, nestedClass, visibilityClass);
+        const link = makeLink(sub, nestedClass, sub.visibilityClass ?? visibilityClass);
         if (link) sublist.append(link);
       });
 
@@ -201,7 +208,7 @@ function renderMembersZoneMenus() {
       if (link) mount.append(link);
     });
 
-    const { toggle: adminToggle, sublist: adminSublist } = makeGroup(ADMIN_ZONE_MENU, 'admin-zone-link', true);
+    const { toggle: adminToggle, sublist: adminSublist } = makeGroup(ADMIN_ZONE_MENU, 'admin-or-moderator-zone-link', true);
     mount.append(adminToggle, adminSublist);
   });
 
@@ -226,7 +233,7 @@ document.addEventListener('DOMContentLoaded', renderMembersZoneMenus);
  */
 function updateMembersZoneVisibility() {
   document.querySelectorAll('.members-zone-container').forEach(zone => {
-    const anyLinkVisible = Array.from(zone.querySelectorAll('.member-zone-link, .admin-zone-link')).some(link => !link.hidden);
+    const anyLinkVisible = Array.from(zone.querySelectorAll('.member-zone-link, .admin-zone-link, .admin-or-moderator-zone-link')).some(link => !link.hidden);
     zone.hidden = !anyLinkVisible;
   });
 }
@@ -324,6 +331,15 @@ document.addEventListener('DOMContentLoaded', () => {
     updateMembersZoneVisibility();
   }
 
+  // KRKG-0049: separate from renderAdminLink - a Firestore-role moderator passes
+  // /admin/members/whoami but not /admin/whoami, and vice versa isn't true (an admin passes
+  // both). Each gate only ever sets hidden on the elements carrying *its own* class, never
+  // touching '.admin-zone-link', so the two checks can't race against each other.
+  function renderAdminOrModeratorLink(canSeeIt) {
+    document.querySelectorAll('.admin-or-moderator-zone-link').forEach(link => { link.hidden = !canSeeIt; });
+    updateMembersZoneVisibility();
+  }
+
   function renderMemberLinks(isMember) {
     document.querySelectorAll('.member-zone-link').forEach(link => { link.hidden = !isMember; });
     updateMembersZoneVisibility();
@@ -356,5 +372,13 @@ document.addEventListener('DOMContentLoaded', () => {
     onSignedIn: () => renderAdminLink(true),
     onSignedOut: () => renderAdminLink(false),
     onForbidden: () => renderAdminLink(false),
+  });
+
+  initGoogleSignIn({
+    buttonIds: [],
+    whoamiPath: '/admin/members/whoami',
+    onSignedIn: () => renderAdminOrModeratorLink(true),
+    onSignedOut: () => renderAdminOrModeratorLink(false),
+    onForbidden: () => renderAdminOrModeratorLink(false),
   });
 });

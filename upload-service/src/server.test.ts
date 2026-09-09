@@ -6,6 +6,7 @@ import { AuthError } from './auth.ts';
 import {
   createRequestListener,
   fromAllowlist,
+  anyOf,
   getFolderLockKeyCountForTests,
   readSessionCookie,
   verifySessionRequest,
@@ -22,7 +23,7 @@ import { resetSettingsBootstrapForTests } from './settings.ts';
 import { resetRateLimitForTests } from './rate-limit.ts';
 import { createInMemoryFirestoreClient } from './firestore.ts';
 import { createDisabledSheetsClient } from './sheets.ts';
-import { listRoleAuditLog } from './roles.ts';
+import { listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
 
 const nodeFetch = globalThis.fetch;
 const ALLOWED_ORIGIN_FOR_TESTS = 'https://example.test'; // matches makeDeps()'s allowedOrigin
@@ -159,8 +160,8 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     authenticateAdmin: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
     authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'wojownik-1', email: 'wojownik@gmail.com' }),
-    authenticateModerator: async () => fakeSessionClaims({ sub: 'moderator-1', email: 'moderator@gmail.com' }),
-    authenticateModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'moderator-1', email: 'moderator@gmail.com' }),
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
     authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
     authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
     sessionSigningKeys: [{ v: 'v1', secret: 'test-session-secret' }],
@@ -829,23 +830,76 @@ test('GET /whoami includes name/picture when the session claims carry them', asy
   });
 });
 
-test('GET /moderator/whoami returns the moderator email when authenticateModerator succeeds', async () => {
-  const deps = makeDeps({ authenticateModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@gmail.com' }) });
+test('anyOf succeeds if the first authorizer succeeds, without trying the second', async () => {
+  let secondCalled = false;
+  const first = { authorize: async () => {} };
+  const second = { authorize: async () => { secondCalled = true; } };
+  await anyOf(first, second).authorize({ sub: 's1', email: 'a@example.test' });
+  assert.equal(secondCalled, false);
+});
+
+test('anyOf succeeds if only the second authorizer succeeds', async () => {
+  const first = { authorize: async () => { throw new AuthError('no', 403); } };
+  const second = { authorize: async () => {} };
+  await anyOf(first, second).authorize({ sub: 's1', email: 'a@example.test' });
+});
+
+test('anyOf rejects if every authorizer rejects, surfacing the last error', async () => {
+  const first = { authorize: async () => { throw new AuthError('first', 403); } };
+  const second = { authorize: async () => { throw new AuthError('second', 403); } };
+  await assert.rejects(
+    () => anyOf(first, second).authorize({ sub: 's1', email: 'a@example.test' }),
+    (err: unknown) => err instanceof AuthError && err.message === 'second',
+  );
+});
+
+// End-to-end proof that a moderator (Firestore userRoles role only, not on the admin allowlist)
+// is actually let through by the real anyOf(adminAuthorizer, createRoleAuthorizer(...)) wiring -
+// every other test in this file mocks authenticateAdminOrModerator directly, which only proves
+// the route calls the right dep, not that the dep's own logic is correct.
+test('anyOf(fromAllowlist(admin), createRoleAuthorizer(moderator)) lets a Firestore-only moderator through', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('userRoles', 'mod@example.test', { roles: ['moderator'] });
+  const adminAllowlist: SheetAllowlist = { getEmails: async () => ['admin@example.test'] };
+  const authorizer = anyOf(fromAllowlist(adminAllowlist), createRoleAuthorizer(client, 'moderator'));
+  await authorizer.authorize({ sub: 's1', email: 'mod@example.test' });
+  await assert.rejects(() => authorizer.authorize({ sub: 's2', email: 'nobody@example.test' }));
+});
+
+test('GET /admin/members/whoami reports isAdmin: true for an admin-allowlist caller', async () => {
+  const deps = makeDeps({
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'a1', email: 'admin@gmail.com' }),
+    authenticateAdmin: async () => fakeSessionClaims({ sub: 'a1', email: 'admin@gmail.com' }),
+  });
   await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/moderator/whoami`);
+    const res = await fetch(`${baseUrl}/admin/members/whoami`);
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { email: 'moderator@gmail.com' });
+    assert.deepEqual(await res.json(), { email: 'admin@gmail.com', isAdmin: true });
   });
 });
 
-test('GET /moderator/whoami rejects a caller who is not a moderator', async () => {
+test('GET /admin/members/whoami reports isAdmin: false for a Firestore-role-only moderator', async () => {
   const deps = makeDeps({
-    authenticateModerator: async () => {
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@gmail.com' }),
+    authenticateAdmin: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
   });
   await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/moderator/whoami`);
+    const res = await fetch(`${baseUrl}/admin/members/whoami`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { email: 'moderator@gmail.com', isAdmin: false });
+  });
+});
+
+test('GET /admin/members/whoami rejects a caller who is neither admin nor moderator', async () => {
+  const deps = makeDeps({
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/whoami`);
     assert.equal(res.status, 403);
   });
 });
@@ -1656,7 +1710,7 @@ test('/register commits a Google Photos URL to albums.json identically', async (
 test('/unregister rejects an unauthenticated caller before touching GitHub', async () => {
   let githubCalled = false;
   const deps = makeDeps({
-    authenticateModeratorWithStepUp: async () => {
+    authenticateAdminWithStepUp: async () => {
       throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
     },
     github: makeFakeGithub({ removeAlbumFromMain: async () => { githubCalled = true; } }),
@@ -1673,11 +1727,11 @@ test('/unregister rejects an unauthenticated caller before touching GitHub', asy
 });
 
 // See the equivalent /delete-drive-gallery test above for why this matters.
-test('/unregister rejects a caller who passes the general allowlist but not the moderator one', async () => {
+test('/unregister rejects a caller who passes the general allowlist but not the admin one', async () => {
   let githubCalled = false;
   const deps = makeDeps({
     authenticate: async () => fakeSessionClaims({ sub: 'member-1', email: 'member@gmail.com' }),
-    authenticateModeratorWithStepUp: async () => {
+    authenticateAdminWithStepUp: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
     github: makeFakeGithub({ removeAlbumFromMain: async () => { githubCalled = true; } }),
@@ -1750,7 +1804,7 @@ test('GET /admin/members rejects an unknown status value', async () => {
 
 test('GET /admin/members rejects an unauthenticated caller', async () => {
   const deps = makeDeps({
-    authenticateAdmin: async () => {
+    authenticateAdminOrModerator: async () => {
       throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
     },
   });
@@ -1760,7 +1814,7 @@ test('GET /admin/members rejects an unauthenticated caller', async () => {
   });
 });
 
-test('POST /admin/members/transition approves a pending member via authenticateAdminWithStepUp', async () => {
+test('POST /admin/members/transition approves a pending member via authenticateAdminOrModeratorWithStepUp', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('members', 'pending@example.com', {
     email: 'pending@example.com', fullName: 'P', nickname: null, sectionId: 's',
@@ -1769,7 +1823,7 @@ test('POST /admin/members/transition approves a pending member via authenticateA
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/transition`, {
@@ -1798,7 +1852,7 @@ test('POST /admin/members/transition rejects an unknown transition value', async
 
 test('POST /admin/members/transition requires step-up freshness (rejects a stale reauthAt)', async () => {
   const deps = makeDeps({
-    authenticateAdminWithStepUp: async () => {
+    authenticateAdminOrModeratorWithStepUp: async () => {
       throw new AuthError('Wymagane ponowne logowanie.', 401);
     },
   });
@@ -1825,7 +1879,7 @@ test('POST /admin/members/transition reports sheetSyncStatus and includes the fu
   let syncedEmails: string[] = [];
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
     sheetsClient: {
       syncAllMembers: async members => {
         syncedEmails = members.map((m: { email: string }) => m.email);
@@ -1854,7 +1908,7 @@ test('POST /admin/members/transition still returns 200 (Firestore succeeded) eve
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
     sheetsClient: { syncAllMembers: async () => 'failed' },
   });
   await withServer(deps, async baseUrl => {
@@ -1878,7 +1932,7 @@ test('PUT /admin/members/drive-folder links an existing member to a Drive folder
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
@@ -1902,7 +1956,7 @@ test('PUT /admin/members/drive-folder can clear a member\'s folder link by passi
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
@@ -1918,7 +1972,7 @@ test('PUT /admin/members/drive-folder can clear a member\'s folder link by passi
 
 test('PUT /admin/members/drive-folder 404s for an unknown member', async () => {
   const deps = makeDeps({
-    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
@@ -1932,7 +1986,7 @@ test('PUT /admin/members/drive-folder 404s for an unknown member', async () => {
 
 test('PUT /admin/members/drive-folder rejects a missing email', async () => {
   const deps = makeDeps({
-    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
@@ -1946,7 +2000,7 @@ test('PUT /admin/members/drive-folder rejects a missing email', async () => {
 
 test('PUT /admin/members/drive-folder requires step-up freshness (rejects a stale reauthAt)', async () => {
   const deps = makeDeps({
-    authenticateAdminWithStepUp: async () => {
+    authenticateAdminOrModeratorWithStepUp: async () => {
       throw new AuthError('Wymagane ponowne logowanie.', 401);
     },
   });
@@ -1969,7 +2023,7 @@ test('PUT /admin/members/profile updates fullName/nickname/sectionId for an exis
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -1990,7 +2044,7 @@ test('PUT /admin/members/profile 404s for an unknown member', async () => {
   client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2011,7 +2065,7 @@ test('PUT /admin/members/profile rejects an unknown sectionId', async () => {
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2025,7 +2079,7 @@ test('PUT /admin/members/profile rejects an unknown sectionId', async () => {
 
 test('PUT /admin/members/profile rejects a missing email', async () => {
   const deps = makeDeps({
-    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2039,7 +2093,7 @@ test('PUT /admin/members/profile rejects a missing email', async () => {
 
 test('PUT /admin/members/profile requires step-up freshness (rejects a stale reauthAt)', async () => {
   const deps = makeDeps({
-    authenticateAdminWithStepUp: async () => {
+    authenticateAdminOrModeratorWithStepUp: async () => {
       throw new AuthError('Wymagane ponowne logowanie.', 401);
     },
   });
@@ -2067,7 +2121,7 @@ test('GET /admin/lookup-lists returns sections/categories/weapons', async () => 
 
 test('GET /admin/lookup-lists rejects an unauthenticated caller', async () => {
   const deps = makeDeps({
-    authenticateAdmin: async () => {
+    authenticateAdminOrModerator: async () => {
       throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
     },
   });
@@ -2125,7 +2179,7 @@ test('PUT /admin/roles grants a role to a member', async () => {
   assert.deepEqual(entries[0].previousRoles, []);
   assert.deepEqual(entries[0].newRoles, ['admin']);
   assert.equal(entries[0].changedBy, 'admin@example.com');
-  assert.equal(entries[0].changeSummary, 'Zmieniono rolę: Brak → Admin');
+  assert.equal(entries[0].changeSummary, 'Zmieniono role: Brak → Admin');
 });
 
 test('PUT /admin/roles can revoke every role by passing an empty array', async () => {
@@ -2149,7 +2203,7 @@ test('PUT /admin/roles can revoke every role by passing an empty array', async (
   assert.equal(auditEntries.length, 1);
   assert.deepEqual(auditEntries[0].previousRoles, ['accountant']);
   assert.deepEqual(auditEntries[0].newRoles, []);
-  assert.equal(auditEntries[0].changeSummary, 'Zmieniono rolę: Księgowy → Brak');
+  assert.equal(auditEntries[0].changeSummary, 'Zmieniono role: Księgowy → Brak');
 });
 
 test('GET /admin/roles/audit-log lists entries', async () => {
@@ -2258,7 +2312,7 @@ test('POST /admin/members/synchronize syncs the full member list and requires st
   let syncedCount = -1;
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
     sheetsClient: {
       syncAllMembers: async members => {
         syncedCount = members.length;
@@ -2280,7 +2334,7 @@ test('POST /admin/members/synchronize syncs the full member list and requires st
 
 test('POST /admin/members/synchronize rejects a stale admin session', async () => {
   const deps = makeDeps({
-    authenticateAdminWithStepUp: async () => {
+    authenticateAdminOrModeratorWithStepUp: async () => {
       throw new AuthError('Wymagane ponowne logowanie.', 401);
     },
   });
@@ -2418,7 +2472,7 @@ test('DELETE /admin/redirects removes the matching redirects.json entry', async 
 test('/delete-drive-gallery rejects an unauthenticated caller before touching Drive', async () => {
   let driveCalled = false;
   const deps = makeDeps({
-    authenticateModeratorWithStepUp: async () => {
+    authenticateAdminWithStepUp: async () => {
       throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
     },
     drive: makeFakeDrive({ deleteFolder: async () => { driveCalled = true; } }),
@@ -2434,14 +2488,15 @@ test('/delete-drive-gallery rejects an unauthenticated caller before touching Dr
   });
 });
 
-// KRKG-0027: an ordinary allowlisted kruki-group member (passes the general `authenticate`,
+// KRKG-0049: an ordinary allowlisted kruki-group member (passes the general `authenticate`,
 // used elsewhere for upload/register) must NOT be able to delete a gallery just by being on
-// that broader list - only someone the narrower authenticateModerator gate accepts can.
-test('/delete-drive-gallery rejects a caller who passes the general allowlist but not the moderator one', async () => {
+// that broader list - only someone the admin allowlist accepts can (KRKG-0027's separate
+// moderator-group gate was dropped - it was never actually configured in production).
+test('/delete-drive-gallery rejects a caller who passes the general allowlist but not the admin one', async () => {
   let driveCalled = false;
   const deps = makeDeps({
     authenticate: async () => fakeSessionClaims({ sub: 'member-1', email: 'member@gmail.com' }),
-    authenticateModeratorWithStepUp: async () => {
+    authenticateAdminWithStepUp: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
     drive: makeFakeDrive({ deleteFolder: async () => { driveCalled = true; } }),
@@ -3507,7 +3562,7 @@ test('/wojownicy-upload/photo without isMain keeps the original filename', async
 });
 
 // KRKG-0036 Phase 1 cutover audit: design-v2.md requires reauthAt step-up on every
-// authenticateAdmin/authenticateModerator-gated *mutation*, plus the one member-level case
+// authenticateAdmin/authenticateAdminOrModerator-gated *mutation*, plus the one member-level case
 // (adding photos to a gallery the caller didn't create) - "enumerate all of them in the test,
 // not a sample". Every handler checks auth before touching the request body/query/any service
 // (an established, consistently-followed pattern in this file, confirmed by grep against
@@ -3529,9 +3584,14 @@ const STEP_UP_GATED_ROUTES: { method: string; path: string; stepUpDep: keyof Ser
   { method: 'PUT', path: '/admin/people/photo/transfer', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'PUT', path: '/admin/people/in-memoriam', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'POST', path: '/admin/settings', stepUpDep: 'authenticateAdminWithStepUp' },
-  { method: 'POST', path: '/delete-drive-gallery', stepUpDep: 'authenticateModeratorWithStepUp' },
-  { method: 'POST', path: '/unregister', stepUpDep: 'authenticateModeratorWithStepUp' },
+  { method: 'POST', path: '/delete-drive-gallery', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'POST', path: '/unregister', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'POST', path: '/gallery-photos/start', stepUpDep: 'authenticateWithStepUp' },
+  { method: 'POST', path: '/admin/members/transition', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'PUT', path: '/admin/members/drive-folder', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'PUT', path: '/admin/members/profile', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'POST', path: '/admin/members/synchronize', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'PUT', path: '/admin/roles', stepUpDep: 'authenticateAdminWithStepUp' },
 ];
 
 // The read-only counterparts - must keep working even when the step-up variant would reject,
@@ -3541,7 +3601,10 @@ const READ_ONLY_ROUTES_SHARING_A_ROLE: { method: string; path: string; stepUpDep
   { method: 'GET', path: '/admin/redirects', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'GET', path: '/admin/people', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'GET', path: '/admin/settings', stepUpDep: 'authenticateAdminWithStepUp' },
-  { method: 'GET', path: '/moderator/whoami', stepUpDep: 'authenticateModeratorWithStepUp' },
+  { method: 'GET', path: '/admin/members?status=active', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'GET', path: '/admin/members/whoami', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'GET', path: '/admin/lookup-lists', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'GET', path: '/admin/roles', stepUpDep: 'authenticateAdminWithStepUp' },
 ];
 
 for (const { method, path, stepUpDep } of STEP_UP_GATED_ROUTES) {

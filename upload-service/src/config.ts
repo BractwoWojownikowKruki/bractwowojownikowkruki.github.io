@@ -43,13 +43,6 @@ export const config = {
   // undefined lets @google-cloud/firestore fall back to ADC's default project rather than
   // failing the whole service's boot over a not-yet-provisioned Firestore database.
   firestoreProjectId: process.env.FIRESTORE_PROJECT_ID,
-  // Apps Script Web App URL (see createAppsScriptAllowlist in allowlist.ts) for a moderator
-  // group that does not exist yet (see KRKG-0027) - gates destructive gallery actions (/delete-drive-gallery,
-  // /unregister). Deliberately optional and undefined by default: until this is set to a real
-  // group's Apps Script URL, createEmptyAllowlist denies every caller rather than either
-  // blocking deploys on a secret that can't exist yet or leaving those endpoints open to the
-  // whole kruki group in the meantime.
-  moderatorGroupUrl: process.env.MODERATOR_GROUP_URL,
   // KRKG-0046: Google Sheets backup/audit trail for member status - optional/undefined until
   // the one-time OAuth setup (scripts/get-sheets-refresh-token.ts) is done, same fail-safe
   // pattern as docsClientId above. The backup feature is disabled (not a boot failure) when unset.
