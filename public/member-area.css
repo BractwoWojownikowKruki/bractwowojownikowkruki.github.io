@@ -33,13 +33,13 @@
    element's own data-category is the single source of truth, synced to the dropdown's value on
    change where one exists. */
 :root {
-  --category-color-brokul:    #4caf50;
-  --category-color-niewiasta: #d9709f;
-  --category-color-thing:     var(--gold);
-  --category-color-blacha:    #5a93d1;
-  --category-color-kandydat:  var(--text-muted);
-  --category-color-bobo:      #ece5d8;
-  --category-color-emeryt:    #c8c8c4;
+  --category-color-brokul:    #43c463;
+  --category-color-niewiasta: #d93fa8;
+  --category-color-thing:     #e8642e;
+  --category-color-blacha:    #3a5edb;
+  --category-color-kandydat:  #ffc93c;
+  --category-color-bobo:      #1db8d9;
+  --category-color-emeryt:    #9aa5b1;
   --category-color-default:   var(--text-faint);
 }
 
