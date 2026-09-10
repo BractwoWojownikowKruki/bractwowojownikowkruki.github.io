@@ -95,19 +95,7 @@
     // above (administrator-only, never contextual member history - implementation-contract.md).
     // showReauth/hideReauth/escapeHtml/formatDateTime come from ../admin-shared.js.
     //
-    // whoamiPath is /wojownicy-upload/whoami (plain "is a signed-in club member" check), not
-    // /admin/members/whoami or /admin/whoami: this page must also open for an accountant-only or
-    // moderator-only viewer (implementation-contract.md - they see their own domain's history),
-    // neither of whom is on the admin allowlist or holds the 'moderator' Firestore role that those
-    // two endpoints require. There is no existing whoami variant reporting "is admin, accountant,
-    // or moderator" (the exact set GET /admin/audyt/* itself checks server-side via
-    // resolveAdminAuditViewer) and adding one is a server-side change out of this UI-only batch's
-    // scope - so a plain club member who holds none of the three roles still reaches this page
-    // shell, and only finds out via the inline error banner AuditView's mount() shows when its
-    // first GET /admin/audyt/events 403s. Diagnostics below has the same gap and is closed the
-    // same way - GET /admin/audyt/diagnostics is administrator-only, so it plainly 403s for
-    // accountant/moderator-only staff too, and the section is hidden on *any* fetch failure
-    // (catch block below) rather than surfacing that as a raw error, per the task brief.
+    // /admin/members/whoami gates this shell to the existing administrator/moderator audience.
     function resourceHref(resource) {
       // Best-effort deep link back to the resource's own page (plan-addendum.md's "Diagnostics
       // remediation path" - link each row to its original resource page where feasible). Only
@@ -145,16 +133,15 @@
               .join('')
           : '<tr><td colspan="7" class="czl-empty">Brak operacji do przejrzenia.</td></tr>';
       } catch (err) {
-        // 403 for an accountant/moderator-only viewer is expected (isFullAdmin already gates
-        // this), so any error reaching here is unexpected - hide the section rather than surface
-        // a raw error, per the task brief.
+        // The audit shell admits administrators and moderators, while diagnostics are
+        // administrator-only. Hide this panel when a moderator receives its expected 403.
         panel.hidden = true;
       }
     }
 
     initGoogleSignIn({
       buttonIds: ['google-signin-button', 'google-reauth-button'],
-      whoamiPath: '/wojownicy-upload/whoami',
+      whoamiPath: '/admin/members/whoami',
       onSignedIn: payload => {
         document.getElementById('admin-checking').hidden = true;
         document.getElementById('admin-signin').hidden = true;

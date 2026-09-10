@@ -2752,13 +2752,12 @@ function parseAuditQueryOptions(url: URL): AuditQueryOptions {
 /**
  * Resolves the admin-scope audit viewer for `/admin/audyt/*`. Full administrators (the same
  * admin-allowlist-or-admin-role gate as every other `authenticateAdmin` route) get every
- * category; a signed-in member who is only an accountant or only a moderator still needs to see
- * their own domain's history (dues / profile respectively - implementation-contract.md's
- * role-visibility rules), so this checks `authenticateAdmin` opportunistically rather than
- * requiring it outright, and 403s only if none of the three roles apply.
+ * category; a Firestore-granted moderator gets that same complete administrator-scope history,
+ * while an accountant grant alone is deliberately insufficient. This keeps accounting duties
+ * separate from access to the full member/activity audit trail.
  */
 async function resolveAdminAuditViewer(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<AuditViewer> {
-  const identity = await deps.authenticate(req, res);
+  const identity = await deps.authenticateAdminOrModerator(req, res);
   const granted = await getGrantedRoles(deps.firestore, identity.email);
   let isAdmin = granted.includes('admin');
   if (!isAdmin) {
@@ -2766,15 +2765,14 @@ async function resolveAdminAuditViewer(req: IncomingMessage, res: ServerResponse
       await deps.authenticateAdmin(req, res);
       isAdmin = true;
     } catch {
-      // Not an allowlisted administrator - may still be a scoped accountant/moderator below.
+      // Not an allowlisted administrator - only a Firestore-granted moderator may still proceed.
     }
   }
-  const isAccountant = isAdmin || granted.includes('accountant');
   const isModerator = isAdmin || granted.includes('moderator');
-  if (!isAdmin && !isAccountant && !isModerator) {
+  if (!isAdmin && !isModerator) {
     throw new AuthError('Brak uprawnień do przeglądania audytu.', 403);
   }
-  return { scope: 'admin', isAdmin, isAccountant, isModerator };
+  return { scope: 'admin', isAdmin, isAccountant: false, isModerator };
 }
 
 async function handleAdminAuditEventsList(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {

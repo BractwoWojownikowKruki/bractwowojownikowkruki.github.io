@@ -824,7 +824,8 @@ function buildFirestoreFilter(selector: AuditPrimarySelector): FirestoreQueryFil
 /**
  * Who is asking, for server-side field/category redaction (implementation-contract.md
  * "Per-action stored-field allowlists" and its role-visibility rules). `admin` scope is used for
- * every authenticated administrator/accountant/moderator query (`/admin/audyt` and diagnostics);
+ * every authenticated administrator/moderator audit query (`/admin/audyt`); diagnostics remain
+ * administrator-only.
  * `member` scope is the protected member-zone contextual page, which is never given elevated
  * flags regardless of the caller's actual roles - it always gets the public projection.
  */
@@ -834,9 +835,8 @@ export type AuditViewer =
 
 function viewerCanSeeCategory(viewer: AuditViewer, category: AuditCategory): boolean {
   if (viewer.scope === 'member') return false; // member scope is gated on audience below, not category
-  if (viewer.isAdmin) return true;
+  if (viewer.isAdmin || viewer.isModerator) return true;
   if (category === 'dues') return viewer.isAccountant;
-  if (category === 'profile') return viewer.isModerator;
   return false;
 }
 
@@ -861,7 +861,7 @@ export interface AuditEventRow {
  * calls out "actor email" as `roleRestricted` for every audience-`members` category (events,
  * signups, gallery), so an ordinary signed-in member sees the public value fields but never who
  * performed the action. Every admin-scope viewer permitted to see a category at all sees its
- * actor, since accountant-only/moderator-only are still privileged, authenticated roles, not the
+ * actor, since administrator/moderator viewers are privileged, authenticated roles, not the
  * general public this restriction targets.
  */
 export function projectAuditEvent(event: CanonicalAuditEvent, viewer: AuditViewer): AuditEventRow | null {

@@ -472,7 +472,7 @@ test('queryAuditEvents: category, category+action, actor, and resourceKey select
   assert.deepEqual(resourcePage2.rows.map(r => r.id), ['evt-created']);
 });
 
-test('projectAuditEvent: admin sees actor and every allowed field; accountant-only is scoped to dues; member never sees actor', () => {
+test('projectAuditEvent: admin-scope moderator sees actor and every field; member never sees actor', () => {
   const duesEvent = createCanonicalAuditEvent(
     {
       action: 'dues.annual.changed',
@@ -483,12 +483,11 @@ test('projectAuditEvent: admin sees actor and every allowed field; accountant-on
     { createId: () => 'due-1', now: () => new Date('2026-01-01T00:00:00.000Z') },
   );
   const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isModerator: false };
-  const accountant: AuditViewer = { scope: 'admin', isAdmin: false, isAccountant: true, isModerator: false };
   const moderatorOnly: AuditViewer = { scope: 'admin', isAdmin: false, isAccountant: false, isModerator: true };
 
   assert.equal(projectAuditEvent(duesEvent, admin)?.actor?.email, 'skarbnik@example.test');
-  assert.equal(projectAuditEvent(duesEvent, accountant)?.actor?.email, 'skarbnik@example.test');
-  assert.equal(projectAuditEvent(duesEvent, moderatorOnly), null); // moderator-only cannot see dues
+  assert.equal(projectAuditEvent(duesEvent, moderatorOnly)?.actor?.email, 'skarbnik@example.test');
+  assert.equal(projectAuditEvent(duesEvent, moderatorOnly)?.changes[0]?.after, true);
 
   const galleryEvent = createCanonicalAuditEvent(
     {
@@ -508,7 +507,7 @@ test('projectAuditEvent: admin sees actor and every allowed field; accountant-on
   assert.equal(projectAuditEvent(duesEvent, member), null);
 });
 
-test('getAuditEventDetail applies the same projection as list rows and hides a category the viewer cannot see', async () => {
+test('getAuditEventDetail gives an admin-scope moderator the same full projection as list rows', async () => {
   const firestore = createInMemoryFirestoreClient();
   await executeAuditedFirestoreMutation(
     firestore,
@@ -522,9 +521,7 @@ test('getAuditEventDetail applies the same projection as list rows and hides a c
     { createId: () => 'profile-1', now: () => new Date('2026-01-01T00:00:00.000Z') },
   );
   const moderator: AuditViewer = { scope: 'admin', isAdmin: false, isAccountant: false, isModerator: true };
-  const accountant: AuditViewer = { scope: 'admin', isAdmin: false, isAccountant: true, isModerator: false };
   assert.ok(await getAuditEventDetail(firestore, 'profile-1', moderator));
-  assert.equal(await getAuditEventDetail(firestore, 'profile-1', accountant), null);
   assert.equal(await getAuditEventDetail(firestore, 'does-not-exist', moderator), null);
 });
 

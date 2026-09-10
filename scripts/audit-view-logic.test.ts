@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
 
+// The production code intentionally uses the viewer's local zone. Pin this suite so its DST
+// boundary contracts stay deterministic even when the parent test command runs under UTC.
+process.env.TZ = 'Europe/Warsaw';
+
 // public/shared/audit-view.js is a classic browser script (no <script type="module">, matching
 // every other public/*.js on this site), so it is loaded here via Node's CommonJS `require`
 // rather than an ES `import` - see that file's header comment for why its `module.exports` guard
@@ -100,6 +104,38 @@ test('buildQueryParams: date range and cursor are combinable with any single pri
   assert.equal(params.get('to'), '2026-12-31T23:59:59.000Z');
   assert.equal(params.get('cursor'), 'opaque-cursor');
   assert.equal(params.get('limit'), '50');
+});
+
+test('serializeDateOnlyRange uses local start/end boundaries across the spring DST transition', () => {
+  assert.deepEqual(AuditView.serializeDateOnlyRange('2026-03-29', '2026-03-29'), {
+    from: '2026-03-28T23:00:00.000Z',
+    to: '2026-03-29T21:59:59.999Z',
+  });
+});
+
+test('serializeDateOnlyRange uses local start/end boundaries across the autumn DST transition', () => {
+  assert.deepEqual(AuditView.serializeDateOnlyRange('2026-10-25', '2026-10-25'), {
+    from: '2026-10-24T22:00:00.000Z',
+    to: '2026-10-25T22:59:59.999Z',
+  });
+});
+
+test('defaultAuditState selects every event type and subtracts one calendar month with the day clamped', () => {
+  assert.deepEqual(
+    AuditView.defaultAuditState(undefined, new Date(2025, 2, 31, 12)),
+    { selector: { kind: 'none' }, fromDate: '2025-02-28', toDate: '2025-03-31' },
+  );
+  assert.deepEqual(
+    AuditView.defaultAuditState(undefined, new Date(2024, 2, 31, 12)),
+    { selector: { kind: 'none' }, fromDate: '2024-02-29', toDate: '2024-03-31' },
+  );
+});
+
+test('defaultAuditState preserves a Historia resource selector without default date filters', () => {
+  assert.deepEqual(
+    AuditView.defaultAuditState({ resourceKey: 'event:abc123' }, new Date(2026, 8, 10, 12)),
+    { selector: { kind: 'resourceKey', key: 'event:abc123' }, fromDate: '', toDate: '' },
+  );
 });
 
 test('buildQueryParams: rejects a categoryAction selector with no category (defensive - the "supported filters only" contract)', () => {
