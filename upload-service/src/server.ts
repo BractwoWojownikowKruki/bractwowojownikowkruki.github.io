@@ -1669,13 +1669,18 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
       };
     },
     async tx => {
-      const saved = fields ? await saveMember(tx, email, fields, identity.email) : { ...existing };
+      // Firestore transactions require every read to happen before any write - fetch the
+      // current doc once up front and hand it to each helper below (via their `preloaded`
+      // param) instead of letting saveMember/setMemberCategoryId/setMemberHidden each do their
+      // own getDoc, which would interleave a read after an earlier helper's write and fail.
+      const currentDoc = await tx.getDoc<MemberDoc>('members', email.toLowerCase());
+      const saved = fields ? await saveMember(tx, email, fields, identity.email, currentDoc) : { ...existing };
       if (categoryId !== undefined) {
-        await setMemberCategoryId(tx, email, categoryId);
+        await setMemberCategoryId(tx, email, categoryId, currentDoc);
         saved.categoryId = categoryId;
       }
       if (hidden !== undefined) {
-        await setMemberHidden(tx, email, hidden);
+        await setMemberHidden(tx, email, hidden, currentDoc);
         saved.hidden = hidden;
       }
       return saved;

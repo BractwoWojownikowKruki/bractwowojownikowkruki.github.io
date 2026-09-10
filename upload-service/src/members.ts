@@ -59,9 +59,10 @@ export async function saveMember(
   email: string,
   fields: MemberWritableFields,
   updatedBy: string,
+  preloaded?: MemberDoc | null,
 ): Promise<MemberDoc> {
   const id = email.toLowerCase();
-  const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
+  const existing = preloaded !== undefined ? preloaded : await client.getDoc<MemberDoc>(COLLECTION, id);
   const now = new Date().toISOString();
   const writable = {
     fullName: fields.fullName,
@@ -120,9 +121,10 @@ export async function setMemberCategoryId(
   client: FirestoreWriteContext,
   email: string,
   categoryId: string | null,
+  preloaded?: MemberDoc | null,
 ): Promise<void> {
   const id = email.toLowerCase();
-  const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
+  const existing = preloaded !== undefined ? preloaded : await client.getDoc<MemberDoc>(COLLECTION, id);
   if (!existing) throw new Error(`Nie znaleziono członka: ${id}`);
   await client.setDoc(COLLECTION, id, { categoryId });
 }
@@ -134,9 +136,10 @@ export async function setMemberHidden(
   client: FirestoreWriteContext,
   email: string,
   hidden: boolean,
+  preloaded?: MemberDoc | null,
 ): Promise<void> {
   const id = email.toLowerCase();
-  const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
+  const existing = preloaded !== undefined ? preloaded : await client.getDoc<MemberDoc>(COLLECTION, id);
   if (!existing) throw new Error(`Nie znaleziono członka: ${id}`);
   await client.setDoc(COLLECTION, id, { hidden });
 }
