@@ -173,6 +173,63 @@
     return CATEGORY_LABELS[category] ?? category;
   }
 
+  /** Parses a date control's YYYY-MM-DD value numerically in the browser's local time zone.
+   * Date-only values must never be passed to `new Date(value)`: that form is specified as UTC
+   * and would shift the selected calendar day for Polish users around normal and DST offsets. */
+  function parseLocalDateOnly(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+    if (!match) throw new AuditFilterError('Nieprawidłowa data filtra.');
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(year, month - 1, day);
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+      throw new AuditFilterError('Nieprawidłowa data filtra.');
+    }
+    return date;
+  }
+
+  function formatLocalDateOnly(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+
+  /** Converts optional date-control values to inclusive ISO timestamps for the API. */
+  function serializeDateOnlyRange(fromDate, toDate) {
+    let from;
+    let to;
+    if (fromDate) {
+      const start = parseLocalDateOnly(fromDate);
+      start.setHours(0, 0, 0, 0);
+      from = start.toISOString();
+    }
+    if (toDate) {
+      const end = parseLocalDateOnly(toDate);
+      end.setDate(end.getDate() + 1);
+      end.setHours(0, 0, 0, 0);
+      end.setMilliseconds(-1);
+      to = end.toISOString();
+    }
+    return { from, to };
+  }
+
+  /** Returns the initial UI state for a global audit or a Historia resource deep link. */
+  function defaultAuditState(initialFilters, now) {
+    if (initialFilters && initialFilters.resourceKey) {
+      return { selector: { kind: 'resourceKey', key: initialFilters.resourceKey }, fromDate: '', toDate: '' };
+    }
+    const today = now ? new Date(now.getTime()) : new Date();
+    const targetMonth = today.getMonth() - 1;
+    const targetYear = targetMonth < 0 ? today.getFullYear() - 1 : today.getFullYear();
+    const normalizedTargetMonth = targetMonth < 0 ? 11 : targetMonth;
+    const lastDay = new Date(targetYear, normalizedTargetMonth + 1, 0).getDate();
+    const from = new Date(targetYear, normalizedTargetMonth, Math.min(today.getDate(), lastDay));
+    return {
+      selector: { kind: 'none' },
+      fromDate: formatLocalDateOnly(from),
+      toDate: formatLocalDateOnly(today),
+    };
+  }
+
   /**
    * Builds the URLSearchParams for GET {apiBase}/events from one filter-state object:
    * `{ selector: { kind, category?, action?, email?, key?, term? }, from?, to?, cursor?, limit? }`.
@@ -471,7 +528,8 @@
       const selector = currentSelector();
       let params;
       try {
-        params = buildQueryParams({ selector, from: els.fromInput.value || undefined, to: els.toInput.value || undefined, cursor });
+        const dateRange = serializeDateOnlyRange(els.fromInput.value, els.toInput.value);
+        params = buildQueryParams({ selector, from: dateRange.from, to: dateRange.to, cursor });
       } catch (err) {
         showError(err.message);
         return;
@@ -498,10 +556,13 @@
     // Historia deep links (resourceKey) pre-set the filter and load immediately - never an inline
     // expansion/modal, always this same shared page (implementation-contract.md "Historia and UI
     // scope").
-    if (opts.initialFilters && opts.initialFilters.resourceKey) {
+    const initialState = defaultAuditState(opts.initialFilters);
+    els.fromInput.value = initialState.fromDate;
+    els.toInput.value = initialState.toDate;
+    if (initialState.selector.kind === 'resourceKey') {
       els.selectorKind.value = 'resourceKey';
       showSelectorValue('resourceKey');
-      els.resourceInput.value = opts.initialFilters.resourceKey;
+      els.resourceInput.value = initialState.selector.key;
     } else {
       showSelectorValue('none');
     }
@@ -518,6 +579,9 @@
     MEMBER_VISIBLE_CATEGORIES,
     actionLabel,
     categoryLabel,
+    parseLocalDateOnly,
+    serializeDateOnlyRange,
+    defaultAuditState,
     buildQueryParams,
     resolveUserColumn,
     formatChangeLine,

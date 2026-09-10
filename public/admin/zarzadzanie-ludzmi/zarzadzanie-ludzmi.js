@@ -290,7 +290,6 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(rolesByEmail.get(m.email))}</td>
       <td>
         ${actions.map(a => `<button class="member-action" data-transition="${a.transition}">${a.label}</button>`).join('')}
-        <a class="audyt-history-link" href="/admin/audyt/?resourceKey=${encodeURIComponent(`member:${m.email}`)}">◷ Historia</a>
       </td>
     </tr>`;
     })

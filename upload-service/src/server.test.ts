@@ -5346,7 +5346,7 @@ test('GET /audyt/events (member-zone) never exposes actor and hides an admin-onl
   });
 });
 
-test('GET /admin/audyt/event returns 404 for an id the viewer cannot see, and the projected row otherwise', async () => {
+test('GET /admin/audyt list and detail give a Firestore-only moderator full audit access while rejecting accountant-only and ordinary members', async () => {
   const firestore = createInMemoryFirestoreClient();
   await executeAuditedFirestoreMutation(
     firestore,
@@ -5354,17 +5354,71 @@ test('GET /admin/audyt/event returns 404 for an id the viewer cannot see, and th
     async () => {},
     { createId: () => 'evt-dues', now: () => new Date('2026-01-01T00:00:00.000Z') },
   );
-  // A moderator-only (non-admin) viewer cannot see the dues category.
-  const firestoreWithModerator = firestore;
-  await firestoreWithModerator.setDoc('userRoles', 'wojownik@gmail.com', { roles: ['moderator'] });
-  const deps = makeDeps({
+  await executeAuditedFirestoreMutation(
     firestore,
-    authenticate: async () => fakeSessionClaims({ sub: 'mod-1', email: 'wojownik@gmail.com' }),
+    { action: 'role.replaced', actor: { email: 'admin@example.test' }, resource: { kind: 'member', key: 'member:ula@example.test', display: 'Ula' }, changes: [{ field: 'roles', after: 'Moderator' }] },
+    async () => {},
+    { createId: () => 'evt-roles', now: () => new Date('2026-01-01T00:01:00.000Z') },
+  );
+  await firestore.setDoc('userRoles', 'wojownik@gmail.com', { roles: ['moderator'] });
+  const moderatorDeps = makeDeps({
+    firestore,
+    // The audit shell reaches its reader through the admin-or-moderator boundary. A moderator
+    // need not be an active member, so the general member gate is deliberately rejecting here.
+    authenticate: async () => { throw new AuthError('Brak uprawnień.', 403); },
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'mod-1', email: 'wojownik@gmail.com' }),
   });
-  await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/admin/audyt/event?id=evt-dues`);
-    assert.equal(res.status, 404);
+  await withServer(moderatorDeps, async baseUrl => {
+    const list = await fetch(`${baseUrl}/admin/audyt/events`);
+    assert.equal(list.status, 200);
+    const rows = (await list.json()).rows;
+    assert.deepEqual(rows.map((row: { id: string }) => row.id), ['evt-roles', 'evt-dues']);
+    assert.equal(rows[0].actor.email, 'admin@example.test');
+    assert.equal(rows[0].changes[0].field, 'roles');
+    assert.equal(rows[0].changes[0].after, 'Moderator');
+
+    const detail = await fetch(`${baseUrl}/admin/audyt/event?id=evt-dues`);
+    assert.equal(detail.status, 200);
+    const event = await detail.json();
+    assert.equal(event.actor.email, 'skarbnik@example.test');
+    assert.equal(event.changes[0].field, 'paid');
+    assert.equal(event.changes[0].after, true);
+  });
+
+  for (const [email, roles] of [['accountant@example.test', ['accountant']], ['member@example.test', []]] as const) {
+    await firestore.setDoc('userRoles', email, { roles });
+    const deps = makeDeps({
+      firestore,
+      authenticate: async () => fakeSessionClaims({ email }),
+      authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    });
+    await withServer(deps, async baseUrl => {
+      assert.equal((await fetch(`${baseUrl}/admin/audyt/events`)).status, 403);
+      assert.equal((await fetch(`${baseUrl}/admin/audyt/event?id=evt-dues`)).status, 403);
+    });
+  }
+
+  await firestore.setDoc('userRoles', 'combined@example.test', { roles: ['accountant', 'moderator'] });
+  const combinedDeps = makeDeps({
+    firestore,
+    authenticate: async () => fakeSessionClaims({ email: 'combined@example.test' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ email: 'combined@example.test' }),
+  });
+  await withServer(combinedDeps, async baseUrl => {
+    assert.equal((await fetch(`${baseUrl}/admin/audyt/events`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/admin/audyt/event?id=evt-dues`)).status, 200);
+  });
+
+  const unauthenticatedDeps = makeDeps({
+    firestore,
+    authenticate: async () => { throw new AuthError('Brak sesji.', 401); },
+    authenticateAdminOrModerator: async () => { throw new AuthError('Brak sesji.', 401); },
+  });
+  await withServer(unauthenticatedDeps, async baseUrl => {
+    assert.equal((await fetch(`${baseUrl}/admin/audyt/events`)).status, 401);
+    assert.equal((await fetch(`${baseUrl}/admin/audyt/event?id=evt-dues`)).status, 401);
   });
 });
 
@@ -5397,6 +5451,17 @@ test('GET /admin/audyt/diagnostics is administrator-only and filters by correlat
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
   });
   await withServer(accountantDeps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/audyt/diagnostics`);
+    assert.equal(res.status, 403);
+  });
+
+  const moderatorDeps = makeDeps({
+    firestore,
+    authenticate: async () => fakeSessionClaims({ sub: 'mod-1', email: 'moderator@example.test' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+  await firestore.setDoc('userRoles', 'moderator@example.test', { roles: ['moderator'] });
+  await withServer(moderatorDeps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/audyt/diagnostics`);
     assert.equal(res.status, 403);
   });
