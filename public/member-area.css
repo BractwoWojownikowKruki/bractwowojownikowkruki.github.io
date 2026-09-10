@@ -212,29 +212,6 @@
   outline: none;
 }
 
-/* Imię i nazwisko + Ksywa share one cell, name above nickname below (KRKG-0053) - one fewer
-   column than a dedicated Ksywa column would cost. Used for both plain text and the two stacked
-   .czl-field inputs. Zarządzanie ludźmi (KRKG-0052) opted out in favor of its own Ksywa column -
-   that table is dense enough already that a shared cell wasn't buying much clarity. */
-.czl-name-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.czl-name-cell .czl-name-secondary {
-  color: var(--text-muted);
-  font-size: 0.85em;
-}
-
-.czl-name-cell .czl-name-secondary.czl-empty {
-  color: var(--text-faint);
-}
-
-.czl-name-cell input.czl-field {
-  min-width: 90px;
-}
-
 /* Zarządzanie ludźmi's Rola column (KRKG-0049/KRKG-0051) - a checkbox per assignable role, since a
    member can hold more than one at once. white-space:normal overrides .czl-table td's nowrap so
    the labels stack instead of forcing the column wide. */
@@ -737,32 +714,37 @@ button.lw-skladka-icon:disabled {
   border-left: 8px solid var(--section-c, var(--section-color-default));
 }
 
-/* Sekcja abbreviation cell (KRKG-0063) - the sticky first column from KRKG-0052 now carries the
-   3-letter section abbreviation itself instead of being a bare color bar. --section-c still comes
-   from the <tr>'s own [data-section="..."] rule/inheritance above - full section names live only
-   in the sections lookup list; the id->abbreviation map (BDG/CZU/KRK/POZ/WAW/WRO) is a small
-   page-local constant (SECTION_ABBR) duplicated per file, same convention as e.g. WEAPON_ICONS.
-   Width is fixed narrow (fits "WAW" comfortably) rather than left to auto-size, since minimal
-   space was the point, and it stays position:sticky so it doesn't scroll away with the rest of a
-   dense table on a narrow screen. Works both as a plain colored cell (Spis Ludności, Lista
-   Wyjazdowa - always read-only there) and as the frame around a <select> (Zarządzanie ludźmi's
-   editable dropdown, styled further below). thead's copy only needs the sticky positioning and
-   narrow width - its background already comes from .czl-table thead th. */
+/* Sekcja abbreviation cell (KRKG-0063/KRKG-0064) - the sticky first column from KRKG-0052 now
+   carries the 3-letter section abbreviation itself instead of being a bare color bar, stacked
+   vertically (B/D/G) via writing-mode so the column stays exactly one letter wide rather than
+   fitting all 3 side by side. --section-c still comes from the <tr>'s own [data-section="..."]
+   rule/inheritance above - full section names live only in the sections lookup list; the
+   id->abbreviation map (BDG/CZU/KRK/POZ/WAW/WRO) is a small page-local constant (SECTION_ABBR)
+   duplicated per file, same convention as e.g. WEAPON_ICONS. Stays position:sticky so it doesn't
+   scroll away with the rest of a dense table on a narrow screen. Works both as a plain colored
+   cell (Spis Ludności, Lista Wyjazdowa - always read-only there) and as the frame around a
+   <select> (Zarządzanie ludźmi's editable dropdown, styled further below) - a native <select>
+   renders its collapsed value in the writing-mode it's given same as plain text, and still opens
+   its normal option list on click regardless. thead's copy is just the single letter "S" (KRKG
+   header text stays real words elsewhere; a 3-letter vertical stack in a header would be an odd
+   outlier) - its background already comes from .czl-table thead th. */
 .czl-table td.czl-section-cell,
 .czl-table th.czl-section-cell {
   position: sticky;
   left: 0;
   z-index: 1;
-  width: 2.75rem;
-  min-width: 2.75rem;
-  max-width: 2.75rem;
-  padding: 0.2rem 0.3rem;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  width: 1.35rem;
+  min-width: 1.35rem;
+  max-width: 1.35rem;
+  padding: 0.3rem 0.05rem;
   border: none;
   text-align: center;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   white-space: nowrap;
   overflow: hidden;
 }
@@ -781,6 +763,8 @@ button.lw-skladka-icon:disabled {
   border: none;
   color: inherit;
   font: inherit;
+  writing-mode: inherit;
+  text-orientation: inherit;
   text-align: center;
   text-align-last: center;
   text-transform: inherit;
@@ -788,12 +772,16 @@ button.lw-skladka-icon:disabled {
   padding: 0;
   margin: 0;
   min-width: 0;
-  width: 100%;
+  /* Not width:100% - a <select>'s shrink-to-fit sizing algorithm doesn't reliably measure its
+     option text under vertical-rl (observed collapsing to a few px wide in Chromium), so it gets
+     a fixed physical width matching the cell's own instead. */
+  width: 1.05rem;
+  height: 100%;
   cursor: pointer;
-  /* The cell is only ~2.75rem wide - native select chevrons eat most of that, clipping the
-     3-letter code down to one visible character. Dropping them still leaves a fully working
-     native <select> (click/tap opens the option list regardless); the whole cell being an
-     obvious colored control is signal enough without an arrow of its own. */
+  /* The cell is only ~1.35rem wide - the native select chevron alone would blow past that (and
+     doesn't render meaningfully rotated under vertical-rl anyway). Dropping it still leaves a
+     fully working native <select> (click/tap opens the option list regardless); the whole cell
+     being an obvious colored control is signal enough without an arrow of its own. */
   appearance: none;
   -webkit-appearance: none;
 }

@@ -101,13 +101,13 @@ function renderTable() {
   for (const m of sorted) {
     const row = document.createElement('tr');
     row.dataset.section = m.sectionId ?? '';
-    // Imię i nazwisko + Ksywa share one cell, name above nickname below (KRKG-0053). The name
-    // itself sits inside a colored outline pill for Typ (KRKG-0057) - not a second pill next to it.
-    const nameLine = `<span ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, m.fullName ? '' : 'czl-empty')}>${cell(m.fullName)}</span>
-         <span class="czl-name-secondary ${m.nickname ? '' : 'czl-empty'}">${cell(m.nickname)}</span>`;
+    // Imię i nazwisko gets its own colored outline pill for Typ (KRKG-0057); Ksywa is its own
+    // column (KRKG-0064) rather than sharing a cell (KRKG-0053's original stacked layout, dropped
+    // now that this table has the room - it matches Zarządzanie ludźmi's own separate column).
     row.innerHTML = `
       <td class="czl-section-cell" title="${escapeAttr(m.sectionLabel || 'Brak sekcji')}">${m.sectionId ? escapeHtml(sectionAbbr(m.sectionId)) : EMPTY}</td>
-      <td><div class="czl-name-cell">${nameLine}</div></td>
+      <td><span ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, m.fullName ? '' : 'czl-empty')}>${cell(m.fullName)}</span></td>
+      <td class="${m.nickname ? '' : 'czl-empty'}">${cell(m.nickname)}</td>
       <td>${escapeHtml(m.email)}</td>
     `;
     tbody.append(row);
