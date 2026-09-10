@@ -77,6 +77,25 @@
   border: 1px solid var(--category-c, var(--category-color-default));
 }
 
+/* Typ cell colorization (KRKG-0052) - Zarządzanie ludźmi tints the whole Typ <td> from
+   --category-c instead of wrapping the name in a pill above (that's still how Spis Ludności/
+   Lista Wyjazdowa show Typ - they have no dedicated Typ column to color instead). Only matches
+   when data-category is actually present: categoryCellAttrs() (zarzadzanie-ludzmi.js) omits the
+   attribute entirely for an unset Typ, so an empty Typ stays the table's plain background rather
+   than falling back to --category-color-default. */
+.czl-table td[data-category] {
+  background: color-mix(in srgb, var(--category-c, var(--category-color-default)) 22%, var(--surface-deep));
+}
+
+/* The <select> inside would otherwise paint its own opaque .czl-field background right over the
+   cell tint above, leaving only a sliver of color around its edges - drop it to transparent here
+   so the whole cell reads as colored, with just enough border tint to keep the control's
+   clickable bounds visible against it. */
+.czl-table td[data-category] select.czl-field {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--category-c, var(--category-color-default)) 45%, var(--border));
+}
+
 /* Rendered by each page's own sectionPillHtml() helper (duplicated per page, same convention as
    escapeHtml - but every one of them only ever emits data-section, never a color value, so the
    colors above stay the single source of truth). --section-c is set by the [data-section] rules

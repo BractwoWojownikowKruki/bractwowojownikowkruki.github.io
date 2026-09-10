@@ -158,14 +158,17 @@ function categoryOptions(categories, currentCategoryId) {
   return options.join('');
 }
 
-// Typ (categoryId) shown by wrapping the name <input> itself in a colored outline pill (KRKG-0057),
-// independent of the Typ <select> column below - unlike Sekcja's dot (removed in KRKG-0051 in
-// favor of the row's own accent bar), Typ has no bar of its own here, so this outline is the only
-// visual cue and has to stay in sync with the select's value on every change (see the change
-// handler's categoryId branch, which updates the fullName input's own data-category/title).
-function categoryNamePillAttrs(categoryId, categories) {
+// Typ (categoryId) colors the whole Typ <td> background (KRKG-0052) rather than wrapping the name
+// in a pill (KRKG-0057's approach - still used by Spis Ludności/Lista Wyjazdowa, which have no
+// dedicated Typ column to color instead). Only emits data-category when a value is actually set -
+// an absent attribute means member-area.css's [data-category] rule simply doesn't match, so an
+// unassigned Typ stays the table's plain background instead of some in-between fallback shade.
+// Has to stay in sync with the select's value on every change (see the change handler's
+// categoryId branch below, which updates/clears the Typ <td>'s own data-category/title).
+function categoryCellAttrs(categoryId, categories) {
+  if (!categoryId) return '';
   const label = categories.find(c => c.id === categoryId)?.label;
-  return `data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak typu')}"`;
+  return `data-category="${escapeAttr(categoryId)}" title="${escapeAttr(label || categoryId)}"`;
 }
 
 // A member can hold more than one of these at once (e.g. accountant + admin), so the Rola column
@@ -273,10 +276,10 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       return `
     <tr class="membership-member${isFlagged ? ' membership-member--flagged' : ''}" data-email="${escapeAttr(m.email)}" data-section="${escapeAttr(m.sectionId ?? '')}">
       <td class="czl-section-bar"></td>
-      <td><input type="text" class="czl-field category-name-pill" ${categoryNamePillAttrs(m.categoryId, categories)} data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" /></td>
+      <td><input type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" /></td>
       <td><input type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" /></td>
       <td><select class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
-      <td><select class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>
+      <td ${categoryCellAttrs(m.categoryId, categories)}><select class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>
       <td><input type="checkbox" class="member-hidden-checkbox" data-field="hidden" ${m.hidden ? 'checked' : ''} /></td>
       <td>${escapeHtml(m.email)}</td>
       <td>${m.lastLoginAt ? escapeHtml(formatDateTime(m.lastLoginAt)) : 'Nigdy'}</td>
@@ -366,9 +369,14 @@ document.getElementById('membership-members-list').addEventListener('change', as
       row.dataset.section = profileField.value;
     }
     if (profileField.dataset.field === 'categoryId') {
-      const nameInput = row.querySelector('input[data-field="fullName"]');
-      nameInput.dataset.category = profileField.value;
-      nameInput.title = profileField.selectedOptions[0]?.textContent || 'Brak typu';
+      const typCell = profileField.closest('td');
+      if (profileField.value) {
+        typCell.dataset.category = profileField.value;
+        typCell.title = profileField.selectedOptions[0]?.textContent || profileField.value;
+      } else {
+        delete typCell.dataset.category;
+        typCell.removeAttribute('title');
+      }
     }
     if (profileField.dataset.field === 'sectionId' || profileField.dataset.field === 'categoryId') {
       const sectionValue = row.querySelector('select[data-field="sectionId"]').value;
