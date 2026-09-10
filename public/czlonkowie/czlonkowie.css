@@ -42,3 +42,17 @@
   content: '▼';
   font-size: 0.7em;
 }
+
+/* Sekcja's sortable header (KRKG-0063) lives inside the narrow, sticky .czl-section-cell now
+   (member-area.css) - the button's normal 0.7rem side padding plus its gap/arrow would blow well
+   past that column's 2.75rem width, so it gets its own tighter, centered layout here rather than
+   the generic sortable-button one above. */
+.czl-table th.czl-section-cell button {
+  padding: 0.2rem 0.1rem;
+  justify-content: center;
+  gap: 0.15rem;
+}
+
+.czl-table th.czl-section-cell button::after {
+  font-size: 0.6em;
+}

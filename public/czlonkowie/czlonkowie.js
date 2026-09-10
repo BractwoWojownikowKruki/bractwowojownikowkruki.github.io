@@ -4,11 +4,9 @@
  * every member with site access is listed - including someone who's never filled in a profile,
  * shown here with an em dash instead of being missing from the table entirely.
  *
- * KRKG-0047 lets an accountant/admin fix another member's Imię i nazwisko/Ksywa/Sekcja directly
- * from this table - reuses the same PUT /lista-wyjazdowa/member endpoint as the self-service
- * "Mój profil" form, with ?memberEmail= naming the target (see server.ts's
- * handleListaWyjazdowaPutMember). KRKG-0049 replaced the original per-row Edytuj/Zapisz/Anuluj
- * flow with plain inline-editable fields that save on change - no edit mode to enter or leave.
+ * Read-only (KRKG-0063) - inline editing (KRKG-0047/0049's Imię i nazwisko/Ksywa/Sekcja fields,
+ * saved via PUT /lista-wyjazdowa/member) was dropped in favor of Zarządzanie ludźmi as the one
+ * place to actually edit a member's profile; this page is now purely a lookup/directory view.
  */
 
 function escapeHtml(str) {
@@ -19,23 +17,28 @@ function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
-// Section/city color coding (KRKG-0051) - the colors themselves live in exactly one place,
-// member-area.css's [data-section="..."] rules; this only ever emits the data-section attribute a
-// CSS rule keys off, never a color value, so a section's color changes by editing one line there,
-// nowhere else. The row itself (not just this pill) also carries data-section, for the sticky
-// .czl-section-bar column's --section-c (member-area.css) - kept in sync on change for the
-// editable case (see the czl-field change handler below).
-function sectionPillHtml(sectionId, label) {
-  return `<span class="section-pill" data-section="${escapeAttr(sectionId ?? '')}">${escapeHtml(label)}</span>`;
+// 3-letter Sekcja abbreviations (KRKG-0063) for the compact, sticky first column - a display-only
+// convenience, not a second source of truth: sections/seed-lookup-lists.ts's fixed 6-id set is
+// still where a section's real label (and member-area.css's colors, via --section-c) come from.
+// Falls back to the id's own first 3 letters for anything not in this map (e.g. "nieznana"), same
+// never-hide-an-unresolved-reference spirit as sectionId's own fallback further down.
+const SECTION_ABBR = {
+  bydgoszcz: 'BDG',
+  czukcze: 'CZU',
+  krakow: 'KRK',
+  poznan: 'POZ',
+  warszawa: 'WAW',
+  wroclaw: 'WRO',
+};
+function sectionAbbr(sectionId) {
+  return SECTION_ABBR[sectionId] ?? (sectionId ?? '').slice(0, 3).toUpperCase();
 }
 
 // Typ (categoryId) shown by wrapping the name itself in a colored outline pill, instead of its
-// own column or a second pill next to the name (KRKG-0057) - same never-a-color-value-in-JS
-// convention as sectionPillHtml above; the actual colors live in member-area.css's
-// [data-category="..."] rules. extraClass carries whatever class the name element already needs
-// (czl-empty for an empty fullName, czl-field for the editable <input>). Spis Ludności never lets
-// anyone edit Typ (unlike Sekcja), so this is always read-only here - no sync-on-change
-// counterpart needed.
+// own column or a second pill next to the name (KRKG-0057) - never-a-color-value-in-JS
+// convention, same as the section abbreviation above; the actual colors live in member-area.css's
+// [data-category="..."] rules. extraClass carries czl-empty for an empty fullName, nothing
+// otherwise. Spis Ludności is read-only (KRKG-0063), so this has no sync-on-change counterpart.
 function categoryNamePillAttrs(categoryId, label, extraClass) {
   return `class="${extraClass} category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak typu')}"`;
 }
@@ -64,34 +67,8 @@ let sortKey = 'sectionLabel';
 let sortDir = 'asc';
 let filterText = '';
 
-// Set from GET /lista-wyjazdowa/my-role, same accountant/admin gate as the Składki page's
-// toggle/kwota controls - the server re-checks the role on every PUT regardless, this only
-// controls whether the "Edytuj" action/column is offered at all.
-let canManageSkladki = false;
-let sections = [];
-
 function cell(value) {
   return value ? escapeHtml(value) : EMPTY;
-}
-
-// A retired section (design.md §5, mirrors profil.js's selectableLookupItems) is withdrawn from
-// *new* selection, but must still resolve for a member who already has it - offered only when
-// currentSectionId matches, so re-saving that member doesn't silently blank/change their section.
-function sectionOptions(currentSectionId) {
-  const options = sections
-    .filter((s) => !s.retired || s.id === currentSectionId)
-    .map((s) => `<option value="${escapeAttr(s.id)}" ${s.id === currentSectionId ? 'selected' : ''}>${escapeHtml(s.label)}</option>`);
-  // A sectionId with no matching lookupLists/sections entry at all (e.g. "nieznana", the
-  // migration script's fallback for a member with no known section - see
-  // migrate-existing-members.ts) would otherwise vanish from the dropdown entirely: the browser
-  // then silently selects the first real option instead of "nieznana", and the next inline-field
-  // save (KRKG-0049) would overwrite that member's actual sectionId with the wrong one. Shown
-  // with the raw id as its own label, same convention as the admin panel's driveFolderId fallback
-  // (KRKG-0037's known-gaps note) - never hide an unresolved reference.
-  if (currentSectionId && !sections.some((s) => s.id === currentSectionId)) {
-    options.unshift(`<option value="${escapeAttr(currentSectionId)}" selected>${escapeHtml(currentSectionId)}</option>`);
-  }
-  return options.join('');
 }
 
 function renderTable() {
@@ -126,18 +103,11 @@ function renderTable() {
     row.dataset.section = m.sectionId ?? '';
     // Imię i nazwisko + Ksywa share one cell, name above nickname below (KRKG-0053). The name
     // itself sits inside a colored outline pill for Typ (KRKG-0057) - not a second pill next to it.
-    const nameLine = canManageSkladki
-      ? `<input type="text" ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, 'czl-field')} data-email="${escapeAttr(m.email)}" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" />
-         <input type="text" class="czl-field" data-email="${escapeAttr(m.email)}" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" />`
-      : `<span ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, m.fullName ? '' : 'czl-empty')}>${cell(m.fullName)}</span>
+    const nameLine = `<span ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, m.fullName ? '' : 'czl-empty')}>${cell(m.fullName)}</span>
          <span class="czl-name-secondary ${m.nickname ? '' : 'czl-empty'}">${cell(m.nickname)}</span>`;
-    const sectionCell = canManageSkladki
-      ? `<select class="czl-field" data-email="${escapeAttr(m.email)}" data-field="sectionId">${sectionOptions(m.sectionId)}</select>`
-      : (m.sectionLabel ? sectionPillHtml(m.sectionId, m.sectionLabel) : EMPTY);
     row.innerHTML = `
-      <td class="czl-section-bar"></td>
+      <td class="czl-section-cell" title="${escapeAttr(m.sectionLabel || 'Brak sekcji')}">${m.sectionId ? escapeHtml(sectionAbbr(m.sectionId)) : EMPTY}</td>
       <td><div class="czl-name-cell">${nameLine}</div></td>
-      <td class="${!canManageSkladki && !m.sectionLabel ? 'czl-empty' : ''}">${sectionCell}</td>
       <td>${escapeHtml(m.email)}</td>
     `;
     tbody.append(row);
@@ -172,55 +142,6 @@ document.querySelectorAll('#czl-table thead th[data-sort-key]').forEach((th) => 
   });
 });
 
-// Saves all 3 editable fields together (the endpoint takes them as one PUT, not per-field) using
-// each field's *current* DOM value, not just the one that just changed - so editing fullName then
-// tabbing to nickname sends the already-updated fullName along with it, not a stale copy. Doesn't
-// call renderTable() on success: re-rendering would resort the table out from under whichever
-// field the admin is about to edit next (e.g. sorted by "Imię i nazwisko" while renaming someone),
-// so `members` is patched in place instead and the DOM is left exactly as the admin sees it.
-async function saveMemberField(row, email) {
-  const fullNameInput = row.querySelector('[data-field="fullName"]');
-  const nicknameInput = row.querySelector('[data-field="nickname"]');
-  const sectionSelect = row.querySelector('[data-field="sectionId"]');
-  const fullName = fullNameInput.value.trim();
-  const nickname = nicknameInput.value.trim();
-  const sectionId = sectionSelect.value;
-  try {
-    await apiFetch(
-      `/lista-wyjazdowa/member?memberEmail=${encodeURIComponent(email)}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullName: fullName || null, nickname: nickname || null, sectionId }),
-      },
-      showReauth,
-      hideReauth,
-    );
-    const member = members.find((m) => m.email === email);
-    if (member) {
-      member.fullName = fullName || null;
-      member.nickname = nickname || null;
-      member.sectionId = sectionId;
-      member.sectionLabel = sections.find((s) => s.id === sectionId)?.label ?? member.sectionLabel;
-    }
-  } catch (err) {
-    window.alert(`Błąd zapisu: ${err.message}`);
-  }
-}
-
-document.getElementById('czl-table-body').addEventListener('change', (e) => {
-  const field = e.target.closest('.czl-field');
-  if (!field) return;
-  const row = field.closest('tr');
-  // The row's left accent updates immediately, before the save even resolves - it's a visual
-  // echo of what's already selected on screen, not a reflection of saved state (the <select>
-  // itself already shows that; a failed save doesn't revert its value either).
-  if (field.dataset.field === 'sectionId') {
-    row.dataset.section = field.value;
-  }
-  saveMemberField(row, field.dataset.email);
-});
-
 // Tapping a row highlights it gold (KRKG-0052) - touch devices have no hover state, so this is the
 // only way to see which row you're currently reading/editing on mobile. Persists until another row
 // is tapped, unlike :hover/:active which fade the instant you lift your finger.
@@ -236,14 +157,8 @@ initGoogleSignIn({
   whoamiPath: '/wojownicy-upload/whoami',
   onSignedIn: async () => {
     try {
-      const [{ members: fetched }, { canManageSkladki: role }, lookupLists] = await Promise.all([
-        apiFetch('/members/directory', { method: 'GET' }, showReauth, hideReauth),
-        apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth),
-        apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
-      ]);
+      const { members: fetched } = await apiFetch('/members/directory', { method: 'GET' }, showReauth, hideReauth);
       members = fetched;
-      canManageSkladki = role;
-      sections = lookupLists.sections ?? [];
       showOnly(panels.directory);
       renderTable();
     } catch (err) {

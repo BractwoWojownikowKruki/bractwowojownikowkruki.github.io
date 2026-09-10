@@ -309,6 +309,13 @@
   font-size: 0.82rem;
 }
 
+/* KRKG-0063: Spis Ludności went read-only the same batch this shipped in - a slightly smaller
+   font matches the tighter, denser feel that suits a plain lookup table better than the previous
+   editable one. */
+#czl-table {
+  font-size: 0.82rem;
+}
+
 /* ── Panel Admina: manage-people list (public/admin/admin.js) ── */
 /* Two columns, filled row-by-row (grid's default auto-flow) so the existing top-to-bottom
    order from the API response reads left-to-right, top-to-bottom - same order as the old
