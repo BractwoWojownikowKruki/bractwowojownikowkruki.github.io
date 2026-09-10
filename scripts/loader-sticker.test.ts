@@ -28,7 +28,6 @@ const staticLoaderSources = [
   'public/zasady-bractwa/index.html',
   'public/zgloszenie/index.html',
   'public/index.html',
-  'templates/social_sidebar.html',
 ];
 
 const loaderContext = /<(p|div)\b[^>]*class="[^"]*\b(?:auth-checking|page-spinner|loading-spinner)\b[^"]*"[^>]*>[\s\S]*?<\/\1>/g;
@@ -102,6 +101,13 @@ test('uses the Hold the Line sticker in every static loading context', async () 
       assert.equal(legacySpinners.length, 0, `${source} should not retain a legacy spinner outside image overlays`);
     }
   }
+});
+
+test('does not show the Hold the Line loader in the YouTube or Instagram sidebar panels', async () => {
+  const html = await readFile(new URL('../templates/social_sidebar.html', import.meta.url), 'utf8');
+
+  assert.match(html, /<div class="youtube-embed">\s*<div id="youtube-feed"><\/div>\s*<\/div>/);
+  assert.match(html, /<div class="instagram-embed">\s*<div id="instagram-feed"><\/div>\s*<\/div>/);
 });
 
 test('uses a compact, screen-reader-labelled Hold the Line sticker in the shared navigation partial', async () => {
