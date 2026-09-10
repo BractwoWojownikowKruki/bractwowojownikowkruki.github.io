@@ -270,12 +270,14 @@
 }
 
 /* Zarządzanie ludźmi's table is the densest one on the site (10 columns as of KRKG-0052) -
-   .main-content's default 1fr 350px grid (style.css) reserves a sidebar column this page never
-   fills (it only ever renders .content-left, no .content-right), so that 350px was pure waste on
-   a desktop screen; collapsing to a single column plus a much higher cap lets the table claim
-   the room it actually needs instead of forcing horizontal scroll. */
+   .main-content's default 1fr 350px grid (style.css) caps out at 1400px total, too narrow for
+   this table. This page's .content-right IS populated though (admin_sidebar.html's Strefa
+   Członków box, shown to any signed-in admin/moderator) - collapsing to a single column would
+   just push that sidebar below the table instead of beside it, so keep the two-column shape and
+   raise the overall cap instead, giving the table roughly the same extra room a single-column
+   layout would have. */
 .main-content--wide {
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 300px;
   max-width: 2000px;
 }
 
