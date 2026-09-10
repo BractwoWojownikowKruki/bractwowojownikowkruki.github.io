@@ -118,6 +118,22 @@ select:focus { border-color: var(--accent); }
 }
 .btn-add-album:hover { background: var(--accent-dark); }
 
+.sheet-backup-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.sheet-backup-link:hover {
+  color: var(--gold);
+  background: rgba(196, 150, 42, 0.12);
+}
+
 .logo-link {
   display: flex;
   align-items: center;
