@@ -22,8 +22,8 @@ function escapeAttr(str) {
 // Section/city color coding (KRKG-0051) - the colors themselves live in exactly one place,
 // member-area.css's [data-section="..."] rules; this only ever emits the data-section attribute a
 // CSS rule keys off, never a color value, so a section's color changes by editing one line there,
-// nowhere else. The row itself (not just this pill) also carries data-section, for member-area.css's
-// .czl-table tr[data-section] td:first-child left-accent rule - kept in sync on change for the
+// nowhere else. The row itself (not just this pill) also carries data-section, for the sticky
+// .czl-section-bar column's --section-c (member-area.css) - kept in sync on change for the
 // editable case (see the czl-field change handler below).
 function sectionPillHtml(sectionId, label) {
   return `<span class="section-pill" data-section="${escapeAttr(sectionId ?? '')}">${escapeHtml(label)}</span>`;
@@ -135,6 +135,7 @@ function renderTable() {
       ? `<select class="czl-field" data-email="${escapeAttr(m.email)}" data-field="sectionId">${sectionOptions(m.sectionId)}</select>`
       : (m.sectionLabel ? sectionPillHtml(m.sectionId, m.sectionLabel) : EMPTY);
     row.innerHTML = `
+      <td class="czl-section-bar"></td>
       <td><div class="czl-name-cell">${nameLine}</div></td>
       <td class="${!canManageSkladki && !m.sectionLabel ? 'czl-empty' : ''}">${sectionCell}</td>
       <td>${escapeHtml(m.email)}</td>

@@ -274,6 +274,7 @@ function renderRoster(roster, signups) {
       const weaponIconsHtml = member.weaponIds.map((id) => weaponIconHtml(id, weaponLabelById.get(id) ?? id)).join('');
       return `
     <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
+      <td class="czl-section-bar"></td>
       <td class="lw-roster-name-cell">
         <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
       </td>

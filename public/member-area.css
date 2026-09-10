@@ -700,11 +700,26 @@ button.lw-skladka-icon:disabled {
   border-left: 8px solid var(--section-c, var(--section-color-default));
 }
 
-/* Table rows (Spis Ludności's .czl-table) can't take a visible border directly on <tr> under
-   border-collapse - only the leftmost <td> can show it. --section-c still comes from the <tr>'s
-   own [data-section="..."] rule/inheritance above; naming ".czl-table" here (rather than a bare
-   "tr[data-section]") keeps this from also matching some unrelated table elsewhere on the site. */
-.czl-table tr[data-section] td:first-child {
-  border-left: 8px solid var(--section-c, var(--section-color-default));
-  padding-left: 0.7rem;
+/* Sekcja color bar (KRKG-0052) - a dedicated first column rather than a border on the name cell,
+   so it can be pinned with position:sticky and stay visible while a dense table (Zarządzanie
+   ludźmi especially) scrolls horizontally on a narrow screen. --section-c comes from the <tr>'s
+   own [data-section="..."] rule/inheritance above - the bar cell itself carries no data-section,
+   it just paints whatever custom property it inherits. Needs an explicit opaque background (the
+   section color itself) since a sticky cell with no background lets scrolling content underneath
+   show through the gap. z-index keeps it above the cells sliding past on scroll; thead's copy
+   only needs the sticky positioning, its background already comes from .czl-table thead th. */
+.czl-table td.czl-section-bar,
+.czl-table th.czl-section-bar {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 6px;
+  min-width: 6px;
+  max-width: 6px;
+  padding: 0;
+  border: none;
+}
+
+.czl-table td.czl-section-bar {
+  background: var(--section-c, var(--section-color-default));
 }

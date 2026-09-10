@@ -241,7 +241,7 @@ function roleCheckboxesHtml(roles) {
 function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections, categories) {
   const tbody = document.getElementById('membership-members-list');
   if (!members.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="czl-empty">Brak członków w tym statusie.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     return;
   }
   // Grouped by section, alphabetical within it (KRKG-0051) - same rule as czlonkowie.js's Sekcja
@@ -272,6 +272,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       const isFlagged = (!m.sectionId || m.sectionId === 'nieznana') && !m.categoryId;
       return `
     <tr class="membership-member${isFlagged ? ' membership-member--flagged' : ''}" data-email="${escapeAttr(m.email)}" data-section="${escapeAttr(m.sectionId ?? '')}">
+      <td class="czl-section-bar"></td>
       <td>
         <div class="czl-name-cell">
           <input type="text" class="czl-field category-name-pill" ${categoryNamePillAttrs(m.categoryId, categories)} data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" />
