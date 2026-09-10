@@ -194,7 +194,9 @@
 }
 
 /* Imię i nazwisko + Ksywa share one cell, name above nickname below (KRKG-0053) - one fewer
-   column on every member table. Used for both plain text and the two stacked .czl-field inputs. */
+   column than a dedicated Ksywa column would cost. Used for both plain text and the two stacked
+   .czl-field inputs. Zarządzanie ludźmi (KRKG-0052) opted out in favor of its own Ksywa column -
+   that table is dense enough already that a shared cell wasn't buying much clarity. */
 .czl-name-cell {
   display: flex;
   flex-direction: column;
@@ -271,12 +273,21 @@
   font-size: 0.85em;
 }
 
-/* Zarządzanie ludźmi's table is the densest one on the site (9 columns) - .main-content's default
-   1400px cap (style.css) leaves the sidebar's fixed 350px eating into that badly on a wide
-   desktop screen. Widening only the cap here, not the grid itself, keeps the sidebar column at
-   its normal width while giving .content-left (and the table inside it) the rest. */
+/* Zarządzanie ludźmi's table is the densest one on the site (10 columns as of KRKG-0052) -
+   .main-content's default 1fr 350px grid (style.css) reserves a sidebar column this page never
+   fills (it only ever renders .content-left, no .content-right), so that 350px was pure waste on
+   a desktop screen; collapsing to a single column plus a much higher cap lets the table claim
+   the room it actually needs instead of forcing horizontal scroll. */
 .main-content--wide {
-  max-width: 1700px;
+  grid-template-columns: 1fr;
+  max-width: 2000px;
+}
+
+/* KRKG-0052: scoped to this one table - it's the densest on the site, so a slightly smaller
+   font buys back some of the width a plain column count otherwise demands. Other member tables
+   stay at .czl-table's own 0.9rem; this only tightens Zarządzanie ludźmi's. */
+#membership-table {
+  font-size: 0.82rem;
 }
 
 /* ── Panel Admina: manage-people list (public/admin/admin.js) ── */
