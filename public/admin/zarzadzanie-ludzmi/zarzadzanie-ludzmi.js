@@ -128,17 +128,38 @@ function loadCategories() {
   return loadLookupLists().then(data => data.categories ?? []);
 }
 
+// 3-letter Sekcja abbreviations (KRKG-0063) for the compact, sticky first column - a display-only
+// convenience, not a second source of truth: sections/seed-lookup-lists.ts's fixed 6-id set is
+// still where a section's real label (and member-area.css's colors) come from. Falls back to the
+// id's own first 3 letters for anything not in this map (e.g. "nieznana"), same
+// never-hide-an-unresolved-reference spirit as the raw-id fallback below.
+const SECTION_ABBR = {
+  bydgoszcz: 'BDG',
+  czukcze: 'CZU',
+  krakow: 'KRK',
+  poznan: 'POZ',
+  warszawa: 'WAW',
+  wroclaw: 'WRO',
+};
+function sectionAbbr(sectionId) {
+  return SECTION_ABBR[sectionId] ?? (sectionId ?? '').slice(0, 3).toUpperCase();
+}
+
 // A retired section (design.md §5, mirrors czlonkowie.js/profil.js) is withdrawn from *new*
 // selection, but must still resolve for a member who already has it. A sectionId with no
 // matching entry at all (e.g. "nieznana", migrate-existing-members.ts's fallback for an unknown
 // section) gets a synthesized fallback option instead of vanishing from the dropdown entirely -
-// same "never hide an unresolved reference" fix as czlonkowie.js/profil.js.
+// same "never hide an unresolved reference" fix as czlonkowie.js/profil.js. Options show the
+// abbreviation, not the full label (KRKG-0063) - the <select> itself is now the compact colored
+// cell, so its collapsed and expanded states stay the same width; the full name is still one
+// click/tap away as each <option>'s title-less native tooltip via its own text, and via this
+// cell's own title attribute set in the change handler below.
 function sectionOptions(sections, currentSectionId) {
   const options = sections
     .filter(s => !s.retired || s.id === currentSectionId)
-    .map(s => `<option value="${escapeAttr(s.id)}" ${s.id === currentSectionId ? 'selected' : ''}>${escapeHtml(s.label)}</option>`);
+    .map(s => `<option value="${escapeAttr(s.id)}" ${s.id === currentSectionId ? 'selected' : ''}>${escapeHtml(sectionAbbr(s.id))}</option>`);
   if (currentSectionId && !sections.some(s => s.id === currentSectionId)) {
-    options.unshift(`<option value="${escapeAttr(currentSectionId)}" selected>${escapeHtml(currentSectionId)}</option>`);
+    options.unshift(`<option value="${escapeAttr(currentSectionId)}" selected>${escapeHtml(sectionAbbr(currentSectionId))}</option>`);
   }
   return options.join('');
 }
@@ -244,7 +265,7 @@ function roleCheckboxesHtml(roles) {
 function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections, categories) {
   const tbody = document.getElementById('membership-members-list');
   if (!members.length) {
-    tbody.innerHTML = '<tr><td colspan="11" class="czl-empty">Brak członków w tym statusie.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     return;
   }
   // Grouped by section, alphabetical within it (KRKG-0051) - same rule as czlonkowie.js's Sekcja
@@ -275,10 +296,9 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       const isFlagged = (!m.sectionId || m.sectionId === 'nieznana') && !m.categoryId;
       return `
     <tr class="membership-member${isFlagged ? ' membership-member--flagged' : ''}" data-email="${escapeAttr(m.email)}" data-section="${escapeAttr(m.sectionId ?? '')}">
-      <td class="czl-section-bar"></td>
+      <td class="czl-section-cell" title="${escapeAttr(sectionLabel(m.sectionId) || 'Brak sekcji')}"><select class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
       <td><input type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" /></td>
       <td><input type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" /></td>
-      <td><select class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
       <td ${categoryCellAttrs(m.categoryId, categories)}><select class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>
       <td><input type="checkbox" class="member-hidden-checkbox" data-field="hidden" ${m.hidden ? 'checked' : ''} /></td>
       <td>${escapeHtml(m.email)}</td>
@@ -366,6 +386,9 @@ document.getElementById('membership-members-list').addEventListener('change', as
     // state, just what's already visibly selected.
     if (profileField.dataset.field === 'sectionId') {
       row.dataset.section = profileField.value;
+      const sectionCell = profileField.closest('td');
+      const fullLabel = membershipMembersCache.sections.find(s => s.id === profileField.value)?.label;
+      sectionCell.title = fullLabel || profileField.value || 'Brak sekcji';
     }
     if (profileField.dataset.field === 'categoryId') {
       const typCell = profileField.closest('td');
