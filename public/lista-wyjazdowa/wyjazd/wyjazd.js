@@ -39,6 +39,23 @@ function weaponIconHtml(id, label) {
     : `<span class="lw-weapon-icon lw-weapon-icon--text" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
 }
 
+// 3-letter Sekcja abbreviations (KRKG-0063) for the compact, sticky first column - a display-only
+// convenience, not a second source of truth: sections/seed-lookup-lists.ts's fixed 6-id set is
+// still where a section's real label (sectionLabelById below) and member-area.css's colors (via
+// --section-c) come from. Falls back to the id's own first 3 letters for anything not in this map
+// (e.g. "nieznana"), same never-hide-an-unresolved-reference spirit as sectionLabelById's own.
+const SECTION_ABBR = {
+  bydgoszcz: 'BDG',
+  czukcze: 'CZU',
+  krakow: 'KRK',
+  poznan: 'POZ',
+  warszawa: 'WAW',
+  wroclaw: 'WRO',
+};
+function sectionAbbr(sectionId) {
+  return SECTION_ABBR[sectionId] ?? (sectionId ?? '').slice(0, 3).toUpperCase();
+}
+
 // Typ (categoryId) shown by wrapping the name itself in a colored outline pill, instead of its
 // own column or a second pill next to the name (KRKG-0057) - same never-a-color-value-in-JS
 // convention as sectionPillHtml elsewhere; the colors themselves live in member-area.css's
@@ -249,7 +266,7 @@ function renderRoster(roster, signups) {
 
   const tbody = document.getElementById('roster-content');
   if (visible.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="3" class="czl-empty">Brak osób do wyświetlenia.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="czl-empty">Brak osób do wyświetlenia.</td></tr>';
     return;
   }
 
@@ -274,7 +291,7 @@ function renderRoster(roster, signups) {
       const weaponIconsHtml = member.weaponIds.map((id) => weaponIconHtml(id, weaponLabelById.get(id) ?? id)).join('');
       return `
     <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
-      <td class="czl-section-bar"></td>
+      <td class="czl-section-cell" title="${escapeAttr(sectionSortLabel(member) || 'Brak sekcji')}">${member.sectionId ? escapeHtml(sectionAbbr(member.sectionId)) : EMPTY}</td>
       <td class="lw-roster-name-cell">
         <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
       </td>
