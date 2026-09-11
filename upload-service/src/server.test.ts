@@ -1639,6 +1639,280 @@ test('PUT /admin/people/photo/transfer rejects a missing targetFolderId', async 
   });
 });
 
+test('PUT /admin/people/photo/approve rejects a caller without step-up', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => {
+      throw new AuthError('Wymagane ponowne potwierdzenie tożsamości.', 401);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
+    });
+    assert.equal(res.status, 401);
+  });
+});
+
+test('PUT /admin/people/photo/approve rejects an unknown targetCategory with 400, before touching Drive', async () => {
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      readTextFile: async () => {
+        throw new Error('should not read anything before category validation');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 's1', targetCategory: 'upload', name: 'Test' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/people/photo/approve returns 404 when the staging folder has no .owner-email marker', async () => {
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      readTextFile: async () => null,
+      moveFile: async () => {
+        throw new Error('should not move a file for an unowned folder');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('PUT /admin/people/photo/approve returns 404 when .owner-email resolves to no MemberDoc', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      readTextFile: async (id, fileName) => (id === 's1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
+      moveFile: async () => {
+        throw new Error('should not move a file for an unresolved owner');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('PUT /admin/people/photo/approve returns 404 when the supplied stagingFolderId is not the member\'s current canonical one (stale/legacy folder)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'current-staging-folder' }));
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      readTextFile: async (id, fileName) => (id === 'stale-folder' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
+      moveFile: async () => {
+        throw new Error('should not move a file for a non-canonical staging folder');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 'stale-folder', targetCategory: 'Blachowi', name: 'Test' }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('PUT /admin/people/photo/approve returns 404 when fileId does not belong to the staging folder', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 's1' }));
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      readTextFile: async (id, fileName) => (id === 's1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
+      listImageFiles: async () => [{ id: 'other-file', name: 'other.jpg', thumbnailLink: 'https://example.test/other=s220' }],
+      moveFile: async () => {
+        throw new Error('should not move a file not listed in the staging folder');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('PUT /admin/people/photo/approve, first approval, rejects a missing name with 400 before creating any folder', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 's1', driveFolderId: null }));
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      readTextFile: async (id, fileName) => (id === 's1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
+      listImageFiles: async () => [{ id: 'f1', name: 'f1.jpg', thumbnailLink: 'https://example.test/f1=s220' }],
+      createAlbumFolder: async () => {
+        throw new Error('should not create a folder without a name');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 's1', targetCategory: 'Blachowi' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/people/photo/approve, first approval: creates the public folder named only from the supplied name, links driveFolderId, moves the file, keeps its ! prefix', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'anna@gmail.com', seedMemberDoc({
+    email: 'anna@gmail.com',
+    fullName: 'Anna Kowalska',
+    nickname: 'Storm',
+    stagingFolderId: 'staging-anna',
+    driveFolderId: null,
+  }));
+  let createdFolderName = '';
+  let movedTo = '';
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `folder-${name}`,
+      readTextFile: async (id, fileName) => (id === 'staging-anna' && fileName === '.owner-email' ? 'anna@gmail.com' : null),
+      listImageFiles: async id => (id === 'staging-anna' ? [{ id: 'f1', name: '!f1.jpg', thumbnailLink: 'https://example.test/f1=s220' }] : []),
+      createAlbumFolder: async (_parent, name) => {
+        createdFolderName = name;
+        return 'new-public-folder';
+      },
+      moveFile: async (fileId, targetFolderId) => {
+        movedTo = targetFolderId;
+        return { previousFolderId: 'staging-anna' };
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 'staging-anna', targetCategory: 'Blachowi', name: 'Storm Wojowniczka' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.folderId, 'new-public-folder');
+  });
+  assert.equal(createdFolderName, 'Storm Wojowniczka');
+  assert.ok(!createdFolderName.includes('anna@gmail.com'), 'public folder name must never contain the email');
+  assert.equal(movedTo, 'new-public-folder');
+  const updated = await firestore.getDoc<{ driveFolderId: string | null }>('members', 'anna@gmail.com');
+  assert.equal(updated?.driveFolderId, 'new-public-folder');
+  // Review-round-2 blocker #1: the admin-owned driveFolderId link must be its own audited
+  // Firestore mutation (profile.drive_folder.changed, the same action/route
+  // handleAdminSetMemberDriveFolder already uses for this exact field), not a bare setDoc.
+  const events = (await firestore.listDocs('auditEvents')).map(doc => doc.data as { action: string; changes: Array<{ field: string; before?: unknown; after?: unknown }> });
+  const driveFolderEvent = events.find(e => e.action === 'profile.drive_folder.changed');
+  assert.ok(driveFolderEvent, 'expected a profile.drive_folder.changed audit event');
+  const folderIdChange = driveFolderEvent!.changes.find(c => c.field === 'folderId');
+  assert.equal(folderIdChange?.before, null);
+  assert.equal(folderIdChange?.after, 'new-public-folder');
+});
+
+test('PUT /admin/people/photo/approve, subsequent approval: moves the file into the existing public folder and strips its ! prefix when the folder already has a main photo', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'staging-1', driveFolderId: 'existing-public-folder' }));
+  let renamedTo = '';
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      readTextFile: async (id, fileName) => (id === 'staging-1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
+      listImageFiles: async id => {
+        if (id === 'staging-1') return [{ id: 'f2', name: '!f2.jpg', thumbnailLink: 'https://example.test/f2=s220' }];
+        if (id === 'existing-public-folder') return [
+          { id: 'existing-main', name: '!existing-main.jpg', thumbnailLink: 'https://example.test/main=s220' },
+          { id: 'f2', name: '!f2.jpg', thumbnailLink: 'https://example.test/f2=s220' },
+        ];
+        return [];
+      },
+      moveFile: async () => ({ previousFolderId: 'staging-1' }),
+      renameFolder: async (id, newName) => {
+        if (id === 'f2') renamedTo = newName;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'f2', stagingFolderId: 'staging-1', targetCategory: 'Blachowi' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.folderId, 'existing-public-folder');
+  });
+  assert.equal(renamedTo, 'f2.jpg', 'the incoming ! prefix must be stripped since the target already had a main photo');
+});
+
+test('PUT /admin/people/photo/approve: a failure during the post-transfer !main normalization is itself audited as failed, without losing the already-succeeded transfer', async () => {
+  // Review-round-2 blocker #2: the normalization step must be its own auditable, failure-visible
+  // operation - not a bare, unaudited rename that could silently leave an inconsistent two-!
+  // state with no trace. This test forces the rename to throw and asserts both outcomes are
+  // correctly recorded: transferred = succeeded, main.changed = failed. Once the photo has moved,
+  // "Zatwierdź" can no longer be retried for it (it's not in staging anymore) - recovery is the
+  // existing "Ustaw główne" button on the now-public folder, a manual step.
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'staging-1', driveFolderId: 'existing-public-folder' }));
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      readTextFile: async (id, fileName) => (id === 'staging-1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
+      listImageFiles: async id => {
+        if (id === 'staging-1') return [{ id: 'f2', name: '!f2.jpg', thumbnailLink: 'https://example.test/f2=s220' }];
+        if (id === 'existing-public-folder') return [
+          { id: 'existing-main', name: '!existing-main.jpg', thumbnailLink: 'https://example.test/main=s220' },
+          { id: 'f2', name: '!f2.jpg', thumbnailLink: 'https://example.test/f2=s220' },
+        ];
+        return [];
+      },
+      moveFile: async () => ({ previousFolderId: 'staging-1' }),
+      renameFolder: async () => {
+        throw new Error('Drive rename failed');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'f2', stagingFolderId: 'staging-1', targetCategory: 'Blachowi' }),
+    });
+    assert.equal(res.status, 500);
+  });
+  const events = (await firestore.listDocs('auditEvents')).map(doc => doc.data as { action: string });
+  assert.ok(events.some(e => e.action === 'profile.person.photo.transferred'), 'the transfer itself must still be recorded as succeeded - it completed before the rename ran');
+  const outcomes = (await firestore.listDocs('auditOperationOutcomes')).map(doc => doc.data as { state: string });
+  assert.ok(outcomes.some(o => o.state === 'failed'), 'the normalization attempt must be recorded as failed, never silently dropped or fabricated as succeeded');
+});
+
 test('PUT /admin/people/in-memoriam writes the marker file and invalidates the cache', async () => {
   let writtenTo: string | undefined;
   let writtenName: string | undefined;

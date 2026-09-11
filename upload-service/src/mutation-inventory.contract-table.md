@@ -38,6 +38,7 @@ Last synced with implementation-contract.md: 2026-09-09 (KRKG-0050 batch 6, Appl
 | POST/DELETE `/admin/people/photo` | businessWrite — `profile.person.photo.added` / `profile.person.photo.deleted` | person; Drive/Firestore | auditedOperationEnvelope |
 | PUT `/admin/people/photo/main` | businessWrite — `profile.person.photo.main.changed` | person; Drive file rename | auditedOperationEnvelope |
 | PUT `/admin/people/photo/transfer` | businessWrite — `profile.person.photo.transferred` | person; Drive file move | auditedOperationEnvelope |
+| PUT `/admin/people/photo/approve` | businessWrite — `profile.person.created` / `profile.drive_folder.changed` / `profile.person.photo.transferred` / `profile.person.photo.main.changed` | person / member; Drive folder create + file move + optional rename, Firestore driveFolderId link | auditedOperationEnvelope |
 | PUT `/admin/people/in-memoriam` | businessWrite — `profile.person.in_memoriam.changed` | person; Drive marker file | auditedOperationEnvelope |
 | POST `/wojownicy-upload/submit` | businessWrite — `profile.photo_submission.created` | member submission; Drive folder; provisional key then final submission folder key | auditedOperationEnvelope |
 | POST `/wojownicy-upload/photo` | businessWrite — `profile.photo_submission.photo_added` | member submission; Drive photo | auditedOperationEnvelope |

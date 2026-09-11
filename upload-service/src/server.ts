@@ -1287,9 +1287,35 @@ async function handleAdminSetMainPhoto(req: IncomingMessage, res: ServerResponse
   const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, fileId } = await readJsonBody<{ folderId?: string; fileId?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId || !fileId) throw new AuthError('Brak folderId lub fileId.', 400);
-  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.main.changed', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'mainPhoto', after: fileId }] }, async () => { const images = await deps.drive.listImageFiles(folderId); for (const image of images) { const isTarget = image.id === fileId; const hasMainPrefix = image.name.startsWith('!'); if (isTarget && !hasMainPrefix) await deps.drive.renameFolder(image.id, `!${image.name}`); else if (!isTarget && hasMainPrefix) await deps.drive.renameFolder(image.id, image.name.slice(1)); } });
+  await auditedSetMainPhoto(deps, identity.email, folderId, fileId);
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
+}
+
+// Extracted from handleAdminSetMainPhoto (KRKG-0070) so handleAdminApprovePhoto's post-transfer
+// !main normalization is itself audited exactly the same way "Ustaw główne" already is - not a
+// bare, untracked drive.renameFolder call. Designates fileId as the one "!"-prefixed (main) photo
+// in folderId, stripping the prefix from whichever other file currently has it, so exactly one
+// photo is ever marked main at a time.
+async function auditedSetMainPhoto(deps: ServerDeps, actorEmail: string, folderId: string, fileId: string): Promise<void> {
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'profile.person.photo.main.changed',
+      actor: { email: actorEmail },
+      resource: { kind: 'person', key: `person:${folderId}`, display: folderId },
+      changes: [{ field: 'mainPhoto', after: fileId }],
+    },
+    async () => {
+      const images = await deps.drive.listImageFiles(folderId);
+      for (const image of images) {
+        const isTarget = image.id === fileId;
+        const hasMainPrefix = image.name.startsWith('!');
+        if (isTarget && !hasMainPrefix) await deps.drive.renameFolder(image.id, `!${image.name}`);
+        else if (!isTarget && hasMainPrefix) await deps.drive.renameFolder(image.id, image.name.slice(1));
+      }
+    },
+  );
 }
 
 // Moves a single photo into a different person's folder - see moveFile in drive.ts for why
@@ -1313,11 +1339,19 @@ async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerRespons
     deps.maxJsonBodyBytes,
   );
   if (!fileId || !targetFolderId) throw new AuthError('Brak fileId lub targetFolderId.', 400);
+  await transferOnePhoto(deps, identity.email, fileId, targetFolderId);
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
+}
+
+// Shared by handleAdminTransferPhoto and handleAdminApprovePhoto (KRKG-0070) - identical
+// action/event shape (source + destination Historia events), extracted rather than duplicated.
+async function transferOnePhoto(deps: ServerDeps, actorEmail: string, fileId: string, targetFolderId: string): Promise<void> {
   await executeAuditedExternalMutation(
     deps.firestore,
     {
       action: 'profile.person.photo.transferred',
-      actor: { email: identity.email },
+      actor: { email: actorEmail },
       resource: { kind: 'person', key: `person:${targetFolderId}`, display: targetFolderId },
       changes: [{ field: 'fileId', after: fileId }, { field: 'folderId', after: targetFolderId }],
     },
@@ -1326,14 +1360,14 @@ async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerRespons
       eventInput: ({ previousFolderId }) => {
         const destinationEvent: CanonicalAuditEventInput = {
           action: 'profile.person.photo.transferred',
-          actor: { email: identity.email },
+          actor: { email: actorEmail },
           resource: { kind: 'person', key: `person:${targetFolderId}`, display: targetFolderId },
           changes: [{ field: 'fileId', after: fileId }, { field: 'folderId', after: targetFolderId }],
         };
         if (!previousFolderId || previousFolderId === targetFolderId) return destinationEvent;
         const sourceEvent: CanonicalAuditEventInput = {
           action: 'profile.person.photo.transferred',
-          actor: { email: identity.email },
+          actor: { email: actorEmail },
           resource: { kind: 'person', key: `person:${previousFolderId}`, display: previousFolderId },
           changes: [{ field: 'fileId', before: fileId }, { field: 'folderId', after: targetFolderId }],
         };
@@ -1341,8 +1375,125 @@ async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerRespons
       },
     },
   );
+}
+
+// KRKG-0070: replaces "Przenieś" (handleAdminMovePerson) as the way to approve a pending upload
+// - moves a single file from the member's stable stagingFolderId into their stable public
+// driveFolderId, creating the public folder (named ONLY from the admin-supplied `name`, never
+// from MemberDoc.fullName/nickname/the staging folder's own name - see design.md) the first time
+// only. Every effect below is its own separately audited operation (never combined - see the
+// module comment on executeAuditedExternalMutation requiring every emitted event to share the
+// intent's declared action): folder creation reuses handleAdminCreatePerson's exact
+// profile.person.created shape, the driveFolderId link reuses handleAdminSetMemberDriveFolder's
+// exact profile.drive_folder.changed shape (this is an admin-owned Firestore field with its own
+// established audited write path, not something to bypass with a bare setDoc), the file move
+// reuses handleAdminTransferPhoto's exact profile.person.photo.transferred shape, and the !main
+// cleanup reuses handleAdminSetMainPhoto's exact profile.person.photo.main.changed shape via
+// auditedSetMainPhoto - if that last step fails, it is a failed, traceable Historia entry rather
+// than a silent gap, and the manual recovery path is the pre-existing "Ustaw główne" button on
+// the now-public folder: a retry of "Zatwierdź" itself is not possible at that point since the
+// file has already left staging.
+async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  const { fileId, stagingFolderId, targetCategory, name } = await readJsonBody<{
+    fileId?: string;
+    stagingFolderId?: string;
+    targetCategory?: string;
+    name?: string;
+  }>(req, deps.maxJsonBodyBytes);
+  if (!fileId || !stagingFolderId) throw new AuthError('Brak fileId lub stagingFolderId.', 400);
+  const validCategory = parseAboutUsCategory(targetCategory ?? null);
+
+  const ownerEmailRaw = await deps.drive.readTextFile(stagingFolderId, '.owner-email');
+  const ownerEmail = ownerEmailRaw?.trim().toLowerCase();
+  if (!ownerEmail) {
+    sendJson(res, 404, { error: 'Nie znaleziono właściciela tego zgłoszenia.' });
+    return;
+  }
+  const member = await getMember(deps.firestore, ownerEmail);
+  if (!member) {
+    sendJson(res, 404, { error: 'Nie znaleziono właściciela tego zgłoszenia.' });
+    return;
+  }
+  if (member.stagingFolderId !== stagingFolderId) {
+    sendJson(res, 404, { error: 'To nie jest aktualny folder zgłoszeniowy tej osoby.' });
+    return;
+  }
+  const stagingImages = await deps.drive.listImageFiles(stagingFolderId);
+  const stagingImage = stagingImages.find(img => img.id === fileId);
+  if (!stagingImage) {
+    sendJson(res, 404, { error: 'Ten plik nie należy do tego folderu.' });
+    return;
+  }
+  const wasMain = stagingImage.name.startsWith('!');
+
+  let targetFolderId: string;
+  if (member.driveFolderId) {
+    targetFolderId = member.driveFolderId;
+    await transferOnePhoto(deps, identity.email, fileId, targetFolderId);
+  } else {
+    if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
+    const correlationId = randomUUID();
+    const provisionalResourceKey = `person:pending:${correlationId}`;
+    const { result: newFolderId } = await executeAuditedExternalMutation(
+      deps.firestore,
+      {
+        action: 'profile.person.created',
+        actor: { email: identity.email },
+        resource: { kind: 'person', key: provisionalResourceKey, display: name.trim() },
+        changes: [{ field: 'name', after: name.trim() }, { field: 'category', after: validCategory }],
+      },
+      async () => {
+        const folders = await bootstrapAboutUsStructure(deps.drive);
+        return deps.drive.createAlbumFolder(folders.categories[validCategory], buildPersonFolderName(name, null));
+      },
+      {
+        correlationId,
+        provisionalResourceKey,
+        eventInput: id => ({
+          action: 'profile.person.created',
+          actor: { email: identity.email },
+          resource: { kind: 'person', key: `person:${id}`, display: name.trim() },
+          changes: [{ field: 'name', after: name.trim() }, { field: 'category', after: validCategory }],
+        }),
+      },
+    );
+    targetFolderId = newFolderId;
+    // Admin-owned field - audited exactly like the existing "Folder na stronie" admin action
+    // (handleAdminSetMemberDriveFolder), reusing the same declared route/action rather than a
+    // bare Firestore write, so this link change is traceable in Historia.
+    await executeDeclaredAuditedMutation(
+      deps,
+      AUDITED_MEMBER_MUTATION_ROUTES.memberDriveFolder,
+      'profile.drive_folder.changed',
+      async tx => {
+        const current = await tx.getDoc<MemberDoc>('members', ownerEmail);
+        return {
+          actor: { email: identity.email },
+          resource: { kind: 'member', key: `member:${ownerEmail}`, display: 'member' },
+          changes: [{ field: 'folderId', before: current?.driveFolderId ?? null, after: targetFolderId }],
+        };
+      },
+      tx => setMemberDriveFolderId(tx, ownerEmail, targetFolderId),
+    );
+    await transferOnePhoto(deps, identity.email, fileId, targetFolderId);
+  }
+
+  // Inwariant jednego "!" (design.md §3 krok 8): re-list the target folder AFTER the move; if
+  // some OTHER file there already carries "!", re-assert IT as main via the same audited
+  // operation "Ustaw główne" uses (auditedSetMainPhoto) - covers both branches above uniformly (a
+  // freshly created folder never has another file yet, so this block is a no-op there and the
+  // incoming file's own "!" is simply left in place).
+  if (wasMain) {
+    const targetImages = await deps.drive.listImageFiles(targetFolderId);
+    const existingMain = targetImages.find(img => img.id !== fileId && img.name.startsWith('!'));
+    if (existingMain) {
+      await auditedSetMainPhoto(deps, identity.email, targetFolderId, existingMain.id);
+    }
+  }
+
   invalidateAboutUsCache();
-  sendJson(res, 200, { ok: true });
+  sendJson(res, 200, { folderId: targetFolderId });
 }
 
 // Toggles the "Oznacz jako in memoriam" marker (see IN_MEMORIAM_FILE_NAME in about-us.ts) - the
@@ -3343,6 +3494,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminSetMainPhoto(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/photo/transfer') {
         await handleAdminTransferPhoto(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/people/photo/approve') {
+        await handleAdminApprovePhoto(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/in-memoriam') {
         await handleAdminSetInMemoriam(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/wojownicy-upload/whoami') {
