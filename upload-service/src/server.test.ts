@@ -4171,9 +4171,9 @@ test('/wojownicy-upload/submit creates a fresh staging folder for an already-pub
   assert.equal(member?.driveFolderId, 'approved-folder', 'driveFolderId (public, admin-owned) must never be touched by a submission');
 });
 
-test('GET /lista-wyjazdowa/profile/photo returns null when the member has no driveFolderId', async () => {
+test('GET /lista-wyjazdowa/profile/photo returns both null when the member has neither folder', async () => {
   const firestore = createInMemoryFirestoreClient();
-  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: null }));
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: null, stagingFolderId: null }));
   const deps = makeDeps({
     firestore,
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
@@ -4182,38 +4182,34 @@ test('GET /lista-wyjazdowa/profile/photo returns null when the member has no dri
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo`);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.equal(body.submission, null);
+    assert.equal(body.public, null);
+    assert.equal(body.pending, null);
   });
 });
 
-test('GET /lista-wyjazdowa/profile/photo returns the member\'s own photos with pendingApproval reflecting the folder\'s current parent', async () => {
-  resetAboutUsBootstrapForTests();
+test('GET /lista-wyjazdowa/profile/photo returns public and pending independently when both folders exist', async () => {
   const firestore = createInMemoryFirestoreClient();
-  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'my-folder' }));
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'public-folder', stagingFolderId: 'staging-folder' }));
   const deps = makeDeps({
     firestore,
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
     drive: makeFakeDrive({
-      ensureFolder: async (parent, name) => (name === 'upload' ? 'upload-root' : `ensured-${name}`),
-      folderExists: async id => id === 'my-folder',
-      getFolderParentId: async () => 'upload-root',
-      listImageFiles: async id =>
-        id === 'my-folder'
-          ? [
-              { id: 'main-id', name: '!main.jpg', thumbnailLink: 'https://example.test/main=s220' },
-              { id: 'extra-id', name: 'extra.jpg', thumbnailLink: 'https://example.test/extra=s220' },
-            ]
-          : [],
+      folderExists: async id => id === 'public-folder' || id === 'staging-folder',
+      listImageFiles: async id => {
+        if (id === 'public-folder') return [{ id: 'pub-main', name: '!main.jpg', thumbnailLink: 'https://example.test/pub-main=s220' }];
+        if (id === 'staging-folder') return [{ id: 'stg-main', name: '!main.jpg', thumbnailLink: 'https://example.test/stg-main=s220' }];
+        return [];
+      },
+      readTextFile: async (id, fileName) => (id === 'public-folder' && fileName === 'Opis.txt' ? 'Opis publiczny.' : null),
     }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo`);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.equal(body.submission.pendingApproval, true);
-    assert.equal(body.submission.mainPhoto.id, 'main-id');
-    assert.equal(body.submission.photos.length, 1);
-    assert.equal(body.submission.photos[0].id, 'extra-id');
+    assert.equal(body.public.mainPhoto.id, 'pub-main');
+    assert.equal(body.public.description, 'Opis publiczny.');
+    assert.equal(body.pending.photos[0].id, 'stg-main');
   });
 });
 
@@ -4265,6 +4261,40 @@ test('GET /member-profile returns basic fields, no photos, no description when t
     assert.deepEqual(body.photos, []);
     assert.equal(body.description, null);
     assert.equal(body.published, false);
+    assert.deepEqual(body.pendingPhotos, []);
+  });
+});
+
+test('GET /member-profile returns pendingPhotos alongside a published profile when both folders are set', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'public-folder', stagingFolderId: 'staging-folder' }));
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['ktos@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `folder-${name}`,
+      folderExists: async id => id === 'public-folder' || id === 'staging-folder',
+      listImageFiles: async id => {
+        if (id === 'public-folder') return [{ id: 'pub-main', name: '!main.jpg', thumbnailLink: 'https://example.test/pub-main=s220' }];
+        if (id === 'staging-folder') return [{ id: 'stg-main', name: '!main.jpg', thumbnailLink: 'https://example.test/stg-main=s220' }];
+        return [];
+      },
+      readTextFile: async (id, fileName) => (id === 'public-folder' && fileName === 'Opis.txt' ? 'Opis publiczny.' : null),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.published, true);
+    assert.equal(body.mainPhoto.id, 'pub-main');
+    assert.equal(body.description, 'Opis publiczny.');
+    assert.equal(body.pendingPhotos[0].id, 'stg-main');
   });
 });
 
@@ -4305,10 +4335,10 @@ test('GET /member-profile returns photos and description when driveFolderId is u
   });
 });
 
-test('GET /member-profile returns photos but no description when driveFolderId is still under the private upload root', async () => {
+test('GET /member-profile returns pendingPhotos with no description when the member only has a stagingFolderId, no driveFolderId (KRKG-0070)', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
-  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'pending-folder' }));
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: null, stagingFolderId: 'pending-folder' }));
   const deps = makeDeps({
     firestore,
     listMemberEmails: async () => ['ktos@gmail.com'],
@@ -4317,12 +4347,10 @@ test('GET /member-profile returns photos but no description when driveFolderId i
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
     drive: makeFakeDrive({
-      ensureFolder: async (_parent, name) => (name === 'upload' ? 'upload-root' : `folder-${name}`),
       folderExists: async id => id === 'pending-folder',
-      getFolderParentId: async id => (id === 'pending-folder' ? 'upload-root' : null),
       listImageFiles: async id => (id === 'pending-folder' ? [{ id: 'img-pending', name: '!main.jpg', thumbnailLink: 'https://example.com/p.jpg' }] : []),
       readTextFile: async () => {
-        throw new Error('should not read description for a non-published folder');
+        throw new Error('should not read a description for a non-published member');
       },
     }),
   });
@@ -4332,12 +4360,13 @@ test('GET /member-profile returns photos but no description when driveFolderId i
     const body = await res.json();
     assert.equal(body.published, false);
     assert.equal(body.description, null);
-    assert.equal(body.mainPhoto.id, 'img-pending');
+    assert.equal(body.mainPhoto, null);
     assert.deepEqual(body.photos, []);
+    assert.equal(body.pendingPhotos[0].id, 'img-pending');
   });
 });
 
-test('GET /member-profile reads no Drive images at all when driveFolderId is neither a public category nor the upload root', async () => {
+test('GET /member-profile reads no Drive images and stays unpublished when driveFolderId points at a folder that no longer exists', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
   await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'deleted-folder' }));
@@ -4349,11 +4378,9 @@ test('GET /member-profile reads no Drive images at all when driveFolderId is nei
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
     drive: makeFakeDrive({
-      ensureFolder: async (_parent, name) => `folder-${name}`,
-      folderExists: async id => id === 'deleted-folder',
-      getFolderParentId: async id => (id === 'deleted-folder' ? 'folder-deleted' : null),
+      folderExists: async () => false,
       listImageFiles: async () => {
-        throw new Error('should not list images for a folder outside categories and upload root');
+        throw new Error('should not list images for a folder that does not exist');
       },
     }),
   });

@@ -1757,31 +1757,38 @@ async function handleListaWyjazdowaGetProfile(req: IncomingMessage, res: ServerR
   sendJson(res, 200, { profile });
 }
 
-// Closes KRKG-0037's deferred driveFolderId/photo-display gap (design.md §2/§6): lets the /profil/
-// page show a member their own uploaded photo(s) even though nothing about them is publicly
-// listed yet (fetchCategoryPeople only ever reads the 4 public categories, never "upload" - see
-// about-us.ts). `pendingApproval: true` means the folder is still sitting in "upload", unreviewed;
-// `false` means an admin has since moved it into a public category (or elsewhere) - see
-// findReusableSubmissionFolder for the same upload-root check used on the write side.
+// Closes KRKG-0037's deferred driveFolderId/photo-display gap, extended by KRKG-0070: /profil/
+// now shows the member's public folder (if any) and their pending staging folder (if any)
+// independently and simultaneously - a member can have both at once (published, then uploaded a
+// new photo since).
 async function handleListaWyjazdowaGetProfilePhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const member = await getMember(deps.firestore, identity.email);
-  if (!member?.driveFolderId) {
-    sendJson(res, 200, { submission: null });
-    return;
+
+  let publicSection: { mainPhoto: PersonPhoto | null; photos: PersonPhoto[]; description: string | null } | null = null;
+  if (member?.driveFolderId) {
+    const exists = await deps.drive.folderExists(member.driveFolderId);
+    if (exists) {
+      const [images, description] = await Promise.all([
+        deps.drive.listImageFiles(member.driveFolderId),
+        deps.drive.readTextFile(member.driveFolderId, 'Opis.txt'),
+      ]);
+      const { mainPhoto, photos } = mapDriveImagesToPhotos(images);
+      publicSection = { mainPhoto, photos, description };
+    }
   }
-  const exists = await deps.drive.folderExists(member.driveFolderId);
-  if (!exists) {
-    sendJson(res, 200, { submission: null });
-    return;
+
+  let pendingSection: { photos: PersonPhoto[] } | null = null;
+  if (member?.stagingFolderId) {
+    const exists = await deps.drive.folderExists(member.stagingFolderId);
+    if (exists) {
+      const images = await deps.drive.listImageFiles(member.stagingFolderId);
+      const { mainPhoto, photos } = mapDriveImagesToPhotos(images);
+      pendingSection = { photos: mainPhoto ? [mainPhoto, ...photos] : photos };
+    }
   }
-  const [folders, images] = await Promise.all([
-    bootstrapAboutUsStructure(deps.drive),
-    deps.drive.listImageFiles(member.driveFolderId),
-  ]);
-  const parentId = await deps.drive.getFolderParentId(member.driveFolderId);
-  const { mainPhoto, photos } = mapDriveImagesToPhotos(images);
-  sendJson(res, 200, { submission: { mainPhoto, photos, pendingApproval: parentId === folders.uploadRoot } });
+
+  sendJson(res, 200, { public: publicSection, pending: pendingSection });
 }
 
 // KRKG-0067: backs the clickable-username profile drawer shown on Lista Wyjazdowa, Spis Ludności,
@@ -1849,25 +1856,29 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
 
   let mainPhoto: PersonPhoto | null = null;
   let photos: PersonPhoto[] = [];
+  let pendingPhotos: PersonPhoto[] = [];
   let description: string | null = null;
   let published = false;
 
   if (member?.driveFolderId) {
     const exists = await deps.drive.folderExists(member.driveFolderId);
     if (exists) {
-      const [folders, parentId] = await Promise.all([
-        bootstrapAboutUsStructure(deps.drive),
-        deps.drive.getFolderParentId(member.driveFolderId),
+      const [images, desc] = await Promise.all([
+        deps.drive.listImageFiles(member.driveFolderId),
+        deps.drive.readTextFile(member.driveFolderId, 'Opis.txt'),
       ]);
-      published = Object.values(folders.categories).includes(parentId ?? '');
-      const isPendingUpload = !published && parentId === folders.uploadRoot;
-      if (published || isPendingUpload) {
-        const images = await deps.drive.listImageFiles(member.driveFolderId);
-        ({ mainPhoto, photos } = mapDriveImagesToPhotos(images));
-        if (published) {
-          description = await deps.drive.readTextFile(member.driveFolderId, 'Opis.txt');
-        }
-      }
+      ({ mainPhoto, photos } = mapDriveImagesToPhotos(images));
+      description = desc;
+      published = true;
+    }
+  }
+
+  if (member?.stagingFolderId) {
+    const exists = await deps.drive.folderExists(member.stagingFolderId);
+    if (exists) {
+      const images = await deps.drive.listImageFiles(member.stagingFolderId);
+      const pendingMapped = mapDriveImagesToPhotos(images);
+      pendingPhotos = pendingMapped.mainPhoto ? [pendingMapped.mainPhoto, ...pendingMapped.photos] : pendingMapped.photos;
     }
   }
 
@@ -1881,6 +1892,7 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
     weapons: (profile?.weaponIds ?? []).map(id => weaponLabelById.get(id) ?? id),
     mainPhoto,
     photos,
+    pendingPhotos,
     description,
     published,
   });
