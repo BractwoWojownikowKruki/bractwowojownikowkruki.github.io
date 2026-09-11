@@ -184,6 +184,7 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     // the dedicated caching test below overrides this to a real TTL to exercise the cache itself.
     galleriesCacheTtlMs: 0,
     listMemberEmails: async () => [],
+    listGroupEmails: async () => [],
     sheetsClient: createDisabledSheetsClient(),
     ...overrides,
   };
@@ -2747,6 +2748,51 @@ test('POST /admin/members/synchronize rejects a stale admin session', async () =
   });
 });
 
+// KRKG-0065: GET /admin/members/group-sync diffs the raw Google Group membership (deps.listGroupEmails
+// - never used for authorization, see ServerDeps.listGroupEmails) against Firestore's active members
+// (deps.listMemberEmails, already exactly that set) in both directions.
+test('GET /admin/members/group-sync reports emails present on only one side, in both directions', async () => {
+  const deps = makeDeps({
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    listMemberEmails: async () => ['a@example.com', 'b@example.com'],
+    listGroupEmails: async () => ['b@example.com', 'c@example.com'],
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/group-sync`, { headers: { origin: ALLOWED_ORIGIN_FOR_TESTS } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.onlyInFirestore, ['a@example.com']);
+    assert.deepEqual(body.onlyInGroup, ['c@example.com']);
+  });
+});
+
+test('GET /admin/members/group-sync reports no drift when both sides match', async () => {
+  const deps = makeDeps({
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    listMemberEmails: async () => ['a@example.com'],
+    listGroupEmails: async () => ['a@example.com'],
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/group-sync`, { headers: { origin: ALLOWED_ORIGIN_FOR_TESTS } });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.onlyInFirestore, []);
+    assert.deepEqual(body.onlyInGroup, []);
+  });
+});
+
+test('GET /admin/members/group-sync rejects a caller who is neither admin nor moderator', async () => {
+  const deps = makeDeps({
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/group-sync`, { headers: { origin: ALLOWED_ORIGIN_FOR_TESTS } });
+    assert.equal(res.status, 403);
+  });
+});
+
 test('GET /admin/redirects rejects an unauthenticated caller before touching GitHub', async () => {
   let githubCalled = false;
   const deps = makeDeps({
@@ -4244,6 +4290,7 @@ const READ_ONLY_ROUTES_SHARING_A_ROLE: { method: string; path: string; stepUpDep
   { method: 'GET', path: '/admin/members/whoami', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
   { method: 'GET', path: '/admin/lookup-lists', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
   { method: 'GET', path: '/admin/roles', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'GET', path: '/admin/members/group-sync', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
 ];
 
 for (const { method, path, stepUpDep } of STEP_UP_GATED_ROUTES) {

@@ -58,6 +58,30 @@ document.getElementById('membership-synchronize').addEventListener('click', asyn
   }
 });
 
+// KRKG-0065: on-demand only (never on page load) - the Apps Script behind this hit Google's daily
+// Groups-read quota in production when KRKG-0046 called it on every ordinary auth check, so this
+// stays a manual, rarely-clicked diagnostic rather than anything automatic.
+document.getElementById('membership-group-sync-check').addEventListener('click', async () => {
+  const result = document.getElementById('membership-group-sync-result');
+  result.textContent = 'Sprawdzanie...';
+  try {
+    const { onlyInFirestore, onlyInGroup } = await apiFetch('/admin/members/group-sync', { method: 'GET' }, showReauth, hideReauth);
+    if (onlyInFirestore.length === 0 && onlyInGroup.length === 0) {
+      result.textContent = 'Zsynchronizowane - te same osoby w bazie i w grupie.';
+      return;
+    }
+    const renderList = (title, emails) => emails.length === 0 ? '' : `
+      <p style="margin-bottom:0.25rem;"><strong>${escapeHtml(title)}</strong></p>
+      <ul style="margin:0 0 0.75rem 1.25rem;">${emails.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>
+    `;
+    result.innerHTML =
+      renderList('W bazie danych, brak w grupie:', onlyInFirestore) +
+      renderList('W grupie, brak w bazie danych:', onlyInGroup);
+  } catch (err) {
+    result.textContent = `Błąd: ${err.message}`;
+  }
+});
+
 const MEMBERSHIP_ACTIONS_BY_STATUS = {
   active: [{ transition: 'suspend', label: 'Zawieś' }, { transition: 'remove', label: 'Usuń' }],
   suspended: [{ transition: 'reactivate', label: 'Przywróć' }, { transition: 'remove', label: 'Usuń' }],

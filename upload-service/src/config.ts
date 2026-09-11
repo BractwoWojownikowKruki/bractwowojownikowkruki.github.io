@@ -12,6 +12,13 @@ export const config = {
   // link, editable only by Bartosz). See KRKG-0024 design.md for the pattern - no env
   // var/secret needed, this is a public read-only URL by design.
   adminAllowlistSheetUrl: 'https://docs.google.com/spreadsheets/d/1StUp5mdTmbbuadc1XCOA_c2PILmYSAJ0Z5t1K7xjn78/export?format=csv',
+  // KRKG-0065: the Apps Script Web App from the pre-KRKG-0046 Group-backed member auth (see
+  // createAppsScriptAllowlist in allowlist.ts) - no longer used to authorize anything (that quota
+  // problem is why KRKG-0046 moved auth to Firestore), but the club still updates this Group by
+  // hand as a secondary record, so Zarządzanie ludźmi reads it read-only, on demand, to flag drift
+  // against Firestore's active members. Same "public/unguessable URL, no env var" reasoning as
+  // adminAllowlistSheetUrl above.
+  krukiGroupSyncUrl: 'https://script.google.com/macros/s/AKfycbwkSGgWwYLq2XyGQSX7ntWh_PgvJ3ZTDV6NDRJ304wl0bkOJ3XyqKg1QjtWl5g5WYc7/exec',
   // Google Doc file IDs for the two Wojownicy-only pages (Zasady Bractwa, Poradnik Walki),
   // fetched live via drive.ts's exportDocHtml using docsClientId/docsClientSecret/docsRefreshToken
   // below - never checked out into the repo. IDs aren't secret in themselves: it's that

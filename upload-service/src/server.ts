@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { AuthError, checkAllowlist, fetchGoogleJwks, verifyGoogleIdToken, type VerifiedIdentity } from './auth.ts';
-import { createSheetAllowlist } from './allowlist.ts';
+import { createAppsScriptAllowlist, createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
 import { checkReauthFreshness, issueSessionToken, maybeRenewSessionToken, verifySessionToken, type SessionClaims, type SessionSigningKey } from './session.ts';
 import type { SheetAllowlist } from './allowlist.ts';
@@ -148,6 +148,10 @@ export interface ServerDeps {
   // allowlist - see productionDeps below), for GET /members/directory to enumerate: everyone
   // with site access, not just those who happen to have a members/{email} Firestore doc yet.
   listMemberEmails: () => Promise<string[]>;
+  // KRKG-0065: the kruki Google Group's raw, unfiltered current membership (via the same
+  // createAppsScriptAllowlist mechanism KRKG-0046 stopped using for authorization), for Zarządzanie
+  // ludźmi's on-demand drift check against Firestore's active members - never used to gate access.
+  listGroupEmails: () => Promise<string[]>;
   // KRKG-0046: Google Sheets disaster-recovery backup of the members collection. Never a runtime
   // fallback for authorization - see sheets.ts's SheetsClient doc comment.
   sheetsClient: SheetsClient;
@@ -991,6 +995,21 @@ async function handleAdminMembersSynchronize(req: IncomingMessage, res: ServerRe
   const allMembers = await listAllMembers(deps.firestore);
   const { result: sheetSyncStatus } = await executeAuditedExternalMutation(deps.firestore, { action: 'membership.sheet_backup.synchronized', actor: { email: identity.email }, resource: { kind: 'member', key: 'member:sheet-backup', display: 'sheet-backup' }, changes: [{ field: 'sheetBackup', after: 'requested' }] }, async () => deps.sheetsClient.syncAllMembers(allMembers), { eventInput: status => ({ action: 'membership.sheet_backup.synchronized', actor: { email: identity.email }, resource: { kind: 'member', key: 'member:sheet-backup', display: 'sheet-backup' }, changes: [{ field: 'sheetBackup', after: status }] }) });
   sendJson(res, 200, { sheetSyncStatus });
+}
+
+// KRKG-0065: read-only, on-demand comparison of the kruki Google Group's raw membership against
+// Firestore's active members - the Group is now updated by hand as a secondary record (KRKG-0046
+// moved actual authorization to Firestore), so this is purely a drift check for the admin to spot
+// where the two have diverged, not an authorization path. No step-up: it reads two lists and
+// returns a diff, nothing is mutated.
+async function handleAdminMembersGroupSync(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdminOrModerator(req, res);
+  const [groupEmails, firestoreEmails] = await Promise.all([deps.listGroupEmails(), deps.listMemberEmails()]);
+  const groupSet = new Set(groupEmails);
+  const firestoreSet = new Set(firestoreEmails);
+  const onlyInFirestore = [...firestoreSet].filter(e => !groupSet.has(e)).sort();
+  const onlyInGroup = [...groupSet].filter(e => !firestoreSet.has(e)).sort();
+  sendJson(res, 200, { onlyInFirestore, onlyInGroup });
 }
 
 // KRKG-0049: lets the admin panel (Zarządzanie ludźmi page's Sekcja dropdown) read lookupLists
@@ -3140,6 +3159,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminGetLookupLists(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/members/synchronize') {
         await handleAdminMembersSynchronize(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/members/group-sync') {
+        await handleAdminMembersGroupSync(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/roles') {
         await handleAdminListRoles(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/roles') {
@@ -3304,6 +3325,8 @@ async function startProductionServer(): Promise<void> {
   const firestoreClient = createFirestoreClient(config.firestoreProjectId);
   const adminAllowlist = createSheetAllowlist({ url: config.adminAllowlistSheetUrl });
   const adminAuthorizer = fromAllowlist(adminAllowlist);
+  // KRKG-0065: read-only, never used for authorization - see ServerDeps.listGroupEmails.
+  const krukiGroupAllowlist = createAppsScriptAllowlist({ url: config.krukiGroupSyncUrl });
   // KRKG-0046: replaces the Apps-Script/Google-Group-backed allowlist that hit Google's daily
   // Groups-read quota in production. A single Firestore members/{email} read is now the sole
   // authorization check for ordinary member site access - admin stays on its own Sheet allowlist
@@ -3374,6 +3397,7 @@ async function startProductionServer(): Promise<void> {
     maxJsonBodyBytes: config.maxJsonBodyBytes,
     galleriesCacheTtlMs: config.galleriesCacheTtlMs,
     listMemberEmails: () => listActiveMemberEmails(firestoreClient),
+    listGroupEmails: () => krukiGroupAllowlist.getEmails(),
     sheetsClient,
     auditReconcilerServiceAccountEmail: config.auditReconcilerServiceAccountEmail,
     auditReconcileAudience: config.auditReconcileAudience,
