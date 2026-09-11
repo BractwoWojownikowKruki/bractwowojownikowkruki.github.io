@@ -244,13 +244,35 @@ test('batch three people-card mutations are wired to local confirmed feedback', 
   const routes = [
     'POST /admin/people', 'PUT /admin/people/description', 'PUT /admin/people/order', 'PUT /admin/people/category',
     'DELETE /admin/people', 'POST /admin/people/photo', 'DELETE /admin/people/photo', 'PUT /admin/people/photo/main',
-    'PUT /admin/people/photo/transfer', 'PUT /admin/people/in-memoriam',
+    'PUT /admin/people/photo/transfer', 'PUT /admin/people/photo/approve', 'PUT /admin/people/in-memoriam',
   ];
   for (const route of routes) assert.equal(registry.find(entry => entry.route === route)?.wiring, 'wired', `${route} must be wired in batch three`);
   assert.match(peopleCards, /function confirmedPersonWrite/);
   assert.match(peopleCards, /MutationFeedback\.confirmed/);
   assert.equal((peopleCards.match(/confirmedPersonWrite\(/g) ?? []).length >= 10, true);
   assert.doesNotMatch(extractListenerForElement(peopleCards, 'manage-people-list', 'click'), /loadManageList\(\);/);
+});
+
+test('newly approved and deleted pending photos confirm after their local view applies', async () => {
+  const [registry, peopleCards, profile] = await Promise.all([
+    readContractTable().then(source => deriveMutationFeedbackCoverageRegistry(parseMutationInventoryRoutes(source))),
+    readFile(new URL('../public/admin/publiczne-wizytowki/publiczne-wizytowki.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/profil/profil.js', import.meta.url), 'utf8'),
+  ]);
+  for (const route of ['PUT /admin/people/photo/approve', 'DELETE /lista-wyjazdowa/profile/photo']) {
+    assert.equal(registry.find(entry => entry.route === route)?.wiring, 'wired', `${route} must be wired`);
+  }
+  const peopleClick = extractListenerForElement(peopleCards, 'manage-people-list', 'click');
+  assert.match(peopleClick, /approve-photo/);
+  assert.match(peopleClick, /confirmedPersonWrite\(approveBtn/);
+  assert.doesNotMatch(peopleClick, /loadManageList\(\);/);
+
+  const deletePendingPhoto = extractNamedFunction(profile, 'deletePendingPhoto');
+  assert.match(deletePendingPhoto, /MutationFeedback\.confirmed\(/);
+  assert.match(deletePendingPhoto, /\/lista-wyjazdowa\/profile\/photo/);
+  assert.match(deletePendingPhoto, /apply:/);
+  assert.match(deletePendingPhoto, /viewRoot:/);
+  assert.match(deletePendingPhoto, /refreshFragment:/);
 });
 
 test('batch four forms and gallery uploads confirm only their completed mutation flows', async () => {

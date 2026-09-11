@@ -376,12 +376,15 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
     const fileId = approveBtn.dataset.fileId;
     const select = document.querySelector(`.approve-target-category[data-file-id="${fileId}"]`);
     const nameInput = document.querySelector(`.approve-name[data-file-id="${fileId}"]`);
+    const item = approveBtn.closest('.manage-photo-item');
+    const card = personCard(approveBtn.dataset.folderId);
+    const list = document.getElementById('manage-people-list');
     // Apply Review (KRKG-0070): the public name is never pre-filled from the staging folder's
     // name or any other member data - it is only ever what the admin explicitly typed into this
     // field just now. A blank field sends `undefined`, not "", so a repeat approval (where the
     // member's public folder already exists and the server ignores `name` entirely) doesn't
     // accidentally send an empty-string name.
-    await apiFetch(
+    await confirmedPersonWrite(approveBtn, card, () => apiFetch(
       '/admin/people/photo/approve',
       {
         method: 'PUT',
@@ -395,8 +398,13 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       },
       showReauth,
       hideReauth,
-    );
-    loadManageList();
+    ), () => {
+      item.remove();
+      if (!card.querySelector('.manage-photo-item')) {
+        card.remove();
+        if (!list.querySelector('.manage-person-card')) list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
+      }
+    }, list);
     return;
   }
   } catch (err) {
@@ -412,7 +420,8 @@ document.getElementById('manage-people-list').addEventListener('change', async e
     const card = personCard(uploadInput.dataset.folderId);
     await confirmedPersonWrite(uploadInput, card, () => uploadPhotos(uploadInput.dataset.folderId, uploadInput.files), photos => {
       const photosRoot = card.querySelector('.person-photos');
-      photos.forEach(photo => photosRoot.insertAdjacentHTML('beforeend', photoItemHtml(uploadInput.dataset.folderId, photo, false, transferTargetsCache)));
+      const isUploadCategory = document.getElementById('manage-category').value === 'upload';
+      photos.forEach(photo => photosRoot.insertAdjacentHTML('beforeend', photoItemHtml(uploadInput.dataset.folderId, photo, false, transferTargetsCache, isUploadCategory)));
       uploadInput.value = '';
     });
     return;

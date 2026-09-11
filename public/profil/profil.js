@@ -109,22 +109,28 @@ function renderCurrentSubmission(response) {
 // Deletes one of the caller's own still-pending (staging-folder) photos, then re-renders the
 // section from the server's response - mirrors the pattern already used right after a fresh
 // upload (loadCurrentSubmission + renderCurrentSubmission back to back).
-async function deletePendingPhoto(fileId) {
-  await apiFetch(
-    `/lista-wyjazdowa/profile/photo?fileId=${encodeURIComponent(fileId)}`,
-    { method: 'DELETE' },
-    showReauth,
-    hideReauth,
-  );
-  const response = await loadCurrentSubmission();
-  renderCurrentSubmission(response);
+async function deletePendingPhoto(control) {
+  const container = document.getElementById('lw-current-submission');
+  await window.MutationFeedback.confirmed({
+    control,
+    anchor: container,
+    viewRoot: document.getElementById('profile-form'),
+    refreshFragment: async () => renderCurrentSubmission(await loadCurrentSubmission()),
+    execute: () => apiFetch(
+      `/lista-wyjazdowa/profile/photo?fileId=${encodeURIComponent(control.dataset.fileId)}`,
+      { method: 'DELETE' },
+      showReauth,
+      hideReauth,
+    ),
+    apply: async () => renderCurrentSubmission(await loadCurrentSubmission()),
+  });
 }
 
 document.getElementById('lw-current-submission').addEventListener('click', (e) => {
   const btn = e.target.closest('.lw-delete-pending-btn');
   if (!btn) return;
   btn.disabled = true;
-  deletePendingPhoto(btn.dataset.fileId).catch((err) => {
+  deletePendingPhoto(btn).catch((err) => {
     btn.disabled = false;
     window.alert(`Nie udało się usunąć zdjęcia: ${err.message}`);
   });
