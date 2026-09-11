@@ -729,7 +729,13 @@ button.lw-skladka-icon:disabled {
    renders its collapsed value in the writing-mode it's given same as plain text, and still opens
    its normal option list on click regardless. thead's copy is just the single letter "S" (KRKG
    header text stays real words elsewhere; a 3-letter vertical stack in a header would be an odd
-   outlier) - its background already comes from .czl-table thead th. */
+   outlier) - its background already comes from .czl-table thead th.
+
+   line-height: 1 is load-bearing, not cosmetic - the default "normal" line-height left enough
+   extra vertical room per stacked character that adjacent glyphs visually overlapped/clipped each
+   other at this font-size, and the width has to fit "W" (the widest Latin capital) without
+   clipping its sides, not just the narrower letters - both confirmed empirically (WAW/WRO were
+   the two abbreviations that actually misread, e.g. "NAN"/"NRC", until both were fixed together). */
 .czl-table td.czl-section-cell,
 .czl-table th.czl-section-cell {
   position: sticky;
@@ -737,13 +743,14 @@ button.lw-skladka-icon:disabled {
   z-index: 1;
   writing-mode: vertical-rl;
   text-orientation: upright;
-  width: 0.7rem;
-  min-width: 0.7rem;
-  max-width: 0.7rem;
-  padding: 0.25rem 0.02rem;
+  width: 0.82rem;
+  min-width: 0.82rem;
+  max-width: 0.82rem;
+  padding: 0.25rem 0.05rem;
   border: none;
   text-align: center;
-  font-size: 0.52rem;
+  font-size: 0.66rem;
+  line-height: 1;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0;
@@ -777,10 +784,10 @@ button.lw-skladka-icon:disabled {
   /* Not width:100% - a <select>'s shrink-to-fit sizing algorithm doesn't reliably measure its
      option text under vertical-rl (observed collapsing to a few px wide in Chromium), so it gets
      a fixed physical width matching the cell's own instead. */
-  width: 0.66rem;
+  width: 0.72rem;
   height: 100%;
   cursor: pointer;
-  /* The cell is only ~0.7rem wide - the native select chevron alone would blow past that (and
+  /* The cell is only ~0.82rem wide - the native select chevron alone would blow past that (and
      doesn't render meaningfully rotated under vertical-rl anyway). Dropping it still leaves a
      fully working native <select> (click/tap opens the option list regardless); the whole cell
      being an obvious colored control is signal enough without an arrow of its own. */
