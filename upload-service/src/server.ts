@@ -6,7 +6,7 @@ import { createSheetAllowlist } from './allowlist.ts';
 import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken } from './submission.ts';
 import { checkReauthFreshness, issueSessionToken, maybeRenewSessionToken, verifySessionToken, type SessionClaims, type SessionSigningKey } from './session.ts';
 import type { SheetAllowlist } from './allowlist.ts';
-import { createDriveClient, type DriveClient } from './drive.ts';
+import { createDriveClient, resizeThumbnailUrl, type DriveClient } from './drive.ts';
 import { createGithubClient, isValidRedirectPath, isValidRedirectTarget, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
 import { fetchInstagramPosts, fetchFacebookPosts, fetchYouTubeVideos, clearSocialMediaCache } from './social-media.ts';
@@ -1366,46 +1366,94 @@ async function handleWojownicyDoc(req: IncomingMessage, res: ServerResponse, url
   sendJson(res, 200, { html });
 }
 
+// A member's driveFolderId (members.ts) is reusable for a new submission only while it is still
+// sitting unreviewed in "upload" - once an admin approves it (moves it into a public category) or
+// soft-deletes it, a further /profil/ photo edit must go through review again as a brand-new
+// staging folder, not silently land in the already-public (or removed) one. Returns null if there
+// is nothing reusable, in which case the caller creates a fresh folder exactly as before.
+async function findReusableSubmissionFolder(
+  deps: ServerDeps,
+  member: MemberDoc | null,
+  uploadRootId: string,
+): Promise<string | null> {
+  if (!member?.driveFolderId) return null;
+  const [exists, parentId] = await Promise.all([
+    deps.drive.folderExists(member.driveFolderId),
+    deps.drive.getFolderParentId(member.driveFolderId),
+  ]);
+  if (!exists || parentId !== uploadRootId) return null;
+  return member.driveFolderId;
+}
+
 // Creates the per-submission staging folder (Strona/O Nas/upload/{Imię} - {email} - {data}) and
 // issues a submission token exactly like handleStart does for gallery uploads - the two photo
 // endpoints below require it, so one group member can't upload into another's (or an admin
 // category's) folder just by guessing/reusing a folderId.
+//
+// Idempotent per member (KRKG photo-duplication fix): a member who submits more than once while
+// their previous submission is still pending reuses that same "upload" folder (see
+// findReusableSubmissionFolder) instead of minting a new one every time - previously this always
+// created a brand-new Drive folder/"person" on every call, so a member re-saving their profile
+// (or retrying after a failed photo upload) accumulated multiple near-duplicate, mostly-empty
+// entries in the admin's Upload (zgłoszenia) queue, exactly as reported.
 async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const { name } = await readJsonBody<{ name?: string }>(req, deps.maxJsonBodyBytes);
   if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
 
-  const date = new Date().toISOString().slice(0, 10);
-  const folderName = `${name.trim()} - ${identity.email} - ${date}`;
-  // Pre-effect resource protocol - see the matching comment in handleAdminCreatePerson. Final
-  // resource key format (member:{actorEmail}:submission:{folderId}) is
-  // implementation-contract.md's "Pre-effect resource protocol" list, not the generic
-  // person:{personId}/gallery:{folderId} notation.
-  const correlationId = randomUUID();
-  const provisionalResourceKey = `memberSubmission:pending:${correlationId}`;
-  const { result: folderId } = await executeAuditedExternalMutation(
-    deps.firestore,
-    {
-      action: 'profile.photo_submission.created',
-      actor: { email: identity.email },
-      resource: { kind: 'memberSubmission', key: provisionalResourceKey, display: name.trim() },
-      changes: [{ field: 'name', after: name.trim() }],
-    },
-    async () => {
-      const folders = await bootstrapAboutUsStructure(deps.drive);
-      return deps.drive.createAlbumFolder(folders.uploadRoot, folderName);
-    },
-    {
-      correlationId,
-      provisionalResourceKey,
-      eventInput: createdFolderId => ({
+  const folders = await bootstrapAboutUsStructure(deps.drive);
+  const member = await getMember(deps.firestore, identity.email);
+  const reusableFolderId = await findReusableSubmissionFolder(deps, member, folders.uploadRoot);
+
+  let folderId: string;
+  if (reusableFolderId) {
+    folderId = reusableFolderId;
+  } else {
+    const date = new Date().toISOString().slice(0, 10);
+    const folderName = `${name.trim()} - ${identity.email} - ${date}`;
+    // Pre-effect resource protocol - see the matching comment in handleAdminCreatePerson. Final
+    // resource key format (member:{actorEmail}:submission:{folderId}) is
+    // implementation-contract.md's "Pre-effect resource protocol" list, not the generic
+    // person:{personId}/gallery:{folderId} notation.
+    const correlationId = randomUUID();
+    const provisionalResourceKey = `memberSubmission:pending:${correlationId}`;
+    const { result: createdFolderId } = await executeAuditedExternalMutation(
+      deps.firestore,
+      {
         action: 'profile.photo_submission.created',
         actor: { email: identity.email },
-        resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${createdFolderId}`, display: name.trim() },
+        resource: { kind: 'memberSubmission', key: provisionalResourceKey, display: name.trim() },
         changes: [{ field: 'name', after: name.trim() }],
-      }),
-    },
-  );
+      },
+      () => deps.drive.createAlbumFolder(folders.uploadRoot, folderName),
+      {
+        correlationId,
+        provisionalResourceKey,
+        eventInput: newFolderId => ({
+          action: 'profile.photo_submission.created',
+          actor: { email: identity.email },
+          resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${newFolderId}`, display: name.trim() },
+          changes: [{ field: 'name', after: name.trim() }],
+        }),
+      },
+    );
+    folderId = createdFolderId;
+    // Self-service linkage (KRKG-0037's deferred driveFolderId gap, design.md §6): the member's
+    // own submission sets the link automatically, same field the admin panel's "link existing
+    // folder" action (handleAdminSetMemberDriveFolder) also writes by hand. Only possible when a
+    // members/{email} doc already exists - profil.js always PUTs /lista-wyjazdowa/member before
+    // reaching this endpoint, but the older, unlinked /wojownicy/wrzuc/ page does not, so this is
+    // skipped rather than thrown for that caller.
+    if (member) {
+      await setMemberDriveFolderId(deps.firestore, identity.email, folderId);
+      await deps.drive.writeTextFile(folderId, '.owner-email', identity.email);
+    }
+    // The admin panel's Upload (zgłoszenia) list (fetchCategoryPeople) caches per category for up
+    // to 6h - without this, a brand-new submission folder could stay invisible to an admin who
+    // already had that page open/cached earlier in the day.
+    invalidateAboutUsCache();
+  }
+
   const submissionToken = issueSubmissionToken(
     { folderId, sub: identity.sub, exp: Date.now() + SUBMISSION_TTL_MS },
     deps.submissionTokenSecret,
@@ -1477,6 +1525,10 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
       }),
     },
   );
+  // Same reasoning as handleWojownicyUploadSubmit's cache invalidation: without it, a photo just
+  // uploaded into an already-cached category (most commonly "upload" itself) can stay invisible
+  // to an admin browsing that page for up to 6h.
+  invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
 
@@ -1693,6 +1745,38 @@ async function handleListaWyjazdowaGetProfile(req: IncomingMessage, res: ServerR
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const profile = await getProfile(deps.firestore, identity.email);
   sendJson(res, 200, { profile });
+}
+
+// Closes KRKG-0037's deferred driveFolderId/photo-display gap (design.md §2/§6): lets the /profil/
+// page show a member their own uploaded photo(s) even though nothing about them is publicly
+// listed yet (fetchCategoryPeople only ever reads the 4 public categories, never "upload" - see
+// about-us.ts). `pendingApproval: true` means the folder is still sitting in "upload", unreviewed;
+// `false` means an admin has since moved it into a public category (or elsewhere) - see
+// findReusableSubmissionFolder for the same upload-root check used on the write side.
+async function handleListaWyjazdowaGetProfilePhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const member = await getMember(deps.firestore, identity.email);
+  if (!member?.driveFolderId) {
+    sendJson(res, 200, { submission: null });
+    return;
+  }
+  const exists = await deps.drive.folderExists(member.driveFolderId);
+  if (!exists) {
+    sendJson(res, 200, { submission: null });
+    return;
+  }
+  const [folders, images] = await Promise.all([
+    bootstrapAboutUsStructure(deps.drive),
+    deps.drive.listImageFiles(member.driveFolderId),
+  ]);
+  const parentId = await deps.drive.getFolderParentId(member.driveFolderId);
+  const [mainImage, ...restImages] = images;
+  const mainPhoto =
+    mainImage?.thumbnailLink != null ? { id: mainImage.id, url: resizeThumbnailUrl(mainImage.thumbnailLink, 800) } : null;
+  const photos = restImages
+    .filter((img): img is typeof img & { thumbnailLink: string } => img.thumbnailLink != null)
+    .map(img => ({ id: img.id, url: resizeThumbnailUrl(img.thumbnailLink, 300) }));
+  sendJson(res, 200, { submission: { mainPhoto, photos, pendingApproval: parentId === folders.uploadRoot } });
 }
 
 async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -3118,6 +3202,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaGetProfile(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/profile') {
         await handleListaWyjazdowaPutProfile(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/profile/photo') {
+        await handleListaWyjazdowaGetProfilePhoto(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/lookup-lists') {
         await handleListaWyjazdowaLookupLists(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/events') {

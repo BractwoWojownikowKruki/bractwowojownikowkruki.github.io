@@ -108,6 +108,7 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     setFolderPublic: async () => {},
     deleteFolder: async () => {},
     folderExists: async () => true,
+    getFolderParentId: async () => null,
     renameFolder: async () => {},
     moveFolder: async () => ({ name: 'Test Person' }),
     moveFile: async () => ({}),
@@ -3977,6 +3978,139 @@ test('/wojownicy-upload/submit creates a folder named "Imię - email - data" und
   assert.equal(event.data.action, 'profile.photo_submission.created');
   assert.equal(event.data.resource.key, 'member:ktos@gmail.com:submission:submission-folder');
   assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [['name', 'Jan Kowalski']]);
+});
+
+function seedMemberDoc(overrides: Record<string, unknown> = {}) {
+  return {
+    email: 'ktos@gmail.com',
+    fullName: 'Jan Kowalski',
+    nickname: null,
+    sectionId: 'sekcja-1',
+    categoryId: null,
+    driveFolderId: null,
+    status: 'active',
+    appliedAt: new Date().toISOString(),
+    approvedAt: null,
+    approvedBy: null,
+    updatedAt: new Date().toISOString(),
+    updatedBy: 'ktos@gmail.com',
+    lastLoginAt: null,
+    hidden: false,
+    ...overrides,
+  };
+}
+
+test('/wojownicy-upload/submit reuses the member\'s existing driveFolderId while it is still sitting unreviewed in "upload"', async () => {
+  resetAboutUsBootstrapForTests();
+  let createAlbumFolderCalled = false;
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'existing-folder' }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      ensureFolder: async (parent, name) => (name === 'upload' ? 'upload-root' : `ensured-${name}`),
+      createAlbumFolder: async () => {
+        createAlbumFolderCalled = true;
+        return 'should-not-be-created';
+      },
+      folderExists: async id => id === 'existing-folder',
+      getFolderParentId: async id => (id === 'existing-folder' ? 'upload-root' : null),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-upload/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Jan Kowalski' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.folderId, 'existing-folder');
+  });
+  assert.equal(createAlbumFolderCalled, false);
+  const events = await firestore.listDocs('auditEvents');
+  assert.equal(events.length, 0);
+});
+
+test('/wojownicy-upload/submit creates a fresh folder when the member\'s driveFolderId has already been moved out of "upload" (approved)', async () => {
+  resetAboutUsBootstrapForTests();
+  let createAlbumFolderCalled = false;
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'approved-folder' }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      ensureFolder: async (parent, name) => (name === 'upload' ? 'upload-root' : `ensured-${name}`),
+      createAlbumFolder: async () => {
+        createAlbumFolderCalled = true;
+        return 'new-folder';
+      },
+      folderExists: async id => id === 'approved-folder',
+      // Approved: now sitting under a public category folder, not upload-root.
+      getFolderParentId: async id => (id === 'approved-folder' ? 'ensured-Blachowi' : null),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-upload/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Jan Kowalski' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.folderId, 'new-folder');
+  });
+  assert.equal(createAlbumFolderCalled, true);
+  const member = await firestore.getDoc<{ driveFolderId: string | null }>('members', 'ktos@gmail.com');
+  assert.equal(member?.driveFolderId, 'new-folder');
+});
+
+test('GET /lista-wyjazdowa/profile/photo returns null when the member has no driveFolderId', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: null }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.submission, null);
+  });
+});
+
+test('GET /lista-wyjazdowa/profile/photo returns the member\'s own photos with pendingApproval reflecting the folder\'s current parent', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'my-folder' }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      ensureFolder: async (parent, name) => (name === 'upload' ? 'upload-root' : `ensured-${name}`),
+      folderExists: async id => id === 'my-folder',
+      getFolderParentId: async () => 'upload-root',
+      listImageFiles: async id =>
+        id === 'my-folder'
+          ? [
+              { id: 'main-id', name: '!main.jpg', thumbnailLink: 'https://example.test/main=s220' },
+              { id: 'extra-id', name: 'extra.jpg', thumbnailLink: 'https://example.test/extra=s220' },
+            ]
+          : [],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.submission.pendingApproval, true);
+    assert.equal(body.submission.mainPhoto.id, 'main-id');
+    assert.equal(body.submission.photos.length, 1);
+    assert.equal(body.submission.photos[0].id, 'extra-id');
+  });
 });
 
 test('/wojownicy-upload/photo rejects a request with no X-Submission-Token', async () => {

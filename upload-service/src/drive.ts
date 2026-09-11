@@ -148,6 +148,24 @@ export async function folderExists(deps: DriveDeps, folderId: string): Promise<b
   return data.trashed !== true;
 }
 
+// Used to tell whether a member's linked submission folder (members/{email}.driveFolderId) is
+// still sitting in "upload" (unreviewed) or has since been moved elsewhere by an admin (approved
+// into a public category, or soft-deleted) - see handleWojownicyUploadSubmit's reuse check. A
+// folder normally has exactly one parent (Drive supports multi-parent, but nothing in this
+// codebase's own folder tree ever creates one), so the first entry is authoritative.
+export async function getFolderParentId(deps: DriveDeps, folderId: string): Promise<string | null> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const res = await fetch(`${DRIVE_API}/drive/v3/files/${folderId}?fields=parents`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Nie udało się odczytać folderu nadrzędnego w Drive: HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { parents?: string[] };
+  return data.parents?.[0] ?? null;
+}
+
 // Renames a folder in place - used by the admin panel to change a person's "N. Imię" folder
 // name (and so their display order/name) without touching its contents or parent.
 export async function renameFolder(deps: DriveDeps, folderId: string, newName: string): Promise<void> {
@@ -571,6 +589,7 @@ export interface DriveClient {
   setFolderPublic(folderId: string): Promise<void>;
   deleteFolder(folderId: string): Promise<void>;
   folderExists(folderId: string): Promise<boolean>;
+  getFolderParentId(folderId: string): Promise<string | null>;
   renameFolder(folderId: string, newName: string): Promise<void>;
   moveFolder(folderId: string, newParentId: string): Promise<{ name: string }>;
   moveFile(fileId: string, newParentFolderId: string): Promise<{ previousFolderId?: string }>;
@@ -599,6 +618,7 @@ export function createDriveClient(deps: DriveDeps, docsDeps: DriveDeps = deps): 
     setFolderPublic: folderId => setFolderPublic(deps, folderId),
     deleteFolder: folderId => deleteFolder(deps, folderId),
     folderExists: folderId => folderExists(deps, folderId),
+    getFolderParentId: folderId => getFolderParentId(deps, folderId),
     renameFolder: (folderId, newName) => renameFolder(deps, folderId, newName),
     moveFolder: (folderId, newParentId) => moveFolder(deps, folderId, newParentId),
     moveFile: (fileId, newParentFolderId) => moveFile(deps, fileId, newParentFolderId),

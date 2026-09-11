@@ -46,6 +46,39 @@ function loadLookupLists() {
   return apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth);
 }
 
+function loadCurrentSubmission() {
+  return apiFetch('/lista-wyjazdowa/profile/photo', { method: 'GET' }, showReauth, hideReauth);
+}
+
+// Shows whatever the member has already uploaded (if anything) above the picker, so "did my
+// photo actually make it" has a real answer instead of the picker just going blank after save
+// (KRKG: driveFolderId/photo-display gap, design.md §6). Nothing here is editable - replacing the
+// photo is still done by picking new files below and saving again.
+function renderCurrentSubmission(submission) {
+  const container = document.getElementById('lw-current-submission');
+  if (!submission || (!submission.mainPhoto && submission.photos.length === 0)) {
+    container.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+  const statusText = submission.pendingApproval
+    ? 'Oczekuje na akceptację administratora - niewidoczne jeszcze w „Wojownicy”.'
+    : 'Zaakceptowane - widoczne publicznie w „Wojownicy”.';
+  const allPhotos = [submission.mainPhoto, ...submission.photos].filter(Boolean);
+  container.hidden = false;
+  container.innerHTML = `
+    <p class="lw-hint">${escapeHtml(statusText)}</p>
+    ${allPhotos
+      .map(
+        (photo, index) => `
+      <div class="lw-photo-thumb">
+        <img src="${escapeAttr(photo.url)}" alt="${index === 0 ? 'Główne zdjęcie' : 'Dodatkowe zdjęcie'}" />
+      </div>`,
+      )
+      .join('')}
+  `;
+}
+
 // Same escapeHtml/escapeAttr pair as person-tile.js - the established pattern in this codebase
 // for interpolating user-controlled strings into an innerHTML template. Needed here because
 // equipment/companion name+description are member-entered free text, round-tripped straight back
@@ -389,6 +422,11 @@ async function initForm(lookupLists) {
           await uploadPhoto(folderId, submissionToken, extraEntries[i], false);
           progressEl.textContent = `Przesyłanie zdjęć (${i + 2}/${total})...`;
         }
+        // Reflects the photo(s) that just landed - without this the "already uploaded" panel
+        // above the picker would keep showing the previous submission (or nothing) until the
+        // member reloads the page.
+        const { submission } = await loadCurrentSubmission();
+        renderCurrentSubmission(submission);
       }
 
       // Re-seed the rows from the server's response so the ids it just generated for brand-new
@@ -492,7 +530,8 @@ initGoogleSignIn({
       const historyLink = document.getElementById('profile-history-link');
       historyLink.href = `/audyt/?resourceKey=${encodeURIComponent(`member:${identity.email}`)}`;
       historyLink.hidden = false;
-      const lookupLists = await loadLookupLists();
+      const [lookupLists, { submission }] = await Promise.all([loadLookupLists(), loadCurrentSubmission()]);
+      renderCurrentSubmission(submission);
       await initForm(lookupLists);
     } catch (err) {
       const errorEl = document.getElementById('profile-form-error');
