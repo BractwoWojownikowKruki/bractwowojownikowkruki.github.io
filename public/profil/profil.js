@@ -109,22 +109,28 @@ function renderCurrentSubmission(response) {
 // Deletes one of the caller's own still-pending (staging-folder) photos, then re-renders the
 // section from the server's response - mirrors the pattern already used right after a fresh
 // upload (loadCurrentSubmission + renderCurrentSubmission back to back).
-async function deletePendingPhoto(fileId) {
-  await apiFetch(
-    `/lista-wyjazdowa/profile/photo?fileId=${encodeURIComponent(fileId)}`,
-    { method: 'DELETE' },
-    showReauth,
-    hideReauth,
-  );
-  const response = await loadCurrentSubmission();
-  renderCurrentSubmission(response);
+async function deletePendingPhoto(control) {
+  const container = document.getElementById('lw-current-submission');
+  await window.MutationFeedback.confirmed({
+    control,
+    anchor: container,
+    viewRoot: document.getElementById('profile-form'),
+    refreshFragment: async () => renderCurrentSubmission(await loadCurrentSubmission()),
+    execute: () => apiFetch(
+      `/lista-wyjazdowa/profile/photo?fileId=${encodeURIComponent(control.dataset.fileId)}`,
+      { method: 'DELETE' },
+      showReauth,
+      hideReauth,
+    ),
+    apply: async () => renderCurrentSubmission(await loadCurrentSubmission()),
+  });
 }
 
 document.getElementById('lw-current-submission').addEventListener('click', (e) => {
   const btn = e.target.closest('.lw-delete-pending-btn');
   if (!btn) return;
   btn.disabled = true;
-  deletePendingPhoto(btn.dataset.fileId).catch((err) => {
+  deletePendingPhoto(btn).catch((err) => {
     btn.disabled = false;
     window.alert(`Nie udało się usunąć zdjęcia: ${err.message}`);
   });
@@ -409,7 +415,38 @@ async function initForm(lookupLists) {
     progressEl.hidden = false;
     progressEl.textContent = 'Zapisywanie profilu...';
 
+    const applySavedProfile = ({ savedMember, savedProfile }) => {
+      // Re-seed the rows from the server's response so the ids it just generated for brand-new
+      // equipment/companions are carried by the form: without this, editing and re-saving would
+      // send blank ids again and mint a duplicate id for the same item on every save.
+      fillRows(equipmentContainer, savedProfile.equipment, addEquipmentRow);
+      fillRows(companionContainer, savedProfile.companions, addCompanionRow);
+      // Reflect the server's fullName back into the field it may have just backfilled, so a
+      // member who only typed Ksywa sees where their name came from, not a blank field.
+      form.fullName.value = savedMember.fullName;
+      form.nickname.value = savedMember.nickname ?? '';
+      resetPhotoSelection();
+
+      progressEl.hidden = true;
+      submitBtn.disabled = false;
+    };
+    const refreshProfileFragment = async () => {
+      const [{ member: savedMember }, { profile: savedProfile }, { submission }] = await Promise.all([
+        apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
+        apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
+        loadCurrentSubmission(),
+      ]);
+      renderCurrentSubmission(submission);
+      applySavedProfile({ savedMember, savedProfile });
+    };
+
     try {
+      await window.MutationFeedback.confirmed({
+        control: submitBtn,
+        anchor: progressEl,
+        viewRoot: form,
+        refreshFragment: refreshProfileFragment,
+        execute: async () => {
       // Imię i nazwisko and Ksywa are both optional (server enforces "at least one of the
       // two"): sending '' rather than omitting the key lets the server tell an intentionally
       // blank field apart from a field that was never touched, and it backfills fullName from
@@ -479,23 +516,10 @@ async function initForm(lookupLists) {
         renderCurrentSubmission(await loadCurrentSubmission());
       }
 
-      // Re-seed the rows from the server's response so the ids it just generated for brand-new
-      // equipment/companions are carried by the form: without this, editing and re-saving would
-      // send blank ids again and mint a duplicate id for the same item on every save.
-      fillRows(equipmentContainer, savedProfile.equipment, addEquipmentRow);
-      fillRows(companionContainer, savedProfile.companions, addCompanionRow);
-      // Reflect the server's fullName back into the field it may have just backfilled, so a
-      // member who only typed Ksywa sees where their name came from, not a blank field.
-      form.fullName.value = savedMember.fullName;
-      form.nickname.value = savedMember.nickname ?? '';
-      resetPhotoSelection();
-
-      // The form stays visible and re-submittable (design.md §8 point 4) - no panel swap, just a
-      // brief inline confirmation next to the button so re-editing and re-saving needs no extra
-      // click to "come back" to the form first.
-      progressEl.hidden = true;
-      submitBtn.disabled = false;
-      showSaved();
+      return { savedMember, savedProfile };
+        },
+        apply: applySavedProfile,
+      });
     } catch (err) {
       errorEl.textContent = `Błąd: ${err.message}`;
       errorEl.hidden = false;
@@ -553,20 +577,6 @@ async function initForm(lookupLists) {
   }
 
   showOnly(panels.form);
-}
-
-let savedMessageTimeout = null;
-
-// Transient "✓ Zapisano" next to the submit button - cleared and restarted on every save so
-// several quick successive saves each get their own full-length confirmation instead of the
-// message disappearing early because an earlier save's timer fires mid-way through.
-function showSaved() {
-  const savedEl = document.getElementById('profile-form-saved');
-  clearTimeout(savedMessageTimeout);
-  savedEl.hidden = false;
-  savedMessageTimeout = setTimeout(() => {
-    savedEl.hidden = true;
-  }, 4000);
 }
 
 initGoogleSignIn({

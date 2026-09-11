@@ -74,16 +74,17 @@ async function showForm(previousStatus) {
       errorEl.hidden = true;
       submitBtn.disabled = true;
       try {
-        await apiFetch('/membership/apply', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fullName: form.fullName.value || null,
-            nickname: form.nickname.value || null,
-            sectionId: form.sectionId.value,
+        await window.MutationFeedback.confirmed({
+          control: submitBtn,
+          anchor: panels.pending,
+          execute: () => apiFetch('/membership/apply', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fullName: form.fullName.value || null, nickname: form.nickname.value || null, sectionId: form.sectionId.value }),
           }),
+          apply: () => showOnly(panels.pending),
+          viewRoot: panels.form,
+          refreshFragment: () => showOnly(panels.pending),
         });
-        showOnly(panels.pending);
       } catch (err) {
         errorEl.textContent = `Błąd: ${err.message}`;
         errorEl.hidden = false;

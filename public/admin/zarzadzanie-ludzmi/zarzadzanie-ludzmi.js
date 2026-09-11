@@ -32,29 +32,51 @@ initGoogleSignIn({
   },
 });
 
-// KRKG-0046: sends one status-transition request, then reloads the members list - a single
-// transition (suspend/reactivate/remove) always changes this list. Returns the response's
-// sheetSyncStatus so callers can surface a non-blocking warning if it failed - the transition
-// itself has already succeeded (Firestore is authoritative) regardless.
-async function postMembershipTransition(email, transition) {
-  const { sheetSyncStatus } = await apiFetch(
-    '/admin/members/transition',
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, transition }) },
-    showReauth,
-    hideReauth,
-  );
-  loadMembershipMembers();
-  return sheetSyncStatus;
+// A transition always removes the member from the visible status group, so patching that one row
+// is sufficient and avoids displacing the administrator's current scroll position and focus.
+async function postMembershipTransition(row, email, transition) {
+  const list = document.getElementById('membership-members-list');
+  const result = await window.MutationFeedback.confirmed({
+    control: row.querySelector(`[data-transition="${transition}"]`),
+    // The row is removed by apply(), so the persistent table is the closest valid anchor for
+    // feedback. A span cannot be inserted as a child of the table body.
+    anchor: row.closest('table'),
+    execute: () => apiFetch(
+      '/admin/members/transition',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, transition }) },
+      showReauth,
+      hideReauth,
+    ),
+    apply: () => {
+      membershipMembersCache.members = membershipMembersCache.members.filter(member => member.email !== email);
+      row.remove();
+      if (!list.querySelector('.membership-member')) list.innerHTML = '<tr><td colspan="10" class="czl-empty">Brak członków w tym statusie.</td></tr>';
+    },
+    shouldShowCheck: result => !sheetSyncStatusMessage(result.sheetSyncStatus),
+    viewRoot: list,
+    refreshFragment: loadMembershipMembers,
+  });
+  return result.sheetSyncStatus;
 }
 
 document.getElementById('membership-synchronize').addEventListener('click', async () => {
+  const button = document.getElementById('membership-synchronize');
   const status = document.getElementById('membership-synchronize-status');
   status.textContent = 'Synchronizowanie...';
+  let sheetWarning = null;
   try {
-    const { sheetSyncStatus } = await apiFetch('/admin/members/synchronize', { method: 'POST' }, showReauth, hideReauth);
-    status.textContent = sheetSyncStatusMessage(sheetSyncStatus) ?? 'Zsynchronizowano.';
+    await window.MutationFeedback.confirmed({
+      control: button,
+      anchor: status,
+      execute: () => apiFetch('/admin/members/synchronize', { method: 'POST' }, showReauth, hideReauth).then(result => {
+        sheetWarning = sheetSyncStatusMessage(result.sheetSyncStatus);
+        if (sheetWarning) throw new Error(sheetWarning);
+      }),
+      apply: () => { status.textContent = ''; },
+      refreshFragment: async () => { status.textContent = ''; },
+    });
   } catch (err) {
-    status.textContent = `Błąd: ${err.message}`;
+    status.textContent = sheetWarning ?? `Błąd: ${err.message}`;
   }
 });
 
@@ -275,12 +297,16 @@ document.getElementById('membership-members-filter').addEventListener('input', (
   renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories);
 });
 
-function roleCheckboxesHtml(roles) {
+function memberFocusId(email, control) {
+  return `member-${encodeURIComponent(email)}-${control}`;
+}
+
+function roleCheckboxesHtml(email, roles) {
   const current = new Set(roles ?? []);
   return ASSIGNABLE_ROLES.map(
     r => `
         <label class="member-role-label">
-          <input type="checkbox" class="member-role-checkbox" value="${r.value}" ${current.has(r.value) ? 'checked' : ''} />
+          <input id="${memberFocusId(email, `role-${r.value}`)}" type="checkbox" class="member-role-checkbox" value="${r.value}" ${current.has(r.value) ? 'checked' : ''} />
           ${r.label}
         </label>`,
   ).join('');
@@ -325,20 +351,20 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
         </button>
       </td>
-      <td class="czl-section-cell" title="${escapeAttr(sectionLabel(m.sectionId) || 'Brak sekcji')}"><select class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
-      <td><input type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" /></td>
-      <td><input type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" /></td>
-      <td ${categoryCellAttrs(m.categoryId, categories)}><select class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>
-      <td><input type="checkbox" class="member-hidden-checkbox" data-field="hidden" ${m.hidden ? 'checked' : ''} /></td>
+      <td class="czl-section-cell" title="${escapeAttr(sectionLabel(m.sectionId) || 'Brak sekcji')}"><select id="${memberFocusId(m.email, 'section')}" class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
+      <td><input id="${memberFocusId(m.email, 'full-name')}" type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" /></td>
+      <td><input id="${memberFocusId(m.email, 'nickname')}" type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" /></td>
+      <td ${categoryCellAttrs(m.categoryId, categories)}><select id="${memberFocusId(m.email, 'category')}" class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>
+      <td><input id="${memberFocusId(m.email, 'hidden')}" type="checkbox" class="member-hidden-checkbox" data-field="hidden" ${m.hidden ? 'checked' : ''} /></td>
       <td>${escapeHtml(m.email)}</td>
       <td>${m.lastLoginAt ? escapeHtml(formatDateTime(m.lastLoginAt)) : 'Nigdy'}</td>
       <td>
-        <input type="text" class="czl-field drive-folder-input" list="drive-folder-datalist" placeholder="Folder na stronie..." value="${escapeAttr(currentValue)}" />
+        <input id="${memberFocusId(m.email, 'drive-folder')}" type="text" class="czl-field drive-folder-input" list="drive-folder-datalist" placeholder="Folder na stronie..." value="${escapeAttr(currentValue)}" />
         <span class="drive-folder-saved" style="color:var(--gold);" hidden>✓</span>
       </td>
-      <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(rolesByEmail.get(m.email))}</td>
+      <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(m.email, rolesByEmail.get(m.email))}</td>
       <td>
-        ${actions.map(a => `<button class="member-action" data-transition="${a.transition}">${a.label}</button>`).join('')}
+        ${actions.map(a => `<button id="${memberFocusId(m.email, `action-${a.transition}`)}" class="member-action" data-transition="${a.transition}">${a.label}</button>`).join('')}
       </td>
     </tr>`;
     })
@@ -350,7 +376,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
 // loadMembershipMembers()/renderMembershipMembers() on success: re-rendering would resort/refilter
 // the list out from under whichever field the admin is about to edit next, so `members` is
 // patched in place instead and the DOM is left exactly as shown.
-async function saveMemberProfileField(row, email) {
+async function saveMemberProfileField(row, email, control) {
   const fullNameInput = row.querySelector('[data-field="fullName"]');
   const nicknameInput = row.querySelector('[data-field="nickname"]');
   const sectionSelect = row.querySelector('[data-field="sectionId"]');
@@ -359,24 +385,54 @@ async function saveMemberProfileField(row, email) {
   const nickname = nicknameInput.value.trim();
   const sectionId = sectionSelect.value;
   const categoryId = categorySelect.value || null;
+  control ??= fullNameInput;
+  const previousMember = membershipMembersCache.members.find(member => member.email === email);
   try {
-    await apiFetch(
-      '/admin/members/profile',
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, fullName: fullName || null, nickname: nickname || null, sectionId, categoryId }),
+    await window.MutationFeedback.confirmed({
+      control,
+      execute: () => apiFetch(
+        '/admin/members/profile',
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, fullName: fullName || null, nickname: nickname || null, sectionId, categoryId }),
+        },
+        showReauth,
+        hideReauth,
+      ),
+      apply: () => {
+        const member = membershipMembersCache.members.find(candidate => candidate.email === email);
+        if (member) {
+          member.fullName = fullName || null;
+          member.nickname = nickname || null;
+          member.sectionId = sectionId;
+          member.categoryId = categoryId;
+        }
+        row.dataset.section = sectionId;
+        const sectionCell = sectionSelect.closest('td');
+        const fullLabel = membershipMembersCache.sections.find(section => section.id === sectionId)?.label;
+        sectionCell.title = fullLabel || sectionId || 'Brak sekcji';
+        const categoryCell = categorySelect.closest('td');
+        if (categoryId) {
+          categoryCell.dataset.category = categoryId;
+          categoryCell.title = categorySelect.selectedOptions[0]?.textContent || categoryId;
+        } else {
+          delete categoryCell.dataset.category;
+          categoryCell.removeAttribute('title');
+        }
+        const stillFlagged = (!sectionId || sectionId === 'nieznana') && !categoryId;
+        row.classList.toggle('membership-member--flagged', stillFlagged);
       },
-      showReauth,
-      hideReauth,
-    );
-    const member = membershipMembersCache.members.find(m => m.email === email);
-    if (member) {
-      member.fullName = fullName || null;
-      member.nickname = nickname || null;
-      member.sectionId = sectionId;
-      member.categoryId = categoryId;
-    }
+      viewRoot: row.closest('tbody'),
+      refreshFragment: loadMembershipMembers,
+      rollback: () => {
+        if (!previousMember) return;
+        fullNameInput.value = previousMember.fullName ?? '';
+        nicknameInput.value = previousMember.nickname ?? '';
+        sectionSelect.value = previousMember.sectionId ?? '';
+        categorySelect.value = previousMember.categoryId ?? '';
+      },
+    });
   } catch (err) {
     window.alert(`Błąd zapisu: ${err.message}`);
   }
@@ -385,16 +441,25 @@ async function saveMemberProfileField(row, email) {
 // KRKG-0060: hidden is admin/moderator-owned like categoryId, but sent on its own rather than
 // through saveMemberProfileField's combined write - toggling it shouldn't require (or risk
 // clobbering) the name/section/category fields also present in that same row.
-async function saveMemberHidden(email, hidden) {
+async function saveMemberHidden(email, hidden, control) {
+  const previousMember = membershipMembersCache.members.find(member => member.email === email);
   try {
-    await apiFetch(
-      '/admin/members/profile',
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, hidden }) },
-      showReauth,
-      hideReauth,
-    );
-    const member = membershipMembersCache.members.find(m => m.email === email);
-    if (member) member.hidden = hidden;
+    await window.MutationFeedback.confirmed({
+      control,
+      execute: () => apiFetch(
+        '/admin/members/profile',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, hidden }) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: () => {
+        const member = membershipMembersCache.members.find(candidate => candidate.email === email);
+        if (member) member.hidden = hidden;
+      },
+      viewRoot: control.closest('tbody'),
+      refreshFragment: loadMembershipMembers,
+      rollback: () => { control.checked = previousMember?.hidden ?? !hidden; },
+    });
   } catch (err) {
     window.alert(`Błąd zapisu: ${err.message}`);
   }
@@ -404,38 +469,14 @@ document.getElementById('membership-members-list').addEventListener('change', as
   const hiddenCheckbox = e.target.closest('.member-hidden-checkbox');
   if (hiddenCheckbox) {
     const row = hiddenCheckbox.closest('tr');
-    saveMemberHidden(row.dataset.email, hiddenCheckbox.checked);
+    await saveMemberHidden(row.dataset.email, hiddenCheckbox.checked, hiddenCheckbox);
     return;
   }
 
   const profileField = e.target.closest('.czl-field');
   if (profileField && profileField.dataset.field) {
     const row = profileField.closest('tr');
-    // Same instant-echo update as czlonkowie.js's Sekcja <select> - not a reflection of saved
-    // state, just what's already visibly selected.
-    if (profileField.dataset.field === 'sectionId') {
-      row.dataset.section = profileField.value;
-      const sectionCell = profileField.closest('td');
-      const fullLabel = membershipMembersCache.sections.find(s => s.id === profileField.value)?.label;
-      sectionCell.title = fullLabel || profileField.value || 'Brak sekcji';
-    }
-    if (profileField.dataset.field === 'categoryId') {
-      const typCell = profileField.closest('td');
-      if (profileField.value) {
-        typCell.dataset.category = profileField.value;
-        typCell.title = profileField.selectedOptions[0]?.textContent || profileField.value;
-      } else {
-        delete typCell.dataset.category;
-        typCell.removeAttribute('title');
-      }
-    }
-    if (profileField.dataset.field === 'sectionId' || profileField.dataset.field === 'categoryId') {
-      const sectionValue = row.querySelector('select[data-field="sectionId"]').value;
-      const categoryValue = row.querySelector('select[data-field="categoryId"]').value;
-      const stillFlagged = (!sectionValue || sectionValue === 'nieznana') && !categoryValue;
-      row.classList.toggle('membership-member--flagged', stillFlagged);
-    }
-    saveMemberProfileField(row, row.dataset.email);
+    await saveMemberProfileField(row, row.dataset.email, profileField);
     return;
   }
 
@@ -455,17 +496,26 @@ document.getElementById('membership-members-list').addEventListener('change', as
       return;
     }
     try {
-      await apiFetch(
-        '/admin/roles',
-        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, roles: nextRoles }) },
-        showReauth,
-        hideReauth,
-      );
-      membershipMembersCache.rolesByEmail.set(email, nextRoles);
-      renderRolesAuditLog();
+      await window.MutationFeedback.confirmed({
+        control: roleCheckbox,
+        execute: () => apiFetch(
+          '/admin/roles',
+          { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, roles: nextRoles }) },
+          showReauth,
+          hideReauth,
+        ),
+        apply: async () => {
+          membershipMembersCache.rolesByEmail.set(email, nextRoles);
+          await renderRolesAuditLog();
+        },
+        viewRoot: container.closest('tbody'),
+        refreshFragment: async () => {
+          await Promise.all([loadMembershipMembers(), renderRolesAuditLog()]);
+        },
+        rollback: () => { roleCheckbox.checked = !roleCheckbox.checked; },
+      });
     } catch (err) {
       window.alert(`Błąd: ${err.message}`);
-      roleCheckbox.checked = !roleCheckbox.checked;
     }
     return;
   }
@@ -474,31 +524,37 @@ document.getElementById('membership-members-list').addEventListener('change', as
   if (!input) return;
   const row = e.target.closest('.membership-member');
   const email = row.dataset.email;
-  const savedIndicator = row.querySelector('.drive-folder-saved');
-  savedIndicator.hidden = true;
-
   const typedLabel = input.value.trim();
   let folderId = null;
-  if (typedLabel) {
-    const driveFolderOptions = await loadDriveFolderOptions();
-    const match = driveFolderOptions.find(o => o.label === typedLabel);
-    if (!match) {
-      window.alert(`Nie znaleziono folderu "${typedLabel}" na liście. Wybierz jedną z podpowiedzi.`);
-      return;
-    }
-    folderId = match.folderId;
-  }
-
   try {
-    await apiFetch(
-      '/admin/members/drive-folder',
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, folderId }) },
-      showReauth,
-      hideReauth,
-    );
-    savedIndicator.hidden = false;
-    const cached = membershipMembersCache.members.find(m => m.email === email);
-    if (cached) cached.driveFolderId = folderId;
+    const driveFolderOptions = typedLabel ? await loadDriveFolderOptions() : membershipMembersCache.driveFolderOptions;
+    if (typedLabel) {
+      const match = driveFolderOptions.find(option => option.label === typedLabel);
+      if (!match) {
+        window.alert(`Nie znaleziono folderu "${typedLabel}" na liście. Wybierz jedną z podpowiedzi.`);
+        return;
+      }
+      folderId = match.folderId;
+    }
+    const previousFolderId = membershipMembersCache.members.find(member => member.email === email)?.driveFolderId ?? null;
+    await window.MutationFeedback.confirmed({
+      control: input,
+      execute: () => apiFetch(
+        '/admin/members/drive-folder',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, folderId }) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: () => {
+        const cached = membershipMembersCache.members.find(member => member.email === email);
+        if (cached) cached.driveFolderId = folderId;
+      },
+      viewRoot: row.closest('tbody'),
+      refreshFragment: loadMembershipMembers,
+      rollback: () => {
+        input.value = previousFolderId ? (driveFolderOptions.find(option => option.folderId === previousFolderId)?.label ?? previousFolderId) : '';
+      },
+    });
   } catch (err) {
     window.alert(`Błąd: ${err.message}`);
   }
@@ -525,7 +581,7 @@ document.getElementById('membership-members-list').addEventListener('click', asy
   const transition = actionBtn.dataset.transition;
   if (transition === 'remove' && !window.confirm(`Na pewno usunąć członka ${email}?`)) return;
   try {
-    const sheetSyncStatus = await postMembershipTransition(email, transition);
+    const sheetSyncStatus = await postMembershipTransition(row, email, transition);
     const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
     if (sheetWarning) window.alert(sheetWarning);
   } catch (err) {

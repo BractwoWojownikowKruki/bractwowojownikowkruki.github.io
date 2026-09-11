@@ -1257,9 +1257,26 @@ async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse,
   const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
   if (!folderId || !fileName) throw new AuthError('Brak folderId lub fileName.', 400);
   requireAllowedMimeType(mimeType, deps.allowedMimeTypes);
-  await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: 'pending' }] }, async () => deps.drive.uploadFileStream(folderId, decodeURIComponent(fileName), mimeType, validatedUploadStream(req, deps.maxFileBytes, mimeType)), { eventInput: file => ({ action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: file.id }] }) });
+  const { result: uploaded } = await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: 'pending' }] }, async () => deps.drive.uploadFileStream(folderId, decodeURIComponent(fileName), mimeType, validatedUploadStream(req, deps.maxFileBytes, mimeType)), { eventInput: file => ({ action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: file.id }] }) });
   invalidateAboutUsCache();
-  sendJson(res, 200, { ok: true });
+  // Drive may acknowledge the write before it has generated thumbnailLink. The response still
+  // proves the file was saved, while null tells the client to use only a temporary local preview.
+  let uploadedImage: Awaited<ReturnType<DriveClient['listImageFiles']>>[number] | undefined;
+  try {
+    uploadedImage = (await deps.drive.listImageFiles(folderId)).find(image => image.id === uploaded.id);
+  } catch (error) {
+    // The file has already been committed and audited. Drive's metadata index can lag or be
+    // temporarily unavailable, so the client receives the durable file id and a null URL rather
+    // than a false failure that would invite a duplicate upload.
+    console.warn('Unable to load uploaded photo metadata:', error);
+  }
+  sendJson(res, 200, {
+    photo: {
+      id: uploaded.id,
+      name: uploadedImage?.name ?? decodeURIComponent(fileName),
+      url: uploadedImage?.thumbnailLink ? resizeThumbnailUrl(uploadedImage.thumbnailLink, 300) : null,
+    },
+  });
 }
 
 async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {

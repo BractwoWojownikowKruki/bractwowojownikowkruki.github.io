@@ -680,6 +680,11 @@ async function handleDeleteGallery(album) {
   if (!window.confirm(warning)) return;
 
   try {
+    const feedbackAnchor = document.getElementById('count');
+    await window.MutationFeedback.confirmed({
+      control: document.getElementById('delete-gallery-btn'),
+      anchor: feedbackAnchor,
+      execute: async () => {
     if (isAppOwned) {
       await apiFetch('/delete-drive-gallery', {
         method: 'POST',
@@ -693,10 +698,16 @@ async function handleDeleteGallery(album) {
         body: JSON.stringify({ url: album.url }),
       }, showDeleteReauth, hideDeleteReauth);
     }
+      },
+      apply: () => {
     allAlbums = allAlbums.filter(a => a !== album);
     location.hash = '';
     update();
-    showToast(isAppOwned ? 'Galeria usunięta.' : 'Galeria zostanie usunięta ze strony po około 10 minutach.');
+    if (!isAppOwned) showToast('Galeria zniknie ze strony po około 10 minutach.');
+      },
+      viewRoot: document.getElementById('view-grid'),
+      refreshFragment: () => loadGalleries(),
+    });
   } catch (err) {
     window.alert(`Nie udało się usunąć galerii: ${err.message}`);
   }

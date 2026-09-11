@@ -346,6 +346,39 @@ main { padding: 1.25rem 1.5rem 3rem; }
   margin-top: 0.35rem;
 }
 
+/* ── Confirmed mutation feedback ── */
+
+.mutation-feedback-check {
+  display: inline-block;
+  margin-inline-start: 0.4rem;
+  color: #61c46e;
+  font-weight: 700;
+}
+
+.mutation-feedback-error {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-inline-start: 0.5rem;
+  color: #ffb4a8;
+  font-size: 0.9em;
+}
+
+.mutation-feedback-refresh {
+  border: 1px solid var(--border-hover);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  padding: 0.25rem 0.45rem;
+}
+
+.mutation-feedback-refresh:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 /* ── Empty state ── */
 
 .empty {

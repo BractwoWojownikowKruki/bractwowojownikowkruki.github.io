@@ -203,12 +203,21 @@ document.getElementById('upload-form').addEventListener('submit', async e => {
   const submitButton = document.getElementById('upload-submit-button');
   submitButton.disabled = true;
   renderUploadStarting();
-  try {
-    await submitViaUpload(name, date, files);
-    // /finalize succeeding means the gallery is already owned and published by
-    // upload-service and picked up by GET /galleries - near-instant, no pipeline involved.
+  const showUploadedGallery = () => {
     document.getElementById('upload-form').hidden = true;
     document.getElementById('upload-success').hidden = false;
+  };
+  try {
+    await window.MutationFeedback.confirmed({
+      control: submitButton,
+      anchor: document.getElementById('upload-success'),
+      execute: () => submitViaUpload(name, date, files),
+      // /finalize succeeding means the gallery is already owned and published by
+      // upload-service and picked up by GET /galleries - near-instant, no pipeline involved.
+      apply: showUploadedGallery,
+      viewRoot: document.getElementById('upload-form'),
+      refreshFragment: showUploadedGallery,
+    });
   } catch (err) {
     showError('upload-error', err.message);
   } finally {
@@ -235,18 +244,27 @@ document.getElementById('register-form').addEventListener('submit', async e => {
 
   const submitButton = document.getElementById('register-submit-button');
   submitButton.disabled = true;
+  const showRegisteredGallery = () => {
+    document.getElementById('register-form').hidden = true;
+    document.getElementById('register-success').hidden = false;
+  };
   try {
     // Registers an existing gallery directly - requires being signed in with an allowlisted
     // account (see /register in upload-service), which apiFetch prompts for via showReauth if
     // there's no valid session yet. Committed to albums.json and picked up by the CI pipeline,
     // same as before - not instant.
-    await apiFetch('/register', {
+    await window.MutationFeedback.confirmed({
+      control: submitButton,
+      anchor: document.getElementById('register-success'),
+      execute: () => apiFetch('/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, name, date }),
-    }, showReauth, hideReauth);
-    document.getElementById('register-form').hidden = true;
-    document.getElementById('register-success').hidden = false;
+    }, showReauth, hideReauth),
+      apply: showRegisteredGallery,
+      viewRoot: document.getElementById('register-form'),
+      refreshFragment: showRegisteredGallery,
+    });
   } catch (err) {
     showError('register-error', err.message);
   } finally {

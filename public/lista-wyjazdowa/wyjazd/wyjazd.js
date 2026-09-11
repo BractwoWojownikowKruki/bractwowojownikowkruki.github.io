@@ -127,6 +127,17 @@ function clearError() {
   document.getElementById('lw-error').hidden = true;
 }
 
+function confirmedEventMutation(control, execute, apply, anchor = control) {
+  return window.MutationFeedback.confirmed({
+    control,
+    anchor,
+    execute,
+    apply,
+    viewRoot: document.getElementById('main-content'),
+    refreshFragment: loadAll,
+  });
+}
+
 // Fetched once per loadAll() alongside events/roster/signups (Task 2's GET /my-role). Read by
 // renderSkladkaFee() and renderRoster() to decide whether to show edit/toggle controls or
 // read-only text - the server re-checks the role on every mutation regardless, this only
@@ -148,13 +159,14 @@ async function saveSkladkaFee() {
   clearError();
   try {
     const value = document.getElementById('skladka-fee-input').value.trim();
-    await apiFetch(
+    await confirmedEventMutation(document.getElementById('skladka-fee-save'), () => apiFetch(
       `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skladkaFee: value || null }) },
       showReauth,
       hideReauth,
-    );
-    await loadAll();
+    ), () => {
+      document.getElementById('skladka-fee-display').textContent = value ? `Składka: ${value}` : 'Składka: nie ustalono';
+    });
   } catch (err) {
     showError(`Nie udało się zapisać składki: ${err.message}`);
   }
@@ -162,16 +174,19 @@ async function saveSkladkaFee() {
 
 document.getElementById('skladka-fee-save').addEventListener('click', saveSkladkaFee);
 
-async function toggleSkladkaPaid(email, nextPaid) {
+async function toggleSkladkaPaid(email, nextPaid, control) {
   clearError();
   try {
-    await apiFetch(
+    await confirmedEventMutation(control, () => apiFetch(
       `/lista-wyjazdowa/signups/skladka?eventId=${encodeURIComponent(eventId)}&memberEmail=${encodeURIComponent(email)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: nextPaid }) },
       showReauth,
       hideReauth,
-    );
-    await loadAll();
+    ), () => {
+      const signup = cachedSignups.find(item => item.memberEmail === email);
+      if (signup) signup.skladkaPaid = nextPaid;
+      renderRoster(cachedRoster, cachedSignups);
+    }, document.getElementById('roster-panel'));
   } catch (err) {
     showError(`Nie udało się zaktualizować składki: ${err.message}`);
   }
@@ -334,12 +349,12 @@ function stillValidIds(ids, items) {
   return (ids ?? []).filter((id) => valid.has(id));
 }
 
-async function toggleAttending(email, nextAttending) {
+async function toggleAttending(email, nextAttending, control) {
   clearError();
   const member = cachedRoster.find((m) => m.email === email);
   const existing = cachedSignups.find((s) => s.memberEmail === email);
   try {
-    await apiFetch(
+    await confirmedEventMutation(control, () => apiFetch(
       `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&memberEmail=${encodeURIComponent(email)}`,
       {
         method: 'PUT',
@@ -352,8 +367,13 @@ async function toggleAttending(email, nextAttending) {
       },
       showReauth,
       hideReauth,
-    );
-    await loadAll();
+    ), () => {
+      const signup = cachedSignups.find(item => item.memberEmail === email);
+      if (signup) signup.attending = nextAttending;
+      else cachedSignups.push({ memberEmail: email, attending: nextAttending, equipmentIds: [], companionIds: [], skladkaPaid: false });
+      renderSummary(cachedRoster, cachedSignups);
+      renderRoster(cachedRoster, cachedSignups);
+    }, document.getElementById('roster-panel'));
   } catch (err) {
     showError(`Nie udało się zapisać zgłoszenia: ${err.message}`);
   }
@@ -382,13 +402,13 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
   if (attendBtn) {
     const nextAttending = attendBtn.dataset.attending !== 'true';
     attendBtn.disabled = true;
-    toggleAttending(attendBtn.dataset.email, nextAttending).finally(() => { attendBtn.disabled = false; });
+    toggleAttending(attendBtn.dataset.email, nextAttending, attendBtn).finally(() => { attendBtn.disabled = false; });
     return;
   }
   const skladkaBtn = e.target.closest('.lw-skladka-icon');
   if (skladkaBtn && skladkaBtn.dataset.email) {
     skladkaBtn.disabled = true;
-    toggleSkladkaPaid(skladkaBtn.dataset.email, skladkaBtn.dataset.paid !== 'true').finally(() => { skladkaBtn.disabled = false; });
+    toggleSkladkaPaid(skladkaBtn.dataset.email, skladkaBtn.dataset.paid !== 'true', skladkaBtn).finally(() => { skladkaBtn.disabled = false; });
   }
 });
 
@@ -441,16 +461,20 @@ async function loadAll() {
   await renderAuditLog();
 }
 
-async function setEventStatus(status, failureMessage) {
+async function setEventStatus(status, failureMessage, control) {
   clearError();
   try {
-    await apiFetch(
+    await confirmedEventMutation(control, () => apiFetch(
       `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) },
       showReauth,
       hideReauth,
-    );
-    await loadAll();
+    ), () => {
+      const meta = document.getElementById('event-meta');
+      meta.textContent = meta.textContent.replace(/ — odwołany$/, '') + (status === 'cancelled' ? ' — odwołany' : '');
+      document.getElementById('cancel-event-btn').hidden = status === 'cancelled';
+      document.getElementById('restore-event-btn').hidden = status !== 'cancelled';
+    }, document.getElementById('event-meta'));
   } catch (err) {
     showError(`${failureMessage}: ${err.message}`);
   }
@@ -458,11 +482,11 @@ async function setEventStatus(status, failureMessage) {
 
 document.getElementById('cancel-event-btn').addEventListener('click', () => {
   if (!window.confirm('Czy na pewno odwołać ten wyjazd?')) return;
-  setEventStatus('cancelled', 'Nie udało się odwołać wyjazdu');
+  setEventStatus('cancelled', 'Nie udało się odwołać wyjazdu', document.getElementById('cancel-event-btn'));
 });
 
 document.getElementById('restore-event-btn').addEventListener('click', () => {
-  setEventStatus('active', 'Nie udało się przywrócić wyjazdu');
+  setEventStatus('active', 'Nie udało się przywrócić wyjazdu', document.getElementById('restore-event-btn'));
 });
 
 initGoogleSignIn({

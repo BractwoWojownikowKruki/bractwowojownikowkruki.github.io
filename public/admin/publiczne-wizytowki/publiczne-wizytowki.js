@@ -31,17 +31,20 @@ initGoogleSignIn({
 // but a person's photo set here is small enough that sequential is fine). onProgress(n), if
 // given, is called after each file with the count uploaded so far.
 async function uploadPhotos(folderId, fileList, onProgress) {
+  const photos = [];
   let uploaded = 0;
   for (const file of fileList) {
-    await apiFetch(
+    const result = await apiFetch(
       `/admin/people/photo?folderId=${encodeURIComponent(folderId)}&fileName=${encodeURIComponent(file.name)}&mimeType=${encodeURIComponent(file.type || 'application/octet-stream')}`,
       { method: 'POST', body: file },
       showReauth,
       hideReauth,
     );
+    photos.push({ ...result.photo, localUrl: result.photo.url === null ? URL.createObjectURL(file) : null });
     uploaded++;
     onProgress?.(uploaded);
   }
+  return photos;
 }
 
 document.getElementById('add-person-form').addEventListener('submit', async e => {
@@ -54,27 +57,32 @@ document.getElementById('add-person-form').addEventListener('submit', async e =>
   const order = orderRaw === '' ? null : Number(orderRaw);
   const description = document.getElementById('person-description').value.trim();
   const photoFiles = document.getElementById('person-photos').files;
+  const list = document.getElementById('manage-people-list');
 
   try {
-    const { folderId } = await apiFetch(
-      '/admin/people',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category, name, order, description }),
+    await window.MutationFeedback.confirmed({
+      control: document.getElementById('person-name'),
+      anchor: status,
+      execute: async () => {
+        const created = await apiFetch('/admin/people', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category, name, order, description }),
+        }, showReauth, hideReauth);
+        const photos = photoFiles.length
+          ? await uploadPhotos(created.folderId, photoFiles, uploaded => { status.textContent = `Przesyłanie zdjęć (${uploaded}/${photoFiles.length})...`; })
+          : [];
+        return { ...created, photos };
       },
-      showReauth,
-      hideReauth,
-    );
-    if (photoFiles.length) {
-      status.textContent = `Dodano osobę, przesyłanie zdjęć (0/${photoFiles.length})...`;
-      await uploadPhotos(folderId, photoFiles, uploaded => {
-        status.textContent = `Dodano osobę, przesyłanie zdjęć (${uploaded}/${photoFiles.length})...`;
-      });
-    }
-    status.textContent = 'Dodano osobę.';
-    document.getElementById('add-person-form').reset();
-    loadManageList();
+      apply: created => {
+        document.getElementById('add-person-form').reset();
+        if (document.getElementById('manage-category').value === category) {
+          list.querySelector('p')?.remove();
+          list.insertAdjacentHTML('beforeend', personCardHtml({ folderId: created.folderId, name, order, description, mainPhoto: null, photos: created.photos, inMemoriam: false }));
+        }
+        status.textContent = '';
+      },
+      viewRoot: list,
+      refreshFragment: loadManageList,
+    });
   } catch (err) {
     status.textContent = `Błąd: ${err.message}`;
   }
@@ -88,6 +96,7 @@ document.getElementById('manage-category').addEventListener('change', loadManage
 // published profiles). Fetched fresh on every loadManageList() call rather than cached across
 // them, so a person added/moved/renamed a moment ago always shows up correctly.
 const TRANSFER_TARGET_CATEGORIES = ['Blachowi', 'Niewiasty', 'Kandydaci'];
+let transferTargetsCache = [];
 
 async function loadTransferTargets() {
   const results = await Promise.all(
@@ -114,6 +123,7 @@ async function loadManageList() {
       loadTransferTargets(),
     ]);
     renderManageList(data.people || [], transferTargets);
+    transferTargetsCache = transferTargets;
   } catch (err) {
     list.textContent = `Błąd: ${err.message}`;
   }
@@ -153,10 +163,11 @@ function approveTargetCategoryOptionsHtml() {
 }
 
 function photoItemHtml(folderId, photo, isMain, transferTargets, isUploadCategory) {
+  const imageUrl = photo.url ?? photo.localUrl;
   return `
-    <div class="manage-photo-item" style="display:inline-block; text-align:center; margin:0 0.5rem 0.5rem 0; vertical-align:top; width:100px;">
-      <img src="${photo.url}" alt="" style="width:100px; height:100px; object-fit:cover; border-radius:4px; display:block; border:1px solid var(--border);" />
-      <div style="font-size:11px; margin-top:2px;">
+    <div class="manage-photo-item" data-file-id="${escapeAttr(photo.id)}" style="display:inline-block; text-align:center; margin:0 0.5rem 0.5rem 0; vertical-align:top; width:100px;">
+      <img src="${escapeAttr(imageUrl)}" alt="${photo.url === null ? 'Miniatura zdjęcia będzie dostępna później' : ''}" style="width:100px; height:100px; object-fit:cover; border-radius:4px; display:block; border:1px solid var(--border);" />
+      <div class="main-photo-control" style="font-size:11px; margin-top:2px;">
         ${
           isMain
             ? '<strong>Główne</strong>'
@@ -186,30 +197,25 @@ function photoItemHtml(folderId, photo, isMain, transferTargets, isUploadCategor
     </div>`;
 }
 
-function renderManageList(people, transferTargets) {
-  const list = document.getElementById('manage-people-list');
+function personCardId(folderId) {
+  return `manage-person-${encodeURIComponent(folderId)}`;
+}
+
+function personCardHtml(p) {
   const currentCategory = document.getElementById('manage-category').value;
-  if (!people.length) {
-    list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
-    return;
-  }
   const isUploadCategory = currentCategory === 'upload';
-  list.innerHTML = people
-    .map(p => {
       const allPhotos = [
         ...(p.mainPhoto ? [{ ...p.mainPhoto, isMain: true }] : []),
         ...p.photos.map(photo => ({ ...photo, isMain: false })),
       ];
       const photosHtml = allPhotos.length
-        ? allPhotos
-            .map(photo => photoItemHtml(p.folderId, photo, photo.isMain, transferTargets, isUploadCategory))
-            .join('')
+        ? allPhotos.map(photo => photoItemHtml(p.folderId, photo, photo.isMain, transferTargetsCache, isUploadCategory)).join('')
         : '<p style="color:var(--text-muted); font-size:13px;">Brak zdjęć.</p>';
       return `
-    <div style="border:1px solid var(--border); border-radius:6px; padding:1rem;">
-      <strong>${escapeHtml(p.name)}</strong>
+    <div id="${personCardId(p.folderId)}" class="manage-person-card" data-folder-id="${escapeAttr(p.folderId)}" style="border:1px solid var(--border); border-radius:6px; padding:1rem;">
+      <strong class="person-name">${escapeHtml(p.name)}</strong>
       <a class="audyt-history-btn" style="margin-left:0.5rem; vertical-align:middle;" href="/admin/audyt/?resourceKey=${encodeURIComponent(`person:${p.folderId}`)}" title="Historia" aria-label="Historia">${HISTORY_ICON}</a>
-      <div style="margin:0.5rem 0;">${photosHtml}</div>
+      <div class="person-photos" style="margin:0.5rem 0;">${photosHtml}</div>
       <textarea class="edit-description" data-folder-id="${p.folderId}" rows="6" style="width:100%; margin:0.5rem 0;">${escapeHtml(p.description)}</textarea>
       <button class="save-description" data-folder-id="${p.folderId}">Zapisz opis</button>
 
@@ -240,30 +246,47 @@ function renderManageList(people, transferTargets) {
       <input type="file" class="upload-photo" data-folder-id="${p.folderId}" accept="image/*" multiple style="display:block; margin:0.5rem 0;" />
       <button class="delete-person" data-folder-id="${p.folderId}" style="color:var(--accent);">Usuń osobę</button>
     </div>`;
-    })
-    .join('');
+}
+
+function renderManageList(people, transferTargets) {
+  const list = document.getElementById('manage-people-list');
+  transferTargetsCache = transferTargets;
+  list.innerHTML = people.length ? people.map(personCardHtml).join('') : '<p>Brak osób w tej kategorii.</p>';
+}
+
+function personCard(folderId) {
+  return document.getElementById(personCardId(folderId));
+}
+
+async function confirmedPersonWrite(control, card, execute, apply, anchor = card) {
+  return window.MutationFeedback.confirmed({
+    control, anchor, execute, apply, viewRoot: document.getElementById('manage-people-list'), refreshFragment: loadManageList,
+  });
 }
 
 document.getElementById('manage-people-list').addEventListener('click', async e => {
+  try {
   const saveBtn = e.target.closest('.save-description');
   if (saveBtn) {
     const folderId = saveBtn.dataset.folderId;
     const textarea = document.querySelector(`.edit-description[data-folder-id="${folderId}"]`);
-    await apiFetch(
+    await confirmedPersonWrite(saveBtn, personCard(folderId), () => apiFetch(
       `/admin/people/description?folderId=${encodeURIComponent(folderId)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description: textarea.value }) },
-      showReauth,
-      hideReauth,
-    );
-    loadManageList();
+      showReauth, hideReauth,
+    ), () => {});
     return;
   }
   const deleteBtn = e.target.closest('.delete-person');
   if (deleteBtn) {
     if (!window.confirm('Na pewno usunąć tę osobę?')) return;
     const folderId = deleteBtn.dataset.folderId;
-    await apiFetch(`/admin/people?folderId=${encodeURIComponent(folderId)}`, { method: 'DELETE' }, showReauth, hideReauth);
-    loadManageList();
+    const card = personCard(folderId);
+    await confirmedPersonWrite(deleteBtn, card, () => apiFetch(`/admin/people?folderId=${encodeURIComponent(folderId)}`, { method: 'DELETE' }, showReauth, hideReauth), () => {
+      card.remove();
+      const list = document.getElementById('manage-people-list');
+      if (!list.querySelector('.manage-person-card')) list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
+    }, document.getElementById('manage-people-list'));
     return;
   }
   const saveOrderBtn = e.target.closest('.save-order');
@@ -272,61 +295,60 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
     const nameInput = document.querySelector(`.edit-name[data-folder-id="${folderId}"]`);
     const orderInput = document.querySelector(`.edit-order[data-folder-id="${folderId}"]`);
     const order = orderInput.value === '' ? null : Number(orderInput.value);
-    await apiFetch(
+    await confirmedPersonWrite(saveOrderBtn, personCard(folderId), () => apiFetch(
       '/admin/people/order',
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folderId, name: nameInput.value, order }),
       },
-      showReauth,
-      hideReauth,
-    );
-    loadManageList();
+      showReauth, hideReauth,
+    ), () => { personCard(folderId).querySelector('.person-name').textContent = nameInput.value.trim(); });
     return;
   }
   const moveBtn = e.target.closest('.move-person');
   if (moveBtn) {
     const folderId = moveBtn.dataset.folderId;
     const select = document.querySelector(`.move-category[data-folder-id="${folderId}"]`);
-    await apiFetch(
+    const card = personCard(folderId);
+    await confirmedPersonWrite(moveBtn, card, () => apiFetch(
       '/admin/people/category',
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folderId, category: select.value }),
       },
-      showReauth,
-      hideReauth,
-    );
-    loadManageList();
+      showReauth, hideReauth,
+    ), () => { if (select.value !== document.getElementById('manage-category').value) card.remove(); }, document.getElementById('manage-people-list'));
     return;
   }
   const deletePhotoBtn = e.target.closest('.delete-photo');
   if (deletePhotoBtn) {
     if (!window.confirm('Na pewno usunąć to zdjęcie?')) return;
-    await apiFetch(
+    const item = deletePhotoBtn.closest('.manage-photo-item');
+    await confirmedPersonWrite(deletePhotoBtn, personCard(deletePhotoBtn.dataset.folderId), () => apiFetch(
       `/admin/people/photo?fileId=${encodeURIComponent(deletePhotoBtn.dataset.fileId)}&folderId=${encodeURIComponent(deletePhotoBtn.dataset.folderId)}`,
       { method: 'DELETE' },
-      showReauth,
-      hideReauth,
-    );
-    loadManageList();
+      showReauth, hideReauth,
+    ), () => item.remove());
     return;
   }
   const setMainBtn = e.target.closest('.set-main-photo');
   if (setMainBtn) {
-    await apiFetch(
+    const card = personCard(setMainBtn.dataset.folderId);
+    await confirmedPersonWrite(setMainBtn, card, () => apiFetch(
       '/admin/people/photo/main',
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folderId: setMainBtn.dataset.folderId, fileId: setMainBtn.dataset.fileId }),
       },
-      showReauth,
-      hideReauth,
-    );
-    loadManageList();
+      showReauth, hideReauth,
+    ), () => {
+      const prior = card.querySelector('.main-photo-control strong')?.closest('.main-photo-control');
+      if (prior) prior.innerHTML = `<button class="set-main-photo" data-folder-id="${setMainBtn.dataset.folderId}" data-file-id="${prior.closest('.manage-photo-item').dataset.fileId}">Ustaw główne</button>`;
+      setMainBtn.closest('.main-photo-control').innerHTML = '<strong>Główne</strong>';
+    });
     return;
   }
   const transferBtn = e.target.closest('.transfer-photo');
@@ -337,17 +359,16 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       window.alert('Wybierz osobę, do której chcesz przenieść zdjęcie.');
       return;
     }
-    await apiFetch(
+    const item = transferBtn.closest('.manage-photo-item');
+    await confirmedPersonWrite(transferBtn, personCard(item.closest('.manage-person-card').dataset.folderId), () => apiFetch(
       '/admin/people/photo/transfer',
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileId, targetFolderId: select.value }),
       },
-      showReauth,
-      hideReauth,
-    );
-    loadManageList();
+      showReauth, hideReauth,
+    ), () => item.remove());
     return;
   }
   const approveBtn = e.target.closest('.approve-photo');
@@ -355,12 +376,15 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
     const fileId = approveBtn.dataset.fileId;
     const select = document.querySelector(`.approve-target-category[data-file-id="${fileId}"]`);
     const nameInput = document.querySelector(`.approve-name[data-file-id="${fileId}"]`);
+    const item = approveBtn.closest('.manage-photo-item');
+    const card = personCard(approveBtn.dataset.folderId);
+    const list = document.getElementById('manage-people-list');
     // Apply Review (KRKG-0070): the public name is never pre-filled from the staging folder's
     // name or any other member data - it is only ever what the admin explicitly typed into this
     // field just now. A blank field sends `undefined`, not "", so a repeat approval (where the
     // member's public folder already exists and the server ignores `name` entirely) doesn't
     // accidentally send an empty-string name.
-    await apiFetch(
+    await confirmedPersonWrite(approveBtn, card, () => apiFetch(
       '/admin/people/photo/approve',
       {
         method: 'PUT',
@@ -374,18 +398,32 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       },
       showReauth,
       hideReauth,
-    );
-    loadManageList();
+    ), () => {
+      item.remove();
+      if (!card.querySelector('.manage-photo-item')) {
+        card.remove();
+        if (!list.querySelector('.manage-person-card')) list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
+      }
+    }, list);
+    return;
+  }
+  } catch (err) {
+    window.alert(`Błąd: ${err.message}`);
   }
 });
 
 document.getElementById('manage-people-list').addEventListener('change', async e => {
+  try {
   const uploadInput = e.target.closest('.upload-photo');
   if (uploadInput) {
     if (!uploadInput.files.length) return;
-    await uploadPhotos(uploadInput.dataset.folderId, uploadInput.files);
-    uploadInput.value = '';
-    loadManageList();
+    const card = personCard(uploadInput.dataset.folderId);
+    await confirmedPersonWrite(uploadInput, card, () => uploadPhotos(uploadInput.dataset.folderId, uploadInput.files), photos => {
+      const photosRoot = card.querySelector('.person-photos');
+      const isUploadCategory = document.getElementById('manage-category').value === 'upload';
+      photos.forEach(photo => photosRoot.insertAdjacentHTML('beforeend', photoItemHtml(uploadInput.dataset.folderId, photo, false, transferTargetsCache, isUploadCategory)));
+      uploadInput.value = '';
+    });
     return;
   }
   const inMemoriamCheckbox = e.target.closest('.toggle-in-memoriam');
@@ -400,16 +438,17 @@ document.getElementById('manage-people-list').addEventListener('change', async e
       inMemoriamCheckbox.checked = !nowChecked;
       return;
     }
-    await apiFetch(
+    await confirmedPersonWrite(inMemoriamCheckbox, personCard(inMemoriamCheckbox.dataset.folderId), () => apiFetch(
       '/admin/people/in-memoriam',
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folderId: inMemoriamCheckbox.dataset.folderId, inMemoriam: nowChecked }),
       },
-      showReauth,
-      hideReauth,
-    );
-    loadManageList();
+      showReauth, hideReauth,
+    ), () => {});
+  }
+  } catch (err) {
+    window.alert(`Błąd: ${err.message}`);
   }
 });
