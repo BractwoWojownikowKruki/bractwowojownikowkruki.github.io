@@ -281,6 +281,18 @@
   max-width: 2000px;
 }
 
+/* This file loads after style.css (see the header comment above), so its own unconditional
+   grid-template-columns above outranks style.css's responsive .main-content rules in the
+   cascade (same specificity, later file wins) - without this override the fixed 300px sidebar
+   column survived all the way down to phone widths, squeezing .content-left to a sliver and
+   forcing every word in it onto its own line. Mirrors style.css's own .main-content breakpoint
+   so this page collapses to a single column exactly like every other one. */
+@media (max-width: 1024px) {
+  .main-content--wide {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* KRKG-0052: scoped to this one table - it's the densest on the site, so a slightly smaller
    font buys back some of the width a plain column count otherwise demands. Other member tables
    stay at .czl-table's own 0.9rem; this only tightens Zarządzanie ludźmi's. */
