@@ -3730,56 +3730,6 @@ button.lw-skladka-icon:disabled {
   color: var(--text-muted);
 }
 
-@media (max-width: 768px) {
-  .lw-event-row {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .lw-skladki-row {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .lw-skladki-row button {
-    align-self: flex-start;
-  }
-
-  /* Member tables (KRKG-0053) - .content-section already borders the whole page section, so
-     .czl-table-wrap's own border on top was a double frame eating into a phone's little width.
-     Tighter padding/font for the same reason. */
-  .czl-table-wrap {
-    border: none;
-    border-radius: 0;
-  }
-
-  .czl-table {
-    font-size: 0.82rem;
-  }
-
-  .czl-table th,
-  .czl-table td {
-    padding: 0.3rem 0.45rem;
-  }
-}
-
-/* KRKG-0051: kept at the very end of the file on purpose - see the comment near .section-pill.
-   Applies to Lista Wyjazdowa/Składki's roster rows (.lw-roster-row/.lw-skladki-row), which already
-   carry a full `border: ...` shorthand - a same-specificity clash with an earlier shorthand rule
-   resolves by source order, so this full border-left shorthand has to come last either way. */
-.section-row-accent {
-  border-left: 8px solid var(--section-c, var(--section-color-default));
-}
-
-/* Table rows (Spis Ludności's .czl-table) can't take a visible border directly on <tr> under
-   border-collapse - only the leftmost <td> can show it. --section-c still comes from the <tr>'s
-   own [data-section="..."] rule/inheritance above; naming ".czl-table" here (rather than a bare
-   "tr[data-section]") keeps this from also matching some unrelated table elsewhere on the site. */
-.czl-table tr[data-section] td:first-child {
-  border-left: 8px solid var(--section-c, var(--section-color-default));
-  padding-left: 0.7rem;
-}
-
 /* Historia deep-link, used on every record page site-wide (implementation-contract.md "Historia
    and UI scope") - icon-only secondary button (bordered, like .member-action/.czl-table's row
    actions), never a labeled link: the tooltip/aria-label carry "Historia", not visible text, so
