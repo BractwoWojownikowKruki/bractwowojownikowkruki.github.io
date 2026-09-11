@@ -139,6 +139,18 @@
   color: var(--text);
 }
 
+/* KRKG-0070: delete button on a pending (not-yet-approved) photo thumbnail - same base look as
+   .lw-crop-btn, but its hover state reads as destructive rather than neutral. */
+.lw-photo-thumb .lw-delete-pending-btn:hover {
+  border-color: var(--danger, #c0392b);
+  color: var(--danger, #c0392b);
+}
+
+.lw-photo-thumb .lw-delete-pending-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 @media (max-width: 600px) {
   .equipment-row {
     grid-template-columns: 1fr;

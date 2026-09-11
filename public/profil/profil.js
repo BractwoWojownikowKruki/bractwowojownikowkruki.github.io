@@ -53,22 +53,31 @@ function loadCurrentSubmission() {
 // Shows whatever the member has already uploaded (if anything) above the picker, so "did my
 // photo actually make it" has a real answer instead of the picker just going blank after save
 // (KRKG: driveFolderId/photo-display gap, design.md §6). Nothing here is editable - replacing the
-// photo is still done by picking new files below and saving again.
-function renderCurrentSubmission(submission) {
+// public photo is still done by picking new files below and saving again.
+//
+// KRKG-0070: `response` is GET /lista-wyjazdowa/profile/photo's `{ public, pending }` shape - the
+// two folders are now permanent and independent, so a member can have a live public photo AND a
+// newer pending upload at the same time (design.md). The public section is read-only (same as
+// before); the pending section additionally gets a delete button per photo, since deleting from
+// one's own staging folder before approval is this batch's whole point.
+function renderCurrentSubmission(response) {
   const container = document.getElementById('lw-current-submission');
-  if (!submission || (!submission.mainPhoto && submission.photos.length === 0)) {
+  const publicSection = response?.public;
+  const pendingSection = response?.pending;
+  const hasPublic = !!publicSection && (publicSection.mainPhoto || publicSection.photos.length > 0);
+  const hasPending = !!pendingSection && pendingSection.photos.length > 0;
+  if (!hasPublic && !hasPending) {
     container.hidden = true;
     container.innerHTML = '';
     return;
   }
-  const statusText = submission.pendingApproval
-    ? 'Oczekuje na akceptację administratora - niewidoczne jeszcze w „Wojownicy”.'
-    : 'Zaakceptowane - widoczne publicznie w „Wojownicy”.';
-  const allPhotos = [submission.mainPhoto, ...submission.photos].filter(Boolean);
   container.hidden = false;
-  container.innerHTML = `
-    <p class="lw-hint">${escapeHtml(statusText)}</p>
-    ${allPhotos
+
+  const publicHtml = hasPublic
+    ? `
+    <p class="lw-hint">Zaakceptowane - widoczne publicznie w „Wojownicy”.</p>
+    ${[publicSection.mainPhoto, ...publicSection.photos]
+      .filter(Boolean)
       .map(
         (photo, index) => `
       <div class="lw-photo-thumb">
@@ -76,8 +85,50 @@ function renderCurrentSubmission(submission) {
       </div>`,
       )
       .join('')}
-  `;
+  `
+    : '';
+
+  const pendingHtml = hasPending
+    ? `
+    <p class="lw-hint">Oczekuje na akceptację administratora - niewidoczne jeszcze w „Wojownicy”.</p>
+    ${pendingSection.photos
+      .map(
+        (photo) => `
+      <div class="lw-photo-thumb">
+        <img src="${escapeAttr(photo.url)}" alt="Zgłoszone zdjęcie" />
+        <button type="button" class="lw-crop-btn lw-delete-pending-btn" data-file-id="${escapeAttr(photo.id)}">Usuń</button>
+      </div>`,
+      )
+      .join('')}
+  `
+    : '';
+
+  container.innerHTML = publicHtml + pendingHtml;
 }
+
+// Deletes one of the caller's own still-pending (staging-folder) photos, then re-renders the
+// section from the server's response - mirrors the pattern already used right after a fresh
+// upload (loadCurrentSubmission + renderCurrentSubmission back to back).
+async function deletePendingPhoto(fileId) {
+  await apiFetch(
+    `/lista-wyjazdowa/profile/photo?fileId=${encodeURIComponent(fileId)}`,
+    { method: 'DELETE' },
+    showReauth,
+    hideReauth,
+  );
+  const response = await loadCurrentSubmission();
+  renderCurrentSubmission(response);
+}
+
+document.getElementById('lw-current-submission').addEventListener('click', (e) => {
+  const btn = e.target.closest('.lw-delete-pending-btn');
+  if (!btn) return;
+  btn.disabled = true;
+  deletePendingPhoto(btn.dataset.fileId).catch((err) => {
+    btn.disabled = false;
+    window.alert(`Nie udało się usunąć zdjęcia: ${err.message}`);
+  });
+});
 
 // Same escapeHtml/escapeAttr pair as person-tile.js - the established pattern in this codebase
 // for interpolating user-controlled strings into an innerHTML template. Needed here because
@@ -425,8 +476,7 @@ async function initForm(lookupLists) {
         // Reflects the photo(s) that just landed - without this the "already uploaded" panel
         // above the picker would keep showing the previous submission (or nothing) until the
         // member reloads the page.
-        const { submission } = await loadCurrentSubmission();
-        renderCurrentSubmission(submission);
+        renderCurrentSubmission(await loadCurrentSubmission());
       }
 
       // Re-seed the rows from the server's response so the ids it just generated for brand-new
@@ -530,8 +580,8 @@ initGoogleSignIn({
       const historyLink = document.getElementById('profile-history-link');
       historyLink.href = `/audyt/?resourceKey=${encodeURIComponent(`member:${identity.email}`)}`;
       historyLink.hidden = false;
-      const [lookupLists, { submission }] = await Promise.all([loadLookupLists(), loadCurrentSubmission()]);
-      renderCurrentSubmission(submission);
+      const [lookupLists, currentSubmission] = await Promise.all([loadLookupLists(), loadCurrentSubmission()]);
+      renderCurrentSubmission(currentSubmission);
       await initForm(lookupLists);
     } catch (err) {
       const errorEl = document.getElementById('profile-form-error');
