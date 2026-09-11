@@ -1,5 +1,5 @@
 /**
- * Coverage commitments for user-visible mutation feedback.
+ * Feedback coverage entry derived from the canonical Mutation inventory table.
  *
  * `coverage` records the required end-state for each contract route, while `wiring` records
  * whether its page handler has already adopted MutationFeedback. Keeping these separate lets the
@@ -14,47 +14,54 @@ export interface MutationFeedbackCoverageEntry {
   reason?: string;
 }
 
-export const mutationFeedbackCoverageRegistry: readonly MutationFeedbackCoverageEntry[] = [
-  { route: 'POST /session/login', coverage: 'exception', callSite: 'public/auth.js', reason: 'Authentication changes the page session and navigation instead of leaving a stable fragment to confirm.' },
-  { route: 'POST /session/logout', coverage: 'exception', callSite: 'public/auth.js', reason: 'Signing out changes the page session and navigation instead of leaving a stable fragment to confirm.' },
+interface MutationFeedbackRouteException extends MutationFeedbackCoverageEntry {
+  route: string;
+  coverage: 'exception';
+  callSite: string;
+  reason: string;
+}
+
+/**
+ * The only hand-maintained route entries: narrowly scoped exceptions to the default check.
+ * Every other route is generated from the canonical Mutation inventory table.
+ */
+export const mutationFeedbackCoverageOverrides: readonly MutationFeedbackRouteException[] = [
+  { route: 'POST /session/login', coverage: 'exception', callSite: 'public/auth.js#exchangeForSession', reason: 'Authentication changes the page session and navigation instead of leaving a stable fragment to confirm.' },
+  { route: 'POST /session/logout', coverage: 'exception', callSite: 'public/auth.js#logout', reason: 'Signing out changes the page session and navigation instead of leaving a stable fragment to confirm.' },
   { route: 'POST /application/pwa-installation', coverage: 'exception', callSite: 'public/pwa-install.js#appinstalled', reason: 'The browser installation lifecycle already supplies its own confirmation.' },
-  { route: 'POST /membership/apply', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /admin/social-media/refresh', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /admin/members/transition', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /admin/members/drive-folder', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /admin/members/profile', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /admin/members/synchronize', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /admin/roles', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /admin/redirects', coverage: 'check', wiring: 'planned' },
-  { route: 'DELETE /admin/redirects', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /admin/people', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /admin/people/description', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /admin/people/order', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /admin/people/category', coverage: 'check', wiring: 'planned' },
-  { route: 'DELETE /admin/people', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /admin/people/photo', coverage: 'check', wiring: 'planned' },
-  { route: 'DELETE /admin/people/photo', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /admin/people/photo/main', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /admin/people/photo/transfer', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /admin/people/in-memoriam', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /wojownicy-upload/submit', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /wojownicy-upload/photo', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /lista-wyjazdowa/member', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /lista-wyjazdowa/profile', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /lista-wyjazdowa/events', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /lista-wyjazdowa/events', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /lista-wyjazdowa/signups', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /lista-wyjazdowa/signups/skladka', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /lista-wyjazdowa/wpisowe', coverage: 'check', wiring: 'planned' },
-  { route: 'PUT /lista-wyjazdowa/dues', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /admin/settings', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /delete-drive-gallery', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /start', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /register', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /unregister', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /upload', coverage: 'check', wiring: 'planned' },
-  { route: 'POST /finalize', coverage: 'check', wiring: 'planned' },
   { route: 'POST /gallery-photos/start', coverage: 'exception', callSite: 'public/galerie/dodaj-zdjecia.js#submitPhotos', reason: 'This token-issuance request prepares the later finalized upload rather than confirming a persisted gallery mutation.' },
-  { route: 'POST /gallery-photos/finalize', coverage: 'check', wiring: 'planned' },
+];
+
+const mutationFeedbackLifecycleExceptions: readonly MutationFeedbackCoverageEntry[] = [
   { lifecycle: 'controllerchange', coverage: 'exception', callSite: 'public/pwa-register.js#controllerchange', reason: 'A service-worker controller transition must reload to activate the new controlled page.' },
 ];
+
+/** Parses and expands method-and-route rows from the checked-in canonical Mutation inventory table. */
+export function parseMutationInventoryRoutes(source: string): string[] {
+  const rowRe = /^\|\s*([A-Z/]+)\s+`([^`]+)`\s*\|/gm;
+  const routes: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = rowRe.exec(source))) {
+    const [, methods, path] = match;
+    for (const method of methods.split('/')) routes.push(`${method} ${path}`);
+  }
+  return routes;
+}
+
+/**
+ * Generates the full route coverage registry from the canonical table, defaulting every new route
+ * to a planned check unless it has one of the explicit endpoint-and-call-site exceptions above.
+ */
+export function deriveMutationFeedbackCoverageRegistry(
+  contractRoutes: readonly string[],
+): readonly MutationFeedbackCoverageEntry[] {
+  const overridesByRoute = new Map(mutationFeedbackCoverageOverrides.map(entry => [entry.route, entry]));
+  return [
+    ...contractRoutes.map(route => overridesByRoute.get(route) ?? {
+      route,
+      coverage: 'check' as const,
+      wiring: 'planned' as const,
+    }),
+    ...mutationFeedbackLifecycleExceptions,
+  ];
+}
