@@ -289,7 +289,7 @@ function roleCheckboxesHtml(roles) {
 function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections, categories) {
   const tbody = document.getElementById('membership-members-list');
   if (!members.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="czl-empty">Brak członków w tym statusie.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     return;
   }
   // Grouped by section, alphabetical within it (KRKG-0051) - same rule as czlonkowie.js's Sekcja
