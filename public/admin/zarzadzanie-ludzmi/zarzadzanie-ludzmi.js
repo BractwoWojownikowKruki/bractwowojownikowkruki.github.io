@@ -320,6 +320,11 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       const isFlagged = (!m.sectionId || m.sectionId === 'nieznana') && !m.categoryId;
       return `
     <tr class="membership-member${isFlagged ? ' membership-member--flagged' : ''}" data-email="${escapeAttr(m.email)}" data-section="${escapeAttr(m.sectionId ?? '')}">
+      <td>
+        <button type="button" class="profile-trigger profile-trigger--icon" data-profile-trigger data-email="${escapeAttr(m.email)}" aria-label="Pokaż profil" title="Pokaż profil">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+        </button>
+      </td>
       <td class="czl-section-cell" title="${escapeAttr(sectionLabel(m.sectionId) || 'Brak sekcji')}"><select class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
       <td><input type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" /></td>
       <td><input type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" /></td>
