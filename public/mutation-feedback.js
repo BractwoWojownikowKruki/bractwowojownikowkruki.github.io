@@ -13,6 +13,12 @@
     insertAfter(anchor, check);
   }
 
+  function connectedErrorAnchor(anchor) {
+    if (anchor && anchor.isConnected) return anchor;
+    if (document.body && document.body.isConnected) return document.body;
+    return document.documentElement;
+  }
+
   function showRefreshError(anchor, refreshFragment) {
     const error = document.createElement('span');
     error.className = 'mutation-feedback-error';
@@ -38,7 +44,11 @@
     });
 
     error.append(refresh);
-    insertAfter(anchor, error);
+    if (anchor === document.body) {
+      anchor.append(error);
+    } else {
+      insertAfter(anchor, error);
+    }
   }
 
   async function confirmed({ execute, apply, refreshFragment, control, anchor, rollback }) {
@@ -60,7 +70,13 @@
     try {
       await apply();
     } catch (error) {
-      showRefreshError(feedbackAnchor, refreshFragment);
+      showRefreshError(connectedErrorAnchor(feedbackAnchor), refreshFragment);
+      throw error;
+    }
+
+    if (!feedbackAnchor || !feedbackAnchor.isConnected) {
+      const error = new Error('Mutation confirmation anchor is no longer connected after applying the view update.');
+      showRefreshError(connectedErrorAnchor(feedbackAnchor), refreshFragment);
       throw error;
     }
 

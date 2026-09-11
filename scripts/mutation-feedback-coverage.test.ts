@@ -11,6 +11,32 @@ async function readContractTable(): Promise<string> {
   return readFile(new URL('../upload-service/src/mutation-inventory.contract-table.md', import.meta.url), 'utf8');
 }
 
+function extractBlock(source: string, declarationStart: number): string {
+  const bodyStart = source.indexOf('{', declarationStart);
+  assert.ok(bodyStart >= 0, 'expected declaration body to start with "{"');
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index++) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] === '}') {
+      depth -= 1;
+      if (depth === 0) return source.slice(bodyStart, index + 1);
+    }
+  }
+  throw new Error('declaration body is not closed');
+}
+
+function extractNamedFunction(source: string, name: string): string {
+  const declaration = source.search(new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`));
+  assert.ok(declaration >= 0, `could not find function ${name}`);
+  return extractBlock(source, declaration);
+}
+
+function extractEventListener(source: string, eventName: string): string {
+  const declaration = source.indexOf(`addEventListener('${eventName}',`);
+  assert.ok(declaration >= 0, `could not find ${eventName} listener`);
+  return extractBlock(source, declaration);
+}
+
 test('every Mutation inventory route has an explicit check commitment or a call-site exception', async () => {
   const contractRoutes = parseMutationInventoryRoutes(await readContractTable());
   assert.ok(contractRoutes.length > 30, 'contract-table parsing must expand every method-and-route row');
@@ -61,6 +87,41 @@ test('the deliberately excluded call sites are narrow route-level exceptions', a
     'check',
     'the same submitPhotos handler still needs a check after gallery-photos/finalize',
   );
+});
+
+test('narrow exceptions remain inside their declared source functions and lifecycle listeners', async () => {
+  const [auth, photos, pwaInstall, pwaRegister] = await Promise.all([
+    readFile(new URL('../public/auth.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/galerie/dodaj-zdjecia.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/pwa-install.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/pwa-register.js', import.meta.url), 'utf8'),
+  ]);
+
+  const exchangeForSession = extractNamedFunction(auth, 'exchangeForSession');
+  assert.match(exchangeForSession, /\/session\/login/);
+  assert.match(exchangeForSession, /method:\s*'POST'/);
+
+  const logout = extractNamedFunction(auth, 'logout');
+  assert.match(logout, /\/session\/logout/);
+  assert.match(logout, /method:\s*'POST'/);
+
+  const submitPhotos = extractNamedFunction(photos, 'submitPhotos');
+  assert.match(submitPhotos, /\/gallery-photos\/start/);
+  assert.match(submitPhotos, /\/gallery-photos\/finalize/);
+  assert.equal((submitPhotos.match(/method:\s*'POST'/g) ?? []).length >= 2, true);
+
+  const appInstalled = extractEventListener(pwaInstall, 'appinstalled');
+  assert.match(appInstalled, /\/application\/pwa-installation/);
+  assert.match(appInstalled, /method:\s*'POST'/);
+
+  const controllerChange = extractEventListener(pwaRegister, 'controllerchange');
+  assert.match(controllerChange, /window\.location\.reload\(\)/);
+  assert.equal((pwaRegister.match(/window\.location\.reload\(\)/g) ?? []).length, 1);
+});
+
+test('function extraction rejects an endpoint text moved outside its named call site', () => {
+  const source = "async function exchangeForSession() { return fetch('/other'); }\nfetch('/session/login', { method: 'POST' });";
+  assert.doesNotMatch(extractNamedFunction(source, 'exchangeForSession'), /\/session\/login/);
 });
 
 test('a new canonical table route receives the default planned check without a second route list', async () => {

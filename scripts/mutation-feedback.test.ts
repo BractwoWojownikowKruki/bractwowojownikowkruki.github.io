@@ -8,6 +8,7 @@ type ClickListener = (event: { preventDefault(): void }) => unknown;
 class FakeElement {
   className = '';
   disabled = false;
+  isConnected = true;
   textContent = '';
   readonly attributes = new Map<string, string>();
   readonly children: FakeElement[] = [];
@@ -43,8 +44,10 @@ class FakeElement {
 
 function createHarness() {
   const created: FakeElement[] = [];
+  const body = new FakeElement('body');
   const context = vm.createContext({
     document: {
+      body,
       createElement(tagName: string) {
         const element = new FakeElement(tagName);
         created.push(element);
@@ -54,7 +57,7 @@ function createHarness() {
     window: {},
   });
 
-  return { context, created };
+  return { body, context, created };
 }
 
 async function loadMutationFeedback(harness: ReturnType<typeof createHarness>) {
@@ -141,6 +144,37 @@ test('mounts a manual refresh error after apply fails without rolling back or re
   assert.equal(refreshes, 1);
   assert.equal(executes, 1);
   assert.equal(rollbacks, 0);
+});
+
+test('treats a detached post-apply anchor as a view failure and offers refresh from the document body', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  const control = new FakeElement('button');
+  let executes = 0;
+  let rollbacks = 0;
+  let refreshes = 0;
+
+  await assert.rejects(
+    feedback.confirmed({
+      control,
+      execute: async () => { executes += 1; },
+      apply: async () => { control.isConnected = false; },
+      rollback: async () => { rollbacks += 1; },
+      refreshFragment: async () => { refreshes += 1; },
+    }),
+    /confirmation anchor is no longer connected/,
+  );
+
+  assert.equal(control.insertedAfter.length, 0);
+  assert.equal(rollbacks, 0);
+  assert.equal(harness.body.children.length, 1);
+  const error = harness.body.children[0];
+  assert.equal(error.className, 'mutation-feedback-error');
+  const refresh = error.children[0];
+  await refresh.click();
+
+  assert.equal(refreshes, 1);
+  assert.equal(executes, 1);
 });
 
 test('footer loads MutationFeedback before the page-specific scripts after partial injection', async () => {
