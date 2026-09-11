@@ -33,6 +33,16 @@
   flex-wrap: wrap;
   gap: 0.75rem;
 }
+/* mount()'s showSelectorValue toggles the `hidden` attribute to show only the one field group
+   matching the current "Filtruj wg" selector kind - without this, the unconditional `display:
+   flex` above out-cascades the UA default `[hidden] { display: none }` (author styles always
+   beat the UA stylesheet, regardless of specificity), so every group (Kategoria/Rodzaj zdarzenia,
+   Użytkownik, Zasób, Szukaj) rendered simultaneously and picking values in one had no visible
+   connection to which selector kind Filtruj would actually send - this codebase has hit the same
+   display-vs-[hidden] fight before, see style.css's .members-zone-sidebar[hidden] comment. */
+.audyt-selector-value[hidden] {
+  display: none;
+}
 
 .audyt-value {
   font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;

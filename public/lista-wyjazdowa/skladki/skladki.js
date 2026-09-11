@@ -158,8 +158,14 @@ function renderTable(roster, duesByEmail) {
       // resource key (see server.ts's handleListaWyjazdowaPutWpisowe), due:{memberEmail}:{year}
       // is roczna's (handleListaWyjazdowaPutDues) - implementation-contract.md's "Action registry"
       // intro paragraph. Two separate links since they're two independent resources/query filters.
-      const wpisoweHistoryHref = `/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}:entry_fee`)}`;
-      const rocznaHistoryHref = `/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}:${selectedYear}`)}`;
+      // Point at /admin/audyt/, not the member-zone /audyt/: dues.* actions carry audience
+      // 'adminOrAccountant' (ACTION_REGISTRY, upload-service/src/audit.ts), which the member-scope
+      // query (handleAuditEventsListPublic, scope: 'member') can never return regardless of who's
+      // asking - only the admin-scope viewer (resolveAdminAuditViewer) is ever allowed to see them.
+      // Gated by canManageSkladki like every other privileged control on this row (see file header)
+      // - a plain member has no page that can show them this history, so no point offering the icon.
+      const wpisoweHistoryHref = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}:entry_fee`)}`;
+      const rocznaHistoryHref = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}:${selectedYear}`)}`;
       row.innerHTML = `
         <span>${escapeHtml(displayName(member))}</span>
         <span>Wpisowe: ${member.hasProfile ? (member.wpisowePaid ? 'opłacone' : 'nieopłacone') : 'brak profilu'}</span>
@@ -168,14 +174,14 @@ function renderTable(roster, duesByEmail) {
             ? `<button type="button" class="lw-wpisowe-toggle" data-email="${emailAttr}" data-paid="${member.wpisowePaid ? 'true' : 'false'}">${member.wpisowePaid ? 'Oznacz jako nieopłacone' : 'Oznacz jako opłacone'}</button>`
             : ''
         }
-        ${member.hasProfile ? `<a class="audyt-history-btn" href="${escapeAttr(wpisoweHistoryHref)}" title="Historia" aria-label="Historia wpisowego">${HISTORY_ICON}</a>` : ''}
+        ${canManageSkladki && member.hasProfile ? `<a class="audyt-history-btn" href="${escapeAttr(wpisoweHistoryHref)}" title="Historia" aria-label="Historia wpisowego">${HISTORY_ICON}</a>` : ''}
         <span>Składka ${selectedYear}: ${roczna ? 'opłacona' : 'nieopłacona'}</span>
         ${
           canManageSkladki
             ? `<button type="button" class="lw-roczna-toggle" data-email="${emailAttr}" data-paid="${roczna ? 'true' : 'false'}">${roczna ? 'Oznacz jako nieopłaconą' : 'Oznacz jako opłaconą'}</button>`
             : ''
         }
-        <a class="audyt-history-btn" href="${escapeAttr(rocznaHistoryHref)}" title="Historia" aria-label="Historia składki rocznej">${HISTORY_ICON}</a>
+        ${canManageSkladki ? `<a class="audyt-history-btn" href="${escapeAttr(rocznaHistoryHref)}" title="Historia" aria-label="Historia składki rocznej">${HISTORY_ICON}</a>` : ''}
         ${
           canManageSkladki
             ? `<span class="lw-roczna-amount-edit">

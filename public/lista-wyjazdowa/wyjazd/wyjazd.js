@@ -418,11 +418,15 @@ async function loadAll() {
   document.getElementById('cancel-event-btn').hidden = event.status === 'cancelled';
   document.getElementById('restore-event-btn').hidden = event.status !== 'cancelled';
   // Historia deep links (KRKG-0050 batch 5/6) - resourceKey formats from implementation-contract.md's
-  // "Action registry" intro: event:{eventId} for the Wyjazd itself, eventFee:{eventId} for its
-  // free-text skladkaFee (a separate resource/action - dues.event_fee.changed - never shown by the
-  // event-scoped one). Never an inline expansion/modal, always this same shared page.
+  // "Action registry" intro: event:{eventId} for the Wyjazd itself (event.* is members-audience,
+  // so the member-zone /audyt/ can show it), eventFee:{eventId} for its free-text skladkaFee (a
+  // separate resource/action - dues.event_fee.changed, adminOrAccountant-audience only - so this
+  // one must go to /admin/audyt/ instead, and stays hidden for anyone without canManageSkladki,
+  // same as the edit controls). Never an inline expansion/modal, always this same shared page.
   document.getElementById('event-history-link').href = `/audyt/?resourceKey=${encodeURIComponent(`event:${eventId}`)}`;
-  document.getElementById('skladka-fee-history-link').href = `/audyt/?resourceKey=${encodeURIComponent(`eventFee:${eventId}`)}`;
+  const skladkaFeeHistoryLink = document.getElementById('skladka-fee-history-link');
+  skladkaFeeHistoryLink.href = `/admin/audyt/?resourceKey=${encodeURIComponent(`eventFee:${eventId}`)}`;
+  skladkaFeeHistoryLink.hidden = !canManageSkladki;
   renderSkladkaFee(event);
 
   cachedRoster = roster;

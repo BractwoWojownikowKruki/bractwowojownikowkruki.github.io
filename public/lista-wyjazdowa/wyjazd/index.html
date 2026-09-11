@@ -56,11 +56,14 @@
             <a id="event-history-link" class="audyt-history-btn" href="/audyt/" title="Historia" aria-label="Historia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
           </div>
 
-          <!-- Fee display is always rendered; the edit controls are only unhidden when the signed-in
-               member's role (fetched via /lista-wyjazdowa/my-role) grants canManageSkladki. -->
+          <!-- Fee display is always rendered; the edit controls and Historia link are only
+               unhidden when the signed-in member's role (fetched via /lista-wyjazdowa/my-role)
+               grants canManageSkladki - dues.event_fee.changed is adminOrAccountant-audience
+               only (ACTION_REGISTRY), so a plain member has no page that could show them this
+               history anyway. -->
           <div id="skladka-fee-panel">
             <span id="skladka-fee-display"></span>
-            <a id="skladka-fee-history-link" class="audyt-history-btn" href="/audyt/" title="Historia" aria-label="Historia składki"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
+            <a id="skladka-fee-history-link" class="audyt-history-btn" href="/admin/audyt/" title="Historia" aria-label="Historia składki" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
             <span id="skladka-fee-edit" hidden>
               <input type="text" id="skladka-fee-input" placeholder="np. 50 zł / 25 zł dzieci" />
               <button type="button" id="skladka-fee-save" class="btn-cancel">Zapisz składkę</button>
