@@ -37,6 +37,12 @@ function extractEventListener(source: string, eventName: string): string {
   return extractBlock(source, declaration);
 }
 
+function extractListenerForElement(source: string, elementId: string, eventName: string): string {
+  const declaration = source.indexOf(`document.getElementById('${elementId}').addEventListener('${eventName}',`);
+  assert.ok(declaration >= 0, `could not find ${eventName} listener for #${elementId}`);
+  return extractBlock(source, declaration);
+}
+
 test('every Mutation inventory route has an explicit check commitment or a call-site exception', async () => {
   const contractRoutes = parseMutationInventoryRoutes(await readContractTable());
   assert.ok(contractRoutes.length > 30, 'contract-table parsing must expand every method-and-route row');
@@ -137,4 +143,72 @@ test('a new canonical table route receives the default planned check without a s
     !mutationFeedbackCoverageOverrides.some(entry => entry.route === 'PATCH /future/member-write'),
     'new table routes must not require a second hand-maintained registry row',
   );
+});
+
+test('batch two routes are marked wired while later routes remain planned', async () => {
+  const registry = deriveMutationFeedbackCoverageRegistry(parseMutationInventoryRoutes(await readContractTable()));
+  const expectedWiredRoutes = [
+    'POST /admin/social-media/refresh',
+    'POST /admin/members/transition',
+    'PUT /admin/members/drive-folder',
+    'PUT /admin/members/profile',
+    'POST /admin/members/synchronize',
+    'PUT /admin/roles',
+    'POST /admin/redirects',
+    'DELETE /admin/redirects',
+    'POST /admin/settings',
+  ];
+
+  for (const route of expectedWiredRoutes) {
+    assert.equal(registry.find(entry => entry.route === route)?.wiring, 'wired', `${route} must be wired in batch two`);
+  }
+  assert.equal(registry.find(entry => entry.route === 'POST /gallery-photos/finalize')?.wiring, 'planned');
+});
+
+test('batch two admin mutations use confirmed local feedback without full-list success reloads', async () => {
+  const [applications, members, general] = await Promise.all([
+    readFile(new URL('../public/admin/zgloszenia/zgloszenia.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/admin/zarzadzanie-ludzmi/zarzadzanie-ludzmi.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/admin/admin.js', import.meta.url), 'utf8'),
+  ]);
+
+  const applicationTransition = extractNamedFunction(applications, 'postMembershipTransition');
+  assert.match(applicationTransition, /\/admin\/members\/transition/);
+  assert.match(applicationTransition, /MutationFeedback\.confirmed\(/);
+  assert.match(applicationTransition, /execute:\s*\(\)\s*=>\s*apiFetch/);
+  assert.match(applicationTransition, /apply:/);
+  assert.match(applicationTransition, /refreshFragment:/);
+  assert.doesNotMatch(applicationTransition, /loadMembershipApplications\(\);/);
+
+  const memberTransition = extractNamedFunction(members, 'postMembershipTransition');
+  assert.match(memberTransition, /\/admin\/members\/transition/);
+  assert.match(memberTransition, /MutationFeedback\.confirmed\(/);
+  assert.match(memberTransition, /apply:/);
+  assert.match(memberTransition, /anchor:\s*row\.closest\('table'\)/);
+  assert.doesNotMatch(memberTransition, /loadMembershipMembers\(\);/);
+
+  const synchronize = extractListenerForElement(members, 'membership-synchronize', 'click');
+  assert.match(synchronize, /\/admin\/members\/synchronize/);
+  assert.match(synchronize, /MutationFeedback\.confirmed\(/);
+  assert.match(synchronize, /sheetSyncStatusMessage/);
+
+  for (const functionName of ['saveMemberProfileField', 'saveMemberHidden']) {
+    const profileSave = extractNamedFunction(members, functionName);
+    assert.match(profileSave, /\/admin\/members\/profile/);
+    assert.match(profileSave, /MutationFeedback\.confirmed\(/);
+    assert.match(profileSave, /refreshFragment:/);
+  }
+
+  const memberChange = extractListenerForElement(members, 'membership-members-list', 'change');
+  assert.match(memberChange, /\/admin\/roles/);
+  assert.match(memberChange, /\/admin\/members\/drive-folder/);
+  assert.equal((memberChange.match(/MutationFeedback\.confirmed\(/g) ?? []).length >= 2, true);
+  assert.match(memberChange, /await renderRolesAuditLog\(\);/);
+
+  for (const route of ['/admin/social-media/refresh', '/admin/settings', '/admin/redirects']) {
+    assert.match(general, new RegExp(route.replaceAll('/', '\\/')));
+  }
+  assert.equal((general.match(/MutationFeedback\.confirmed\(/g) ?? []).length >= 4, true);
+  assert.doesNotMatch(extractListenerForElement(general, 'add-redirect-form', 'submit'), /loadRedirects\(\);/);
+  assert.doesNotMatch(extractListenerForElement(general, 'redirects-list', 'click'), /loadRedirects\(\);/);
 });

@@ -36,6 +36,18 @@ const mutationFeedbackLifecycleExceptions: readonly MutationFeedbackCoverageEntr
   { lifecycle: 'controllerchange', coverage: 'exception', callSite: 'public/pwa-register.js#controllerchange', reason: 'A service-worker controller transition must reload to activate the new controlled page.' },
 ];
 
+const mutationFeedbackWiredRoutes = new Set([
+  'POST /admin/social-media/refresh',
+  'POST /admin/members/transition',
+  'PUT /admin/members/drive-folder',
+  'PUT /admin/members/profile',
+  'POST /admin/members/synchronize',
+  'PUT /admin/roles',
+  'POST /admin/redirects',
+  'DELETE /admin/redirects',
+  'POST /admin/settings',
+]);
+
 /** Parses and expands method-and-route rows from the checked-in canonical Mutation inventory table. */
 export function parseMutationInventoryRoutes(source: string): string[] {
   const rowRe = /^\|\s*([A-Z/]+)\s+`([^`]+)`\s*\|/gm;
@@ -60,7 +72,7 @@ export function deriveMutationFeedbackCoverageRegistry(
     ...contractRoutes.map(route => overridesByRoute.get(route) ?? {
       route,
       coverage: 'check' as const,
-      wiring: 'planned' as const,
+      wiring: mutationFeedbackWiredRoutes.has(route) ? 'wired' as const : 'planned' as const,
     }),
     ...mutationFeedbackLifecycleExceptions,
   ];

@@ -22,18 +22,26 @@ initGoogleSignIn({
   },
 });
 
-// KRKG-0046: sends one status-transition request, then reloads the applications list - a single
-// transition (approve/reject) always moves a record out of this list. Returns the response's
-// sheetSyncStatus so callers can surface a non-blocking warning if it failed - the transition
-// itself has already succeeded (Firestore is authoritative) regardless.
-async function postMembershipTransition(email, transition) {
-  const { sheetSyncStatus } = await apiFetch(
-    '/admin/members/transition',
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, transition }) },
-    showReauth,
-    hideReauth,
-  );
-  loadMembershipApplications();
+// A pending application always leaves this list after either server-confirmed transition. Keeping
+// that small DOM update local preserves the administrator's scroll position and nearby focus.
+async function postMembershipTransition(row, email, transition) {
+  const list = document.getElementById('membership-applications-list');
+  let sheetSyncStatus;
+  await window.MutationFeedback.confirmed({
+    control: row.querySelector(`.${transition}-application`),
+    anchor: list,
+    execute: () => apiFetch(
+      '/admin/members/transition',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, transition }) },
+      showReauth,
+      hideReauth,
+    ).then(result => { sheetSyncStatus = result.sheetSyncStatus; }),
+    apply: () => {
+      row.remove();
+      if (!list.querySelector('.membership-application')) list.innerHTML = '<p>Brak oczekujących zgłoszeń.</p>';
+    },
+    refreshFragment: loadMembershipApplications,
+  });
   return sheetSyncStatus;
 }
 
@@ -78,15 +86,12 @@ document.getElementById('membership-applications-list').addEventListener('click'
   const email = row.dataset.email;
   try {
     if (e.target.closest('.approve-application')) {
-      const sheetSyncStatus = await postMembershipTransition(email, 'approve');
+      const sheetSyncStatus = await postMembershipTransition(row, email, 'approve');
       const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
-      window.alert(
-        `Zatwierdzono ${email}. Pamiętaj, aby dodać tę osobę ręcznie do grupy Google (Docs/Sheets/Drive).` +
-          (sheetWarning ? `\n\n${sheetWarning}` : ''),
-      );
+      if (sheetWarning) window.alert(sheetWarning);
     } else if (e.target.closest('.reject-application')) {
       if (!window.confirm(`Na pewno odrzucić zgłoszenie ${email}?`)) return;
-      const sheetSyncStatus = await postMembershipTransition(email, 'reject');
+      const sheetSyncStatus = await postMembershipTransition(row, email, 'reject');
       const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
       if (sheetWarning) window.alert(sheetWarning);
     }

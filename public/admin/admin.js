@@ -29,12 +29,17 @@ initGoogleSignIn({
 });
 
 document.getElementById('refresh-social-cache').addEventListener('click', async () => {
+  const button = document.getElementById('refresh-social-cache');
   const status = document.getElementById('refresh-social-cache-status');
   status.textContent = 'Odświeżanie...';
   try {
-    await apiFetch('/admin/social-media/refresh', { method: 'POST' }, showReauth, hideReauth);
-    status.textContent =
-      'Cache serwera wyczyszczony - kolejne wczytanie strony głównej pobierze świeże posty (przeglądarka, która ma już zapisaną stronę we własnej pamięci podręcznej, może wymagać twardego odświeżenia).';
+    await window.MutationFeedback.confirmed({
+      control: button,
+      anchor: status,
+      execute: () => apiFetch('/admin/social-media/refresh', { method: 'POST' }, showReauth, hideReauth),
+      apply: () => { status.textContent = ''; },
+      refreshFragment: async () => { status.textContent = ''; },
+    });
   } catch (err) {
     status.textContent = `Błąd: ${err.message}`;
   }
@@ -55,13 +60,18 @@ document.getElementById('facebook-settings-form').addEventListener('submit', asy
   status.textContent = 'Zapisywanie...';
   try {
     const liveFetchPostCount = parseInt(document.getElementById('facebook-live-count').value, 10);
-    await apiFetch(
-      '/admin/settings',
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ liveFetchPostCount }) },
-      showReauth,
-      hideReauth,
-    );
-    status.textContent = 'Zapisano.';
+    await window.MutationFeedback.confirmed({
+      control: document.getElementById('facebook-live-count'),
+      anchor: status,
+      execute: () => apiFetch(
+        '/admin/settings',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ liveFetchPostCount }) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: () => { status.textContent = ''; },
+      refreshFragment: loadFacebookSettings,
+    });
   } catch (err) {
     status.textContent = `Błąd: ${err.message}`;
   }
@@ -84,18 +94,18 @@ function renderRedirectsList(redirects) {
     list.innerHTML = '<p>Brak przekierowań.</p>';
     return;
   }
-  list.innerHTML = redirects
-    .map(
-      r => `
+  list.innerHTML = redirects.map(redirectItemHtml).join('');
+}
+
+function redirectItemHtml(r) {
+  return `
     <div style="display:flex; gap:0.5rem; align-items:center; padding:0.4rem 0; border-bottom:1px solid var(--border);">
       <code>/${escapeHtml(r.path)}</code>
       <span>&rarr;</span>
       <span style="flex:1; overflow-wrap:anywhere;">${escapeHtml(r.target)}</span>
       <a class="audyt-history-btn" href="/admin/audyt/?resourceKey=${encodeURIComponent(`redirect:${r.path}`)}" title="Historia" aria-label="Historia">${HISTORY_ICON}</a>
       <button class="delete-redirect" data-path="${escapeAttr(r.path)}" style="color:var(--accent);">Usuń</button>
-    </div>`,
-    )
-    .join('');
+    </div>`;
 }
 
 document.getElementById('add-redirect-form').addEventListener('submit', async e => {
@@ -105,15 +115,24 @@ document.getElementById('add-redirect-form').addEventListener('submit', async e 
   const path = document.getElementById('redirect-path').value.trim().toLowerCase();
   const target = document.getElementById('redirect-target').value.trim();
   try {
-    await apiFetch(
-      '/admin/redirects',
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, target }) },
-      showReauth,
-      hideReauth,
-    );
-    status.textContent = 'Dodano przekierowanie.';
-    document.getElementById('add-redirect-form').reset();
-    loadRedirects();
+    await window.MutationFeedback.confirmed({
+      control: document.getElementById('redirect-target'),
+      anchor: status,
+      execute: () => apiFetch(
+        '/admin/redirects',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, target }) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: () => {
+        document.getElementById('add-redirect-form').reset();
+        const list = document.getElementById('redirects-list');
+        list.querySelector('p')?.remove();
+        list.insertAdjacentHTML('beforeend', redirectItemHtml({ path, target }));
+        status.textContent = '';
+      },
+      refreshFragment: loadRedirects,
+    });
   } catch (err) {
     status.textContent = `Błąd: ${err.message}`;
   }
@@ -123,6 +142,19 @@ document.getElementById('redirects-list').addEventListener('click', async e => {
   const deleteBtn = e.target.closest('.delete-redirect');
   if (!deleteBtn) return;
   if (!window.confirm(`Na pewno usunąć przekierowanie /${deleteBtn.dataset.path}?`)) return;
-  await apiFetch(`/admin/redirects?path=${encodeURIComponent(deleteBtn.dataset.path)}`, { method: 'DELETE' }, showReauth, hideReauth);
-  loadRedirects();
+  try {
+    const list = document.getElementById('redirects-list');
+    await window.MutationFeedback.confirmed({
+      control: deleteBtn,
+      anchor: list,
+      execute: () => apiFetch(`/admin/redirects?path=${encodeURIComponent(deleteBtn.dataset.path)}`, { method: 'DELETE' }, showReauth, hideReauth),
+      apply: () => {
+        deleteBtn.closest('div').remove();
+        if (!list.querySelector('.delete-redirect')) list.innerHTML = '<p>Brak przekierowań.</p>';
+      },
+      refreshFragment: loadRedirects,
+    });
+  } catch (err) {
+    window.alert(`Błąd: ${err.message}`);
+  }
 });
