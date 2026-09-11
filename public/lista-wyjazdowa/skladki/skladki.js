@@ -18,6 +18,10 @@ function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
+// Icon-only Historia button (.audyt-history-btn, style.css) - same path everywhere it appears
+// site-wide (nav.js's 'history' icon, zarzadzanie-ludzmi/index.html, galerie/app.js, ...).
+const HISTORY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>';
+
 // Section/city color coding (KRKG-0051) - same helper as wyjazd.js, see its comment: the actual
 // colors live in exactly one place, member-area.css's [data-section="..."] rules.
 function sectionPillHtml(sectionId, label) {
@@ -164,14 +168,14 @@ function renderTable(roster, duesByEmail) {
             ? `<button type="button" class="lw-wpisowe-toggle" data-email="${emailAttr}" data-paid="${member.wpisowePaid ? 'true' : 'false'}">${member.wpisowePaid ? 'Oznacz jako nieopłacone' : 'Oznacz jako opłacone'}</button>`
             : ''
         }
-        ${member.hasProfile ? `<a class="audyt-history-link" href="${escapeAttr(wpisoweHistoryHref)}">◷ Historia</a>` : ''}
+        ${member.hasProfile ? `<a class="audyt-history-btn" href="${escapeAttr(wpisoweHistoryHref)}" title="Historia" aria-label="Historia wpisowego">${HISTORY_ICON}</a>` : ''}
         <span>Składka ${selectedYear}: ${roczna ? 'opłacona' : 'nieopłacona'}</span>
         ${
           canManageSkladki
             ? `<button type="button" class="lw-roczna-toggle" data-email="${emailAttr}" data-paid="${roczna ? 'true' : 'false'}">${roczna ? 'Oznacz jako nieopłaconą' : 'Oznacz jako opłaconą'}</button>`
             : ''
         }
-        <a class="audyt-history-link" href="${escapeAttr(rocznaHistoryHref)}">◷ Historia</a>
+        <a class="audyt-history-btn" href="${escapeAttr(rocznaHistoryHref)}" title="Historia" aria-label="Historia składki rocznej">${HISTORY_ICON}</a>
         ${
           canManageSkladki
             ? `<span class="lw-roczna-amount-edit">

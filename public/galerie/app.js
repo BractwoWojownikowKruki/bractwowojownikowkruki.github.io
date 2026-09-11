@@ -13,6 +13,14 @@ const ICON_CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke
   <path d="M20 6 9 17l-5-5"/>
 </svg>`;
 
+// Icon-only Historia button (.audyt-history-btn, style.css) - same path everywhere it appears
+// site-wide (nav.js's 'history' icon, zarzadzanie-ludzmi/index.html, admin.js, ...).
+const ICON_HISTORY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
+  <path d="M3 3v5h5"/>
+  <path d="M12 7v5l4 2"/>
+</svg>`;
+
 const ICON_GOOGLE_PHOTOS = `<svg viewBox="0 0 59 59" aria-hidden="true">
   <path d="M14.75 13.41c8.146 0 14.75 6.603 14.75 14.75v1.34H1.34C.6 29.5 0 28.9 0 28.16c0-8.147 6.604-14.75 14.75-14.75z" fill="#FBBC04"/>
   <path d="M45.59 14.75c0 8.146-6.603 14.75-14.75 14.75H29.5V1.34C29.5.6 30.1 0 30.84 0c8.147 0 14.75 6.604 14.75 14.75z" fill="#EA4335"/>
@@ -230,11 +238,11 @@ function renderCard(album, mode = 'focus') {
             aria-label="Kopiuj link do albumu"
           >${ICON_LINK}</button>
           <a
-            class="btn-open-photos audyt-history-link"
+            class="audyt-history-btn"
             href="/audyt/?resourceKey=${encodeURIComponent(galleryResourceKey(album))}"
-            title="Historia zmian"
+            title="Historia"
             aria-label="Historia zmian tej galerii"
-          >◷</a>
+          >${ICON_HISTORY}</a>
         </div>
       </div>
     </article>`;

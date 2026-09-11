@@ -13,16 +13,16 @@ const memberManagementScript = readFileSync(
 const adminAuditHtml = readFileSync(new URL('../public/admin/audyt/index.html', import.meta.url), 'utf8');
 const stylesheet = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');
 
-test('member management exposes one unfiltered Historia link beside the Członkowie heading', () => {
+test('member management exposes one unfiltered Historia icon button beside the Członkowie heading', () => {
   const membersSection = memberManagementHtml.match(/<section style="margin-bottom: 2rem;">([\s\S]*?)<\/section>/)?.[1];
 
   assert.ok(membersSection, 'the Członkowie section should be present');
   assert.match(
     membersSection,
-    /<header class="member-management-heading-row">\s*<h2>Członkowie<\/h2>\s*<a class="audyt-history-link" href="\/admin\/audyt\/" aria-label="Otwórz historię zmian członków">\s*<svg[^>]*viewBox="0 0 24 24"[^>]*aria-hidden="true"[^>]*><path d="M3 12a9 9 0 1 0 3-6.7L3 8"\/><path d="M3 3v5h5"\/><path d="M12 7v5l4 2"\/><\/svg>\s*Historia\s*<\/a>\s*<\/header>/,
+    /<header class="member-management-heading-row">\s*<h2>Członkowie<\/h2>\s*<a class="audyt-history-btn" href="\/admin\/audyt\/" title="Historia" aria-label="Historia">\s*<svg[^>]*viewBox="0 0 24 24"[^>]*aria-hidden="true"[^>]*><path d="M3 12a9 9 0 1 0 3-6.7L3 8"\/><path d="M3 3v5h5"\/><path d="M12 7v5l4 2"\/><\/svg>\s*<\/a>\s*<\/header>/,
   );
-  assert.equal((membersSection.match(/>\s*Historia\s*<\/a>/g) ?? []).length, 1);
-  assert.match(stylesheet, /\.audyt-history-link svg\s*\{[^}]*width:\s*1em;[^}]*height:\s*1em;/);
+  assert.equal((membersSection.match(/class="audyt-history-btn"/g) ?? []).length, 1);
+  assert.match(stylesheet, /a\.audyt-history-btn\s*\{[^}]*border:\s*1px solid var\(--border\);/);
   assert.match(stylesheet, /\.member-management-heading-row\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/);
 });
 

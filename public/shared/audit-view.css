@@ -5,7 +5,7 @@
    var(--surface)/var(--border)/var(--gold), the same red/gold/muted vocabulary as .member-action/
    .lw-attend-toggle) rather than introducing a new component library or a visually distinct table
    style, per plan.md. Loaded only by public/audyt/index.html and public/admin/audyt/index.html -
-   not part of style.css's PWA-precached shell budget, see style.css's .audyt-history-link comment. */
+   not part of style.css's PWA-precached shell budget, see style.css's .audyt-history-btn comment. */
 
 .audyt-filters {
   display: flex;

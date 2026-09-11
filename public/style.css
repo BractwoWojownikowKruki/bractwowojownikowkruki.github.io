@@ -3780,27 +3780,40 @@ button.lw-skladka-icon:disabled {
   padding-left: 0.7rem;
 }
 
-/* KRKG-0050: "◷ Historia" deep-link, used on every record page site-wide (implementation-contract.md
-   "Historia and UI scope"). Plain-text-weight, not a filled button - a secondary row affordance.
-   Rest of the audit-view CSS lives in shared/audit-view.css instead (this file is PWA-precached
-   and near its byte budget; only the two Historia shell pages load that stylesheet). */
-.audyt-history-link {
+/* Historia deep-link, used on every record page site-wide (implementation-contract.md "Historia
+   and UI scope") - icon-only secondary button (bordered, like .member-action/.czl-table's row
+   actions), never a labeled link: the tooltip/aria-label carry "Historia", not visible text, so
+   it reads as a small affordance next to the thing it's the history of rather than competing with
+   it for attention. Rest of the audit-view CSS lives in shared/audit-view.css instead (this file
+   is PWA-precached and near its byte budget; only the two Historia shell pages load that
+   stylesheet). Selector is `a.audyt-history-btn`, not just `.audyt-history-btn` - needed to
+   out-specificity .content-section a above (every page this renders on is inside .content-section
+   except galerie/app.js's cards), which otherwise wins the cascade on border-bottom (class+type
+   beats a single class) and redraws the button's bottom edge in .content-section a's link red. */
+a.audyt-history-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  font-size: 13px;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.8rem;
+  height: 1.8rem;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
   color: var(--text-muted);
   text-decoration: none;
-  border-bottom: none;
-  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
 }
-.audyt-history-link:hover {
+a.audyt-history-btn:hover {
   color: var(--gold);
-  text-decoration: underline;
+  border-color: var(--gold);
 }
-.audyt-history-link svg {
-  width: 1em;
-  height: 1em;
+a.audyt-history-btn svg {
+  width: 1rem;
+  height: 1rem;
+  pointer-events: none;
 }
 
 .member-management-heading-row {

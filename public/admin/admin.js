@@ -2,6 +2,10 @@
 // admin panel that isn't membership or people management, which each moved to their own page/JS
 // file (zgloszenia.js, zarzadzanie-ludzmi.js, publiczne-wizytowki.js). showReauth/hideReauth/
 // escapeHtml/escapeAttr/sheetSyncStatusMessage come from admin-shared.js, loaded before this file.
+
+// Icon-only Historia button (.audyt-history-btn, style.css) - same path everywhere it appears
+// site-wide (nav.js's 'history' icon, zarzadzanie-ludzmi/index.html, galerie/app.js, ...).
+const HISTORY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>';
 initGoogleSignIn({
   buttonIds: ['google-signin-button', 'google-reauth-button'],
   whoamiPath: '/admin/whoami',
@@ -87,7 +91,7 @@ function renderRedirectsList(redirects) {
       <code>/${escapeHtml(r.path)}</code>
       <span>&rarr;</span>
       <span style="flex:1; overflow-wrap:anywhere;">${escapeHtml(r.target)}</span>
-      <a class="audyt-history-link" href="/admin/audyt/?resourceKey=${encodeURIComponent(`redirect:${r.path}`)}">◷ Historia</a>
+      <a class="audyt-history-btn" href="/admin/audyt/?resourceKey=${encodeURIComponent(`redirect:${r.path}`)}" title="Historia" aria-label="Historia">${HISTORY_ICON}</a>
       <button class="delete-redirect" data-path="${escapeAttr(r.path)}" style="color:var(--accent);">Usuń</button>
     </div>`,
     )
