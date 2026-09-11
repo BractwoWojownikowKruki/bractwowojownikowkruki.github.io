@@ -53,6 +53,7 @@ async function postMembershipTransition(row, email, transition) {
       if (!list.querySelector('.membership-member')) list.innerHTML = '<tr><td colspan="10" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     },
     shouldShowCheck: result => !sheetSyncStatusMessage(result.sheetSyncStatus),
+    viewRoot: list,
     refreshFragment: loadMembershipMembers,
   });
   return result.sheetSyncStatus;
@@ -296,12 +297,16 @@ document.getElementById('membership-members-filter').addEventListener('input', (
   renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories);
 });
 
-function roleCheckboxesHtml(roles) {
+function memberFocusId(email, control) {
+  return `member-${encodeURIComponent(email)}-${control}`;
+}
+
+function roleCheckboxesHtml(email, roles) {
   const current = new Set(roles ?? []);
   return ASSIGNABLE_ROLES.map(
     r => `
         <label class="member-role-label">
-          <input type="checkbox" class="member-role-checkbox" value="${r.value}" ${current.has(r.value) ? 'checked' : ''} />
+          <input id="${memberFocusId(email, `role-${r.value}`)}" type="checkbox" class="member-role-checkbox" value="${r.value}" ${current.has(r.value) ? 'checked' : ''} />
           ${r.label}
         </label>`,
   ).join('');
@@ -346,20 +351,20 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
         </button>
       </td>
-      <td class="czl-section-cell" title="${escapeAttr(sectionLabel(m.sectionId) || 'Brak sekcji')}"><select class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
-      <td><input type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" /></td>
-      <td><input type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" /></td>
-      <td ${categoryCellAttrs(m.categoryId, categories)}><select class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>
-      <td><input type="checkbox" class="member-hidden-checkbox" data-field="hidden" ${m.hidden ? 'checked' : ''} /></td>
+      <td class="czl-section-cell" title="${escapeAttr(sectionLabel(m.sectionId) || 'Brak sekcji')}"><select id="${memberFocusId(m.email, 'section')}" class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
+      <td><input id="${memberFocusId(m.email, 'full-name')}" type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" /></td>
+      <td><input id="${memberFocusId(m.email, 'nickname')}" type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" /></td>
+      <td ${categoryCellAttrs(m.categoryId, categories)}><select id="${memberFocusId(m.email, 'category')}" class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>
+      <td><input id="${memberFocusId(m.email, 'hidden')}" type="checkbox" class="member-hidden-checkbox" data-field="hidden" ${m.hidden ? 'checked' : ''} /></td>
       <td>${escapeHtml(m.email)}</td>
       <td>${m.lastLoginAt ? escapeHtml(formatDateTime(m.lastLoginAt)) : 'Nigdy'}</td>
       <td>
-        <input type="text" class="czl-field drive-folder-input" list="drive-folder-datalist" placeholder="Folder na stronie..." value="${escapeAttr(currentValue)}" />
+        <input id="${memberFocusId(m.email, 'drive-folder')}" type="text" class="czl-field drive-folder-input" list="drive-folder-datalist" placeholder="Folder na stronie..." value="${escapeAttr(currentValue)}" />
         <span class="drive-folder-saved" style="color:var(--gold);" hidden>✓</span>
       </td>
-      <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(rolesByEmail.get(m.email))}</td>
+      <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(m.email, rolesByEmail.get(m.email))}</td>
       <td>
-        ${actions.map(a => `<button class="member-action" data-transition="${a.transition}">${a.label}</button>`).join('')}
+        ${actions.map(a => `<button id="${memberFocusId(m.email, `action-${a.transition}`)}" class="member-action" data-transition="${a.transition}">${a.label}</button>`).join('')}
       </td>
     </tr>`;
     })
@@ -418,6 +423,7 @@ async function saveMemberProfileField(row, email, control) {
         const stillFlagged = (!sectionId || sectionId === 'nieznana') && !categoryId;
         row.classList.toggle('membership-member--flagged', stillFlagged);
       },
+      viewRoot: row.closest('tbody'),
       refreshFragment: loadMembershipMembers,
       rollback: () => {
         if (!previousMember) return;
@@ -450,6 +456,7 @@ async function saveMemberHidden(email, hidden, control) {
         const member = membershipMembersCache.members.find(candidate => candidate.email === email);
         if (member) member.hidden = hidden;
       },
+      viewRoot: control.closest('tbody'),
       refreshFragment: loadMembershipMembers,
       rollback: () => { control.checked = previousMember?.hidden ?? !hidden; },
     });
@@ -501,6 +508,7 @@ document.getElementById('membership-members-list').addEventListener('change', as
           membershipMembersCache.rolesByEmail.set(email, nextRoles);
           await renderRolesAuditLog();
         },
+        viewRoot: container.closest('tbody'),
         refreshFragment: async () => {
           await Promise.all([loadMembershipMembers(), renderRolesAuditLog()]);
         },
@@ -541,6 +549,7 @@ document.getElementById('membership-members-list').addEventListener('change', as
         const cached = membershipMembersCache.members.find(member => member.email === email);
         if (cached) cached.driveFolderId = folderId;
       },
+      viewRoot: row.closest('tbody'),
       refreshFragment: loadMembershipMembers,
       rollback: () => {
         input.value = previousFolderId ? (driveFolderOptions.find(option => option.folderId === previousFolderId)?.label ?? previousFolderId) : '';

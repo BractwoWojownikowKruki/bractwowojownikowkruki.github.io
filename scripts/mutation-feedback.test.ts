@@ -8,12 +8,15 @@ type ClickListener = (event: { preventDefault(): void }) => unknown;
 class FakeElement {
   className = '';
   disabled = false;
+  id = '';
   isConnected = true;
+  scrollTop = 0;
   textContent = '';
   readonly attributes = new Map<string, string>();
   readonly children: FakeElement[] = [];
   readonly insertedAfter: FakeElement[] = [];
   private readonly listeners = new Map<string, ClickListener[]>();
+  focusedWith: unknown;
 
   constructor(readonly tagName: string) {}
 
@@ -35,6 +38,14 @@ class FakeElement {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
 
+  focus(options?: unknown) {
+    this.focusedWith = options;
+  }
+
+  querySelector() {
+    return undefined;
+  }
+
   async click() {
     for (const listener of this.listeners.get('click') ?? []) {
       await listener({ preventDefault() {} });
@@ -45,19 +56,32 @@ class FakeElement {
 function createHarness() {
   const created: FakeElement[] = [];
   const body = new FakeElement('body');
+  const elementsById = new Map<string, FakeElement>();
+  const scrollToCalls: unknown[] = [];
+  const document = {
+    body,
+    activeElement: undefined as FakeElement | undefined,
+    getElementById(id: string) {
+      return elementsById.get(id) ?? null;
+    },
+    createElement(tagName: string) {
+      const element = new FakeElement(tagName);
+      created.push(element);
+      return element;
+    },
+  };
   const context = vm.createContext({
-    document: {
-      body,
-      createElement(tagName: string) {
-        const element = new FakeElement(tagName);
-        created.push(element);
-        return element;
+    document,
+    window: {
+      scrollX: 12,
+      scrollY: 34,
+      scrollTo(options: unknown) {
+        scrollToCalls.push(options);
       },
     },
-    window: {},
   });
 
-  return { body, context, created };
+  return { body, context, created, document, elementsById, scrollToCalls };
 }
 
 async function loadMutationFeedback(harness: ReturnType<typeof createHarness>) {
@@ -194,6 +218,45 @@ test('treats a detached post-apply anchor as a view failure and offers refresh f
 
   assert.equal(refreshes, 1);
   assert.equal(executes, 1);
+});
+
+test('restores the prior focus and fragment scroll after a manual refresh', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  const control = new FakeElement('button');
+  control.id = 'member-a-save';
+  const viewRoot = new FakeElement('tbody');
+  viewRoot.scrollTop = 88;
+  harness.document.activeElement = control;
+  harness.elementsById.set(control.id, control);
+
+  await assert.rejects(
+    feedback.confirmed({
+      control,
+      viewRoot,
+      execute: async () => {},
+      apply: async () => { throw new Error('local update failed'); },
+      refreshFragment: async () => {
+        viewRoot.scrollTop = 0;
+        const replacement = new FakeElement('button');
+        replacement.id = control.id;
+        harness.elementsById.set(replacement.id, replacement);
+      },
+    }),
+    /local update failed/,
+  );
+
+  const refresh = control.insertedAfter[0].children[0];
+  await refresh.click();
+
+  assert.equal(viewRoot.scrollTop, 88);
+  assert.equal(harness.scrollToCalls.length, 1);
+  assert.equal((harness.scrollToCalls[0] as { left: number }).left, 12);
+  assert.equal((harness.scrollToCalls[0] as { top: number }).top, 34);
+  assert.equal(
+    (harness.elementsById.get(control.id)?.focusedWith as { preventScroll: boolean }).preventScroll,
+    true,
+  );
 });
 
 test('footer loads MutationFeedback before the page-specific scripts after partial injection', async () => {

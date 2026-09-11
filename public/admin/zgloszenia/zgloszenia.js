@@ -40,6 +40,7 @@ async function postMembershipTransition(row, email, transition) {
       if (!list.querySelector('.membership-application')) list.innerHTML = '<p>Brak oczekujących zgłoszeń.</p>';
     },
     shouldShowCheck: result => !sheetSyncStatusMessage(result.sheetSyncStatus),
+    viewRoot: list,
     refreshFragment: loadMembershipApplications,
   });
   return result.sheetSyncStatus;
@@ -56,6 +57,10 @@ async function loadMembershipApplications() {
   }
 }
 
+function applicationFocusId(email, action) {
+  return `membership-application-${encodeURIComponent(email)}-${action}`;
+}
+
 function renderMembershipApplications(members) {
   const list = document.getElementById('membership-applications-list');
   if (!members.length) {
@@ -70,8 +75,8 @@ function renderMembershipApplications(members) {
         <strong>${escapeHtml(m.fullName)}</strong>${m.nickname ? ` (${escapeHtml(m.nickname)})` : ''}
         <br><span style="color:var(--text-muted);">${escapeHtml(m.email)} - ${escapeHtml(m.sectionId)}</span>
       </div>
-      <button class="approve-application" style="color:var(--gold);">Zatwierdź</button>
-      <button class="reject-application" style="color:var(--accent);">Odrzuć</button>
+      <button id="${applicationFocusId(m.email, 'approve')}" class="approve-application" style="color:var(--gold);">Zatwierdź</button>
+      <button id="${applicationFocusId(m.email, 'reject')}" class="reject-application" style="color:var(--accent);">Odrzuć</button>
     </div>`,
     )
     .join('');

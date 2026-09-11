@@ -178,6 +178,7 @@ test('batch two admin mutations use confirmed local feedback without full-list s
   assert.match(applicationTransition, /execute:\s*\(\)\s*=>\s*apiFetch/);
   assert.match(applicationTransition, /apply:/);
   assert.match(applicationTransition, /shouldShowCheck:\s*result\s*=>\s*!sheetSyncStatusMessage\(result\.sheetSyncStatus\)/);
+  assert.match(applicationTransition, /viewRoot:\s*list/);
   assert.match(applicationTransition, /refreshFragment:/);
   assert.doesNotMatch(applicationTransition, /loadMembershipApplications\(\);/);
 
@@ -187,6 +188,7 @@ test('batch two admin mutations use confirmed local feedback without full-list s
   assert.match(memberTransition, /apply:/);
   assert.match(memberTransition, /shouldShowCheck:\s*result\s*=>\s*!sheetSyncStatusMessage\(result\.sheetSyncStatus\)/);
   assert.match(memberTransition, /anchor:\s*row\.closest\('table'\)/);
+  assert.match(memberTransition, /viewRoot:\s*list/);
   assert.doesNotMatch(memberTransition, /loadMembershipMembers\(\);/);
 
   const synchronize = extractListenerForElement(members, 'membership-synchronize', 'click');
@@ -198,19 +200,30 @@ test('batch two admin mutations use confirmed local feedback without full-list s
     const profileSave = extractNamedFunction(members, functionName);
     assert.match(profileSave, /\/admin\/members\/profile/);
     assert.match(profileSave, /MutationFeedback\.confirmed\(/);
+    assert.match(profileSave, /viewRoot:/);
     assert.match(profileSave, /refreshFragment:/);
   }
 
   const memberChange = extractListenerForElement(members, 'membership-members-list', 'change');
   assert.match(memberChange, /\/admin\/roles/);
   assert.match(memberChange, /\/admin\/members\/drive-folder/);
+  assert.equal((memberChange.match(/viewRoot:/g) ?? []).length >= 2, true);
   assert.equal((memberChange.match(/MutationFeedback\.confirmed\(/g) ?? []).length >= 2, true);
   assert.match(memberChange, /await renderRolesAuditLog\(\);/);
+  assert.match(members, /function memberFocusId\(email, control\)/);
+  assert.match(members, /id="\$\{memberFocusId\(m\.email, 'section'\)\}"/);
+  assert.match(members, /id="\$\{memberFocusId\(email, `role-\$\{r\.value\}`\)\}"/);
+
+  assert.match(applications, /function applicationFocusId\(email, action\)/);
+  assert.match(applications, /id="\$\{applicationFocusId\(m\.email, 'approve'\)\}"/);
 
   for (const route of ['/admin/social-media/refresh', '/admin/settings', '/admin/redirects']) {
     assert.match(general, new RegExp(route.replaceAll('/', '\\/')));
   }
   assert.equal((general.match(/MutationFeedback\.confirmed\(/g) ?? []).length >= 4, true);
+  assert.equal((general.match(/viewRoot:\s*list/g) ?? []).length >= 2, true);
+  assert.match(general, /function redirectFocusId\(path\)/);
+  assert.match(general, /id="\$\{redirectFocusId\(r\.path\)\}"/);
   assert.doesNotMatch(extractListenerForElement(general, 'add-redirect-form', 'submit'), /loadRedirects\(\);/);
   assert.doesNotMatch(extractListenerForElement(general, 'redirects-list', 'click'), /loadRedirects\(\);/);
 });

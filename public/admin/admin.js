@@ -104,8 +104,12 @@ function redirectItemHtml(r) {
       <span>&rarr;</span>
       <span style="flex:1; overflow-wrap:anywhere;">${escapeHtml(r.target)}</span>
       <a class="audyt-history-btn" href="/admin/audyt/?resourceKey=${encodeURIComponent(`redirect:${r.path}`)}" title="Historia" aria-label="Historia">${HISTORY_ICON}</a>
-      <button class="delete-redirect" data-path="${escapeAttr(r.path)}" style="color:var(--accent);">Usuń</button>
+      <button id="${redirectFocusId(r.path)}" class="delete-redirect" data-path="${escapeAttr(r.path)}" style="color:var(--accent);">Usuń</button>
     </div>`;
+}
+
+function redirectFocusId(path) {
+  return `redirect-${encodeURIComponent(path)}-delete`;
 }
 
 document.getElementById('add-redirect-form').addEventListener('submit', async e => {
@@ -131,6 +135,7 @@ document.getElementById('add-redirect-form').addEventListener('submit', async e 
         list.insertAdjacentHTML('beforeend', redirectItemHtml({ path, target }));
         status.textContent = '';
       },
+      viewRoot: list,
       refreshFragment: loadRedirects,
     });
   } catch (err) {
@@ -152,6 +157,7 @@ document.getElementById('redirects-list').addEventListener('click', async e => {
         deleteBtn.closest('div').remove();
         if (!list.querySelector('.delete-redirect')) list.innerHTML = '<p>Brak przekierowań.</p>';
       },
+      viewRoot: list,
       refreshFragment: loadRedirects,
     });
   } catch (err) {
