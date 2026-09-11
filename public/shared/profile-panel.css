@@ -77,9 +77,9 @@
   color: var(--danger, #c0392b);
 }
 
+/* .busy-sticker-loader--feature (style.css) already centers its own contents in a column -
+   this just gives it some breathing room inside the drawer. */
 .profile-drawer-loading {
-  display: flex;
-  justify-content: center;
   padding: 2rem 0;
 }
 

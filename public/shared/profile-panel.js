@@ -192,15 +192,17 @@
     `;
   }
 
-  // Same "busy sticker" loader used elsewhere for a full-page loading state (e.g.
-  // wyjazd/index.html's #lw-checking), sized down via the --compact modifier - no minimum
-  // display time here, it's just swapped out the moment the fetch settles.
+  // Same full-size "busy sticker" loader used elsewhere for a full-page loading state (e.g.
+  // wyjazd/index.html's #lw-checking, galerie's own loading state) - the --feature modifier,
+  // label text included. No minimum display time here, it's just swapped out the moment the
+  // fetch settles.
   function loadingHtml() {
     return `
-      <div class="profile-drawer-loading">
-        <span class="busy-sticker-aura busy-sticker-aura--compact" aria-hidden="true">
-          <img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--compact" alt="" />
+      <div class="profile-drawer-loading busy-sticker-loader--feature">
+        <span class="busy-sticker-aura busy-sticker-aura--feature" aria-hidden="true">
+          <img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--feature" alt="" />
         </span>
+        <span class="busy-sticker-label">PLEASE HOLD THE LINE...</span>
       </div>
     `;
   }
