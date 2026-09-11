@@ -106,7 +106,11 @@ function renderTable() {
     // now that this table has the room - it matches Zarządzanie ludźmi's own separate column).
     row.innerHTML = `
       <td class="czl-section-cell" title="${escapeAttr(m.sectionLabel || 'Brak sekcji')}">${m.sectionId ? escapeHtml(sectionAbbr(m.sectionId)) : EMPTY}</td>
-      <td><span ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, m.fullName ? '' : 'czl-empty')}>${cell(m.fullName)}</span></td>
+      <td>
+        <button type="button" class="profile-trigger" data-profile-trigger data-email="${escapeAttr(m.email)}">
+          <span ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, m.fullName ? '' : 'czl-empty')}>${cell(m.fullName)}</span>
+        </button>
+      </td>
       <td class="${m.nickname ? '' : 'czl-empty'}">${cell(m.nickname)}</td>
       <td>${escapeHtml(m.email)}</td>
     `;
