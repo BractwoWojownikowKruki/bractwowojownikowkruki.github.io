@@ -22,9 +22,11 @@ import {
   invalidateAboutUsCache,
   isAboutUsCategory,
   isAdminDepartment,
+  mapDriveImagesToPhotos,
   parsePersonFolderName,
   type AboutUsCategory,
   type AdminDepartment,
+  type PersonPhoto,
 } from './about-us.ts';
 import { createFirestoreClient, type FirestoreLikeClient, type FirestoreTransaction } from './firestore.ts';
 import {
@@ -1789,13 +1791,99 @@ async function handleListaWyjazdowaGetProfilePhoto(req: IncomingMessage, res: Se
     deps.drive.listImageFiles(member.driveFolderId),
   ]);
   const parentId = await deps.drive.getFolderParentId(member.driveFolderId);
-  const [mainImage, ...restImages] = images;
-  const mainPhoto =
-    mainImage?.thumbnailLink != null ? { id: mainImage.id, url: resizeThumbnailUrl(mainImage.thumbnailLink, 800) } : null;
-  const photos = restImages
-    .filter((img): img is typeof img & { thumbnailLink: string } => img.thumbnailLink != null)
-    .map(img => ({ id: img.id, url: resizeThumbnailUrl(img.thumbnailLink, 300) }));
+  const { mainPhoto, photos } = mapDriveImagesToPhotos(images);
   sendJson(res, 200, { submission: { mainPhoto, photos, pendingApproval: parentId === folders.uploadRoot } });
+}
+
+// KRKG-0067: backs the clickable-username profile drawer shown on Lista Wyjazdowa, Spis Ludności,
+// and Zarządzanie ludźmi. Two-tier auth, tried in this order (same "try the broader gate, fall
+// back to the narrower one" idiom as resolveAdminAuditAuth above): an admin/moderator - the same
+// gate that already lets Zarządzanie ludźmi manage members in every status
+// (handleAdminListMembers) - may view ANY existing MemberDoc regardless of status or `hidden`,
+// and does NOT need to be an active club member themselves. Everyone else must be an active
+// member (authenticateWojownicyUpload) and the target must be active and not hidden.
+async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  let isAdminOrModerator = true;
+  try {
+    await deps.authenticateAdminOrModerator(req, res);
+  } catch (err) {
+    if (!(err instanceof AuthError)) throw err;
+    isAdminOrModerator = false;
+  }
+  if (!isAdminOrModerator) {
+    await deps.authenticateWojownicyUpload(req, res);
+  }
+
+  const rawEmail = url.searchParams.get('email');
+  if (!rawEmail) {
+    sendJson(res, 400, { error: 'Brak parametru email.' });
+    return;
+  }
+  const email = rawEmail.trim().toLowerCase();
+
+  if (!isAdminOrModerator) {
+    const activeEmails = await deps.listMemberEmails();
+    if (!activeEmails.some(e => e.toLowerCase() === email)) {
+      sendJson(res, 404, { error: 'Nie znaleziono członka.' });
+      return;
+    }
+  }
+
+  const [member, profile, lookupLists] = await Promise.all([
+    getMember(deps.firestore, email),
+    getProfile(deps.firestore, email),
+    getAllLookupLists(deps.firestore),
+  ]);
+
+  // A hidden member is treated as entirely absent for a plain active caller, matching
+  // handleListaWyjazdowaGetRoster/handleMembersDirectory's KRKG-0060 behavior. An admin/moderator
+  // (isAdminOrModerator, resolved above) is exempt - already established.
+  if (!isAdminOrModerator && member?.hidden === true) {
+    sendJson(res, 404, { error: 'Nie znaleziono członka.' });
+    return;
+  }
+
+  const sectionLabelById = new Map(lookupLists.sections.map(s => [s.id, s.label]));
+  const categoryLabelById = new Map(lookupLists.categories.map(c => [c.id, c.label]));
+  const weaponLabelById = new Map(lookupLists.weapons.map(w => [w.id, w.label]));
+
+  let mainPhoto: PersonPhoto | null = null;
+  let photos: PersonPhoto[] = [];
+  let description: string | null = null;
+  let published = false;
+
+  if (member?.driveFolderId) {
+    const exists = await deps.drive.folderExists(member.driveFolderId);
+    if (exists) {
+      const [folders, parentId] = await Promise.all([
+        bootstrapAboutUsStructure(deps.drive),
+        deps.drive.getFolderParentId(member.driveFolderId),
+      ]);
+      published = Object.values(folders.categories).includes(parentId ?? '');
+      const isPendingUpload = !published && parentId === folders.uploadRoot;
+      if (published || isPendingUpload) {
+        const images = await deps.drive.listImageFiles(member.driveFolderId);
+        ({ mainPhoto, photos } = mapDriveImagesToPhotos(images));
+        if (published) {
+          description = await deps.drive.readTextFile(member.driveFolderId, 'Opis.txt');
+        }
+      }
+    }
+  }
+
+  sendJson(res, 200, {
+    // A member on the allowlist with no `members/{email}` document yet (never opened "Mój
+    // profil") still gets a usable name, same fallback as wyjazd.js's displayName().
+    fullName: member?.fullName ?? email.split('@')[0],
+    nickname: member?.nickname ?? null,
+    sectionLabel: member?.sectionId ? (sectionLabelById.get(member.sectionId) ?? member.sectionId) : null,
+    categoryLabel: member?.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null,
+    weapons: (profile?.weaponIds ?? []).map(id => weaponLabelById.get(id) ?? id),
+    mainPhoto,
+    photos,
+    description,
+    published,
+  });
 }
 
 async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -3265,6 +3353,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaGetProfilePhoto(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/lookup-lists') {
         await handleListaWyjazdowaLookupLists(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/member-profile') {
+        await handleMemberProfile(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/events') {
         await handleListaWyjazdowaGetEvents(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/lista-wyjazdowa/events') {

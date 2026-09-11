@@ -1,4 +1,4 @@
-import type { DriveClient } from './drive.ts';
+import type { DriveClient, DriveImageInfo } from './drive.ts';
 import { resizeThumbnailUrl } from './drive.ts';
 
 // "Blachowi" - warriors who've earned their Kruczy Wisior badge (see kruki.org's "Po tym nas
@@ -102,6 +102,21 @@ export function sortPeopleByFolderName<T extends { folderName: string }>(items: 
 export interface PersonPhoto {
   id: string;
   url: string;
+}
+
+// Shared by handleListaWyjazdowaGetProfilePhoto and handleMemberProfile (server.ts) - both read
+// a single Drive folder's images and split them into a main photo + extras the same way
+// fetchCategoryPeople does inline just below. Not reused by fetchCategoryPeople itself: that
+// function interleaves the description read into the same Promise.all and has its own,
+// separately-tested shape - not worth the churn for a third caller that doesn't exist.
+export function mapDriveImagesToPhotos(images: DriveImageInfo[]): { mainPhoto: PersonPhoto | null; photos: PersonPhoto[] } {
+  const [mainImage, ...restImages] = images;
+  const mainPhoto: PersonPhoto | null =
+    mainImage?.thumbnailLink != null ? { id: mainImage.id, url: resizeThumbnailUrl(mainImage.thumbnailLink, 800) } : null;
+  const photos: PersonPhoto[] = restImages
+    .filter((img): img is typeof img & { thumbnailLink: string } => img.thumbnailLink != null)
+    .map(img => ({ id: img.id, url: resizeThumbnailUrl(img.thumbnailLink, 300) }));
+  return { mainPhoto, photos };
 }
 
 export interface Person {

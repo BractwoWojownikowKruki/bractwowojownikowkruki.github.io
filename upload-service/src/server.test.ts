@@ -4159,6 +4159,297 @@ test('GET /lista-wyjazdowa/profile/photo returns the member\'s own photos with p
   });
 });
 
+// Every "plain member" test below explicitly overrides authenticateAdminOrModerator to throw -
+// makeDeps' own default resolves it as a successful admin identity (server.test.ts:167), which
+// would otherwise silently take the admin/moderator code path and skip the allowlist/hidden
+// checks these tests exist to exercise. Only the dedicated admin/moderator tests near the bottom
+// rely on that default.
+
+test('GET /member-profile returns basic fields, no photos, no description when the member has no driveFolderId', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({
+    fullName: 'Jan Kowalski',
+    nickname: 'Kowal',
+    sectionId: 'sekcja-1',
+    categoryId: 'kandydat',
+    driveFolderId: null,
+  }));
+  await firestore.setDoc('lookupLists', 'sections', { items: [{ id: 'sekcja-1', label: 'Kraków', retired: false }] });
+  await firestore.setDoc('lookupLists', 'categories', { items: [{ id: 'kandydat', label: 'Kandydat', retired: false }] });
+  await firestore.setDoc('lookupLists', 'weapons', { items: [{ id: 'miecz', label: 'Miecz', retired: false }] });
+  await firestore.setDoc('listaWyjazdowaProfile', 'ktos@gmail.com', {
+    weaponIds: ['miecz'],
+    equipment: [],
+    companions: [],
+    wpisowePaid: false,
+    updatedAt: new Date().toISOString(),
+    updatedBy: 'ktos@gmail.com',
+  });
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['ktos@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.fullName, 'Jan Kowalski');
+    assert.equal(body.nickname, 'Kowal');
+    assert.equal(body.sectionLabel, 'Kraków');
+    assert.equal(body.categoryLabel, 'Kandydat');
+    assert.deepEqual(body.weapons, ['Miecz']);
+    assert.equal(body.mainPhoto, null);
+    assert.deepEqual(body.photos, []);
+    assert.equal(body.description, null);
+    assert.equal(body.published, false);
+  });
+});
+
+test('GET /member-profile returns photos and description when driveFolderId is under a public category', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'person-folder' }));
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['ktos@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `folder-${name}`,
+      folderExists: async id => id === 'person-folder',
+      getFolderParentId: async id => (id === 'person-folder' ? 'folder-Kandydaci' : null),
+      listImageFiles: async id =>
+        id === 'person-folder'
+          ? [
+              { id: 'img-main', name: '!main.jpg', thumbnailLink: 'https://example.com/main.jpg' },
+              { id: 'img-2', name: '2.jpg', thumbnailLink: 'https://example.com/2.jpg' },
+            ]
+          : [],
+      readTextFile: async (id, fileName) => (id === 'person-folder' && fileName === 'Opis.txt' ? 'Krótki opis.' : null),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.published, true);
+    assert.equal(body.description, 'Krótki opis.');
+    assert.equal(body.mainPhoto.id, 'img-main');
+    assert.equal(body.photos.length, 1);
+    assert.equal(body.photos[0].id, 'img-2');
+  });
+});
+
+test('GET /member-profile returns photos but no description when driveFolderId is still under the private upload root', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'pending-folder' }));
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['ktos@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => (name === 'upload' ? 'upload-root' : `folder-${name}`),
+      folderExists: async id => id === 'pending-folder',
+      getFolderParentId: async id => (id === 'pending-folder' ? 'upload-root' : null),
+      listImageFiles: async id => (id === 'pending-folder' ? [{ id: 'img-pending', name: '!main.jpg', thumbnailLink: 'https://example.com/p.jpg' }] : []),
+      readTextFile: async () => {
+        throw new Error('should not read description for a non-published folder');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.published, false);
+    assert.equal(body.description, null);
+    assert.equal(body.mainPhoto.id, 'img-pending');
+    assert.deepEqual(body.photos, []);
+  });
+});
+
+test('GET /member-profile reads no Drive images at all when driveFolderId is neither a public category nor the upload root', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'deleted-folder' }));
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['ktos@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `folder-${name}`,
+      folderExists: async id => id === 'deleted-folder',
+      getFolderParentId: async id => (id === 'deleted-folder' ? 'folder-deleted' : null),
+      listImageFiles: async () => {
+        throw new Error('should not list images for a folder outside categories and upload root');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.published, false);
+    assert.equal(body.mainPhoto, null);
+    assert.deepEqual(body.photos, []);
+  });
+});
+
+test('GET /member-profile returns a minimal profile (name from email) when the target has no members document', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['bezprofilu@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=bezprofilu@gmail.com`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.fullName, 'bezprofilu');
+    assert.equal(body.nickname, null);
+    assert.equal(body.sectionLabel, null);
+    assert.equal(body.categoryLabel, null);
+    assert.deepEqual(body.weapons, []);
+    assert.equal(body.published, false);
+  });
+});
+
+test('GET /member-profile returns 404 for an email not on the active allowlist, for a plain active caller', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc());
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => [],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com`);
+    assert.equal(res.status, 404);
+  });
+});
+
+test('GET /member-profile returns 404 for a hidden member when the caller is a plain active member', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ukryty@gmail.com', seedMemberDoc({ hidden: true }));
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['ukryty@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=ukryty@gmail.com`);
+    assert.equal(res.status, 404);
+  });
+});
+
+test('GET /member-profile rejects a plain caller who is not an active member', async () => {
+  resetAboutUsBootstrapForTests();
+  const deps = makeDeps({
+    authenticateWojownicyUpload: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
+    },
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com`);
+    assert.equal(res.status, 403);
+  });
+});
+
+// --- Admin/moderator path: relies on makeDeps' default authenticateAdminOrModerator (succeeds
+// as an admin identity) and deliberately makes authenticateWojownicyUpload fail, to prove the
+// admin/moderator branch never calls it - an admin/moderator need not be an active club member
+// themselves, matching handleAdminListMembers's own gate (server.ts:888-895).
+
+test('GET /member-profile returns the full profile for a suspended member when the caller is admin/moderator but not an active member', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'zawieszony@gmail.com', seedMemberDoc({ status: 'suspended', fullName: 'Zawieszony Nowak' }));
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => [], // not on the active allowlist - must not matter for admin/moderator
+    authenticateWojownicyUpload: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
+    },
+    // authenticateAdminOrModerator uses makeDeps' default (succeeds as admin@gmail.com).
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=zawieszony@gmail.com`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.fullName, 'Zawieszony Nowak');
+  });
+});
+
+test('GET /member-profile returns the full profile for a hidden member when the caller is admin/moderator but not an active member', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ukryty@gmail.com', seedMemberDoc({ hidden: true, fullName: 'Ukryty Kowalski' }));
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => [],
+    authenticateWojownicyUpload: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
+    },
+    // authenticateAdminOrModerator uses makeDeps' default (succeeds as admin@gmail.com).
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=ukryty@gmail.com`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.fullName, 'Ukryty Kowalski');
+  });
+});
+
+test('GET /member-profile normalizes email case before comparing against the allowlist and Firestore', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ fullName: 'Jan Kowalski' }));
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['ktos@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=${encodeURIComponent('  KTOS@Gmail.com  ')}`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.fullName, 'Jan Kowalski');
+  });
+});
+
 test('/wojownicy-upload/photo rejects a request with no X-Submission-Token', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
