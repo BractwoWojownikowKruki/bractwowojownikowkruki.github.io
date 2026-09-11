@@ -293,7 +293,9 @@ function renderRoster(roster, signups) {
     <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
       <td class="czl-section-cell" title="${escapeAttr(sectionSortLabel(member) || 'Brak sekcji')}">${member.sectionId ? escapeHtml(sectionAbbr(member.sectionId)) : EMPTY}</td>
       <td class="lw-roster-name-cell">
-        <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
+        <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
+          <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
+        </button>
       </td>
       <td>
         <button type="button" class="lw-attend-toggle" data-email="${emailAttr}" data-attending="${attending}" aria-pressed="${attending}">
