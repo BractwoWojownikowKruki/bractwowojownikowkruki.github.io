@@ -77,6 +77,12 @@
   color: var(--danger, #c0392b);
 }
 
+.profile-drawer-loading {
+  display: flex;
+  justify-content: center;
+  padding: 2rem 0;
+}
+
 /* Trigger elements added to existing name cells across the app. */
 .profile-trigger {
   background: none;
