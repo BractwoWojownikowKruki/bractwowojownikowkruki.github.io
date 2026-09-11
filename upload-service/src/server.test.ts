@@ -4430,6 +4430,23 @@ test('GET /member-profile returns the full profile for a hidden member when the 
   });
 });
 
+test('GET /member-profile returns 404 for an admin/moderator caller querying an arbitrary email with no members document', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => [],
+    authenticateWojownicyUpload: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
+    },
+    // authenticateAdminOrModerator uses makeDeps' default (succeeds as admin@gmail.com).
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=nieistnieje@gmail.com`);
+    assert.equal(res.status, 404);
+  });
+});
+
 test('GET /member-profile normalizes email case before comparing against the allowlist and Firestore', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();

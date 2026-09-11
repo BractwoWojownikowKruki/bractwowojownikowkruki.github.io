@@ -1843,6 +1843,17 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
     return;
   }
 
+  // An admin/moderator may view any status/hidden, but only for a MemberDoc that actually
+  // exists - Zarządzanie ludźmi's own rows all come from listMembersByStatus, which never has
+  // phantom entries, so an admin/moderator querying an arbitrary nonexistent email must not get
+  // a fabricated profile back (the minimal-profile fallback below is only for a plain member
+  // targeting a real allowlisted-but-undocumented member, already established via listMemberEmails
+  // above).
+  if (isAdminOrModerator && !member) {
+    sendJson(res, 404, { error: 'Nie znaleziono członka.' });
+    return;
+  }
+
   const sectionLabelById = new Map(lookupLists.sections.map(s => [s.id, s.label]));
   const categoryLabelById = new Map(lookupLists.categories.map(c => [c.id, c.label]));
   const weaponLabelById = new Map(lookupLists.weapons.map(w => [w.id, w.label]));
