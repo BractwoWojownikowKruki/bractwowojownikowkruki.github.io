@@ -148,6 +148,7 @@ export const ACTION_REGISTRY = {
   'profile.person.in_memoriam.changed': action('profile', 'adminOrModerator', ['person'], profileFields),
   'profile.photo_submission.created': action('profile', 'adminOrModerator', ['memberSubmission'], profileFields),
   'profile.photo_submission.photo_added': action('profile', 'adminOrModerator', ['memberSubmission'], profileFields),
+  'profile.photo_submission.photo_deleted': action('profile', 'adminOrModerator', ['memberSubmission'], profileFields),
   'session.login.succeeded': action('session', 'admin', ['session'], sessionFields),
   'application.pwa.installation_reported': action('application', 'admin', ['application'], applicationFields),
   'gallery.created': action('gallery', 'members', ['gallery'], galleryFields),

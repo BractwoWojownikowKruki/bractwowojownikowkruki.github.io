@@ -4487,6 +4487,64 @@ test('GET /lista-wyjazdowa/profile/photo returns public and pending independentl
   });
 });
 
+test('DELETE /lista-wyjazdowa/profile/photo returns 404 when the caller has no stagingFolderId', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: null }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      deleteFolder: async () => {
+        throw new Error('should not delete anything without a staging folder');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo?fileId=f1`, { method: 'DELETE' });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('DELETE /lista-wyjazdowa/profile/photo returns 404 for a fileId not listed in the caller\'s own staging folder', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 's1' }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      listImageFiles: async () => [{ id: 'other-file', name: 'other.jpg', thumbnailLink: 'https://example.test/other=s220' }],
+      deleteFolder: async () => {
+        throw new Error('should not delete a file not in the caller\'s own staging folder');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo?fileId=f1`, { method: 'DELETE' });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('DELETE /lista-wyjazdowa/profile/photo deletes a file that is listed in the caller\'s own staging folder', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 's1' }));
+  let deletedId = '';
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      listImageFiles: async () => [{ id: 'f1', name: 'f1.jpg', thumbnailLink: 'https://example.test/f1=s220' }],
+      deleteFolder: async id => {
+        deletedId = id;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo?fileId=f1`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(deletedId, 'f1');
+});
+
 // Every "plain member" test below explicitly overrides authenticateAdminOrModerator to throw -
 // makeDeps' own default resolves it as a successful admin identity (server.test.ts:167), which
 // would otherwise silently take the admin/moderator code path and skip the allowlist/hidden

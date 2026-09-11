@@ -14,7 +14,7 @@ table into this file in the same change. If you forget, this test will keep pass
 stale copy while the real contract document silently diverges - exactly the failure mode this
 fixture exists to prevent.
 
-Last synced with implementation-contract.md: 2026-09-09 (KRKG-0050 batch 6, Apply Review).
+Last synced with implementation-contract.md: 2026-09-11 (KRKG-0070 batch 4/7).
 -->
 
 | Method and route | Classification and action | Resource and side effect | Execution |
@@ -42,6 +42,7 @@ Last synced with implementation-contract.md: 2026-09-09 (KRKG-0050 batch 6, Appl
 | PUT `/admin/people/in-memoriam` | businessWrite — `profile.person.in_memoriam.changed` | person; Drive marker file | auditedOperationEnvelope |
 | POST `/wojownicy-upload/submit` | businessWrite — `profile.photo_submission.created` | member submission; Drive folder; provisional key then final submission folder key | auditedOperationEnvelope |
 | POST `/wojownicy-upload/photo` | businessWrite — `profile.photo_submission.photo_added` | member submission; Drive photo | auditedOperationEnvelope |
+| DELETE `/lista-wyjazdowa/profile/photo` | businessWrite — `profile.photo_submission.photo_deleted` | member submission; Drive photo deletion, scoped to caller's own stagingFolderId | auditedOperationEnvelope |
 | PUT `/lista-wyjazdowa/member` | businessWrite — `profile.member.updated` | member; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/profile` | businessWrite — `profile.member.updated` | member; Firestore | requestAwaited |
 | POST `/lista-wyjazdowa/events` | businessWrite — `event.created` | event; Firestore | requestAwaited |

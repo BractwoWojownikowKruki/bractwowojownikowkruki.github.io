@@ -1942,6 +1942,34 @@ async function handleListaWyjazdowaGetProfilePhoto(req: IncomingMessage, res: Se
   sendJson(res, 200, { public: publicSection, pending: pendingSection });
 }
 
+// KRKG-0070: lets a member delete a photo from their own pending staging folder before an admin
+// approves it - self-service, scoped strictly to the caller's own stagingFolderId (never
+// driveFolderId, which stays admin-only via handleAdminDeletePhoto).
+async function handleListaWyjazdowaDeleteProfilePhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const fileId = url.searchParams.get('fileId');
+  if (!fileId) throw new AuthError('Brak fileId.', 400);
+  const member = await getMember(deps.firestore, identity.email);
+  if (!member?.stagingFolderId) { sendJson(res, 404, { error: 'Nie znaleziono folderu zgłoszeniowego.' }); return; }
+  const images = await deps.drive.listImageFiles(member.stagingFolderId);
+  const image = images.find(img => img.id === fileId);
+  if (!image) { sendJson(res, 404, { error: 'Ten plik nie należy do Twojego folderu zgłoszeniowego.' }); return; }
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'profile.photo_submission.photo_deleted',
+      actor: { email: identity.email },
+      // matches profile.photo_submission.{created,photo_added}'s own resource key
+      // (`member:{actorEmail}:submission:{folderId}`, implementation-contract.md's canonical
+      // notation) so this submission's full Historia stays reachable under one resourceKey filter.
+      resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${member.stagingFolderId}`, display: member.stagingFolderId },
+      changes: [{ field: 'fileId', after: fileId }],
+    },
+    async () => deps.drive.deleteFolder(fileId),
+  );
+  sendJson(res, 200, { ok: true });
+}
+
 // KRKG-0067: backs the clickable-username profile drawer shown on Lista Wyjazdowa, Spis Ludności,
 // and Zarządzanie ludźmi. Two-tier auth, tried in this order (same "try the broader gate, fall
 // back to the narrower one" idiom as resolveAdminAuditAuth above): an admin/moderator - the same
@@ -3516,6 +3544,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaPutProfile(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/profile/photo') {
         await handleListaWyjazdowaGetProfilePhoto(req, res, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/lista-wyjazdowa/profile/photo') {
+        await handleListaWyjazdowaDeleteProfilePhoto(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/lookup-lists') {
         await handleListaWyjazdowaLookupLists(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/member-profile') {
