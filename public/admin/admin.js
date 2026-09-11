@@ -118,6 +118,7 @@ document.getElementById('add-redirect-form').addEventListener('submit', async e 
   status.textContent = 'Zapisywanie...';
   const path = document.getElementById('redirect-path').value.trim().toLowerCase();
   const target = document.getElementById('redirect-target').value.trim();
+  const list = document.getElementById('redirects-list');
   try {
     await window.MutationFeedback.confirmed({
       control: document.getElementById('redirect-target'),
@@ -130,7 +131,6 @@ document.getElementById('add-redirect-form').addEventListener('submit', async e 
       ),
       apply: () => {
         document.getElementById('add-redirect-form').reset();
-        const list = document.getElementById('redirects-list');
         list.querySelector('p')?.remove();
         list.insertAdjacentHTML('beforeend', redirectItemHtml({ path, target }));
         status.textContent = '';

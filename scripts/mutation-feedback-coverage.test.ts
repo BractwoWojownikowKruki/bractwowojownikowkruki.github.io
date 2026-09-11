@@ -166,10 +166,12 @@ test('batch two routes are marked wired while later routes remain planned', asyn
 });
 
 test('batch two admin mutations use confirmed local feedback without full-list success reloads', async () => {
-  const [applications, members, general] = await Promise.all([
+  const [applications, applicationsPage, members, general, generalPage] = await Promise.all([
     readFile(new URL('../public/admin/zgloszenia/zgloszenia.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/admin/zgloszenia/index.html', import.meta.url), 'utf8'),
     readFile(new URL('../public/admin/zarzadzanie-ludzmi/zarzadzanie-ludzmi.js', import.meta.url), 'utf8'),
     readFile(new URL('../public/admin/admin.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/admin/index.html', import.meta.url), 'utf8'),
   ]);
 
   const applicationTransition = extractNamedFunction(applications, 'postMembershipTransition');
@@ -216,6 +218,7 @@ test('batch two admin mutations use confirmed local feedback without full-list s
 
   assert.match(applications, /function applicationFocusId\(email, action\)/);
   assert.match(applications, /id="\$\{applicationFocusId\(m\.email, 'approve'\)\}"/);
+  assert.match(applicationsPage, /żeby dodać osobę ręcznie do grupy Google \(Docs\/Sheets\/Drive\)/);
 
   for (const route of ['/admin/social-media/refresh', '/admin/settings', '/admin/redirects']) {
     assert.match(general, new RegExp(route.replaceAll('/', '\\/')));
@@ -224,6 +227,11 @@ test('batch two admin mutations use confirmed local feedback without full-list s
   assert.equal((general.match(/viewRoot:\s*list/g) ?? []).length >= 2, true);
   assert.match(general, /function redirectFocusId\(path\)/);
   assert.match(general, /id="\$\{redirectFocusId\(r\.path\)\}"/);
-  assert.doesNotMatch(extractListenerForElement(general, 'add-redirect-form', 'submit'), /loadRedirects\(\);/);
+  const addRedirect = extractListenerForElement(general, 'add-redirect-form', 'submit');
+  const redirectListDeclaration = addRedirect.indexOf("const list = document.getElementById('redirects-list');");
+  const confirmedCall = addRedirect.indexOf('await window.MutationFeedback.confirmed(');
+  assert.ok(redirectListDeclaration >= 0 && redirectListDeclaration < confirmedCall, 'add-redirect must resolve its view root before constructing feedback options');
+  assert.doesNotMatch(addRedirect, /loadRedirects\(\);/);
   assert.doesNotMatch(extractListenerForElement(general, 'redirects-list', 'click'), /loadRedirects\(\);/);
+  assert.match(generalPage, /wykonaj twarde odświeżenie/);
 });
