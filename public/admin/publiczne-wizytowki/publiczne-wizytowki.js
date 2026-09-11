@@ -141,7 +141,14 @@ function transferTargetOptionsHtml(transferTargets, excludeFolderId) {
     .join('');
 }
 
-function photoItemHtml(folderId, photo, isMain, transferTargets) {
+// KRKG-0070: approve-target category options for a self-service submission's photo - same
+// restriction and rationale as loadTransferTargets/TRANSFER_TARGET_CATEGORIES above (Emeryci
+// excluded: a fresh upload-staging photo shouldn't default there).
+function approveTargetCategoryOptionsHtml() {
+  return TRANSFER_TARGET_CATEGORIES.map(category => `<option value="${category}">${category}</option>`).join('');
+}
+
+function photoItemHtml(folderId, photo, isMain, transferTargets, isUploadCategory, personName) {
   return `
     <div class="manage-photo-item" style="display:inline-block; text-align:center; margin:0 0.5rem 0.5rem 0; vertical-align:top; width:100px;">
       <img src="${photo.url}" alt="" style="width:100px; height:100px; object-fit:cover; border-radius:4px; display:block; border:1px solid var(--border);" />
@@ -160,6 +167,17 @@ function photoItemHtml(folderId, photo, isMain, transferTargets) {
         </select>
         <button class="transfer-photo" data-file-id="${photo.id}" style="font-size:11px; margin-top:2px;">Transferuj</button>
       </div>
+      ${
+        isUploadCategory
+          ? `
+      <div style="margin-top:4px;">
+        <select class="approve-target-category" data-file-id="${photo.id}" style="width:100%; font-size:11px;">
+          ${approveTargetCategoryOptionsHtml()}
+        </select>
+        <button class="approve-photo" data-folder-id="${folderId}" data-file-id="${photo.id}" data-name="${escapeAttr(personName)}" style="font-size:11px; margin-top:2px;">Zatwierdź</button>
+      </div>`
+          : ''
+      }
     </div>`;
 }
 
@@ -170,6 +188,7 @@ function renderManageList(people, transferTargets) {
     list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
     return;
   }
+  const isUploadCategory = currentCategory === 'upload';
   list.innerHTML = people
     .map(p => {
       const allPhotos = [
@@ -177,7 +196,9 @@ function renderManageList(people, transferTargets) {
         ...p.photos.map(photo => ({ ...photo, isMain: false })),
       ];
       const photosHtml = allPhotos.length
-        ? allPhotos.map(photo => photoItemHtml(p.folderId, photo, photo.isMain, transferTargets)).join('')
+        ? allPhotos
+            .map(photo => photoItemHtml(p.folderId, photo, photo.isMain, transferTargets, isUploadCategory, p.name))
+            .join('')
         : '<p style="color:var(--text-muted); font-size:13px;">Brak zdjęć.</p>';
       return `
     <div style="border:1px solid var(--border); border-radius:6px; padding:1rem;">
@@ -317,6 +338,28 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileId, targetFolderId: select.value }),
+      },
+      showReauth,
+      hideReauth,
+    );
+    loadManageList();
+    return;
+  }
+  const approveBtn = e.target.closest('.approve-photo');
+  if (approveBtn) {
+    const fileId = approveBtn.dataset.fileId;
+    const select = document.querySelector(`.approve-target-category[data-file-id="${fileId}"]`);
+    await apiFetch(
+      '/admin/people/photo/approve',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileId,
+          stagingFolderId: approveBtn.dataset.folderId,
+          targetCategory: select.value,
+          name: approveBtn.dataset.name,
+        }),
       },
       showReauth,
       hideReauth,
