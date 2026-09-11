@@ -4545,6 +4545,44 @@ test('DELETE /lista-wyjazdowa/profile/photo deletes a file that is listed in the
   assert.equal(deletedId, 'f1');
 });
 
+test('DELETE /lista-wyjazdowa/profile/photo invalidates the about-us category cache (review finding: admin upload view was serving a stale cached listing)', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 's1' }));
+  const deletedFileIds = new Set<string>();
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => (name === 'upload' ? 'upload-root-cache-test' : `folder-${name}`),
+      listGalleryFolders: async parentId =>
+        parentId === 'upload-root-cache-test'
+          ? [{ id: 's1', name: 'Ktos - ktos@gmail.com - 2026-01-01', modifiedTime: '2026-01-01T00:00:00Z' }]
+          : [],
+      listImageFiles: async folderId =>
+        folderId === 's1' && !deletedFileIds.has('f1')
+          ? [{ id: 'f1', name: 'f1.jpg', thumbnailLink: 'https://example.test/f1=s220' }]
+          : [],
+      readTextFile: async () => null,
+      deleteFolder: async fileId => {
+        deletedFileIds.add(fileId);
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const first = await fetch(`${baseUrl}/admin/people?category=upload`).then(r => r.json());
+    assert.equal(first.people[0].mainPhoto?.id, 'f1');
+
+    const del = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo?fileId=f1`, { method: 'DELETE' });
+    assert.equal(del.status, 200);
+
+    // Without invalidateAboutUsCache() in the DELETE handler, this would still return the stale
+    // cached listing (f1 still present) since CATEGORY_CACHE_TTL_MS (20 min) hasn't elapsed.
+    const second = await fetch(`${baseUrl}/admin/people?category=upload`).then(r => r.json());
+    assert.equal(second.people[0].mainPhoto, null);
+  });
+});
+
 // Every "plain member" test below explicitly overrides authenticateAdminOrModerator to throw -
 // makeDeps' own default resolves it as a successful admin identity (server.test.ts:167), which
 // would otherwise silently take the admin/moderator code path and skip the allowlist/hidden

@@ -1967,6 +1967,7 @@ async function handleListaWyjazdowaDeleteProfilePhoto(req: IncomingMessage, res:
     },
     async () => deps.drive.deleteFolder(fileId),
   );
+  invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
 

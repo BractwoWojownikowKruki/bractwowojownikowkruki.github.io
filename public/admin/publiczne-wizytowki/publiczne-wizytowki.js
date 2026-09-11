@@ -141,14 +141,18 @@ function transferTargetOptionsHtml(transferTargets, excludeFolderId) {
     .join('');
 }
 
-// KRKG-0070: approve-target category options for a self-service submission's photo - same
-// restriction and rationale as loadTransferTargets/TRANSFER_TARGET_CATEGORIES above (Emeryci
-// excluded: a fresh upload-staging photo shouldn't default there).
+// Apply Review (KRKG-0070, gpt-5 v5.0 round): all 4 public categories are valid approve targets
+// (unlike TRANSFER_TARGET_CATEGORIES above, which deliberately excludes Emeryci for a different
+// reason - transferring into an existing retired-warrior profile isn't where a *fresh* upload
+// should default). Approving into Emeryci as someone's first-ever public profile is a normal,
+// legitimate admin choice the UI must not block.
+const APPROVE_TARGET_CATEGORIES = ['Blachowi', 'Niewiasty', 'Emeryci', 'Kandydaci'];
+
 function approveTargetCategoryOptionsHtml() {
-  return TRANSFER_TARGET_CATEGORIES.map(category => `<option value="${category}">${category}</option>`).join('');
+  return APPROVE_TARGET_CATEGORIES.map(category => `<option value="${category}">${category}</option>`).join('');
 }
 
-function photoItemHtml(folderId, photo, isMain, transferTargets, isUploadCategory, personName) {
+function photoItemHtml(folderId, photo, isMain, transferTargets, isUploadCategory) {
   return `
     <div class="manage-photo-item" style="display:inline-block; text-align:center; margin:0 0.5rem 0.5rem 0; vertical-align:top; width:100px;">
       <img src="${photo.url}" alt="" style="width:100px; height:100px; object-fit:cover; border-radius:4px; display:block; border:1px solid var(--border);" />
@@ -170,11 +174,12 @@ function photoItemHtml(folderId, photo, isMain, transferTargets, isUploadCategor
       ${
         isUploadCategory
           ? `
-      <div style="margin-top:4px;">
+      <div style="margin-top:4px; padding-top:4px; border-top:1px dashed var(--border);">
         <select class="approve-target-category" data-file-id="${photo.id}" style="width:100%; font-size:11px;">
           ${approveTargetCategoryOptionsHtml()}
         </select>
-        <button class="approve-photo" data-folder-id="${folderId}" data-file-id="${photo.id}" data-name="${escapeAttr(personName)}" style="font-size:11px; margin-top:2px;">Zatwierdź</button>
+        <input type="text" class="approve-name" data-file-id="${photo.id}" placeholder="Nazwa publiczna (1. zatwierdzenie)" style="width:100%; font-size:11px; margin-top:2px;" />
+        <button class="approve-photo" data-folder-id="${folderId}" data-file-id="${photo.id}" style="font-size:11px; margin-top:2px;">Zatwierdź</button>
       </div>`
           : ''
       }
@@ -197,7 +202,7 @@ function renderManageList(people, transferTargets) {
       ];
       const photosHtml = allPhotos.length
         ? allPhotos
-            .map(photo => photoItemHtml(p.folderId, photo, photo.isMain, transferTargets, isUploadCategory, p.name))
+            .map(photo => photoItemHtml(p.folderId, photo, photo.isMain, transferTargets, isUploadCategory))
             .join('')
         : '<p style="color:var(--text-muted); font-size:13px;">Brak zdjęć.</p>';
       return `
@@ -349,6 +354,12 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
   if (approveBtn) {
     const fileId = approveBtn.dataset.fileId;
     const select = document.querySelector(`.approve-target-category[data-file-id="${fileId}"]`);
+    const nameInput = document.querySelector(`.approve-name[data-file-id="${fileId}"]`);
+    // Apply Review (KRKG-0070): the public name is never pre-filled from the staging folder's
+    // name or any other member data - it is only ever what the admin explicitly typed into this
+    // field just now. A blank field sends `undefined`, not "", so a repeat approval (where the
+    // member's public folder already exists and the server ignores `name` entirely) doesn't
+    // accidentally send an empty-string name.
     await apiFetch(
       '/admin/people/photo/approve',
       {
@@ -358,7 +369,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
           fileId,
           stagingFolderId: approveBtn.dataset.folderId,
           targetCategory: select.value,
-          name: approveBtn.dataset.name,
+          name: nameInput.value.trim() || undefined,
         }),
       },
       showReauth,
