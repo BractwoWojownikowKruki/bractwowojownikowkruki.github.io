@@ -36,8 +36,7 @@ initGoogleSignIn({
 // is sufficient and avoids displacing the administrator's current scroll position and focus.
 async function postMembershipTransition(row, email, transition) {
   const list = document.getElementById('membership-members-list');
-  let sheetSyncStatus;
-  await window.MutationFeedback.confirmed({
+  const result = await window.MutationFeedback.confirmed({
     control: row.querySelector(`[data-transition="${transition}"]`),
     // The row is removed by apply(), so the persistent table is the closest valid anchor for
     // feedback. A span cannot be inserted as a child of the table body.
@@ -47,15 +46,16 @@ async function postMembershipTransition(row, email, transition) {
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, transition }) },
       showReauth,
       hideReauth,
-    ).then(result => { sheetSyncStatus = result.sheetSyncStatus; }),
+    ),
     apply: () => {
       membershipMembersCache.members = membershipMembersCache.members.filter(member => member.email !== email);
       row.remove();
       if (!list.querySelector('.membership-member')) list.innerHTML = '<tr><td colspan="10" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     },
+    shouldShowCheck: result => !sheetSyncStatusMessage(result.sheetSyncStatus),
     refreshFragment: loadMembershipMembers,
   });
-  return sheetSyncStatus;
+  return result.sheetSyncStatus;
 }
 
 document.getElementById('membership-synchronize').addEventListener('click', async () => {

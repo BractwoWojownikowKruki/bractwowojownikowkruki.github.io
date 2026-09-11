@@ -51,11 +51,12 @@
     }
   }
 
-  async function confirmed({ execute, apply, refreshFragment, control, anchor, rollback }) {
+  async function confirmed({ execute, apply, refreshFragment, control, anchor, rollback, shouldShowCheck }) {
     const feedbackAnchor = anchor || control;
+    let result;
 
     try {
-      await execute();
+      result = await execute();
     } catch (error) {
       if (rollback) {
         try {
@@ -68,7 +69,8 @@
     }
 
     try {
-      await apply();
+      await apply(result);
+      if (shouldShowCheck?.(result) === false) return result;
     } catch (error) {
       showRefreshError(connectedErrorAnchor(feedbackAnchor), refreshFragment);
       throw error;
@@ -81,6 +83,7 @@
     }
 
     showCheck(feedbackAnchor);
+    return result;
   }
 
   window.MutationFeedback = { confirmed };

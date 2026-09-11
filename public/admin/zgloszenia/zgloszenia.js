@@ -26,8 +26,7 @@ initGoogleSignIn({
 // that small DOM update local preserves the administrator's scroll position and nearby focus.
 async function postMembershipTransition(row, email, transition) {
   const list = document.getElementById('membership-applications-list');
-  let sheetSyncStatus;
-  await window.MutationFeedback.confirmed({
+  const result = await window.MutationFeedback.confirmed({
     control: row.querySelector(`.${transition}-application`),
     anchor: list,
     execute: () => apiFetch(
@@ -35,14 +34,15 @@ async function postMembershipTransition(row, email, transition) {
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, transition }) },
       showReauth,
       hideReauth,
-    ).then(result => { sheetSyncStatus = result.sheetSyncStatus; }),
+    ),
     apply: () => {
       row.remove();
       if (!list.querySelector('.membership-application')) list.innerHTML = '<p>Brak oczekujących zgłoszeń.</p>';
     },
+    shouldShowCheck: result => !sheetSyncStatusMessage(result.sheetSyncStatus),
     refreshFragment: loadMembershipApplications,
   });
-  return sheetSyncStatus;
+  return result.sheetSyncStatus;
 }
 
 async function loadMembershipApplications() {

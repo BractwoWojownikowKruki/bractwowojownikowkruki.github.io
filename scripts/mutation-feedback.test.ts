@@ -63,7 +63,7 @@ function createHarness() {
 async function loadMutationFeedback(harness: ReturnType<typeof createHarness>) {
   const source = await readFile(new URL('../public/mutation-feedback.js', import.meta.url), 'utf8');
   vm.runInContext(source, harness.context, { filename: 'public/mutation-feedback.js' });
-  return (harness.context.window as { MutationFeedback: { confirmed(options: unknown): Promise<void> } }).MutationFeedback;
+  return (harness.context.window as { MutationFeedback: { confirmed(options: unknown): Promise<unknown> } }).MutationFeedback;
 }
 
 test('shows a bare accessible check only after execute and apply resolve in order', async () => {
@@ -108,6 +108,25 @@ test('rethrows an execute failure after an optional rollback without showing a c
 
   assert.equal(applied, false);
   assert.equal(rolledBack, true);
+  assert.equal(control.insertedAfter.length, 0);
+});
+
+test('applies a confirmed partial outcome without a check when the caller suppresses it', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  const control = new FakeElement('button');
+  const outcome = { sheetSyncStatus: 'failed' };
+  let appliedOutcome: unknown;
+
+  const returned = await feedback.confirmed({
+    control,
+    execute: async () => outcome,
+    apply: async (result: unknown) => { appliedOutcome = result; },
+    shouldShowCheck: (result: unknown) => result !== outcome,
+  });
+
+  assert.equal(returned, outcome);
+  assert.equal(appliedOutcome, outcome);
   assert.equal(control.insertedAfter.length, 0);
 });
 

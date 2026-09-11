@@ -177,6 +177,7 @@ test('batch two admin mutations use confirmed local feedback without full-list s
   assert.match(applicationTransition, /MutationFeedback\.confirmed\(/);
   assert.match(applicationTransition, /execute:\s*\(\)\s*=>\s*apiFetch/);
   assert.match(applicationTransition, /apply:/);
+  assert.match(applicationTransition, /shouldShowCheck:\s*result\s*=>\s*!sheetSyncStatusMessage\(result\.sheetSyncStatus\)/);
   assert.match(applicationTransition, /refreshFragment:/);
   assert.doesNotMatch(applicationTransition, /loadMembershipApplications\(\);/);
 
@@ -184,6 +185,7 @@ test('batch two admin mutations use confirmed local feedback without full-list s
   assert.match(memberTransition, /\/admin\/members\/transition/);
   assert.match(memberTransition, /MutationFeedback\.confirmed\(/);
   assert.match(memberTransition, /apply:/);
+  assert.match(memberTransition, /shouldShowCheck:\s*result\s*=>\s*!sheetSyncStatusMessage\(result\.sheetSyncStatus\)/);
   assert.match(memberTransition, /anchor:\s*row\.closest\('table'\)/);
   assert.doesNotMatch(memberTransition, /loadMembershipMembers\(\);/);
 
