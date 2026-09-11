@@ -194,7 +194,13 @@ export function resetAboutUsBootstrapForTests(): void {
   bootstrapPromise = null;
 }
 
-const CATEGORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+// KRKG-0069: was 6h, which is longer than a Drive API thumbnailLink actually stays valid
+// (undocumented by Google, but commonly observed to expire within about an hour) - a cached
+// Person's mainPhoto/photos URLs would start 403ing in the browser well before this cache
+// entry itself expired and got a fresh thumbnailLink. 20 minutes keeps a comfortable margin
+// below that real-world expiry while still meaningfully reducing Drive API calls for a
+// low-traffic public page.
+const CATEGORY_CACHE_TTL_MS = 20 * 60 * 1000;
 const categoryCache = new Map<string, { expiresAt: number; data: Person[] }>();
 
 export async function fetchCategoryPeople(drive: DriveClient, categoryFolderId: string): Promise<Person[]> {
