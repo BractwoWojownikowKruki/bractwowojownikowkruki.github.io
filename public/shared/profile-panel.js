@@ -158,7 +158,12 @@
   }
 
   function renderProfile(profile) {
-    currentPhotos = profile.mainPhoto ? [profile.mainPhoto, ...profile.photos] : [];
+    const pendingPhotos = profile.pendingPhotos || [];
+    // KRKG-0070: pendingPhotos are a member's own still-unapproved staging-folder uploads,
+    // folded into the same currentPhotos/lightbox index space as mainPhoto+photos (the lightbox
+    // has no notion of "sections" - it just steps through one flat list by index) but rendered
+    // under their own heading below so a viewer can tell what's live from what's awaiting review.
+    currentPhotos = profile.mainPhoto ? [profile.mainPhoto, ...profile.photos, ...pendingPhotos] : [...pendingPhotos];
     const avatarHtml = profile.mainPhoto
       ? `<div class="person-main-photo" data-photo-index="0">
            <img src="${escapeHtml(profile.mainPhoto.url)}" alt="${escapeHtml(profile.fullName)}" />
@@ -178,6 +183,13 @@
           .map((p, i) => `<img src="${escapeHtml(p.url)}" alt="" data-photo-index="${i + 1}" />`)
           .join('')}</div>`
       : '';
+    const pendingOffset = profile.mainPhoto ? 1 + profile.photos.length : profile.photos.length;
+    const pendingHtml = pendingPhotos.length
+      ? `<h4 class="profile-pending-heading">Zdjęcia oczekujące na zatwierdzenie</h4>
+         <div class="person-gallery">${pendingPhotos
+           .map((p, i) => `<img src="${escapeHtml(p.url)}" alt="" data-photo-index="${pendingOffset + i}" />`)
+           .join('')}</div>`
+      : '';
     return `
       ${avatarHtml}
       ${galleryHtml}
@@ -189,6 +201,7 @@
         ${weaponsHtml}
       </dl>
       ${descriptionHtml}
+      ${pendingHtml}
     `;
   }
 

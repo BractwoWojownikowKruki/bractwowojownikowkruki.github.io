@@ -77,6 +77,17 @@
   color: var(--danger, #c0392b);
 }
 
+/* KRKG-0070: heading above the pendingPhotos gallery, distinguishing a member's still-unapproved
+   staging-folder uploads from their live public photos above. */
+.profile-pending-heading {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 /* .busy-sticker-loader--feature (style.css) already centers its own contents in a column -
    this just gives it some breathing room inside the drawer. */
 .profile-drawer-loading {
