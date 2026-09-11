@@ -145,7 +145,7 @@ test('a new canonical table route receives the default planned check without a s
   );
 });
 
-test('batch two routes are marked wired while later routes remain planned', async () => {
+test('all canonical write routes are wired by batch five', async () => {
   const registry = deriveMutationFeedbackCoverageRegistry(parseMutationInventoryRoutes(await readContractTable()));
   const expectedWiredRoutes = [
     'POST /admin/social-media/refresh',
@@ -160,9 +160,9 @@ test('batch two routes are marked wired while later routes remain planned', asyn
   ];
 
   for (const route of expectedWiredRoutes) {
-    assert.equal(registry.find(entry => entry.route === route)?.wiring, 'wired', `${route} must be wired in batch two`);
+    assert.equal(registry.find(entry => entry.route === route)?.wiring, 'wired', `${route} must be wired`);
   }
-  assert.equal(registry.find(entry => entry.route === 'POST /lista-wyjazdowa/events')?.wiring, 'planned');
+  assert.equal(registry.filter(entry => entry.wiring === 'planned').length, 0, 'all planned routes are completed by batch five');
 });
 
 test('batch two admin mutations use confirmed local feedback without full-list success reloads', async () => {
@@ -259,8 +259,22 @@ test('batch four forms and gallery uploads confirm only their completed mutation
     'public/galerie/app.js', 'public/galerie/dodaj-galerie.js', 'public/galerie/dodaj-zdjecia.js',
   ].map(path => readFile(new URL(`../${path}`, import.meta.url), 'utf8')));
   for (const source of files) assert.match(source, /MutationFeedback\.confirmed/);
+  for (const source of files) assert.doesNotMatch(source, /window\.location\.reload\(\)/);
+  assert.match(files[0], /anchor: panels\.pending/);
+  assert.match(files[3], /const feedbackAnchor = document\.getElementById\('count'\)/);
   const addPhotos = files[5];
   assert.match(extractNamedFunction(addPhotos, 'submitPhotos'), /\/gallery-photos\/start/);
   assert.match(extractNamedFunction(addPhotos, 'submitPhotos'), /\/gallery-photos\/finalize/);
   assert.match(extractListenerForElement(addPhotos, 'upload-form', 'submit'), /MutationFeedback\.confirmed/);
+});
+
+test('batch five events and dues mutations use local confirmed feedback', async () => {
+  const files = await Promise.all([
+    'public/lista-wyjazdowa/lista-wyjazdowa.js',
+    'public/lista-wyjazdowa/wyjazd/wyjazd.js',
+    'public/lista-wyjazdowa/skladki/skladki.js',
+  ].map(path => readFile(new URL(`../${path}`, import.meta.url), 'utf8')));
+  for (const source of files) assert.match(source, /MutationFeedback\.confirmed/);
+  assert.doesNotMatch(extractListenerForElement(files[0], 'add-event-form', 'submit'), /window\.location\.href/);
+  assert.match(extractListenerForElement(files[0], 'add-event-form', 'submit'), /anchor: document\.getElementById\('events-list'\)/);
 });

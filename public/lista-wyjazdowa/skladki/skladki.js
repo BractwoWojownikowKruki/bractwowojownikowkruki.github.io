@@ -78,6 +78,17 @@ function clearError() {
   document.getElementById('skladki-error').hidden = true;
 }
 
+function confirmedDuesMutation(control, execute, apply) {
+  return window.MutationFeedback.confirmed({
+    control,
+    anchor: control,
+    execute,
+    apply,
+    viewRoot: document.getElementById('skladki-content'),
+    refreshFragment: loadAndRender,
+  });
+}
+
 const currentYear = new Date().getFullYear();
 
 // Selected in the year <select> (KRKG-0047) - defaults to the current year, but the backend has
@@ -235,46 +246,50 @@ async function loadAndRender() {
   await renderDuesAuditLog();
 }
 
-async function toggleWpisowe(email, nextPaid) {
+async function toggleWpisowe(email, nextPaid, control) {
   clearError();
   try {
-    await apiFetch(
+    await confirmedDuesMutation(control, () => apiFetch(
       `/lista-wyjazdowa/wpisowe?memberEmail=${encodeURIComponent(email)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: nextPaid }) },
       showReauth,
       hideReauth,
-    );
-    await loadAndRender();
+    ), () => {
+      control.dataset.paid = String(nextPaid);
+      control.textContent = nextPaid ? 'Oznacz jako nieopłacone' : 'Oznacz jako opłacone';
+      control.previousElementSibling.textContent = `Wpisowe: ${nextPaid ? 'opłacone' : 'nieopłacone'}`;
+    });
   } catch (err) {
     showError(`Nie udało się zaktualizować wpisowego: ${err.message}`);
   }
 }
 
-async function toggleRoczna(email, nextPaid) {
+async function toggleRoczna(email, nextPaid, control) {
   clearError();
   try {
-    await apiFetch(
+    await confirmedDuesMutation(control, () => apiFetch(
       `/lista-wyjazdowa/dues?memberEmail=${encodeURIComponent(email)}&year=${selectedYear}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: nextPaid }) },
       showReauth,
       hideReauth,
-    );
-    await loadAndRender();
+    ), () => {
+      control.dataset.paid = String(nextPaid);
+      control.textContent = nextPaid ? 'Oznacz jako nieopłaconą' : 'Oznacz jako opłaconą';
+    });
   } catch (err) {
     showError(`Nie udało się zaktualizować składki: ${err.message}`);
   }
 }
 
-async function saveRocznaAmount(email, amount) {
+async function saveRocznaAmount(email, amount, control) {
   clearError();
   try {
-    await apiFetch(
+    await confirmedDuesMutation(control, () => apiFetch(
       `/lista-wyjazdowa/dues?memberEmail=${encodeURIComponent(email)}&year=${selectedYear}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: amount || null }) },
       showReauth,
       hideReauth,
-    );
-    await loadAndRender();
+    ), () => {});
   } catch (err) {
     showError(`Nie udało się zapisać kwoty składki: ${err.message}`);
   }
@@ -283,18 +298,18 @@ async function saveRocznaAmount(email, amount) {
 document.getElementById('skladki-content').addEventListener('click', (e) => {
   const wpisoweBtn = e.target.closest('.lw-wpisowe-toggle');
   if (wpisoweBtn) {
-    toggleWpisowe(wpisoweBtn.dataset.email, wpisoweBtn.dataset.paid !== 'true');
+    toggleWpisowe(wpisoweBtn.dataset.email, wpisoweBtn.dataset.paid !== 'true', wpisoweBtn);
     return;
   }
   const rocznaBtn = e.target.closest('.lw-roczna-toggle');
   if (rocznaBtn) {
-    toggleRoczna(rocznaBtn.dataset.email, rocznaBtn.dataset.paid !== 'true');
+    toggleRoczna(rocznaBtn.dataset.email, rocznaBtn.dataset.paid !== 'true', rocznaBtn);
     return;
   }
   const amountBtn = e.target.closest('.lw-roczna-amount-save');
   if (amountBtn) {
     const input = amountBtn.closest('.lw-roczna-amount-edit').querySelector('.lw-roczna-amount-input');
-    saveRocznaAmount(amountBtn.dataset.email, input.value.trim());
+    saveRocznaAmount(amountBtn.dataset.email, input.value.trim(), amountBtn);
   }
 });
 

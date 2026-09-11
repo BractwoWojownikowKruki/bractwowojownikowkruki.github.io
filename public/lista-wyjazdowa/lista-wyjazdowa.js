@@ -113,6 +113,10 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
   errorEl.hidden = true;
   btn.disabled = true;
   try {
+    await window.MutationFeedback.confirmed({
+      control: btn,
+      anchor: btn,
+      execute: async () => {
     const [{ signup: mine }, { profile }] = await Promise.all([
       apiFetch(`/lista-wyjazdowa/signups/mine?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
       apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
@@ -131,7 +135,14 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
       showReauth,
       hideReauth,
     );
-    await loadEvents();
+      },
+      apply: () => {
+        btn.dataset.attending = String(nextAttending);
+        btn.textContent = nextAttending ? 'Wypisz się' : 'Zapisz się';
+      },
+      viewRoot: document.getElementById('events-list'),
+      refreshFragment: loadEvents,
+    });
   } catch (err) {
     // Without this the click just silently did nothing: the button re-enabled itself and the row
     // stayed as it was, with no way for the member to tell the change hadn't been saved.
@@ -197,9 +208,13 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
   event.preventDefault();
   const form = event.target;
   const errorEl = document.getElementById('add-event-error');
+  const submitBtn = form.querySelector('button[type="submit"]');
   errorEl.hidden = true;
   try {
-    const { event: created } = await apiFetch(
+    await window.MutationFeedback.confirmed({
+      control: submitBtn,
+      anchor: document.getElementById('events-list'),
+      execute: () => apiFetch(
       '/lista-wyjazdowa/events',
       {
         method: 'POST',
@@ -208,8 +223,18 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
       },
       showReauth,
       hideReauth,
-    );
-    window.location.href = `wyjazd/?eventId=${encodeURIComponent(created.id)}`;
+    ),
+      apply: ({ event: created }) => {
+        cachedEvents.push(created);
+        form.reset();
+        form.hidden = true;
+        setListVisible(true);
+        setAddFormActive(false);
+        renderEvents();
+      },
+      viewRoot: document.getElementById('events-panel'),
+      refreshFragment: loadEvents,
+    });
   } catch (err) {
     errorEl.textContent = `Błąd: ${err.message}`;
     errorEl.hidden = false;

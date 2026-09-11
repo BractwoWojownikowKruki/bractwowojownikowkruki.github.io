@@ -76,14 +76,14 @@ async function showForm(previousStatus) {
       try {
         await window.MutationFeedback.confirmed({
           control: submitBtn,
-          anchor: panels.form,
+          anchor: panels.pending,
           execute: () => apiFetch('/membership/apply', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fullName: form.fullName.value || null, nickname: form.nickname.value || null, sectionId: form.sectionId.value }),
           }),
           apply: () => showOnly(panels.pending),
           viewRoot: panels.form,
-          refreshFragment: () => showForm('pending'),
+          refreshFragment: () => showOnly(panels.pending),
         });
       } catch (err) {
         errorEl.textContent = `Błąd: ${err.message}`;

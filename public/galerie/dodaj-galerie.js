@@ -203,19 +203,20 @@ document.getElementById('upload-form').addEventListener('submit', async e => {
   const submitButton = document.getElementById('upload-submit-button');
   submitButton.disabled = true;
   renderUploadStarting();
+  const showUploadedGallery = () => {
+    document.getElementById('upload-form').hidden = true;
+    document.getElementById('upload-success').hidden = false;
+  };
   try {
     await window.MutationFeedback.confirmed({
       control: submitButton,
       anchor: document.getElementById('upload-success'),
       execute: () => submitViaUpload(name, date, files),
-      apply: () => {
-    // /finalize succeeding means the gallery is already owned and published by
-    // upload-service and picked up by GET /galleries - near-instant, no pipeline involved.
-    document.getElementById('upload-form').hidden = true;
-    document.getElementById('upload-success').hidden = false;
-      },
+      // /finalize succeeding means the gallery is already owned and published by
+      // upload-service and picked up by GET /galleries - near-instant, no pipeline involved.
+      apply: showUploadedGallery,
       viewRoot: document.getElementById('upload-form'),
-      refreshFragment: () => window.location.reload(),
+      refreshFragment: showUploadedGallery,
     });
   } catch (err) {
     showError('upload-error', err.message);
@@ -243,6 +244,10 @@ document.getElementById('register-form').addEventListener('submit', async e => {
 
   const submitButton = document.getElementById('register-submit-button');
   submitButton.disabled = true;
+  const showRegisteredGallery = () => {
+    document.getElementById('register-form').hidden = true;
+    document.getElementById('register-success').hidden = false;
+  };
   try {
     // Registers an existing gallery directly - requires being signed in with an allowlisted
     // account (see /register in upload-service), which apiFetch prompts for via showReauth if
@@ -256,12 +261,9 @@ document.getElementById('register-form').addEventListener('submit', async e => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, name, date }),
     }, showReauth, hideReauth),
-      apply: () => {
-    document.getElementById('register-form').hidden = true;
-    document.getElementById('register-success').hidden = false;
-      },
+      apply: showRegisteredGallery,
       viewRoot: document.getElementById('register-form'),
-      refreshFragment: () => window.location.reload(),
+      refreshFragment: showRegisteredGallery,
     });
   } catch (err) {
     showError('register-error', err.message);

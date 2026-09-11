@@ -409,12 +409,37 @@ async function initForm(lookupLists) {
     progressEl.hidden = false;
     progressEl.textContent = 'Zapisywanie profilu...';
 
+    const applySavedProfile = ({ savedMember, savedProfile }) => {
+      // Re-seed the rows from the server's response so the ids it just generated for brand-new
+      // equipment/companions are carried by the form: without this, editing and re-saving would
+      // send blank ids again and mint a duplicate id for the same item on every save.
+      fillRows(equipmentContainer, savedProfile.equipment, addEquipmentRow);
+      fillRows(companionContainer, savedProfile.companions, addCompanionRow);
+      // Reflect the server's fullName back into the field it may have just backfilled, so a
+      // member who only typed Ksywa sees where their name came from, not a blank field.
+      form.fullName.value = savedMember.fullName;
+      form.nickname.value = savedMember.nickname ?? '';
+      resetPhotoSelection();
+
+      progressEl.hidden = true;
+      submitBtn.disabled = false;
+    };
+    const refreshProfileFragment = async () => {
+      const [{ member: savedMember }, { profile: savedProfile }, { submission }] = await Promise.all([
+        apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
+        apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
+        loadCurrentSubmission(),
+      ]);
+      renderCurrentSubmission(submission);
+      applySavedProfile({ savedMember, savedProfile });
+    };
+
     try {
       await window.MutationFeedback.confirmed({
         control: submitBtn,
         anchor: progressEl,
         viewRoot: form,
-        refreshFragment: async () => window.location.reload(),
+        refreshFragment: refreshProfileFragment,
         execute: async () => {
       // Imię i nazwisko and Ksywa are both optional (server enforces "at least one of the
       // two"): sending '' rather than omitting the key lets the server tell an intentionally
@@ -487,21 +512,7 @@ async function initForm(lookupLists) {
 
       return { savedMember, savedProfile };
         },
-        apply: ({ savedMember, savedProfile }) => {
-      // Re-seed the rows from the server's response so the ids it just generated for brand-new
-      // equipment/companions are carried by the form: without this, editing and re-saving would
-      // send blank ids again and mint a duplicate id for the same item on every save.
-      fillRows(equipmentContainer, savedProfile.equipment, addEquipmentRow);
-      fillRows(companionContainer, savedProfile.companions, addCompanionRow);
-      // Reflect the server's fullName back into the field it may have just backfilled, so a
-      // member who only typed Ksywa sees where their name came from, not a blank field.
-      form.fullName.value = savedMember.fullName;
-      form.nickname.value = savedMember.nickname ?? '';
-      resetPhotoSelection();
-
-      progressEl.hidden = true;
-      submitBtn.disabled = false;
-        },
+        apply: applySavedProfile,
       });
     } catch (err) {
       errorEl.textContent = `Błąd: ${err.message}`;

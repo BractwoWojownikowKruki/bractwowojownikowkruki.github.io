@@ -202,6 +202,12 @@ document.getElementById('wrzuc-confirm').addEventListener('click', async () => {
   progressEl.hidden = false;
   progressEl.textContent = 'Zapisywanie...';
 
+  const showSavedSubmission = () => {
+    document.getElementById('wrzuc-form').hidden = true;
+    document.getElementById('wrzuc-preview-wrap').hidden = true;
+    document.getElementById('wrzuc-success').hidden = false;
+  };
+
   try {
     await window.MutationFeedback.confirmed({
       control: confirmBtn,
@@ -224,13 +230,9 @@ document.getElementById('wrzuc-confirm').addEventListener('click', async () => {
     }
 
       },
-      apply: () => {
-        document.getElementById('wrzuc-form').hidden = true;
-        document.getElementById('wrzuc-preview-wrap').hidden = true;
-        document.getElementById('wrzuc-success').hidden = false;
-      },
+      apply: showSavedSubmission,
       viewRoot: document.getElementById('wrzuc-form'),
-      refreshFragment: () => window.location.reload(),
+      refreshFragment: showSavedSubmission,
     });
   } catch (err) {
     errorEl.textContent = `Błąd: ${err.message}`;

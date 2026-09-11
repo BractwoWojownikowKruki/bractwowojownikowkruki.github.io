@@ -680,7 +680,7 @@ async function handleDeleteGallery(album) {
   if (!window.confirm(warning)) return;
 
   try {
-    const feedbackAnchor = document.getElementById('view-focused');
+    const feedbackAnchor = document.getElementById('count');
     await window.MutationFeedback.confirmed({
       control: document.getElementById('delete-gallery-btn'),
       anchor: feedbackAnchor,
@@ -705,7 +705,7 @@ async function handleDeleteGallery(album) {
     update();
     if (!isAppOwned) showToast('Galeria zniknie ze strony po około 10 minutach.');
       },
-      viewRoot: feedbackAnchor,
+      viewRoot: document.getElementById('view-grid'),
       refreshFragment: () => loadGalleries(),
     });
   } catch (err) {

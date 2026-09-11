@@ -207,17 +207,18 @@ document.getElementById('upload-form').addEventListener('submit', async e => {
   const submitButton = document.getElementById('upload-submit-button');
   submitButton.disabled = true;
   renderUploadStarting();
+  const showUploadedPhotos = () => {
+    document.getElementById('upload-form').hidden = true;
+    document.getElementById('upload-success').hidden = false;
+  };
   try {
     await window.MutationFeedback.confirmed({
       control: submitButton,
       anchor: document.getElementById('upload-success'),
       execute: () => submitPhotos(files),
-      apply: () => {
-        document.getElementById('upload-form').hidden = true;
-        document.getElementById('upload-success').hidden = false;
-      },
+      apply: showUploadedPhotos,
       viewRoot: document.getElementById('upload-form'),
-      refreshFragment: () => window.location.reload(),
+      refreshFragment: showUploadedPhotos,
     });
   } catch (err) {
     showError('upload-error', err.message);
