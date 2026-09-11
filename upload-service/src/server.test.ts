@@ -4034,6 +4034,7 @@ function seedMemberDoc(overrides: Record<string, unknown> = {}) {
     sectionId: 'sekcja-1',
     categoryId: null,
     driveFolderId: null,
+    stagingFolderId: null,
     status: 'active',
     appliedAt: new Date().toISOString(),
     approvedAt: null,
@@ -4046,22 +4047,20 @@ function seedMemberDoc(overrides: Record<string, unknown> = {}) {
   };
 }
 
-test('/wojownicy-upload/submit reuses the member\'s existing driveFolderId while it is still sitting unreviewed in "upload"', async () => {
+test('/wojownicy-upload/submit reuses the member\'s existing stagingFolderId while it is still unreviewed', async () => {
   resetAboutUsBootstrapForTests();
   let createAlbumFolderCalled = false;
   const firestore = createInMemoryFirestoreClient();
-  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'existing-folder' }));
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'existing-folder' }));
   const deps = makeDeps({
     firestore,
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
     drive: makeFakeDrive({
-      ensureFolder: async (parent, name) => (name === 'upload' ? 'upload-root' : `ensured-${name}`),
       createAlbumFolder: async () => {
         createAlbumFolderCalled = true;
         return 'should-not-be-created';
       },
       folderExists: async id => id === 'existing-folder',
-      getFolderParentId: async id => (id === 'existing-folder' ? 'upload-root' : null),
     }),
   });
   await withServer(deps, async baseUrl => {
@@ -4079,23 +4078,81 @@ test('/wojownicy-upload/submit reuses the member\'s existing driveFolderId while
   assert.equal(events.length, 0);
 });
 
-test('/wojownicy-upload/submit creates a fresh folder when the member\'s driveFolderId has already been moved out of "upload" (approved)', async () => {
+test('/wojownicy-upload/submit reuses stagingFolderId even after the member has been published (KRKG-0070 bug fix)', async () => {
   resetAboutUsBootstrapForTests();
   let createAlbumFolderCalled = false;
   const firestore = createInMemoryFirestoreClient();
-  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'approved-folder' }));
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({
+    stagingFolderId: 'existing-staging-folder',
+    driveFolderId: 'existing-public-folder',
+  }));
   const deps = makeDeps({
     firestore,
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
     drive: makeFakeDrive({
-      ensureFolder: async (parent, name) => (name === 'upload' ? 'upload-root' : `ensured-${name}`),
+      createAlbumFolder: async () => {
+        createAlbumFolderCalled = true;
+        return 'should-not-be-created';
+      },
+      folderExists: async id => id === 'existing-staging-folder',
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-upload/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Jan Kowalski' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.folderId, 'existing-staging-folder');
+  });
+  assert.equal(createAlbumFolderCalled, false);
+  const updated = await firestore.getDoc<{ driveFolderId: string | null }>('members', 'ktos@gmail.com');
+  assert.equal(updated?.driveFolderId, 'existing-public-folder', 'driveFolderId must never be touched by a submission');
+});
+
+test('/wojownicy-upload/submit creates a new stagingFolderId (never touching driveFolderId) for a member with none yet', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: null, driveFolderId: null }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => (name === 'upload' ? 'upload-root' : `folder-${name}`),
+      createAlbumFolder: async () => 'new-staging-folder',
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/wojownicy-upload/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Jan Kowalski' }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.folderId, 'new-staging-folder');
+  });
+  const updated = await firestore.getDoc<{ stagingFolderId: string | null; driveFolderId: string | null }>('members', 'ktos@gmail.com');
+  assert.equal(updated?.stagingFolderId, 'new-staging-folder');
+  assert.equal(updated?.driveFolderId, null);
+});
+
+test('/wojownicy-upload/submit creates a fresh staging folder for an already-published member with no stagingFolderId yet, leaving driveFolderId untouched (KRKG-0070)', async () => {
+  resetAboutUsBootstrapForTests();
+  let createAlbumFolderCalled = false;
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'approved-folder', stagingFolderId: null }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => (name === 'upload' ? 'upload-root' : `ensured-${name}`),
       createAlbumFolder: async () => {
         createAlbumFolderCalled = true;
         return 'new-folder';
       },
-      folderExists: async id => id === 'approved-folder',
-      // Approved: now sitting under a public category folder, not upload-root.
-      getFolderParentId: async id => (id === 'approved-folder' ? 'ensured-Blachowi' : null),
     }),
   });
   await withServer(deps, async baseUrl => {
@@ -4109,8 +4166,9 @@ test('/wojownicy-upload/submit creates a fresh folder when the member\'s driveFo
     assert.equal(body.folderId, 'new-folder');
   });
   assert.equal(createAlbumFolderCalled, true);
-  const member = await firestore.getDoc<{ driveFolderId: string | null }>('members', 'ktos@gmail.com');
-  assert.equal(member?.driveFolderId, 'new-folder');
+  const member = await firestore.getDoc<{ driveFolderId: string | null; stagingFolderId: string | null }>('members', 'ktos@gmail.com');
+  assert.equal(member?.stagingFolderId, 'new-folder');
+  assert.equal(member?.driveFolderId, 'approved-folder', 'driveFolderId (public, admin-owned) must never be touched by a submission');
 });
 
 test('GET /lista-wyjazdowa/profile/photo returns null when the member has no driveFolderId', async () => {

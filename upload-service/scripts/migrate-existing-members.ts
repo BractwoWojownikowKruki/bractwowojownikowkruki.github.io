@@ -104,6 +104,7 @@ export async function migrateActiveMembers(
           sectionId: 'nieznana',
           categoryId: null,
           driveFolderId: null,
+          stagingFolderId: null,
           status: 'active',
           appliedAt: now,
           approvedAt: now,

@@ -52,6 +52,7 @@ export async function applyForMembershipInTransaction(
     sectionId: fields.sectionId,
     categoryId: existing?.categoryId ?? null,
     driveFolderId: existing?.driveFolderId ?? null,
+    stagingFolderId: existing?.stagingFolderId ?? null,
     status: 'pending',
     appliedAt,
     approvedAt: existing?.approvedAt ?? null,

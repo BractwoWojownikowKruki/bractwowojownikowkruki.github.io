@@ -11,6 +11,11 @@ export interface MemberDoc {
   sectionId: string;
   categoryId: string | null;
   driveFolderId: string | null;
+  // KRKG-0070: the member's own permanent private staging folder (under about-us.ts's
+  // uploadRoot) - created once on their first /wojownicy-upload/submit and reused forever after,
+  // independent of driveFolderId (the public folder, admin-owned). Unlike driveFolderId, this is
+  // self-service-writable (see setMemberStagingFolderId below).
+  stagingFolderId: string | null;
   status: MembershipStatus;
   appliedAt: string;
   approvedAt: string | null;
@@ -83,6 +88,7 @@ export async function saveMember(
         email: id,
         categoryId: null,
         driveFolderId: null,
+        stagingFolderId: null,
         status: 'active',
         appliedAt: now,
         approvedAt: null,
@@ -110,6 +116,24 @@ export async function setMemberDriveFolderId(
   const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
   if (!existing) throw new Error(`Nie znaleziono członka: ${id}`);
   await client.setDoc(COLLECTION, id, { driveFolderId: folderId });
+}
+
+/**
+ * Self-service write of a member's private staging-folder link (KRKG-0070) - unlike
+ * driveFolderId (admin-owned, points at the public folder), stagingFolderId is written by the
+ * member's own upload flow (handleWojownicyUploadSubmit) the first time they submit, and reused
+ * forever after regardless of publish status. Same shape as setMemberDriveFolderId: throws if the
+ * member doc doesn't exist yet.
+ */
+export async function setMemberStagingFolderId(
+  client: FirestoreWriteContext,
+  email: string,
+  folderId: string | null,
+): Promise<void> {
+  const id = email.toLowerCase();
+  const existing = await client.getDoc<MemberDoc>(COLLECTION, id);
+  if (!existing) throw new Error(`Nie znaleziono członka: ${id}`);
+  await client.setDoc(COLLECTION, id, { stagingFolderId: folderId });
 }
 
 // KRKG-0050: the "typ członka" (Brokuł/Kandydat/Blacha/Thing/Niewiasta/Bobo/Inne, sourced from

@@ -49,7 +49,7 @@ import {
   type CanonicalAuditEventInput,
 } from './audit.ts';
 import { verifyReconcilerOidcToken } from './auth.ts';
-import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberCategoryId, setMemberHidden, recordLastLogin, type MemberDoc, type MemberWritableFields } from './members.ts';
+import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberStagingFolderId, setMemberCategoryId, setMemberHidden, recordLastLogin, type MemberDoc, type MemberWritableFields } from './members.ts';
 import { applyForMembershipInTransaction, applyAdminTransitionInTransaction, listMembersByStatus, type AdminTransition } from './membership.ts';
 import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
@@ -1387,23 +1387,16 @@ async function handleWojownicyDoc(req: IncomingMessage, res: ServerResponse, url
   sendJson(res, 200, { html });
 }
 
-// A member's driveFolderId (members.ts) is reusable for a new submission only while it is still
-// sitting unreviewed in "upload" - once an admin approves it (moves it into a public category) or
-// soft-deletes it, a further /profil/ photo edit must go through review again as a brand-new
-// staging folder, not silently land in the already-public (or removed) one. Returns null if there
-// is nothing reusable, in which case the caller creates a fresh folder exactly as before.
-async function findReusableSubmissionFolder(
-  deps: ServerDeps,
-  member: MemberDoc | null,
-  uploadRootId: string,
-): Promise<string | null> {
-  if (!member?.driveFolderId) return null;
-  const [exists, parentId] = await Promise.all([
-    deps.drive.folderExists(member.driveFolderId),
-    deps.drive.getFolderParentId(member.driveFolderId),
-  ]);
-  if (!exists || parentId !== uploadRootId) return null;
-  return member.driveFolderId;
+// A member's stagingFolderId (members.ts, KRKG-0070) is a permanent, per-member private folder -
+// once created it is reused for every future submission forever, regardless of whether the
+// member has since been published. This replaces the old driveFolderId-based reuse check, which
+// stopped reusing the folder the moment an admin approved it (moved it out of "upload"), causing
+// a member's next upload to silently create a brand-new folder and overwrite driveFolderId,
+// orphaning their existing public photos/description - the reported KRKG-0070 bug.
+async function findReusableSubmissionFolder(deps: ServerDeps, member: MemberDoc | null): Promise<string | null> {
+  if (!member?.stagingFolderId) return null;
+  const exists = await deps.drive.folderExists(member.stagingFolderId);
+  return exists ? member.stagingFolderId : null;
 }
 
 // Creates the per-submission staging folder (Strona/O Nas/upload/{Imię} - {email} - {data}) and
@@ -1412,7 +1405,7 @@ async function findReusableSubmissionFolder(
 // category's) folder just by guessing/reusing a folderId.
 //
 // Idempotent per member (KRKG photo-duplication fix): a member who submits more than once while
-// their previous submission is still pending reuses that same "upload" folder (see
+// their previous submission is still pending reuses that same folder (see
 // findReusableSubmissionFolder) instead of minting a new one every time - previously this always
 // created a brand-new Drive folder/"person" on every call, so a member re-saving their profile
 // (or retrying after a failed photo upload) accumulated multiple near-duplicate, mostly-empty
@@ -1422,14 +1415,14 @@ async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResp
   const { name } = await readJsonBody<{ name?: string }>(req, deps.maxJsonBodyBytes);
   if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
 
-  const folders = await bootstrapAboutUsStructure(deps.drive);
   const member = await getMember(deps.firestore, identity.email);
-  const reusableFolderId = await findReusableSubmissionFolder(deps, member, folders.uploadRoot);
+  const reusableFolderId = await findReusableSubmissionFolder(deps, member);
 
   let folderId: string;
   if (reusableFolderId) {
     folderId = reusableFolderId;
   } else {
+    const folders = await bootstrapAboutUsStructure(deps.drive);
     const date = new Date().toISOString().slice(0, 10);
     const folderName = `${name.trim()} - ${identity.email} - ${date}`;
     // Pre-effect resource protocol - see the matching comment in handleAdminCreatePerson. Final
@@ -1459,14 +1452,10 @@ async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResp
       },
     );
     folderId = createdFolderId;
-    // Self-service linkage (KRKG-0037's deferred driveFolderId gap, design.md §6): the member's
-    // own submission sets the link automatically, same field the admin panel's "link existing
-    // folder" action (handleAdminSetMemberDriveFolder) also writes by hand. Only possible when a
-    // members/{email} doc already exists - profil.js always PUTs /lista-wyjazdowa/member before
-    // reaching this endpoint, but the older, unlinked /wojownicy/wrzuc/ page does not, so this is
-    // skipped rather than thrown for that caller.
+    // Self-service linkage: the member's own submission sets THEIR OWN stagingFolderId - never
+    // driveFolderId (public, admin-owned, see setMemberDriveFolderId's own comment).
     if (member) {
-      await setMemberDriveFolderId(deps.firestore, identity.email, folderId);
+      await setMemberStagingFolderId(deps.firestore, identity.email, folderId);
       await deps.drive.writeTextFile(folderId, '.owner-email', identity.email);
     }
     // The admin panel's Upload (zgłoszenia) list (fetchCategoryPeople) caches per category for up
