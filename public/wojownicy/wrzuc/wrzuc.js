@@ -203,6 +203,10 @@ document.getElementById('wrzuc-confirm').addEventListener('click', async () => {
   progressEl.textContent = 'Zapisywanie...';
 
   try {
+    await window.MutationFeedback.confirmed({
+      control: confirmBtn,
+      anchor: document.getElementById('wrzuc-success'),
+      execute: async () => {
     const { folderId, submissionToken } = await apiFetch(
       '/wojownicy-upload/submit',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) },
@@ -219,9 +223,15 @@ document.getElementById('wrzuc-confirm').addEventListener('click', async () => {
       progressEl.textContent = `Przesyłanie zdjęć (${i + 2}/${total})...`;
     }
 
-    document.getElementById('wrzuc-form').hidden = true;
-    document.getElementById('wrzuc-preview-wrap').hidden = true;
-    document.getElementById('wrzuc-success').hidden = false;
+      },
+      apply: () => {
+        document.getElementById('wrzuc-form').hidden = true;
+        document.getElementById('wrzuc-preview-wrap').hidden = true;
+        document.getElementById('wrzuc-success').hidden = false;
+      },
+      viewRoot: document.getElementById('wrzuc-form'),
+      refreshFragment: () => window.location.reload(),
+    });
   } catch (err) {
     errorEl.textContent = `Błąd: ${err.message}`;
     errorEl.hidden = false;

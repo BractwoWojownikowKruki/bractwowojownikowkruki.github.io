@@ -162,7 +162,7 @@ test('batch two routes are marked wired while later routes remain planned', asyn
   for (const route of expectedWiredRoutes) {
     assert.equal(registry.find(entry => entry.route === route)?.wiring, 'wired', `${route} must be wired in batch two`);
   }
-  assert.equal(registry.find(entry => entry.route === 'POST /gallery-photos/finalize')?.wiring, 'planned');
+  assert.equal(registry.find(entry => entry.route === 'POST /lista-wyjazdowa/events')?.wiring, 'planned');
 });
 
 test('batch two admin mutations use confirmed local feedback without full-list success reloads', async () => {
@@ -251,4 +251,16 @@ test('batch three people-card mutations are wired to local confirmed feedback', 
   assert.match(peopleCards, /MutationFeedback\.confirmed/);
   assert.equal((peopleCards.match(/confirmedPersonWrite\(/g) ?? []).length >= 10, true);
   assert.doesNotMatch(extractListenerForElement(peopleCards, 'manage-people-list', 'click'), /loadManageList\(\);/);
+});
+
+test('batch four forms and gallery uploads confirm only their completed mutation flows', async () => {
+  const files = await Promise.all([
+    'public/zgloszenie/zgloszenie.js', 'public/profil/profil.js', 'public/wojownicy/wrzuc/wrzuc.js',
+    'public/galerie/app.js', 'public/galerie/dodaj-galerie.js', 'public/galerie/dodaj-zdjecia.js',
+  ].map(path => readFile(new URL(`../${path}`, import.meta.url), 'utf8')));
+  for (const source of files) assert.match(source, /MutationFeedback\.confirmed/);
+  const addPhotos = files[5];
+  assert.match(extractNamedFunction(addPhotos, 'submitPhotos'), /\/gallery-photos\/start/);
+  assert.match(extractNamedFunction(addPhotos, 'submitPhotos'), /\/gallery-photos\/finalize/);
+  assert.match(extractListenerForElement(addPhotos, 'upload-form', 'submit'), /MutationFeedback\.confirmed/);
 });

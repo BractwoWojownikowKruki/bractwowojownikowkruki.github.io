@@ -410,6 +410,12 @@ async function initForm(lookupLists) {
     progressEl.textContent = 'Zapisywanie profilu...';
 
     try {
+      await window.MutationFeedback.confirmed({
+        control: submitBtn,
+        anchor: progressEl,
+        viewRoot: form,
+        refreshFragment: async () => window.location.reload(),
+        execute: async () => {
       // Imię i nazwisko and Ksywa are both optional (server enforces "at least one of the
       // two"): sending '' rather than omitting the key lets the server tell an intentionally
       // blank field apart from a field that was never touched, and it backfills fullName from
@@ -479,6 +485,9 @@ async function initForm(lookupLists) {
         renderCurrentSubmission(await loadCurrentSubmission());
       }
 
+      return { savedMember, savedProfile };
+        },
+        apply: ({ savedMember, savedProfile }) => {
       // Re-seed the rows from the server's response so the ids it just generated for brand-new
       // equipment/companions are carried by the form: without this, editing and re-saving would
       // send blank ids again and mint a duplicate id for the same item on every save.
@@ -490,12 +499,10 @@ async function initForm(lookupLists) {
       form.nickname.value = savedMember.nickname ?? '';
       resetPhotoSelection();
 
-      // The form stays visible and re-submittable (design.md §8 point 4) - no panel swap, just a
-      // brief inline confirmation next to the button so re-editing and re-saving needs no extra
-      // click to "come back" to the form first.
       progressEl.hidden = true;
       submitBtn.disabled = false;
-      showSaved();
+        },
+      });
     } catch (err) {
       errorEl.textContent = `Błąd: ${err.message}`;
       errorEl.hidden = false;
@@ -553,20 +560,6 @@ async function initForm(lookupLists) {
   }
 
   showOnly(panels.form);
-}
-
-let savedMessageTimeout = null;
-
-// Transient "✓ Zapisano" next to the submit button - cleared and restarted on every save so
-// several quick successive saves each get their own full-length confirmation instead of the
-// message disappearing early because an earlier save's timer fires mid-way through.
-function showSaved() {
-  const savedEl = document.getElementById('profile-form-saved');
-  clearTimeout(savedMessageTimeout);
-  savedEl.hidden = false;
-  savedMessageTimeout = setTimeout(() => {
-    savedEl.hidden = true;
-  }, 4000);
 }
 
 initGoogleSignIn({
