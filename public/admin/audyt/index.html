@@ -98,7 +98,10 @@
     // above (administrator-only, never contextual member history - implementation-contract.md).
     // showReauth/hideReauth/escapeHtml/formatDateTime come from ../admin-shared.js.
     //
-    // /admin/members/whoami gates this shell to the existing administrator/moderator audience.
+    // /admin/audyt/whoami gates this shell - its own endpoint, not /admin/members/whoami (which
+    // is admin-or-moderator only and gates the very different, broader Zarządzanie ludźmi page):
+    // an accountant-only viewer must pass this gate to reach the page at all, restricted server-
+    // side to the 'dues' category once they're in (resolveAdminAuditAuth, server.ts).
     function resourceHref(resource) {
       // Best-effort deep link back to the resource's own page (plan-addendum.md's "Diagnostics
       // remediation path" - link each row to its original resource page where feasible). Only
@@ -144,7 +147,7 @@
 
     initGoogleSignIn({
       buttonIds: ['google-signin-button', 'google-reauth-button'],
-      whoamiPath: '/admin/members/whoami',
+      whoamiPath: '/admin/audyt/whoami',
       onSignedIn: payload => {
         document.getElementById('admin-checking').hidden = true;
         document.getElementById('admin-signin').hidden = true;

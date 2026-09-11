@@ -5527,7 +5527,7 @@ test('GET /audyt/events (member-zone) never exposes actor and hides an admin-onl
   });
 });
 
-test('GET /admin/audyt list and detail give a Firestore-only moderator full audit access while rejecting accountant-only and ordinary members', async () => {
+test('GET /admin/audyt list and detail give a Firestore-only moderator full audit access, an accountant-only viewer dues-category-only access, and reject an ordinary member', async () => {
   const firestore = createInMemoryFirestoreClient();
   await executeAuditedFirestoreMutation(
     firestore,
@@ -5567,18 +5567,40 @@ test('GET /admin/audyt list and detail give a Firestore-only moderator full audi
     assert.equal(event.changes[0].after, true);
   });
 
-  for (const [email, roles] of [['accountant@example.test', ['accountant']], ['member@example.test', []]] as const) {
-    await firestore.setDoc('userRoles', email, { roles });
-    const deps = makeDeps({
-      firestore,
-      authenticate: async () => fakeSessionClaims({ email }),
-      authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    });
-    await withServer(deps, async baseUrl => {
-      assert.equal((await fetch(`${baseUrl}/admin/audyt/events`)).status, 403);
-      assert.equal((await fetch(`${baseUrl}/admin/audyt/event?id=evt-dues`)).status, 403);
-    });
-  }
+  // Accountant-only: fails the admin-or-moderator gate entirely, but resolveAdminAuditAuth's
+  // fallback branch still authenticates them through deps.authenticate and grants dues-category-
+  // only access - the one category their role covers (viewerCanSeeCategory). They see the dues
+  // event but not the permissions one, and its detail 404s (projectAuditEvent returns null for an
+  // invisible category, never a 403 that would confirm the event's existence).
+  await firestore.setDoc('userRoles', 'accountant@example.test', { roles: ['accountant'] });
+  const accountantDeps = makeDeps({
+    firestore,
+    authenticate: async () => fakeSessionClaims({ email: 'accountant@example.test' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+  await withServer(accountantDeps, async baseUrl => {
+    const list = await fetch(`${baseUrl}/admin/audyt/events`);
+    assert.equal(list.status, 200);
+    const rows = (await list.json()).rows;
+    assert.deepEqual(rows.map((row: { id: string }) => row.id), ['evt-dues']);
+
+    assert.equal((await fetch(`${baseUrl}/admin/audyt/event?id=evt-dues`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/admin/audyt/event?id=evt-roles`)).status, 404);
+  });
+
+  // Plain member: neither admin-or-moderator nor accountant - rejected by both branches.
+  await firestore.setDoc('userRoles', 'member@example.test', { roles: [] });
+  const memberDeps = makeDeps({
+    firestore,
+    authenticate: async () => fakeSessionClaims({ email: 'member@example.test' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+  await withServer(memberDeps, async baseUrl => {
+    assert.equal((await fetch(`${baseUrl}/admin/audyt/events`)).status, 403);
+    assert.equal((await fetch(`${baseUrl}/admin/audyt/event?id=evt-dues`)).status, 403);
+  });
 
   await firestore.setDoc('userRoles', 'combined@example.test', { roles: ['accountant', 'moderator'] });
   const combinedDeps = makeDeps({

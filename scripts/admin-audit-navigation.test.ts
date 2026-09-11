@@ -32,7 +32,11 @@ test('member table leaves member audit history out of its row template and prese
   assert.match(memberManagementHtml, /<details id="roles-audit-log-panel"/);
 });
 
-test('admin audit shell authorizes through the admin and moderator whoami endpoint', () => {
-  assert.match(adminAuditHtml, /whoamiPath:\s*'\/admin\/members\/whoami'/);
+test('admin audit shell authorizes through its own whoami endpoint, not the admin-or-moderator-only one', () => {
+  // Its own endpoint, not /admin/members/whoami - that one is admin-or-moderator only and would
+  // 403 a pure accountant before they ever reached the page, even though the server-side query
+  // (resolveAdminAuditAuth, server.ts) grants them dues-category-only access.
+  assert.match(adminAuditHtml, /whoamiPath:\s*'\/admin\/audyt\/whoami'/);
+  assert.doesNotMatch(adminAuditHtml, /whoamiPath:\s*'\/admin\/members\/whoami'/);
   assert.doesNotMatch(adminAuditHtml, /whoamiPath:\s*'\/wojownicy-upload\/whoami'/);
 });

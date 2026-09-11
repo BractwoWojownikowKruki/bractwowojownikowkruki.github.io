@@ -2857,30 +2857,66 @@ function parseAuditQueryOptions(url: URL): AuditQueryOptions {
   return { selector: selectors[0] ?? { kind: 'none' }, from, to, cursor, limit };
 }
 
+interface AdminAuditAuth {
+  identity: SessionClaims;
+  isAdmin: boolean;
+  isModerator: boolean;
+  isAccountant: boolean;
+}
+
 /**
- * Resolves the admin-scope audit viewer for `/admin/audyt/*`. Full administrators (the same
- * admin-allowlist-or-admin-role gate as every other `authenticateAdmin` route) get every
- * category; a Firestore-granted moderator gets that same complete administrator-scope history,
- * while an accountant grant alone is deliberately insufficient. This keeps accounting duties
- * separate from access to the full member/activity audit trail.
+ * Resolves who's asking for `/admin/audyt/*` (and its dedicated whoami). Full administrators (the
+ * same admin-allowlist-or-admin-role gate as every other `authenticateAdmin` route) get every
+ * category; a Firestore-granted moderator gets that same complete administrator-scope history.
+ * A Firestore-granted accountant with neither of those roles may still authenticate through this
+ * same shell (the fallback branch below) - `viewerCanSeeCategory` only lets an accountant-only
+ * viewer see the 'dues' category once here, never anything else this scope covers; diagnostics
+ * stays administrator-only regardless, gated separately by `handleAdminAuditDiagnostics`'s own
+ * `authenticateAdmin` call.
  */
-async function resolveAdminAuditViewer(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<AuditViewer> {
-  const identity = await deps.authenticateAdminOrModerator(req, res);
-  const granted = await getGrantedRoles(deps.firestore, identity.email);
-  let isAdmin = granted.includes('admin');
-  if (!isAdmin) {
-    try {
-      await deps.authenticateAdmin(req, res);
-      isAdmin = true;
-    } catch {
-      // Not an allowlisted administrator - only a Firestore-granted moderator may still proceed.
+async function resolveAdminAuditAuth(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<AdminAuditAuth> {
+  try {
+    const identity = await deps.authenticateAdminOrModerator(req, res);
+    const granted = await getGrantedRoles(deps.firestore, identity.email);
+    let isAdmin = granted.includes('admin');
+    if (!isAdmin) {
+      try {
+        await deps.authenticateAdmin(req, res);
+        isAdmin = true;
+      } catch {
+        // Not an allowlisted administrator - only a Firestore-granted moderator may still proceed.
+      }
     }
+    const isModerator = isAdmin || granted.includes('moderator');
+    if (!isAdmin && !isModerator) {
+      throw new AuthError('Brak uprawnień do przeglądania audytu.', 403);
+    }
+    return { identity, isAdmin, isModerator, isAccountant: isAdmin || granted.includes('accountant') };
+  } catch (err) {
+    // Neither an allowlisted administrator nor a Firestore-granted moderator - a pure accountant
+    // may still reach this same shell for dues-category history, the one category their role
+    // covers. Re-throws anything other than the expected auth rejection (e.g. a genuine 401 for
+    // no session at all still surfaces from the deps.authenticate call below).
+    if (!(err instanceof AuthError)) throw err;
+    const identity = await deps.authenticate(req, res);
+    const granted = await getGrantedRoles(deps.firestore, identity.email);
+    if (!granted.includes('accountant')) throw new AuthError('Brak uprawnień do przeglądania audytu.', 403);
+    return { identity, isAdmin: false, isModerator: false, isAccountant: true };
   }
-  const isModerator = isAdmin || granted.includes('moderator');
-  if (!isAdmin && !isModerator) {
-    throw new AuthError('Brak uprawnień do przeglądania audytu.', 403);
-  }
-  return { scope: 'admin', isAdmin, isAccountant: false, isModerator };
+}
+
+async function resolveAdminAuditViewer(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<AuditViewer> {
+  const auth = await resolveAdminAuditAuth(req, res, deps);
+  return { scope: 'admin', isAdmin: auth.isAdmin, isAccountant: auth.isAccountant, isModerator: auth.isModerator };
+}
+
+// Dedicated whoami for the /admin/audyt/ shell (rather than reusing /admin/members/whoami, which
+// is admin-or-moderator only and gates Zarządzanie ludźmi's very different, broader people-
+// management page) - an accountant-only viewer must pass this gate to see the page at all, even
+// though they'd fail /admin/members/whoami's stricter check.
+async function handleAdminAuditWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const auth = await resolveAdminAuditAuth(req, res, deps);
+  sendJson(res, 200, { ...identityResponseBody(auth.identity), isAdmin: auth.isAdmin });
 }
 
 async function handleAdminAuditEventsList(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
@@ -3167,6 +3203,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminSetRoles(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/roles/audit-log') {
         await handleAdminListRolesAuditLog(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/audyt/whoami') {
+        await handleAdminAuditWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/audyt/events') {
         await handleAdminAuditEventsList(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/audyt/event') {
