@@ -41,22 +41,17 @@
   color: var(--gold);
 }
 
-.profile-avatar {
-  display: block;
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  object-fit: cover;
-  margin: 0 auto 1rem;
-}
-
+/* Photos reuse style.css's .person-main-photo/.person-gallery - the same classes the public
+   "O Nas" grid uses - so a profile photo looks like a normal gallery photo, not a shrunk circle,
+   and .profile-avatar-placeholder only adds the "no photo yet" initials treatment on top of that
+   same box (see profile-panel.js's renderProfile). */
 .profile-avatar-placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 2rem;
   color: var(--text-muted);
-  background: var(--surface-alt, rgba(255, 255, 255, 0.06));
+  cursor: default;
 }
 
 .profile-fields {
@@ -76,20 +71,6 @@
 .profile-description {
   margin-top: 1rem;
   white-space: pre-wrap;
-}
-
-.profile-photos {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 1rem;
-}
-
-.profile-photos img {
-  width: 80px;
-  height: 80px;
-  object-fit: cover;
-  border-radius: 6px;
 }
 
 .profile-drawer-error {
@@ -125,6 +106,29 @@
 .profile-trigger--icon svg {
   width: 1rem;
   height: 1rem;
+}
+
+/* Small secondary trigger placed right after a name that's already clickable as a whole pill
+   (Lista Wyjazdowa, Spis Ludności) - sized in em so it scales with surrounding text and stays
+   visibly smaller than Zarządzanie ludźmi's fixed-size .profile-trigger--icon button. */
+.profile-trigger--icon-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  margin-left: 0.35em;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+.profile-trigger--icon-inline:hover {
+  color: var(--gold);
+}
+
+.profile-trigger--icon-inline svg {
+  width: 100%;
+  height: 100%;
 }
 
 @media (max-width: 640px) {
