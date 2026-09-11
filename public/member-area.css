@@ -737,13 +737,13 @@ button.lw-skladka-icon:disabled {
   z-index: 1;
   writing-mode: vertical-rl;
   text-orientation: upright;
-  width: 1.35rem;
-  min-width: 1.35rem;
-  max-width: 1.35rem;
-  padding: 0.3rem 0.05rem;
+  width: 1rem;
+  min-width: 1rem;
+  max-width: 1rem;
+  padding: 0.25rem 0.02rem;
   border: none;
   text-align: center;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0;
@@ -777,10 +777,10 @@ button.lw-skladka-icon:disabled {
   /* Not width:100% - a <select>'s shrink-to-fit sizing algorithm doesn't reliably measure its
      option text under vertical-rl (observed collapsing to a few px wide in Chromium), so it gets
      a fixed physical width matching the cell's own instead. */
-  width: 1.05rem;
+  width: 0.96rem;
   height: 100%;
   cursor: pointer;
-  /* The cell is only ~1.35rem wide - the native select chevron alone would blow past that (and
+  /* The cell is only ~1rem wide - the native select chevron alone would blow past that (and
      doesn't render meaningfully rotated under vertical-rl anyway). Dropping it still leaves a
      fully working native <select> (click/tap opens the option list regardless); the whole cell
      being an obvious colored control is signal enough without an arrow of its own. */
