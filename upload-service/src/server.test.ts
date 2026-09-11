@@ -1460,6 +1460,48 @@ test('POST /admin/people/photo streams an uploaded file into the person folder',
   assert.equal(uploadedTo, 'person-1');
 });
 
+test('POST /admin/people/photo returns the uploaded photo DTO with a durable thumbnail URL', async () => {
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      uploadFileStream: async (_folderId, _fileName, _mimeType, bodyStream) => {
+        for await (const _chunk of bodyStream) {
+          // Drain the validated stream, exactly as the default fake does.
+        }
+        return { id: 'photo-1' };
+      },
+      listImageFiles: async () => [{ id: 'photo-1', name: 'zdjecie.jpg', thumbnailLink: 'https://lh3.googleusercontent.com/photo=s220' }],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(
+      `${baseUrl}/admin/people/photo?folderId=person-1&fileName=zdjecie.jpg&mimeType=image%2Fjpeg`,
+      { method: 'POST', body: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]) },
+    );
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), {
+      photo: { id: 'photo-1', name: 'zdjecie.jpg', url: 'https://lh3.googleusercontent.com/photo=s300' },
+    });
+  });
+});
+
+test('POST /admin/people/photo returns a null URL when Drive has not generated a thumbnail yet', async () => {
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listImageFiles: async () => [{ id: 'fake-uploaded-file-id', name: 'zdjecie.jpg', thumbnailLink: null }],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(
+      `${baseUrl}/admin/people/photo?folderId=person-1&fileName=zdjecie.jpg&mimeType=image%2Fjpeg`,
+      { method: 'POST', body: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]) },
+    );
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), {
+      photo: { id: 'fake-uploaded-file-id', name: 'zdjecie.jpg', url: null },
+    });
+  });
+});
+
 test('DELETE /admin/people/photo trashes the photo file', async () => {
   let deletedId: string | undefined;
   const deps = makeDeps({

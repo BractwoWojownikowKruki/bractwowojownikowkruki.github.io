@@ -46,6 +46,16 @@ const mutationFeedbackWiredRoutes = new Set([
   'POST /admin/redirects',
   'DELETE /admin/redirects',
   'POST /admin/settings',
+  'POST /admin/people',
+  'PUT /admin/people/description',
+  'PUT /admin/people/order',
+  'PUT /admin/people/category',
+  'DELETE /admin/people',
+  'POST /admin/people/photo',
+  'DELETE /admin/people/photo',
+  'PUT /admin/people/photo/main',
+  'PUT /admin/people/photo/transfer',
+  'PUT /admin/people/in-memoriam',
 ]);
 
 /** Parses and expands method-and-route rows from the checked-in canonical Mutation inventory table. */

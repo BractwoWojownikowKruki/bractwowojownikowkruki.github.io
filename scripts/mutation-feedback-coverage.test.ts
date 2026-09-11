@@ -235,3 +235,20 @@ test('batch two admin mutations use confirmed local feedback without full-list s
   assert.doesNotMatch(extractListenerForElement(general, 'redirects-list', 'click'), /loadRedirects\(\);/);
   assert.match(generalPage, /wykonaj twarde odświeżenie/);
 });
+
+test('batch three people-card mutations are wired to local confirmed feedback', async () => {
+  const [registry, peopleCards] = await Promise.all([
+    readContractTable().then(source => deriveMutationFeedbackCoverageRegistry(parseMutationInventoryRoutes(source))),
+    readFile(new URL('../public/admin/publiczne-wizytowki/publiczne-wizytowki.js', import.meta.url), 'utf8'),
+  ]);
+  const routes = [
+    'POST /admin/people', 'PUT /admin/people/description', 'PUT /admin/people/order', 'PUT /admin/people/category',
+    'DELETE /admin/people', 'POST /admin/people/photo', 'DELETE /admin/people/photo', 'PUT /admin/people/photo/main',
+    'PUT /admin/people/photo/transfer', 'PUT /admin/people/in-memoriam',
+  ];
+  for (const route of routes) assert.equal(registry.find(entry => entry.route === route)?.wiring, 'wired', `${route} must be wired in batch three`);
+  assert.match(peopleCards, /function confirmedPersonWrite/);
+  assert.match(peopleCards, /MutationFeedback\.confirmed/);
+  assert.equal((peopleCards.match(/confirmedPersonWrite\(/g) ?? []).length >= 10, true);
+  assert.doesNotMatch(extractListenerForElement(peopleCards, 'manage-people-list', 'click'), /loadManageList\(\);/);
+});
