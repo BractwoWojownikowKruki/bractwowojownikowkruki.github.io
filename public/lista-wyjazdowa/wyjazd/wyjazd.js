@@ -186,7 +186,7 @@ async function toggleSkladkaPaid(email, nextPaid, control) {
       const signup = cachedSignups.find(item => item.memberEmail === email);
       if (signup) signup.skladkaPaid = nextPaid;
       renderRoster(cachedRoster, cachedSignups);
-    }, document.getElementById('roster-content'));
+    }, document.getElementById('roster-panel'));
   } catch (err) {
     showError(`Nie udało się zaktualizować składki: ${err.message}`);
   }
@@ -373,7 +373,7 @@ async function toggleAttending(email, nextAttending, control) {
       else cachedSignups.push({ memberEmail: email, attending: nextAttending, equipmentIds: [], companionIds: [], skladkaPaid: false });
       renderSummary(cachedRoster, cachedSignups);
       renderRoster(cachedRoster, cachedSignups);
-    }, document.getElementById('roster-content'));
+    }, document.getElementById('roster-panel'));
   } catch (err) {
     showError(`Nie udało się zapisać zgłoszenia: ${err.message}`);
   }

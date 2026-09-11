@@ -179,7 +179,7 @@ function renderTable(roster, duesByEmail) {
       const rocznaHistoryHref = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}:${selectedYear}`)}`;
       row.innerHTML = `
         <span>${escapeHtml(displayName(member))}</span>
-        <span>Wpisowe: ${member.hasProfile ? (member.wpisowePaid ? 'opłacone' : 'nieopłacone') : 'brak profilu'}</span>
+        <span data-wpisowe-status>Wpisowe: ${member.hasProfile ? (member.wpisowePaid ? 'opłacone' : 'nieopłacone') : 'brak profilu'}</span>
         ${
           canManageSkladki && member.hasProfile
             ? `<button type="button" class="lw-wpisowe-toggle" data-email="${emailAttr}" data-paid="${member.wpisowePaid ? 'true' : 'false'}">${member.wpisowePaid ? 'Oznacz jako nieopłacone' : 'Oznacz jako opłacone'}</button>`
@@ -257,7 +257,9 @@ async function toggleWpisowe(email, nextPaid, control) {
     ), () => {
       control.dataset.paid = String(nextPaid);
       control.textContent = nextPaid ? 'Oznacz jako nieopłacone' : 'Oznacz jako opłacone';
-      control.previousElementSibling.textContent = `Wpisowe: ${nextPaid ? 'opłacone' : 'nieopłacone'}`;
+      const status = control.closest('.lw-skladki-row')?.querySelector('[data-wpisowe-status]');
+      if (!status) throw new Error('Nie znaleziono pola statusu wpisowego.');
+      status.textContent = `Wpisowe: ${nextPaid ? 'opłacone' : 'nieopłacone'}`;
     });
   } catch (err) {
     showError(`Nie udało się zaktualizować wpisowego: ${err.message}`);

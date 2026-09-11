@@ -1502,6 +1502,24 @@ test('POST /admin/people/photo returns a null URL when Drive has not generated a
   });
 });
 
+test('POST /admin/people/photo returns a null URL when Drive metadata lookup fails after upload', async () => {
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listImageFiles: async () => { throw new Error('Drive metadata temporarily unavailable'); },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(
+      `${baseUrl}/admin/people/photo?folderId=person-1&fileName=zdjecie.jpg&mimeType=image%2Fjpeg`,
+      { method: 'POST', body: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]) },
+    );
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), {
+      photo: { id: 'fake-uploaded-file-id', name: 'zdjecie.jpg', url: null },
+    });
+  });
+});
+
 test('DELETE /admin/people/photo trashes the photo file', async () => {
   let deletedId: string | undefined;
   const deps = makeDeps({

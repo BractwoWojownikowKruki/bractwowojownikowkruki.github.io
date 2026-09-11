@@ -1261,7 +1261,15 @@ async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse,
   invalidateAboutUsCache();
   // Drive may acknowledge the write before it has generated thumbnailLink. The response still
   // proves the file was saved, while null tells the client to use only a temporary local preview.
-  const uploadedImage = (await deps.drive.listImageFiles(folderId)).find(image => image.id === uploaded.id);
+  let uploadedImage: Awaited<ReturnType<DriveClient['listImageFiles']>>[number] | undefined;
+  try {
+    uploadedImage = (await deps.drive.listImageFiles(folderId)).find(image => image.id === uploaded.id);
+  } catch (error) {
+    // The file has already been committed and audited. Drive's metadata index can lag or be
+    // temporarily unavailable, so the client receives the durable file id and a null URL rather
+    // than a false failure that would invite a duplicate upload.
+    console.warn('Unable to load uploaded photo metadata:', error);
+  }
   sendJson(res, 200, {
     photo: {
       id: uploaded.id,

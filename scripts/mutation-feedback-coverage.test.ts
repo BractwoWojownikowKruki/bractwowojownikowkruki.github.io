@@ -277,4 +277,7 @@ test('batch five events and dues mutations use local confirmed feedback', async 
   for (const source of files) assert.match(source, /MutationFeedback\.confirmed/);
   assert.doesNotMatch(extractListenerForElement(files[0], 'add-event-form', 'submit'), /window\.location\.href/);
   assert.match(extractListenerForElement(files[0], 'add-event-form', 'submit'), /anchor: document\.getElementById\('events-list'\)/);
+  assert.match(files[1], /document\.getElementById\('roster-panel'\)/);
+  assert.doesNotMatch(files[1], /\}, document\.getElementById\('roster-content'\)\)/);
+  assert.match(files[2], /data-wpisowe-status/);
 });
