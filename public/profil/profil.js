@@ -483,12 +483,18 @@ async function initForm(lookupLists) {
       );
 
       // Photo/Drive submission is a direct reuse of wrzuc.js's existing submit -> per-photo
-      // upload sequence (unchanged server endpoints, see design.md §6) - only run it if a main
-      // photo was actually picked, so re-saving profile fields alone doesn't spam a new Drive
-      // folder every time.
+      // upload sequence (unchanged server endpoints, see design.md §6) - only run it if a photo
+      // was actually picked (main or extra), so re-saving profile fields alone doesn't spam a new
+      // Drive folder every time.
+      //
+      // Bug fix: this used to gate the ENTIRE block on `mainEntry` alone, so a member who only
+      // picked an extra/secondary photo (never touching the main-photo picker - a common case for
+      // someone who already has a public main photo and just wants to add another) had that photo
+      // silently dropped - no upload call was ever made, no error shown, and the rest of the form
+      // still saved fine, masking the failure entirely.
       const mainEntry = photoEntries[0];
-      if (mainEntry) {
-        const extraEntries = photoEntries.slice(1).filter(Boolean);
+      const extraEntries = photoEntries.slice(1).filter(Boolean);
+      if (mainEntry || extraEntries.length) {
         // savedMember.fullName, not form.fullName.value: if only Ksywa was given, the server
         // already backfilled fullName from it, and that's the name the Drive folder should use.
         const { folderId, submissionToken } = await apiFetch(
@@ -502,13 +508,18 @@ async function initForm(lookupLists) {
           hideReauth,
         );
 
-        const total = 1 + extraEntries.length;
+        const total = (mainEntry ? 1 : 0) + extraEntries.length;
+        let uploaded = 0;
         progressEl.textContent = `Przesyłanie zdjęć (0/${total})...`;
-        await uploadPhoto(folderId, submissionToken, mainEntry, true);
-        progressEl.textContent = `Przesyłanie zdjęć (1/${total})...`;
-        for (let i = 0; i < extraEntries.length; i++) {
-          await uploadPhoto(folderId, submissionToken, extraEntries[i], false);
-          progressEl.textContent = `Przesyłanie zdjęć (${i + 2}/${total})...`;
+        if (mainEntry) {
+          await uploadPhoto(folderId, submissionToken, mainEntry, true);
+          uploaded++;
+          progressEl.textContent = `Przesyłanie zdjęć (${uploaded}/${total})...`;
+        }
+        for (const entry of extraEntries) {
+          await uploadPhoto(folderId, submissionToken, entry, false);
+          uploaded++;
+          progressEl.textContent = `Przesyłanie zdjęć (${uploaded}/${total})...`;
         }
         // Reflects the photo(s) that just landed - without this the "already uploaded" panel
         // above the picker would keep showing the previous submission (or nothing) until the
