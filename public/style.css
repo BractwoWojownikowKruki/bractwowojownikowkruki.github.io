@@ -1770,19 +1770,45 @@ button.nav-item {
   text-align: left;
 }
 
+/* Current-page indicator, same gold used for :hover above so it reads as "the persistent
+   version of hover" rather than a competing color language. Comes before .nav-item--highlighted
+   below so Nabór keeps its own always-on red text (that rule's `color` wins on the cascade) while
+   still getting this same gold underline when it happens to be the active page - one consistent
+   underline treatment for "current page" across every nav item, including Nabór (see the
+   .nav-item--highlighted.nav-item--active override further down for its specific look). */
 .nav-item--active {
-  color: var(--text);
-  border-bottom-color: var(--accent);
+  color: var(--gold);
+  border-bottom-color: var(--gold);
 }
 
-/* Just red text, same on desktop and mobile - no background/glow/pill treatment. */
+/* Outlined pill with a soft glow, same on desktop and mobile - deliberately a "button" shape
+   rather than colored text, so it reads as a standalone CTA and never as a page-state indicator
+   (which is what plain red text + .nav-item--active's red underline used to look like together
+   on the /nabor/ page itself, before this replaced it). */
 .nav-item--highlighted {
+  border: 1.5px solid var(--accent);
+  border-bottom: 1.5px solid var(--accent);
+  border-radius: 999px;
   color: var(--accent);
   font-weight: 600;
+  padding: 0.3rem 0.9rem;
+  box-shadow: 0 0 8px rgba(185, 28, 28, 0.55), 0 0 2px rgba(185, 28, 28, 0.6);
+  transition: all 0.2s ease;
 }
 
 .nav-item--highlighted:hover {
-  color: var(--gold);
+  background: var(--accent);
+  color: #fff;
+  border-bottom-color: var(--accent);
+  box-shadow: 0 0 14px rgba(185, 28, 28, 0.8);
+}
+
+/* On /nabor/ itself, the pill doesn't need its own glow to say "you're here" - that's what the
+   shared gold underline already does everywhere else in the nav. Higher specificity (two classes)
+   rather than source order, so this holds regardless of where either rule above ends up. */
+.nav-item--highlighted.nav-item--active {
+  border-bottom-color: var(--gold);
+  box-shadow: none;
 }
 
 /* Desktop: hover-triggered floating dropdown for the Wojownicy nav item. Collapses to a
