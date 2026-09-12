@@ -1064,52 +1064,6 @@ test('GET /facebook-posts returns 429 once a single caller exceeds the per-IP ra
   });
 });
 
-test('POST /admin/people creates a numbered folder and writes the description', async () => {
-  resetAboutUsBootstrapForTests();
-  let createdFolderName: string | undefined;
-  let writtenDescription: string | undefined;
-  const deps = makeDeps({
-    drive: makeFakeDrive({
-      ensureFolder: async (_parent, name) => {
-        if (name === 'Ragnar') createdFolderName = name;
-        return `folder-${name}`;
-      },
-      createAlbumFolder: async (_parent, name) => {
-        createdFolderName = name;
-        return 'new-person-folder';
-      },
-      writeTextFile: async (_folderId, fileName, content) => {
-        if (fileName === 'Opis.txt') writtenDescription = content;
-      },
-    }),
-  });
-  await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/admin/people`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category: 'Blachowi', name: 'Ragnar', order: 1, description: 'Krótki opis.' }),
-    });
-    assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.equal(body.folderId, 'new-person-folder');
-  });
-  assert.equal(createdFolderName, '1. Ragnar');
-  assert.equal(writtenDescription, 'Krótki opis.');
-});
-
-test('POST /admin/people rejects an invalid category', async () => {
-  resetAboutUsBootstrapForTests();
-  const deps = makeDeps();
-  await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/admin/people`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category: 'NieIstnieje', name: 'Ragnar', order: null, description: '' }),
-    });
-    assert.equal(res.status, 400);
-  });
-});
-
 test('PUT /admin/people/description updates a person\'s Opis.txt', async () => {
   let writtenDescription: string | undefined;
   const deps = makeDeps({
@@ -5156,7 +5110,6 @@ const STEP_UP_GATED_ROUTES: { method: string; path: string; stepUpDep: keyof Ser
   { method: 'POST', path: '/admin/social-media/refresh', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'POST', path: '/admin/redirects', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'DELETE', path: '/admin/redirects', stepUpDep: 'authenticateAdminWithStepUp' },
-  { method: 'POST', path: '/admin/people', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'PUT', path: '/admin/people/description', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'PUT', path: '/admin/people/order', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'PUT', path: '/admin/people/category', stepUpDep: 'authenticateAdminWithStepUp' },

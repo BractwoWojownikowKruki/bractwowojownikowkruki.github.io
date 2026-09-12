@@ -242,7 +242,7 @@ test('batch three people-card mutations are wired to local confirmed feedback', 
     readFile(new URL('../public/admin/publiczne-wizytowki/publiczne-wizytowki.js', import.meta.url), 'utf8'),
   ]);
   const routes = [
-    'POST /admin/people', 'PUT /admin/people/description', 'PUT /admin/people/order', 'PUT /admin/people/category',
+    'PUT /admin/people/description', 'PUT /admin/people/order', 'PUT /admin/people/category',
     'DELETE /admin/people', 'POST /admin/people/photo', 'DELETE /admin/people/photo', 'PUT /admin/people/photo/main',
     'PUT /admin/people/photo/transfer', 'PUT /admin/people/photo/approve', 'PUT /admin/people/in-memoriam',
   ];

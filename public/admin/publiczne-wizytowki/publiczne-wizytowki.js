@@ -47,47 +47,6 @@ async function uploadPhotos(folderId, fileList, onProgress) {
   return photos;
 }
 
-document.getElementById('add-person-form').addEventListener('submit', async e => {
-  e.preventDefault();
-  const status = document.getElementById('add-person-status');
-  status.textContent = 'Zapisywanie...';
-  const category = document.getElementById('person-category').value;
-  const name = document.getElementById('person-name').value.trim();
-  const orderRaw = document.getElementById('person-order').value;
-  const order = orderRaw === '' ? null : Number(orderRaw);
-  const description = document.getElementById('person-description').value.trim();
-  const photoFiles = document.getElementById('person-photos').files;
-  const list = document.getElementById('manage-people-list');
-
-  try {
-    await window.MutationFeedback.confirmed({
-      control: document.getElementById('person-name'),
-      anchor: status,
-      execute: async () => {
-        const created = await apiFetch('/admin/people', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category, name, order, description }),
-        }, showReauth, hideReauth);
-        const photos = photoFiles.length
-          ? await uploadPhotos(created.folderId, photoFiles, uploaded => { status.textContent = `Przesyłanie zdjęć (${uploaded}/${photoFiles.length})...`; })
-          : [];
-        return { ...created, photos };
-      },
-      apply: created => {
-        document.getElementById('add-person-form').reset();
-        if (document.getElementById('manage-category').value === category) {
-          list.querySelector('p')?.remove();
-          list.insertAdjacentHTML('beforeend', personCardHtml({ folderId: created.folderId, name, order, description, mainPhoto: null, photos: created.photos, inMemoriam: false }));
-        }
-        status.textContent = '';
-      },
-      viewRoot: list,
-      refreshFragment: loadManageList,
-    });
-  } catch (err) {
-    status.textContent = `Błąd: ${err.message}`;
-  }
-});
-
 document.getElementById('manage-category').addEventListener('change', loadManageList);
 
 // Valid "transfer this photo to" targets: existing people in the 3 categories a photo could

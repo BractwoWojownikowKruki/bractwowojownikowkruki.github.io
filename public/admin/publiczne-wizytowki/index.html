@@ -50,39 +50,6 @@
         Publiczne informacje o osobach wyświetlane w podstronach "My, Wojownicy" (zdjęcia, opisy, kolejność).
       </p>
 
-      <section style="margin-bottom: 2rem;">
-        <h3 style="color: var(--gold); margin-bottom: 0.75rem;">Dodaj osobę</h3>
-        <form id="add-person-form">
-          <label style="display:block; margin-bottom:0.5rem;">
-            Kategoria
-            <select id="person-category" required style="display:block; width:100%; margin-top:4px;">
-              <option value="Blachowi">Blachowi</option>
-              <option value="Niewiasty">Niewiasty</option>
-              <option value="Emeryci">Emeryci</option>
-              <option value="Kandydaci">Kandydaci</option>
-            </select>
-          </label>
-          <label style="display:block; margin-bottom:0.5rem;">
-            Imię
-            <input id="person-name" type="text" required style="display:block; width:100%; margin-top:4px;" />
-          </label>
-          <label style="display:block; margin-bottom:0.5rem;">
-            Kolejność (opcjonalnie, liczba)
-            <input id="person-order" type="number" min="0" style="display:block; width:100%; margin-top:4px;" />
-          </label>
-          <label style="display:block; margin-bottom:0.5rem;">
-            Opis (3-5 zdań)
-            <textarea id="person-description" class="edit-description" rows="6" style="display:block; width:100%; margin-top:4px;"></textarea>
-          </label>
-          <label style="display:block; margin-bottom:0.5rem;">
-            Zdjęcia (zdjęcie główne to to, które alfabetycznie sortuje się jako pierwsze wg nazwy pliku)
-            <input id="person-photos" type="file" accept="image/*" multiple style="display:block; width:100%; margin-top:4px;" />
-          </label>
-          <button type="submit" class="btn-add-album">Dodaj osobę</button>
-        </form>
-        <p id="add-person-status" style="margin-top:0.5rem;"></p>
-      </section>
-
       <section>
         <h3 style="color: var(--gold); margin-bottom: 0.75rem;">Zarządzaj osobami</h3>
         <label style="display:block; margin-bottom:1rem;">

@@ -14,7 +14,7 @@ table into this file in the same change. If you forget, this test will keep pass
 stale copy while the real contract document silently diverges - exactly the failure mode this
 fixture exists to prevent.
 
-Last synced with implementation-contract.md: 2026-09-11 (KRKG-0070 batch 4/7).
+Last synced with implementation-contract.md: 2026-09-12 (KRKG-0070 addendum batch 2/3).
 -->
 
 | Method and route | Classification and action | Resource and side effect | Execution |
@@ -30,7 +30,6 @@ Last synced with implementation-contract.md: 2026-09-11 (KRKG-0070 batch 4/7).
 | POST `/admin/members/synchronize` | businessWrite — `membership.sheet_backup.synchronized` | member set; Sheets | auditedOperationEnvelope |
 | PUT `/admin/roles` | businessWrite — data-resolved role action | member; Firestore | requestAwaited |
 | POST/DELETE `/admin/redirects` | businessWrite — `site.redirect.created` / `site.redirect.deleted` | redirect; GitHub | auditedOperationEnvelope |
-| POST `/admin/people` | businessWrite — `profile.person.created` | person; Drive folder and optional description; provisional key then final person folder key | auditedOperationEnvelope |
 | PUT `/admin/people/description` | businessWrite — `profile.person.description.updated` | person; Drive text file | auditedOperationEnvelope |
 | PUT `/admin/people/order` | businessWrite — `profile.person.order.updated` | person; Drive folder rename | auditedOperationEnvelope |
 | PUT `/admin/people/category` | businessWrite — `profile.person.category.changed` | person; Drive folder move/rename | auditedOperationEnvelope |

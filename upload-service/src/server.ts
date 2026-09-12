@@ -1147,42 +1147,6 @@ function rejectIfRateLimited(req: IncomingMessage, res: ServerResponse): boolean
   return true;
 }
 
-async function handleAdminCreatePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateAdminWithStepUp(req, res);
-  const { category, name, order, description } = await readJsonBody<{
-    category?: string;
-    name?: string;
-    order?: number | null;
-    description?: string;
-  }>(req, deps.maxJsonBodyBytes);
-  const validCategory = parseAboutUsCategory(category ?? null);
-  if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
-
-  const folderName = buildPersonFolderName(name, order ?? null);
-  // Pre-effect resource protocol (implementation-contract.md): no final Drive folder id exists
-  // before the effect runs, so the correlation id is generated first and used as the intent's
-  // immutable provisional resource key - not the browser-supplied identity.sub, which isn't a
-  // correlation id and isn't unique per attempt.
-  const correlationId = randomUUID();
-  const provisionalResourceKey = `person:pending:${correlationId}`;
-  const { result: folderId } = await executeAuditedExternalMutation(deps.firestore, {
-    action: 'profile.person.created', actor: { email: identity.email },
-    resource: { kind: 'person', key: provisionalResourceKey, display: name.trim() },
-    changes: [{ field: 'name', after: name.trim() }, { field: 'category', after: validCategory }],
-  }, async () => {
-    const folders = await bootstrapAboutUsStructure(deps.drive);
-    const id = await deps.drive.createAlbumFolder(folders.categories[validCategory], folderName);
-    if (description) await deps.drive.writeTextFile(id, 'Opis.txt', description);
-    return id;
-  }, {
-    correlationId,
-    provisionalResourceKey,
-    eventInput: id => ({ action: 'profile.person.created', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${id}`, display: name.trim() }, changes: [{ field: 'name', after: name.trim() }, { field: 'category', after: validCategory }] }),
-  });
-  invalidateAboutUsCache();
-  sendJson(res, 200, { folderId });
-}
-
 async function handleAdminUpdateDescription(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
   const folderId = url.searchParams.get('folderId');
@@ -1435,8 +1399,8 @@ async function transferOnePhoto(deps: ServerDeps, actorEmail: string, fileId: st
 // from MemberDoc.fullName/nickname/the staging folder's own name - see design.md) the first time
 // only. Every effect below is its own separately audited operation (never combined - see the
 // module comment on executeAuditedExternalMutation requiring every emitted event to share the
-// intent's declared action): folder creation reuses handleAdminCreatePerson's exact
-// profile.person.created shape, the driveFolderId link reuses handleAdminSetMemberDriveFolder's
+// intent's declared action): folder creation uses the same profile.person.created shape as
+// every other new-person creation, the driveFolderId link reuses handleAdminSetMemberDriveFolder's
 // exact profile.drive_folder.changed shape (this is an admin-owned Firestore field with its own
 // established audited write path, not something to bypass with a bare setDoc), the file move
 // reuses handleAdminTransferPhoto's exact profile.person.photo.transferred shape, and the !main
@@ -1485,6 +1449,10 @@ async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse
     await transferOnePhoto(deps, identity.email, fileId, targetFolderId);
   } else {
     if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
+    // Pre-effect resource protocol (implementation-contract.md): no final Drive folder id exists
+    // before the effect runs, so the correlation id is generated first and used as the intent's
+    // immutable provisional resource key - not the browser-supplied identity.sub, which isn't a
+    // correlation id and isn't unique per attempt.
     const correlationId = randomUUID();
     const provisionalResourceKey = `person:pending:${correlationId}`;
     const { result: newFolderId } = await executeAuditedExternalMutation(
@@ -1628,7 +1596,7 @@ async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResp
     const folders = await bootstrapAboutUsStructure(deps.drive);
     const date = new Date().toISOString().slice(0, 10);
     const folderName = `${name.trim()} - ${identity.email} - ${date}`;
-    // Pre-effect resource protocol - see the matching comment in handleAdminCreatePerson. Final
+    // Pre-effect resource protocol - see the matching comment in handleAdminApprovePhoto. Final
     // resource key format (member:{actorEmail}:submission:{folderId}) is
     // implementation-contract.md's "Pre-effect resource protocol" list, not the generic
     // person:{personId}/gallery:{folderId} notation.
@@ -2680,7 +2648,7 @@ async function handleStart(req: IncomingMessage, res: ServerResponse, deps: Serv
   const { name, date } = await readJsonBody<{ name?: string; date: string }>(req, deps.maxJsonBodyBytes);
   if (!date) throw new AuthError('Brak daty albumu.', 400);
   const folderName = name ? `${date} ${name}` : date;
-  // Pre-effect resource protocol - see the matching comment in handleAdminCreatePerson.
+  // Pre-effect resource protocol - see the matching comment in handleAdminApprovePhoto.
   const correlationId = randomUUID();
   const provisionalResourceKey = `gallery:pending:${correlationId}`;
   const { result: folderId } = await executeAuditedExternalMutation(
@@ -3555,8 +3523,6 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminCreateRedirect(req, res, deps);
       } else if (req.method === 'DELETE' && url.pathname === '/admin/redirects') {
         await handleAdminDeleteRedirect(req, res, url, deps);
-      } else if (req.method === 'POST' && url.pathname === '/admin/people') {
-        await handleAdminCreatePerson(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/description') {
         await handleAdminUpdateDescription(req, res, url, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/order') {
