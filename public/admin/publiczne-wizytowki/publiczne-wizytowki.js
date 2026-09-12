@@ -197,31 +197,39 @@ function personCardHtml(p) {
 // KRKG-0070 (addendum): the "Upload (zgłoszenia)" category gets its own per-person card, entirely
 // different from personCardHtml above - one submission is reviewed as a whole (pick photos, set
 // name/category once), not photo-by-photo. Photos render at the same size they'd have on the
-// public page (.person-main-photo/.person-gallery, same classes profile-panel.js/o-nas.js use),
-// each wrapped in a <label> so clicking the photo itself toggles its own checkbox. `p.publicName`/
-// `p.publicDescription`/`p.publicFolderId` come from the enriched GET /admin/people?category=upload
-// response (server.ts's enrichUploadEntryWithPublicStatus): publicFolderId === null means this
-// member has no public folder yet - name/category are required and typed in here; otherwise
-// they're already fixed and shown read-only (edit them via the person's own card in their actual
-// category instead), and only photo selection is meaningful.
-function uploadPhotoPickHtml(photo, isMain) {
-  const checkbox = `<input type="checkbox" class="upload-photo-select" data-file-id="${escapeAttr(photo.id)}" style="position:absolute; top:6px; left:6px; width:18px; height:18px; z-index:1;" />`;
-  return isMain
-    ? `<label class="person-main-photo" style="cursor:pointer;">${checkbox}<img src="${escapeAttr(photo.url)}" alt="" /></label>`
-    : `<label style="position:relative; display:inline-block; cursor:pointer;">${checkbox}<img src="${escapeAttr(photo.url)}" alt="" /></label>`;
+// public page (.person-main-photo/.person-gallery, same classes profile-panel.js/o-nas.js use).
+// `p.publicName`/`p.publicDescription`/`p.publicFolderId` come from the enriched
+// GET /admin/people?category=upload response (server.ts's enrichUploadEntryWithPublicStatus):
+// publicFolderId === null means this member has no public folder yet - name/category are
+// required and typed in here; otherwise they're already fixed and shown read-only (edit them via
+// the person's own card in their actual category instead), and only photo selection is
+// meaningful. Review (batch 3/3): a checkbox alone gave the admin no way to remove a bad pending
+// photo before approving anything, so each photo also gets its own "Usuń" button, reusing the
+// existing admin DELETE /admin/people/photo (same endpoint personCardHtml's .delete-photo uses).
+function uploadPhotoPickHtml(folderId, photo, isMain) {
+  return `
+    <div class="upload-photo-item${isMain ? ' person-main-photo' : ''}" data-file-id="${escapeAttr(photo.id)}" style="position:relative; display:inline-block;">
+      <input type="checkbox" class="upload-photo-select" data-file-id="${escapeAttr(photo.id)}" style="position:absolute; top:6px; left:6px; width:18px; height:18px; z-index:1;" />
+      <img src="${escapeAttr(photo.url)}" alt="" />
+      <button type="button" class="delete-pending-photo" data-folder-id="${escapeAttr(folderId)}" data-file-id="${escapeAttr(photo.id)}" style="position:absolute; bottom:4px; right:4px; z-index:1; font-size:10px; color:var(--accent); background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:2px 4px; cursor:pointer;">Usuń</button>
+    </div>`;
 }
 
-function uploadPersonCardHtml(p) {
-  const galleryHtml = p.photos.length
-    ? `<div class="person-gallery">${p.photos.map(photo => uploadPhotoPickHtml(photo, false)).join('')}</div>`
-    : '';
-  const isPublished = !!p.publicFolderId;
-  const nameDescHtml = isPublished
-    ? `
-      <p style="margin:0.5rem 0;"><strong>Nazwa publiczna:</strong> ${escapeHtml(p.publicName ?? '')}</p>
-      ${p.publicDescription ? `<p style="margin:0.5rem 0; white-space:pre-wrap;"><strong>Opis:</strong> ${escapeHtml(p.publicDescription)}</p>` : ''}
-      <p style="margin:0.5rem 0; color:var(--text-muted); font-size:12px;">Osoba ma już publiczny profil - nazwę i opis edytuje się z jej karty we właściwej kategorii.</p>`
-    : `
+// Review (batch 3/3): extracted so a successful first-time approve can flip a card from the
+// editable variant to this read-only one in place, without a full list reload - see the
+// approve-batch click handler below.
+function uploadReadOnlyFieldsHtml(name, description) {
+  return `
+    <div class="upload-fields">
+      <p style="margin:0.5rem 0;"><strong>Nazwa publiczna:</strong> ${escapeHtml(name ?? '')}</p>
+      ${description ? `<p style="margin:0.5rem 0; white-space:pre-wrap;"><strong>Opis:</strong> ${escapeHtml(description)}</p>` : ''}
+      <p style="margin:0.5rem 0; color:var(--text-muted); font-size:12px;">Osoba ma już publiczny profil - nazwę i opis edytuje się z jej karty we właściwej kategorii.</p>
+    </div>`;
+}
+
+function uploadEditableFieldsHtml() {
+  return `
+    <div class="upload-fields">
       <label style="display:block; margin:0.5rem 0;">Nazwa publiczna
         <input type="text" class="upload-public-name" required style="display:block; width:100%; margin-top:4px;" />
       </label>
@@ -232,13 +240,22 @@ function uploadPersonCardHtml(p) {
         <select class="upload-target-category" style="display:block; width:100%; margin-top:4px;">
           ${approveTargetCategoryOptionsHtml()}
         </select>
-      </label>`;
+      </label>
+    </div>`;
+}
+
+function uploadPersonCardHtml(p) {
+  const galleryHtml = p.photos.length
+    ? `<div class="person-gallery">${p.photos.map(photo => uploadPhotoPickHtml(p.folderId, photo, false)).join('')}</div>`
+    : '';
+  const isPublished = !!p.publicFolderId;
+  const nameDescHtml = isPublished ? uploadReadOnlyFieldsHtml(p.publicName, p.publicDescription) : uploadEditableFieldsHtml();
   return `
     <div id="${personCardId(p.folderId)}" class="manage-person-card" data-folder-id="${escapeAttr(p.folderId)}" data-public-folder-id="${escapeAttr(p.publicFolderId ?? '')}" style="border:1px solid var(--border); border-radius:6px; padding:1rem;">
       <strong class="person-name">${escapeHtml(p.name)}</strong>
       <a class="audyt-history-btn" style="margin-left:0.5rem; vertical-align:middle;" href="/admin/audyt/?resourceKey=${encodeURIComponent(`person:${p.folderId}`)}" title="Historia" aria-label="Historia">${HISTORY_ICON}</a>
       <div class="person-photos" style="margin:0.5rem 0;">
-        ${p.mainPhoto ? uploadPhotoPickHtml(p.mainPhoto, true) : ''}
+        ${p.mainPhoto ? uploadPhotoPickHtml(p.folderId, p.mainPhoto, true) : ''}
         ${galleryHtml}
       </div>
       ${nameDescHtml}
@@ -371,6 +388,27 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
     ), () => item.remove());
     return;
   }
+  const deletePendingBtn = e.target.closest('.delete-pending-photo');
+  if (deletePendingBtn) {
+    if (!window.confirm('Na pewno usunąć to zdjęcie ze zgłoszenia?')) return;
+    const folderId = deletePendingBtn.dataset.folderId;
+    const fileId = deletePendingBtn.dataset.fileId;
+    const card = personCard(folderId);
+    const item = deletePendingBtn.closest('.upload-photo-item');
+    const list = document.getElementById('manage-people-list');
+    await confirmedPersonWrite(deletePendingBtn, card, () => apiFetch(
+      `/admin/people/photo?fileId=${encodeURIComponent(fileId)}&folderId=${encodeURIComponent(folderId)}`,
+      { method: 'DELETE' },
+      showReauth, hideReauth,
+    ), () => {
+      item.remove();
+      if (!card.querySelector('.upload-photo-item')) {
+        card.remove();
+        if (!list.querySelector('.manage-person-card')) list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
+      }
+    }, list);
+    return;
+  }
   const approveBatchBtn = e.target.closest('.approve-batch');
   if (approveBatchBtn) {
     const folderId = approveBatchBtn.dataset.folderId;
@@ -382,20 +420,24 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       return;
     }
     const fileIds = checked.map(cb => cb.dataset.fileId);
-    const isPublished = !!approveBatchBtn.dataset.publicFolderId;
+    const wasPublished = !!approveBatchBtn.dataset.publicFolderId;
     const body = { fileIds, stagingFolderId: folderId };
-    if (!isPublished) {
+    let enteredName = '';
+    let enteredDescription = '';
+    if (!wasPublished) {
       const nameInput = card.querySelector('.upload-public-name');
       // KRKG-0070 addendum: the public name is never pre-filled from the staging folder's own
       // name, MemberDoc, or anything else - it is only ever what the admin explicitly typed here,
       // and is required for a first-time publish (the field only exists in the DOM at all when
-      // isPublished is false, so there is nothing to accidentally send once a folder exists).
-      if (!nameInput.value.trim()) {
+      // wasPublished is false, so there is nothing to accidentally send once a folder exists).
+      enteredName = nameInput.value.trim();
+      if (!enteredName) {
         window.alert('Podaj nazwę publiczną.');
         return;
       }
-      body.name = nameInput.value.trim();
-      body.description = card.querySelector('.upload-public-description').value.trim() || undefined;
+      enteredDescription = card.querySelector('.upload-public-description').value.trim();
+      body.name = enteredName;
+      body.description = enteredDescription || undefined;
       body.targetCategory = card.querySelector('.upload-target-category').value;
     }
     await confirmedPersonWrite(approveBatchBtn, card, () => apiFetch(
@@ -407,9 +449,18 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       },
       showReauth,
       hideReauth,
-    ), () => {
-      fileIds.forEach(fileId => card.querySelector(`.upload-photo-select[data-file-id="${fileId}"]`)?.closest('label')?.remove());
-      if (!card.querySelector('.upload-photo-select')) {
+    ), ({ folderId: newPublicFolderId }) => {
+      fileIds.forEach(fileId => card.querySelector(`.upload-photo-item[data-file-id="${fileId}"]`)?.remove());
+      if (!wasPublished) {
+        // Review (batch 3/3): the public folder now exists after this first successful batch -
+        // flip the card to the read-only variant in place, so approving a second, partial batch
+        // of the remaining photos doesn't keep sending (and the backend keep silently ignoring) a
+        // name/description/category the admin already committed on the first click.
+        card.dataset.publicFolderId = newPublicFolderId;
+        approveBatchBtn.dataset.publicFolderId = newPublicFolderId;
+        card.querySelector('.upload-fields').outerHTML = uploadReadOnlyFieldsHtml(enteredName, enteredDescription || null);
+      }
+      if (!card.querySelector('.upload-photo-item')) {
         card.remove();
         if (!list.querySelector('.manage-person-card')) list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
       }

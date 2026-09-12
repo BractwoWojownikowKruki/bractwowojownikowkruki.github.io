@@ -266,6 +266,13 @@ test('newly approved and deleted pending photos confirm after their local view a
   assert.match(peopleClick, /approve-batch/);
   assert.match(peopleClick, /confirmedPersonWrite\(approveBatchBtn/);
   assert.doesNotMatch(peopleClick, /loadManageList\(\);/);
+  // Review (batch 3/3): the admin's own Upload-view delete action reuses the existing
+  // DELETE /admin/people/photo endpoint (admin + step-up gated server-side, unchanged) rather than
+  // introducing a new one, and confirms through the same local-feedback pattern as every other
+  // mutation on this page.
+  assert.match(peopleClick, /delete-pending-photo/);
+  assert.match(peopleClick, /confirmedPersonWrite\(deletePendingBtn/);
+  assert.match(peopleClick, /\/admin\/people\/photo\?fileId=/);
 
   const deletePendingPhoto = extractNamedFunction(profile, 'deletePendingPhoto');
   assert.match(deletePendingPhoto, /MutationFeedback\.confirmed\(/);
