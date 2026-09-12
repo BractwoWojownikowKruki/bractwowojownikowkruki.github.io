@@ -26,6 +26,7 @@ import {
   parsePersonFolderName,
   type AboutUsCategory,
   type AdminDepartment,
+  type Person,
   type PersonPhoto,
 } from './about-us.ts';
 import { createFirestoreClient, type FirestoreLikeClient, type FirestoreTransaction } from './firestore.ts';
@@ -1202,12 +1203,46 @@ async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse
   sendJson(res, 200, { ok: true });
 }
 
+// KRKG-0070 (addendum): each entry in the "upload" department gets its already-published
+// public-profile status attached, so the admin panel's per-person Upload view can tell a
+// first-time submission (no public folder yet - name/description must be entered) from a repeat
+// upload from an already-published member (name/description already fixed, shown read-only).
+// Only meaningful for "upload" (every submission there IS a stagingFolderId); every other
+// department gets null for all three fields, unused by the frontend outside "upload".
+async function enrichUploadEntryWithPublicStatus(
+  deps: ServerDeps,
+  person: Person,
+): Promise<Person & { publicFolderId: string | null; publicName: string | null; publicDescription: string | null }> {
+  const nullResult = { ...person, publicFolderId: null, publicName: null, publicDescription: null };
+  const ownerEmailRaw = await deps.drive.readTextFile(person.folderId, '.owner-email');
+  const ownerEmail = ownerEmailRaw?.trim().toLowerCase();
+  if (!ownerEmail) return nullResult;
+  const member = await getMember(deps.firestore, ownerEmail);
+  if (!member?.driveFolderId) return nullResult;
+  const [folderName, description] = await Promise.all([
+    deps.drive.getFolderName(member.driveFolderId),
+    deps.drive.readTextFile(member.driveFolderId, 'Opis.txt'),
+  ]);
+  if (folderName == null) return nullResult;
+  return {
+    ...person,
+    publicFolderId: member.driveFolderId,
+    publicName: parsePersonFolderName(folderName).name,
+    publicDescription: description,
+  };
+}
+
 async function handleAdminListPeople(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   await deps.authenticateAdmin(req, res);
   const department = parseAdminDepartment(url.searchParams.get('category'));
   const folders = await bootstrapAboutUsStructure(deps.drive);
   const people = await fetchCategoryPeople(deps.drive, departmentFolderId(folders, department));
-  sendJson(res, 200, { people });
+  if (department !== 'upload') {
+    sendJson(res, 200, { people });
+    return;
+  }
+  const enriched = await Promise.all(people.map(person => enrichUploadEntryWithPublicStatus(deps, person)));
+  sendJson(res, 200, { people: enriched });
 }
 
 // Renames the folder to reflect a new display order and/or name - the two always travel

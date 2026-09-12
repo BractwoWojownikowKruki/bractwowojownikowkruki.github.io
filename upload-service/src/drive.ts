@@ -166,6 +166,23 @@ export async function getFolderParentId(deps: DriveDeps, folderId: string): Prom
   return data.parents?.[0] ?? null;
 }
 
+// KRKG-0070 (addendum): reads a folder's own name without moving or otherwise touching it - used
+// by the admin "Upload" view to show an already-published submission's public name/description
+// read-only. No existing method returns this alone (moveFolder returns {name}, but only as a
+// side effect of actually relocating the folder).
+export async function getFolderName(deps: DriveDeps, folderId: string): Promise<string | null> {
+  const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
+  const res = await fetch(`${DRIVE_API}/drive/v3/files/${folderId}?fields=name`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Nie udało się odczytać nazwy folderu w Drive: HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { name?: string };
+  return data.name ?? null;
+}
+
 // Renames a folder in place - used by the admin panel to change a person's "N. Imię" folder
 // name (and so their display order/name) without touching its contents or parent.
 export async function renameFolder(deps: DriveDeps, folderId: string, newName: string): Promise<void> {
@@ -590,6 +607,7 @@ export interface DriveClient {
   deleteFolder(folderId: string): Promise<void>;
   folderExists(folderId: string): Promise<boolean>;
   getFolderParentId(folderId: string): Promise<string | null>;
+  getFolderName(folderId: string): Promise<string | null>;
   renameFolder(folderId: string, newName: string): Promise<void>;
   moveFolder(folderId: string, newParentId: string): Promise<{ name: string }>;
   moveFile(fileId: string, newParentFolderId: string): Promise<{ previousFolderId?: string }>;
@@ -619,6 +637,7 @@ export function createDriveClient(deps: DriveDeps, docsDeps: DriveDeps = deps): 
     deleteFolder: folderId => deleteFolder(deps, folderId),
     folderExists: folderId => folderExists(deps, folderId),
     getFolderParentId: folderId => getFolderParentId(deps, folderId),
+    getFolderName: folderId => getFolderName(deps, folderId),
     renameFolder: (folderId, newName) => renameFolder(deps, folderId, newName),
     moveFolder: (folderId, newParentId) => moveFolder(deps, folderId, newParentId),
     moveFile: (fileId, newParentFolderId) => moveFile(deps, fileId, newParentFolderId),

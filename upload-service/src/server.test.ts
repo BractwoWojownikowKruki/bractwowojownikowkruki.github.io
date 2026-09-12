@@ -109,6 +109,7 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
     deleteFolder: async () => {},
     folderExists: async () => true,
     getFolderParentId: async () => null,
+    getFolderName: async () => null,
     renameFolder: async () => {},
     moveFolder: async () => ({ name: 'Test Person' }),
     moveFile: async () => ({}),
@@ -1179,6 +1180,80 @@ test('GET /admin/people?category=upload lists people from the upload staging fol
     assert.equal(body.people[0].folderId, 'p1');
     assert.equal(body.people[0].name, 'Anna - anna@gmail.com - 2026-08-19');
     assert.equal(body.people[0].order, null);
+  });
+});
+
+test('GET /admin/people?category=upload enriches an entry with publicFolderId/publicName/publicDescription when the member already has a published public folder (KRKG-0070 addendum)', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'anna@gmail.com', seedMemberDoc({ email: 'anna@gmail.com', driveFolderId: 'public-1', stagingFolderId: 's1' }));
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => (name === 'upload' ? 'upload-root-pubstatus-1' : `folder-${name}`),
+      listGalleryFolders: async parentId =>
+        parentId === 'upload-root-pubstatus-1' ? [{ id: 's1', name: 'Anna - anna@gmail.com - 2026-08-19', modifiedTime: '2026-08-19T00:00:00Z' }] : [],
+      readTextFile: async (folderId, fileName) => {
+        if (folderId === 's1' && fileName === '.owner-email') return 'anna@gmail.com';
+        if (folderId === 'public-1' && fileName === 'Opis.txt') return 'Opis publiczny.';
+        return null;
+      },
+      getFolderName: async folderId => (folderId === 'public-1' ? '3. Anna Wojowniczka' : null),
+      listImageFiles: async () => [],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people?category=upload`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.people[0].publicFolderId, 'public-1');
+    assert.equal(body.people[0].publicName, 'Anna Wojowniczka');
+    assert.equal(body.people[0].publicDescription, 'Opis publiczny.');
+  });
+});
+
+test('GET /admin/people?category=upload returns null public fields when the member has no driveFolderId yet (KRKG-0070 addendum)', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'anna@gmail.com', seedMemberDoc({ email: 'anna@gmail.com', driveFolderId: null, stagingFolderId: 's1' }));
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => (name === 'upload' ? 'upload-root-pubstatus-2' : `folder-${name}`),
+      listGalleryFolders: async parentId =>
+        parentId === 'upload-root-pubstatus-2' ? [{ id: 's1', name: 'Anna - anna@gmail.com - 2026-08-19', modifiedTime: '2026-08-19T00:00:00Z' }] : [],
+      readTextFile: async (folderId, fileName) => (folderId === 's1' && fileName === '.owner-email' ? 'anna@gmail.com' : null),
+      listImageFiles: async () => [],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people?category=upload`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.people[0].publicFolderId, null);
+    assert.equal(body.people[0].publicName, null);
+    assert.equal(body.people[0].publicDescription, null);
+  });
+});
+
+test('GET /admin/people?category=upload returns null public fields when there is no owner-email marker or no matching MemberDoc (KRKG-0070 addendum)', async () => {
+  resetAboutUsBootstrapForTests();
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => (name === 'upload' ? 'upload-root-pubstatus-3' : `folder-${name}`),
+      listGalleryFolders: async parentId =>
+        parentId === 'upload-root-pubstatus-3' ? [{ id: 's1', name: 'Ktos - orphan', modifiedTime: '2026-08-19T00:00:00Z' }] : [],
+      readTextFile: async () => null,
+      listImageFiles: async () => [],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people?category=upload`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.people[0].publicFolderId, null);
+    assert.equal(body.people[0].publicName, null);
+    assert.equal(body.people[0].publicDescription, null);
   });
 });
 
