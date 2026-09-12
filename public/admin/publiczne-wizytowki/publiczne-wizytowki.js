@@ -77,12 +77,17 @@ async function loadManageList() {
   const list = document.getElementById('manage-people-list');
   list.textContent = 'Ładowanie...';
   try {
-    const [data, transferTargets] = await Promise.all([
+    // uploadData is fetched unconditionally (even when browsing Upload itself, a harmless
+    // duplicate request) so the pending-uploads banner always reflects the current Upload state,
+    // regardless of which category is actually selected.
+    const [data, transferTargets, uploadData] = await Promise.all([
       apiFetch(`/admin/people?category=${encodeURIComponent(category)}`, { method: 'GET' }, showReauth, hideReauth),
       loadTransferTargets(),
+      apiFetch('/admin/people?category=upload', { method: 'GET' }, showReauth, hideReauth),
     ]);
     renderManageList(data.people || [], transferTargets);
     transferTargetsCache = transferTargets;
+    updateUploadPendingBanner(uploadData.people || []);
   } catch (err) {
     list.textContent = `Błąd: ${err.message}`;
   }
@@ -263,13 +268,45 @@ function uploadPersonCardHtml(p) {
     </div>`;
 }
 
+// A staging submission with no photos at all (e.g. every photo was deleted, by the member or an
+// admin, before anything was approved) has nothing for an admin to review - hidden from the
+// Upload view entirely rather than shown as an empty, action-less box. Also used to count how
+// many DO have something to review, for the pending-uploads banner below.
+function hasUploadPhotos(p) {
+  return !!p.mainPhoto || p.photos.length > 0;
+}
+
 function renderManageList(people, transferTargets) {
   const list = document.getElementById('manage-people-list');
   transferTargetsCache = transferTargets;
   const currentCategory = document.getElementById('manage-category').value;
-  const renderCard = currentCategory === 'upload' ? uploadPersonCardHtml : personCardHtml;
-  list.innerHTML = people.length ? people.map(renderCard).join('') : '<p>Brak osób w tej kategorii.</p>';
+  if (currentCategory === 'upload') {
+    const withPhotos = people.filter(hasUploadPhotos);
+    list.innerHTML = withPhotos.length ? withPhotos.map(uploadPersonCardHtml).join('') : '<p>Brak zgłoszeń ze zdjęciami w tej kategorii.</p>';
+    return;
+  }
+  list.innerHTML = people.length ? people.map(personCardHtml).join('') : '<p>Brak osób w tej kategorii.</p>';
 }
+
+// Lets the admin notice a pending submission without first having to manually switch to the
+// Upload category - shown at the top of the page regardless of which category is selected,
+// refreshed on every loadManageList() call (initial load and category switches).
+function updateUploadPendingBanner(uploadPeople) {
+  const banner = document.getElementById('upload-pending-banner');
+  const count = uploadPeople.filter(hasUploadPhotos).length;
+  banner.hidden = count === 0;
+  if (count > 0) {
+    banner.textContent = `Zgłoszenia ze zdjęciami oczekujące w dziale Upload: ${count}`;
+  }
+}
+
+document.getElementById('upload-pending-banner').addEventListener('click', () => {
+  const select = document.getElementById('manage-category');
+  if (select.value !== 'upload') {
+    select.value = 'upload';
+    loadManageList();
+  }
+});
 
 function personCard(folderId) {
   return document.getElementById(personCardId(folderId));

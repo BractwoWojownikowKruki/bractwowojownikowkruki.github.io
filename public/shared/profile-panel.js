@@ -164,9 +164,16 @@
     // has no notion of "sections" - it just steps through one flat list by index) but rendered
     // under their own heading below so a viewer can tell what's live from what's awaiting review.
     currentPhotos = profile.mainPhoto ? [profile.mainPhoto, ...profile.photos, ...pendingPhotos] : [...pendingPhotos];
-    const avatarHtml = profile.mainPhoto
+    // Follow-up to KRKG-0070: a member with no approved public photo yet but at least one
+    // pending (unaccepted) upload shows that pending photo in the main-photo slot instead of the
+    // bare initials placeholder - it's always index 0 in currentPhotos above (mainPhoto is null in
+    // this branch, so currentPhotos is exactly [...pendingPhotos]), so data-photo-index stays "0"
+    // either way. Shown identically to an approved main photo, by explicit product decision - no
+    // "pending" label - and still also listed again below in the "Oczekujące" section.
+    const effectiveMainPhoto = profile.mainPhoto || pendingPhotos[0] || null;
+    const avatarHtml = effectiveMainPhoto
       ? `<div class="person-main-photo" data-photo-index="0">
-           <img src="${escapeHtml(profile.mainPhoto.url)}" alt="${escapeHtml(profile.fullName)}" />
+           <img src="${escapeHtml(effectiveMainPhoto.url)}" alt="${escapeHtml(profile.fullName)}" />
          </div>`
       : `<div class="person-main-photo profile-avatar-placeholder">${escapeHtml(initials(profile.fullName))}</div>`;
     const weaponsHtml = profile.weapons.length
