@@ -1393,32 +1393,41 @@ async function transferOnePhoto(deps: ServerDeps, actorEmail: string, fileId: st
   );
 }
 
-// KRKG-0070: replaces "Przenieś" (handleAdminMovePerson) as the way to approve a pending upload
-// - moves a single file from the member's stable stagingFolderId into their stable public
-// driveFolderId, creating the public folder (named ONLY from the admin-supplied `name`, never
-// from MemberDoc.fullName/nickname/the staging folder's own name - see design.md) the first time
-// only. Every effect below is its own separately audited operation (never combined - see the
-// module comment on executeAuditedExternalMutation requiring every emitted event to share the
-// intent's declared action): folder creation uses the same profile.person.created shape as
-// every other new-person creation, the driveFolderId link reuses handleAdminSetMemberDriveFolder's
-// exact profile.drive_folder.changed shape (this is an admin-owned Firestore field with its own
-// established audited write path, not something to bypass with a bare setDoc), the file move
-// reuses handleAdminTransferPhoto's exact profile.person.photo.transferred shape, and the !main
-// cleanup reuses handleAdminSetMainPhoto's exact profile.person.photo.main.changed shape via
-// auditedSetMainPhoto - if that last step fails, it is a failed, traceable Historia entry rather
-// than a silent gap, and the manual recovery path is the pre-existing "Ustaw główne" button on
-// the now-public folder: a retry of "Zatwierdź" itself is not possible at that point since the
-// file has already left staging.
+// KRKG-0070 (addendum): replaces "Przenieś" (handleAdminMovePerson) as the way to approve one or
+// more pending uploads at once - moves every file in `fileIds` from the member's stable
+// stagingFolderId into their stable public driveFolderId, creating the public folder (named ONLY
+// from the admin-supplied `name`, never from MemberDoc.fullName/nickname/the staging folder's own
+// name - see design.md) the first time only. `targetCategory`/`name`/`description` are only
+// required (and only meaningful) when the member has no public folder yet - the admin panel's
+// Upload view doesn't even send them for an already-published member, and this handler must not
+// require them in that case either. Every effect below is its own separately audited operation
+// (never combined - see the module comment on executeAuditedExternalMutation requiring every
+// emitted event to share the intent's declared action): folder creation uses the same
+// profile.person.created shape as every other new-person creation, the driveFolderId link reuses
+// handleAdminSetMemberDriveFolder's exact profile.drive_folder.changed shape (this is an
+// admin-owned Firestore field with its own established audited write path, not something to
+// bypass with a bare setDoc), each file move reuses handleAdminTransferPhoto's exact
+// profile.person.photo.transferred shape, and the !main cleanup reuses handleAdminSetMainPhoto's
+// exact profile.person.photo.main.changed shape via auditedSetMainPhoto - if that last step fails,
+// it is a failed, traceable Historia entry rather than a silent gap, and the manual recovery path
+// is the pre-existing "Ustaw główne" button on the now-public folder: a retry of "Zatwierdź"
+// itself is not possible at that point since the file has already left staging.
 async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
-  const { fileId, stagingFolderId, targetCategory, name } = await readJsonBody<{
-    fileId?: string;
+  const { fileIds, stagingFolderId, targetCategory, name, description } = await readJsonBody<{
+    fileIds?: string[];
     stagingFolderId?: string;
     targetCategory?: string;
     name?: string;
+    description?: string;
   }>(req, deps.maxJsonBodyBytes);
-  if (!fileId || !stagingFolderId) throw new AuthError('Brak fileId lub stagingFolderId.', 400);
-  const validCategory = parseAboutUsCategory(targetCategory ?? null);
+  if (!stagingFolderId || !Array.isArray(fileIds) || fileIds.length === 0) {
+    throw new AuthError('Brak fileIds lub stagingFolderId.', 400);
+  }
+  // Validated eagerly (before touching Drive) whenever supplied, but only *required* inside the
+  // "create the public folder" branch below - an already-published member's approval never sends
+  // this at all (no category to pick, the folder is already fixed).
+  const validCategory: AboutUsCategory | null = targetCategory ? parseAboutUsCategory(targetCategory) : null;
 
   const ownerEmailRaw = await deps.drive.readTextFile(stagingFolderId, '.owner-email');
   const ownerEmail = ownerEmailRaw?.trim().toLowerCase();
@@ -1436,19 +1445,22 @@ async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse
     return;
   }
   const stagingImages = await deps.drive.listImageFiles(stagingFolderId);
-  const stagingImage = stagingImages.find(img => img.id === fileId);
-  if (!stagingImage) {
-    sendJson(res, 404, { error: 'Ten plik nie należy do tego folderu.' });
-    return;
+  const stagingImageById = new Map(stagingImages.map(image => [image.id, image]));
+  // Validate the WHOLE batch before moving anything - fail-closed, consistent with every other
+  // check above: a request naming even one file outside this folder moves none of them.
+  for (const fileId of fileIds) {
+    if (!stagingImageById.has(fileId)) {
+      sendJson(res, 404, { error: 'Ten plik nie należy do tego folderu.' });
+      return;
+    }
   }
-  const wasMain = stagingImage.name.startsWith('!');
 
   let targetFolderId: string;
   if (member.driveFolderId) {
     targetFolderId = member.driveFolderId;
-    await transferOnePhoto(deps, identity.email, fileId, targetFolderId);
   } else {
     if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
+    if (!validCategory) throw new AuthError('Brak kategorii.', 400);
     // Pre-effect resource protocol (implementation-contract.md): no final Drive folder id exists
     // before the effect runs, so the correlation id is generated first and used as the intent's
     // immutable provisional resource key - not the browser-supplied identity.sub, which isn't a
@@ -1465,7 +1477,9 @@ async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse
       },
       async () => {
         const folders = await bootstrapAboutUsStructure(deps.drive);
-        return deps.drive.createAlbumFolder(folders.categories[validCategory], buildPersonFolderName(name, null));
+        const id = await deps.drive.createAlbumFolder(folders.categories[validCategory], buildPersonFolderName(name, null));
+        if (description) await deps.drive.writeTextFile(id, 'Opis.txt', description);
+        return id;
       },
       {
         correlationId,
@@ -1496,19 +1510,21 @@ async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse
       },
       tx => setMemberDriveFolderId(tx, ownerEmail, targetFolderId),
     );
-    await transferOnePhoto(deps, identity.email, fileId, targetFolderId);
   }
 
-  // Inwariant jednego "!" (design.md §3 krok 8): re-list the target folder AFTER the move; if
-  // some OTHER file there already carries "!", re-assert IT as main via the same audited
-  // operation "Ustaw główne" uses (auditedSetMainPhoto) - covers both branches above uniformly (a
-  // freshly created folder never has another file yet, so this block is a no-op there and the
-  // incoming file's own "!" is simply left in place).
-  if (wasMain) {
-    const targetImages = await deps.drive.listImageFiles(targetFolderId);
-    const existingMain = targetImages.find(img => img.id !== fileId && img.name.startsWith('!'));
-    if (existingMain) {
-      await auditedSetMainPhoto(deps, identity.email, targetFolderId, existingMain.id);
+  for (const fileId of fileIds) {
+    const wasMain = stagingImageById.get(fileId)!.name.startsWith('!');
+    await transferOnePhoto(deps, identity.email, fileId, targetFolderId);
+    // Inwariant jednego "!" (design.md §3 krok 8): re-list the target folder AFTER each move; if
+    // some OTHER file there already carries "!", re-assert IT as main via the same audited
+    // operation "Ustaw główne" uses (auditedSetMainPhoto). Applied per file, in fileIds order, so
+    // a batch where more than one moved file happened to carry "!" still ends with exactly one.
+    if (wasMain) {
+      const targetImages = await deps.drive.listImageFiles(targetFolderId);
+      const existingMain = targetImages.find(image => image.id !== fileId && image.name.startsWith('!'));
+      if (existingMain) {
+        await auditedSetMainPhoto(deps, identity.email, targetFolderId, existingMain.id);
+      }
     }
   }
 

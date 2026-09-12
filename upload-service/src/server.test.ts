@@ -1738,7 +1738,7 @@ test('PUT /admin/people/photo/approve rejects a caller without step-up', async (
     const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
+      body: JSON.stringify({ fileIds: ['f1'], stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
     });
     assert.equal(res.status, 401);
   });
@@ -1756,7 +1756,7 @@ test('PUT /admin/people/photo/approve rejects an unknown targetCategory with 400
     const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 's1', targetCategory: 'upload', name: 'Test' }),
+      body: JSON.stringify({ fileIds: ['f1'], stagingFolderId: 's1', targetCategory: 'upload', name: 'Test' }),
     });
     assert.equal(res.status, 400);
   });
@@ -1775,7 +1775,7 @@ test('PUT /admin/people/photo/approve returns 404 when the staging folder has no
     const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
+      body: JSON.stringify({ fileIds: ['f1'], stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
     });
     assert.equal(res.status, 404);
   });
@@ -1796,7 +1796,7 @@ test('PUT /admin/people/photo/approve returns 404 when .owner-email resolves to 
     const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
+      body: JSON.stringify({ fileIds: ['f1'], stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
     });
     assert.equal(res.status, 404);
   });
@@ -1818,7 +1818,7 @@ test('PUT /admin/people/photo/approve returns 404 when the supplied stagingFolde
     const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 'stale-folder', targetCategory: 'Blachowi', name: 'Test' }),
+      body: JSON.stringify({ fileIds: ['f1'], stagingFolderId: 'stale-folder', targetCategory: 'Blachowi', name: 'Test' }),
     });
     assert.equal(res.status, 404);
   });
@@ -1841,7 +1841,7 @@ test('PUT /admin/people/photo/approve returns 404 when fileId does not belong to
     const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
+      body: JSON.stringify({ fileIds: ['f1'], stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
     });
     assert.equal(res.status, 404);
   });
@@ -1864,7 +1864,7 @@ test('PUT /admin/people/photo/approve, first approval, rejects a missing name wi
     const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 's1', targetCategory: 'Blachowi' }),
+      body: JSON.stringify({ fileIds: ['f1'], stagingFolderId: 's1', targetCategory: 'Blachowi' }),
     });
     assert.equal(res.status, 400);
   });
@@ -1902,7 +1902,7 @@ test('PUT /admin/people/photo/approve, first approval: creates the public folder
     const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId: 'f1', stagingFolderId: 'staging-anna', targetCategory: 'Blachowi', name: 'Storm Wojowniczka' }),
+      body: JSON.stringify({ fileIds: ['f1'], stagingFolderId: 'staging-anna', targetCategory: 'Blachowi', name: 'Storm Wojowniczka' }),
     });
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -1924,7 +1924,143 @@ test('PUT /admin/people/photo/approve, first approval: creates the public folder
   assert.equal(folderIdChange?.after, 'new-public-folder');
 });
 
-test('PUT /admin/people/photo/approve, subsequent approval: moves the file into the existing public folder and strips its ! prefix when the folder already has a main photo', async () => {
+test('PUT /admin/people/photo/approve, first approval with description: writes Opis.txt in the new folder (KRKG-0070 addendum)', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'anna@gmail.com', seedMemberDoc({
+    email: 'anna@gmail.com',
+    stagingFolderId: 'staging-anna',
+    driveFolderId: null,
+  }));
+  let writtenDescription: string | undefined;
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `folder-${name}`,
+      readTextFile: async (id, fileName) => (id === 'staging-anna' && fileName === '.owner-email' ? 'anna@gmail.com' : null),
+      listImageFiles: async id => (id === 'staging-anna' ? [{ id: 'f1', name: 'f1.jpg', thumbnailLink: 'https://example.test/f1=s220' }] : []),
+      createAlbumFolder: async () => 'new-public-folder',
+      writeTextFile: async (folderId, fileName, content) => {
+        if (folderId === 'new-public-folder' && fileName === 'Opis.txt') writtenDescription = content;
+      },
+      moveFile: async () => ({ previousFolderId: 'staging-anna' }),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: ['f1'], stagingFolderId: 'staging-anna', targetCategory: 'Blachowi', name: 'Storm Wojowniczka', description: 'Krótki opis.' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(writtenDescription, 'Krótki opis.');
+});
+
+test('PUT /admin/people/photo/approve rejects an empty or missing fileIds with 400, before touching Drive', async () => {
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      readTextFile: async () => {
+        throw new Error('should not read anything before fileIds validation');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const missing = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
+    });
+    assert.equal(missing.status, 400);
+    const empty = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: [], stagingFolderId: 's1', targetCategory: 'Blachowi', name: 'Test' }),
+    });
+    assert.equal(empty.status, 400);
+  });
+});
+
+test('PUT /admin/people/photo/approve rejects the whole batch with 404 when one of several fileIds does not belong to the staging folder, moving none of them (KRKG-0070 addendum)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 's1', driveFolderId: 'existing-public-folder' }));
+  const movedFileIds: string[] = [];
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      readTextFile: async (id, fileName) => (id === 's1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
+      listImageFiles: async id =>
+        id === 's1'
+          ? [
+              { id: 'f1', name: 'f1.jpg', thumbnailLink: 'https://example.test/f1=s220' },
+              { id: 'f2', name: 'f2.jpg', thumbnailLink: 'https://example.test/f2=s220' },
+            ]
+          : [],
+      moveFile: async fileId => {
+        movedFileIds.push(fileId);
+        return { previousFolderId: 's1' };
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: ['f1', 'not-in-staging', 'f2'], stagingFolderId: 's1' }),
+    });
+    assert.equal(res.status, 404);
+  });
+  assert.deepEqual(movedFileIds, [], 'no file may be moved when any fileId in the batch is invalid');
+});
+
+test('PUT /admin/people/photo/approve moves every fileId in a batch to the existing public folder, normalizing !main when more than one carried it (KRKG-0070 addendum)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 's1', driveFolderId: 'existing-public-folder' }));
+  const movedFileIds: string[] = [];
+  const renamedTo: Record<string, string> = {};
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      readTextFile: async (id, fileName) => (id === 's1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
+      listImageFiles: async id => {
+        if (id === 's1') return [
+          { id: 'f1', name: '!f1.jpg', thumbnailLink: 'https://example.test/f1=s220' },
+          { id: 'f2', name: '!f2.jpg', thumbnailLink: 'https://example.test/f2=s220' },
+        ];
+        if (id === 'existing-public-folder') {
+          // Reflects the target folder's state as it stands *after* whichever of f1/f2 has
+          // already been moved so far in this test run - starts empty, f1 lands first (see
+          // fileIds order below) and keeps its "!" since the target had none yet.
+          const landed: Array<{ id: string; name: string; thumbnailLink: string }> = [];
+          if (movedFileIds.includes('f1')) landed.push({ id: 'f1', name: `${renamedTo.f1 ?? '!f1.jpg'}`, thumbnailLink: 'https://example.test/f1=s220' });
+          if (movedFileIds.includes('f2')) landed.push({ id: 'f2', name: `${renamedTo.f2 ?? '!f2.jpg'}`, thumbnailLink: 'https://example.test/f2=s220' });
+          return landed;
+        }
+        return [];
+      },
+      moveFile: async fileId => {
+        movedFileIds.push(fileId);
+        return { previousFolderId: 's1' };
+      },
+      renameFolder: async (id, newName) => {
+        renamedTo[id] = newName;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: ['f1', 'f2'], stagingFolderId: 's1' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.deepEqual(movedFileIds, ['f1', 'f2']);
+  assert.equal(renamedTo.f2, 'f2.jpg', 'f2 must lose its ! prefix since f1 already claimed main by the time f2 landed');
+  assert.equal(renamedTo.f1, undefined, 'f1 must keep its ! prefix - it was the first to land in an empty target folder');
+});
+
+test('PUT /admin/people/photo/approve, subsequent approval: moves the file into the existing public folder and strips its ! prefix when the folder already has a main photo (no targetCategory/name/description needed - KRKG-0070 addendum)', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
   await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'staging-1', driveFolderId: 'existing-public-folder' }));
@@ -1951,7 +2087,7 @@ test('PUT /admin/people/photo/approve, subsequent approval: moves the file into 
     const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId: 'f2', stagingFolderId: 'staging-1', targetCategory: 'Blachowi' }),
+      body: JSON.stringify({ fileIds: ['f2'], stagingFolderId: 'staging-1' }),
     });
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -1992,7 +2128,7 @@ test('PUT /admin/people/photo/approve: a failure during the post-transfer !main 
     const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileId: 'f2', stagingFolderId: 'staging-1', targetCategory: 'Blachowi' }),
+      body: JSON.stringify({ fileIds: ['f2'], stagingFolderId: 'staging-1' }),
     });
     assert.equal(res.status, 500);
   });

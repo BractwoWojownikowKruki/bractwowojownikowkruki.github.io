@@ -121,7 +121,7 @@ function approveTargetCategoryOptionsHtml() {
   return APPROVE_TARGET_CATEGORIES.map(category => `<option value="${category}">${category}</option>`).join('');
 }
 
-function photoItemHtml(folderId, photo, isMain, transferTargets, isUploadCategory) {
+function photoItemHtml(folderId, photo, isMain, transferTargets) {
   const imageUrl = photo.url ?? photo.localUrl;
   return `
     <div class="manage-photo-item" data-file-id="${escapeAttr(photo.id)}" style="display:inline-block; text-align:center; margin:0 0.5rem 0.5rem 0; vertical-align:top; width:100px;">
@@ -141,18 +141,6 @@ function photoItemHtml(folderId, photo, isMain, transferTargets, isUploadCategor
         </select>
         <button class="transfer-photo" data-file-id="${photo.id}" style="font-size:11px; margin-top:2px;">Transferuj</button>
       </div>
-      ${
-        isUploadCategory
-          ? `
-      <div style="margin-top:4px; padding-top:4px; border-top:1px dashed var(--border);">
-        <select class="approve-target-category" data-file-id="${photo.id}" style="width:100%; font-size:11px;">
-          ${approveTargetCategoryOptionsHtml()}
-        </select>
-        <input type="text" class="approve-name" data-file-id="${photo.id}" placeholder="Nazwa publiczna (1. zatwierdzenie)" style="width:100%; font-size:11px; margin-top:2px;" />
-        <button class="approve-photo" data-folder-id="${folderId}" data-file-id="${photo.id}" style="font-size:11px; margin-top:2px;">Zatwierdź</button>
-      </div>`
-          : ''
-      }
     </div>`;
 }
 
@@ -162,13 +150,12 @@ function personCardId(folderId) {
 
 function personCardHtml(p) {
   const currentCategory = document.getElementById('manage-category').value;
-  const isUploadCategory = currentCategory === 'upload';
       const allPhotos = [
         ...(p.mainPhoto ? [{ ...p.mainPhoto, isMain: true }] : []),
         ...p.photos.map(photo => ({ ...photo, isMain: false })),
       ];
       const photosHtml = allPhotos.length
-        ? allPhotos.map(photo => photoItemHtml(p.folderId, photo, photo.isMain, transferTargetsCache, isUploadCategory)).join('')
+        ? allPhotos.map(photo => photoItemHtml(p.folderId, photo, photo.isMain, transferTargetsCache)).join('')
         : '<p style="color:var(--text-muted); font-size:13px;">Brak zdjęć.</p>';
       return `
     <div id="${personCardId(p.folderId)}" class="manage-person-card" data-folder-id="${escapeAttr(p.folderId)}" style="border:1px solid var(--border); border-radius:6px; padding:1rem;">
@@ -207,10 +194,64 @@ function personCardHtml(p) {
     </div>`;
 }
 
+// KRKG-0070 (addendum): the "Upload (zgłoszenia)" category gets its own per-person card, entirely
+// different from personCardHtml above - one submission is reviewed as a whole (pick photos, set
+// name/category once), not photo-by-photo. Photos render at the same size they'd have on the
+// public page (.person-main-photo/.person-gallery, same classes profile-panel.js/o-nas.js use),
+// each wrapped in a <label> so clicking the photo itself toggles its own checkbox. `p.publicName`/
+// `p.publicDescription`/`p.publicFolderId` come from the enriched GET /admin/people?category=upload
+// response (server.ts's enrichUploadEntryWithPublicStatus): publicFolderId === null means this
+// member has no public folder yet - name/category are required and typed in here; otherwise
+// they're already fixed and shown read-only (edit them via the person's own card in their actual
+// category instead), and only photo selection is meaningful.
+function uploadPhotoPickHtml(photo, isMain) {
+  const checkbox = `<input type="checkbox" class="upload-photo-select" data-file-id="${escapeAttr(photo.id)}" style="position:absolute; top:6px; left:6px; width:18px; height:18px; z-index:1;" />`;
+  return isMain
+    ? `<label class="person-main-photo" style="cursor:pointer;">${checkbox}<img src="${escapeAttr(photo.url)}" alt="" /></label>`
+    : `<label style="position:relative; display:inline-block; cursor:pointer;">${checkbox}<img src="${escapeAttr(photo.url)}" alt="" /></label>`;
+}
+
+function uploadPersonCardHtml(p) {
+  const galleryHtml = p.photos.length
+    ? `<div class="person-gallery">${p.photos.map(photo => uploadPhotoPickHtml(photo, false)).join('')}</div>`
+    : '';
+  const isPublished = !!p.publicFolderId;
+  const nameDescHtml = isPublished
+    ? `
+      <p style="margin:0.5rem 0;"><strong>Nazwa publiczna:</strong> ${escapeHtml(p.publicName ?? '')}</p>
+      ${p.publicDescription ? `<p style="margin:0.5rem 0; white-space:pre-wrap;"><strong>Opis:</strong> ${escapeHtml(p.publicDescription)}</p>` : ''}
+      <p style="margin:0.5rem 0; color:var(--text-muted); font-size:12px;">Osoba ma już publiczny profil - nazwę i opis edytuje się z jej karty we właściwej kategorii.</p>`
+    : `
+      <label style="display:block; margin:0.5rem 0;">Nazwa publiczna
+        <input type="text" class="upload-public-name" required style="display:block; width:100%; margin-top:4px;" />
+      </label>
+      <label style="display:block; margin:0.5rem 0;">Opis (opcjonalnie)
+        <textarea class="upload-public-description" rows="4" style="display:block; width:100%; margin-top:4px;"></textarea>
+      </label>
+      <label style="display:block; margin:0.5rem 0;">Kategoria
+        <select class="upload-target-category" style="display:block; width:100%; margin-top:4px;">
+          ${approveTargetCategoryOptionsHtml()}
+        </select>
+      </label>`;
+  return `
+    <div id="${personCardId(p.folderId)}" class="manage-person-card" data-folder-id="${escapeAttr(p.folderId)}" data-public-folder-id="${escapeAttr(p.publicFolderId ?? '')}" style="border:1px solid var(--border); border-radius:6px; padding:1rem;">
+      <strong class="person-name">${escapeHtml(p.name)}</strong>
+      <a class="audyt-history-btn" style="margin-left:0.5rem; vertical-align:middle;" href="/admin/audyt/?resourceKey=${encodeURIComponent(`person:${p.folderId}`)}" title="Historia" aria-label="Historia">${HISTORY_ICON}</a>
+      <div class="person-photos" style="margin:0.5rem 0;">
+        ${p.mainPhoto ? uploadPhotoPickHtml(p.mainPhoto, true) : ''}
+        ${galleryHtml}
+      </div>
+      ${nameDescHtml}
+      <button class="approve-batch" data-folder-id="${p.folderId}" data-public-folder-id="${escapeAttr(p.publicFolderId ?? '')}">Przenieś</button>
+    </div>`;
+}
+
 function renderManageList(people, transferTargets) {
   const list = document.getElementById('manage-people-list');
   transferTargetsCache = transferTargets;
-  list.innerHTML = people.length ? people.map(personCardHtml).join('') : '<p>Brak osób w tej kategorii.</p>';
+  const currentCategory = document.getElementById('manage-category').value;
+  const renderCard = currentCategory === 'upload' ? uploadPersonCardHtml : personCardHtml;
+  list.innerHTML = people.length ? people.map(renderCard).join('') : '<p>Brak osób w tej kategorii.</p>';
 }
 
 function personCard(folderId) {
@@ -330,36 +371,45 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
     ), () => item.remove());
     return;
   }
-  const approveBtn = e.target.closest('.approve-photo');
-  if (approveBtn) {
-    const fileId = approveBtn.dataset.fileId;
-    const select = document.querySelector(`.approve-target-category[data-file-id="${fileId}"]`);
-    const nameInput = document.querySelector(`.approve-name[data-file-id="${fileId}"]`);
-    const item = approveBtn.closest('.manage-photo-item');
-    const card = personCard(approveBtn.dataset.folderId);
+  const approveBatchBtn = e.target.closest('.approve-batch');
+  if (approveBatchBtn) {
+    const folderId = approveBatchBtn.dataset.folderId;
+    const card = personCard(folderId);
     const list = document.getElementById('manage-people-list');
-    // Apply Review (KRKG-0070): the public name is never pre-filled from the staging folder's
-    // name or any other member data - it is only ever what the admin explicitly typed into this
-    // field just now. A blank field sends `undefined`, not "", so a repeat approval (where the
-    // member's public folder already exists and the server ignores `name` entirely) doesn't
-    // accidentally send an empty-string name.
-    await confirmedPersonWrite(approveBtn, card, () => apiFetch(
+    const checked = Array.from(card.querySelectorAll('.upload-photo-select:checked'));
+    if (!checked.length) {
+      window.alert('Zaznacz co najmniej jedno zdjęcie do przeniesienia.');
+      return;
+    }
+    const fileIds = checked.map(cb => cb.dataset.fileId);
+    const isPublished = !!approveBatchBtn.dataset.publicFolderId;
+    const body = { fileIds, stagingFolderId: folderId };
+    if (!isPublished) {
+      const nameInput = card.querySelector('.upload-public-name');
+      // KRKG-0070 addendum: the public name is never pre-filled from the staging folder's own
+      // name, MemberDoc, or anything else - it is only ever what the admin explicitly typed here,
+      // and is required for a first-time publish (the field only exists in the DOM at all when
+      // isPublished is false, so there is nothing to accidentally send once a folder exists).
+      if (!nameInput.value.trim()) {
+        window.alert('Podaj nazwę publiczną.');
+        return;
+      }
+      body.name = nameInput.value.trim();
+      body.description = card.querySelector('.upload-public-description').value.trim() || undefined;
+      body.targetCategory = card.querySelector('.upload-target-category').value;
+    }
+    await confirmedPersonWrite(approveBatchBtn, card, () => apiFetch(
       '/admin/people/photo/approve',
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileId,
-          stagingFolderId: approveBtn.dataset.folderId,
-          targetCategory: select.value,
-          name: nameInput.value.trim() || undefined,
-        }),
+        body: JSON.stringify(body),
       },
       showReauth,
       hideReauth,
     ), () => {
-      item.remove();
-      if (!card.querySelector('.manage-photo-item')) {
+      fileIds.forEach(fileId => card.querySelector(`.upload-photo-select[data-file-id="${fileId}"]`)?.closest('label')?.remove());
+      if (!card.querySelector('.upload-photo-select')) {
         card.remove();
         if (!list.querySelector('.manage-person-card')) list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
       }
@@ -379,8 +429,7 @@ document.getElementById('manage-people-list').addEventListener('change', async e
     const card = personCard(uploadInput.dataset.folderId);
     await confirmedPersonWrite(uploadInput, card, () => uploadPhotos(uploadInput.dataset.folderId, uploadInput.files), photos => {
       const photosRoot = card.querySelector('.person-photos');
-      const isUploadCategory = document.getElementById('manage-category').value === 'upload';
-      photos.forEach(photo => photosRoot.insertAdjacentHTML('beforeend', photoItemHtml(uploadInput.dataset.folderId, photo, false, transferTargetsCache, isUploadCategory)));
+      photos.forEach(photo => photosRoot.insertAdjacentHTML('beforeend', photoItemHtml(uploadInput.dataset.folderId, photo, false, transferTargetsCache)));
       uploadInput.value = '';
     });
     return;

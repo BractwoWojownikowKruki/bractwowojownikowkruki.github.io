@@ -263,8 +263,8 @@ test('newly approved and deleted pending photos confirm after their local view a
     assert.equal(registry.find(entry => entry.route === route)?.wiring, 'wired', `${route} must be wired`);
   }
   const peopleClick = extractListenerForElement(peopleCards, 'manage-people-list', 'click');
-  assert.match(peopleClick, /approve-photo/);
-  assert.match(peopleClick, /confirmedPersonWrite\(approveBtn/);
+  assert.match(peopleClick, /approve-batch/);
+  assert.match(peopleClick, /confirmedPersonWrite\(approveBatchBtn/);
   assert.doesNotMatch(peopleClick, /loadManageList\(\);/);
 
   const deletePendingPhoto = extractNamedFunction(profile, 'deletePendingPhoto');
