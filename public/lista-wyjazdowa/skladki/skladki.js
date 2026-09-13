@@ -183,19 +183,22 @@ function categoryLabelFor(categoryId) {
   return categoryLabelById.get(categoryId) ?? categoryId;
 }
 
-// A group (section/category/the whole club) with nothing left to chase reads as a green checkmark
-// instead of "0 / N nieopłaconych" - the point of this summary is to draw the eye to groups that
-// still need follow-up, and a wall of "0 / N" rows for already-settled groups buried that signal.
-function unpaidCountHtml(unpaid, total) {
-  if (unpaid === 0) return `<span class="lw-summary-ok" title="Wszyscy opłacili (${total} os.)">✓</span>`;
-  return `<strong>${unpaid}</strong> / ${total} nieopłaconych`;
+// A small badge appended inside a pill - just the unpaid count, no "nieopłaconych"/"z N osób" text
+// (the total isn't the point here, who still owes money is). A group with nobody left to chase
+// gets a green checkmark instead of "0", so a fully-settled section/category/the whole club reads
+// as done at a glance rather than one more zero in a row of numbers.
+function unpaidBadgeHtml(unpaid, total) {
+  return unpaid === 0
+    ? `<span class="lw-summary-badge lw-summary-badge--ok" title="Wszyscy opłacili (${total} os.)">✓</span>`
+    : `<span class="lw-summary-badge" title="${unpaid} z ${total} nieopłaconych">${unpaid}</span>`;
 }
 
 // How many members still owe składka roczna for the selected year, overall and broken down by
 // Sekcja and by Typ (kategoria) - the two axes an accountant actually chases people down by.
 // Wpisowe has no year selector, so it has no place in this per-year summary. Purely a client-side
 // tally over the same roster+dues loadAndRender already fetched for the table below - no extra
-// request.
+// request. Rendered as wrapped pill+badge chips rather than a line-per-group list - a vertical
+// list of "Sekcja: N z M nieopłaconych" read as far more text than the numbers actually need.
 function renderSummary(roster, duesByEmail) {
   const unpaidBySection = new Map();
   const totalBySection = new Map();
@@ -219,23 +222,30 @@ function renderSummary(roster, duesByEmail) {
       labelFor(a).toLocaleLowerCase('pl').localeCompare(labelFor(b).toLocaleLowerCase('pl'), 'pl'),
     );
 
-  const sectionLines = sortedIds(totalBySection, sectionLabel)
+  const sectionChips = sortedIds(totalBySection, sectionLabel)
     .map((sectionId) => {
-      const pill = sectionId === null ? escapeHtml(sectionLabel(sectionId)) : sectionPillHtml(sectionId, sectionLabel(sectionId));
-      return `<li>${pill}: ${unpaidCountHtml(unpaidBySection.get(sectionId) ?? 0, totalBySection.get(sectionId))}</li>`;
+      const label = sectionLabel(sectionId);
+      const badge = unpaidBadgeHtml(unpaidBySection.get(sectionId) ?? 0, totalBySection.get(sectionId));
+      return sectionId === null
+        ? `<span class="lw-summary-chip">${escapeHtml(label)}${badge}</span>`
+        : `<span class="section-pill lw-summary-chip" data-section="${escapeAttr(sectionId)}">${escapeHtml(label)}${badge}</span>`;
     })
     .join('');
 
-  const categoryLines = sortedIds(totalByCategory, categoryLabelFor)
+  const categoryChips = sortedIds(totalByCategory, categoryLabelFor)
     .map((categoryId) => {
       const label = categoryLabelFor(categoryId);
-      const pill = categoryId === null ? escapeHtml(label) : `<span ${categoryNamePillAttrs(categoryId, label)}>${escapeHtml(label)}</span>`;
-      return `<li>${pill}: ${unpaidCountHtml(unpaidByCategory.get(categoryId) ?? 0, totalByCategory.get(categoryId))}</li>`;
+      const badge = unpaidBadgeHtml(unpaidByCategory.get(categoryId) ?? 0, totalByCategory.get(categoryId));
+      // Not categoryNamePillAttrs() here - it bakes in its own class="category-name-pill", and
+      // appending lw-summary-chip as a second class attribute would just be dropped as a duplicate.
+      return categoryId === null
+        ? `<span class="lw-summary-chip">${escapeHtml(label)}${badge}</span>`
+        : `<span class="category-name-pill lw-summary-chip" data-category="${escapeAttr(categoryId)}" title="${escapeAttr(label)}">${escapeHtml(label)}${badge}</span>`;
     })
     .join('');
 
   const totalLine = unpaidTotal === 0
-    ? `Składka ${selectedYear}: ${unpaidCountHtml(0, roster.length)} wszyscy opłacili.`
+    ? `Składka ${selectedYear}: wszyscy opłacili ${unpaidBadgeHtml(0, roster.length)}`
     : `Nieopłacona składka ${selectedYear}: <strong>${unpaidTotal}</strong> z ${roster.length} osób.`;
 
   document.getElementById('summary-content').innerHTML = `
@@ -243,11 +253,11 @@ function renderSummary(roster, duesByEmail) {
     <div class="lw-summary-columns">
       <div>
         <h3>Wg sekcji</h3>
-        <ul>${sectionLines}</ul>
+        <div class="lw-summary-chips">${sectionChips}</div>
       </div>
       <div>
         <h3>Wg typu</h3>
-        <ul>${categoryLines}</ul>
+        <div class="lw-summary-chips">${categoryChips}</div>
       </div>
     </div>
   `;

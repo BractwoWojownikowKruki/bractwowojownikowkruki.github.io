@@ -679,13 +679,14 @@ button.lw-skladka-icon:disabled {
 }
 
 /* Składki/wyjazd summary breakdowns (skladki.js/wyjazd.js's renderSummary, KRKG-0047 follow-up) -
-   side-by-side lists (Sekcja/Typ[/Broń]) on desktop, stacked on a narrow screen via the same wrap.
-   Kept dense on purpose: this is a scannable tally, not prose, so it shouldn't read as bigger than
-   the roster it summarizes. */
+   side-by-side groups (Sekcja/Typ[/Broń]) on desktop, stacked on a narrow screen via the same
+   wrap. Each group is a row of small pill+badge chips (.lw-summary-chip/-badge below), not a
+   line-per-group list - "Sekcja: N z M nieopłaconych" per line took far more room than the numbers
+   actually need. */
 .lw-summary-columns {
   display: flex;
   flex-wrap: wrap;
-  gap: 1.25rem 2rem;
+  gap: 0.75rem 2rem;
 }
 
 .lw-summary-columns > div {
@@ -694,28 +695,59 @@ button.lw-skladka-icon:disabled {
 
 .lw-summary-columns h3 {
   margin: 0 0 0.3rem;
-  font-size: 14px;
-  color: var(--gold);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
-.lw-summary-columns ul {
-  margin: 0;
-  padding-left: 1.1rem;
-  font-size: 13px;
-  line-height: 1.5;
+/* One chip per section/category/weapon-group - reuses .section-pill/.category-name-pill's own
+   background/color so a chip looks exactly like that same pill everywhere else it appears, just
+   with a count badge appended inside it instead of being a second, separate element. */
+.lw-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.lw-summary-chip {
+  font-size: 12px;
+  padding: 0.1rem 0.5rem;
+}
+
+/* A plain (non-pill) chip - "Bez sekcji"/"Brak typu" have no data-section/data-category color to
+   inherit, so this gives them the same compact pill shape with a neutral background instead. */
+span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--surface-deep);
   color: var(--text-muted);
 }
 
-.lw-summary-columns li {
-  margin-bottom: 0.1rem;
+/* The count itself, appended inside the chip rather than written out as "N nieopłaconych" -
+   bold and set off with its own faint backing so it reads as a number, not more label text. */
+.lw-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  margin-left: 0.35rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+  font-size: 0.85em;
+  font-weight: 700;
+  vertical-align: middle;
 }
 
-/* Green checkmark standing in for "0 nieopłaconych" (skladki.js's unpaidCountHtml) - a lighter
-   green than .lw-skladka-icon[data-paid="true"]'s badge border (#2e7d32), which is legible against
-   a colored badge background rather than plain text directly on the page's dark surface. */
-.lw-summary-ok {
-  color: #43a047;
-  font-weight: 700;
+/* Lighter green than .lw-skladka-icon[data-paid="true"]'s badge border (#2e7d32), which needs to
+   read against a colored badge background rather than this chip's own pill background. */
+.lw-summary-badge--ok {
+  background: rgba(67, 160, 71, 0.35);
+  color: #6fcf73;
 }
 
 #skladka-fee-panel {
