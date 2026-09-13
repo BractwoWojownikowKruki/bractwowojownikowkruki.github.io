@@ -163,10 +163,11 @@ test('a full run migrates a realistic mixed batch across all three legacy collec
   const d1 = stored.find(d => d.id === migratedEventId('duesAuditLog', 'd1'))!.data;
   assert.equal(d1.action, 'dues.entry_fee.changed');
   assert.equal(d1.changes.find(c => c.field === 'paid')?.after, false);
-  // I3: the migrated wpisowe resource key must match the live write path
-  // (handleListaWyjazdowaPutWpisowe) and the Historia link in skladki.js - both use
-  // `due:{email}:entry_fee`, never `due:{email}:entry`.
-  assert.equal(d1.resource.key, 'due:wojtek@example.test:entry_fee');
+  // The migrated wpisowe resource key must match the live write path
+  // (handleListaWyjazdowaPutWpisowe) and the combined Historia link in skladki.js: `due:{email}`,
+  // shared with dues.annual.changed, so one member's wpisowe and every year's roczna land on one
+  // Historia timeline.
+  assert.equal(d1.resource.key, 'due:wojtek@example.test');
 
   // A second run against the same source data is a true no-op: nothing created, everything
   // reported already_migrated, and the stored event count is unchanged.

@@ -550,14 +550,39 @@ button.lw-skladka-icon:disabled {
   border: 1px solid #c62828;
 }
 
+/* Tighter than the shared .lw-event-row/.lw-skladki-row card look above - this row's whole point
+   is to be a compact one-liner (name + two paid/unpaid icons + one history button), not a card
+   with a member's details spelled out, so it gets its own smaller padding/gap/font-size instead
+   of the taller event-row proportions. */
 .lw-skladki-row {
-  justify-content: space-between;
+  justify-content: flex-start;
+  padding: 0.4rem 0.9rem;
+  gap: 0.5rem;
+  font-size: 0.85em;
 }
 
-.lw-skladki-row > span:first-child {
+.lw-skladki-row .profile-trigger:first-of-type {
   flex: 1 1 auto;
-  min-width: 10rem;
-  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.lw-skladki-row .profile-trigger:first-of-type .category-name-pill {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lw-skladki-row .lw-skladka-icon {
+  width: 1.4rem;
+  height: 1.4rem;
+  font-size: 12px;
+}
+
+.lw-skladki-row .audyt-history-btn {
+  width: 1.5rem;
+  height: 1.5rem;
 }
 
 /* Sort/filter controls above the event page's roster (wyjazd.js's rosterSortBy/rosterFilter) -

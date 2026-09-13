@@ -203,10 +203,11 @@ function parseDuesAuditEntry(doc: LegacySourceDoc): LegacyParseResult {
       input: {
         action: 'dues.entry_fee.changed',
         actor,
-        // Matches the live write path's own key (handleListaWyjazdowaPutWpisowe in server.ts)
-        // and the Historia link in public/lista-wyjazdowa/skladki/skladki.js - both already use
-        // `entry_fee`, not `entry` (finding I3 of the final review).
-        resource: { kind: 'due', key: `due:${data.targetMemberEmail}:entry_fee`, display: data.targetMemberEmail },
+        // Matches the live write path's own key (handleListaWyjazdowaPutWpisowe in server.ts):
+        // due:{email}, shared with dues.annual.changed below, not a dedicated :entry_fee suffix -
+        // one member's wpisowe and every year's roczna share one Historia timeline (the Składki
+        // page's single combined history button).
+        resource: { kind: 'due', key: `due:${data.targetMemberEmail}`, display: data.targetMemberEmail },
         changes: [{ field: 'paid', after: paid }, { field: 'memberEmail', after: data.targetMemberEmail }],
       },
     };
@@ -224,7 +225,7 @@ function parseDuesAuditEntry(doc: LegacySourceDoc): LegacyParseResult {
         input: {
           action: 'dues.annual.changed',
           actor,
-          resource: { kind: 'due', key: `due:${data.targetMemberEmail}:${data.year}`, display: data.targetMemberEmail },
+          resource: { kind: 'due', key: `due:${data.targetMemberEmail}`, display: data.targetMemberEmail },
           changes: [{ field: 'paid', after: paid }, { field: 'year', after: data.year }, { field: 'memberEmail', after: data.targetMemberEmail }],
         },
       };
@@ -236,7 +237,7 @@ function parseDuesAuditEntry(doc: LegacySourceDoc): LegacyParseResult {
         input: {
           action: 'dues.annual.changed',
           actor,
-          resource: { kind: 'due', key: `due:${data.targetMemberEmail}:${data.year}`, display: data.targetMemberEmail },
+          resource: { kind: 'due', key: `due:${data.targetMemberEmail}`, display: data.targetMemberEmail },
           changes: [{ field: 'amount', after: null }, { field: 'year', after: data.year }, { field: 'memberEmail', after: data.targetMemberEmail }],
         },
       };
@@ -249,7 +250,7 @@ function parseDuesAuditEntry(doc: LegacySourceDoc): LegacyParseResult {
         input: {
           action: 'dues.annual.changed',
           actor,
-          resource: { kind: 'due', key: `due:${data.targetMemberEmail}:${data.year}`, display: data.targetMemberEmail },
+          resource: { kind: 'due', key: `due:${data.targetMemberEmail}`, display: data.targetMemberEmail },
           changes: [{ field: 'amount', after: amountMatch[1] }, { field: 'year', after: data.year }, { field: 'memberEmail', after: data.targetMemberEmail }],
         },
       };

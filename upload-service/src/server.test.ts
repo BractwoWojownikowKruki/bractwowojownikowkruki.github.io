@@ -6282,6 +6282,7 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
     assert.equal(byAction.get('dues.entry_fee.changed')?.changes[0]?.field, 'paid');
     assert.deepEqual(byAction.get('dues.annual.changed')?.changes, [
       { field: 'paid', after: true, visibility: 'roleRestricted' },
+      { field: 'year', after: 2027, visibility: 'roleRestricted' },
     ]);
     assert.equal((await firestore.listDocs('signupAuditLog')).length, 0);
     assert.equal((await firestore.listDocs('duesAuditLog')).length, 0);

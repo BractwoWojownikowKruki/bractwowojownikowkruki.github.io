@@ -2554,7 +2554,11 @@ async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerR
       const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', normalizedMemberEmail);
       return {
         actor: { email: identity.email },
-        resource: { kind: 'due', key: `due:${normalizedMemberEmail}:entry_fee`, display: normalizedMemberEmail },
+        // Same resource key as składka roczna below (due:{email}, no :entry_fee/:{year} suffix) -
+        // one member's wpisowe and every year's roczna share one Historia timeline, per the
+        // Składki page's single combined history button. The action field (dues.entry_fee.changed
+        // vs dues.annual.changed) already tells the two apart in that timeline.
+        resource: { kind: 'due', key: `due:${normalizedMemberEmail}`, display: normalizedMemberEmail },
         changes: [{ field: 'paid', ...(existing ? { before: existing.wpisowePaid } : {}), after: paid }],
       };
     },
@@ -2599,8 +2603,14 @@ async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResp
       const existing = await tx.getDoc<DuesDoc>('duesAnnual', `${normalizedMemberEmail}_${year}`);
       return {
         actor: { email: identity.email },
-        resource: { kind: 'due', key: `due:${normalizedMemberEmail}:${year}`, display: normalizedMemberEmail },
-        changes: [{ field: 'paid', ...(existing ? { before: existing.paid } : {}), after: paid }],
+        // Same resource key as wpisowe above (due:{email}) - the year no longer lives in the key,
+        // so it must be carried as its own change field instead for the combined history to still
+        // say which year a given roczna entry was about.
+        resource: { kind: 'due', key: `due:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        changes: [
+          { field: 'paid', ...(existing ? { before: existing.paid } : {}), after: paid },
+          { field: 'year', after: year },
+        ],
       };
     },
     tx => saveDues(tx, normalizedMemberEmail, year, { paid }, identity.email),

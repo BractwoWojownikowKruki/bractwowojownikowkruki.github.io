@@ -1,11 +1,13 @@
 /**
  * Składki page (Plan C, KRKG-0037): Wpisowe + Składka roczna (selectable year, KRKG-0047) for
- * every member, one line per person - a name pill plus a paid/unpaid coin icon each for wpisowe
- * and składka roczna (same icon as wyjazd.js's per-event składka). The per-year rate itself is a
- * single free-text note set once at the top of the page, not a per-member amount field. Read-only
- * for every signed-in member; toggle/edit controls and the Historia zmian panel only render when
- * GET /lista-wyjazdowa/my-role reports canManageSkladki (accountant/admin) - the server re-checks
- * the role on every PUT/GET regardless, this only controls what the UI offers (design.md §8, §9).
+ * every member, one line per person - a name pill (opens the shared profile drawer, same as
+ * wyjazd.js's roster) plus a paid/unpaid check/cross for wpisowe, a paid/unpaid coin for składka
+ * roczna, and one combined Historia button covering both (server.ts writes both to the same
+ * `due:{email}` resource key). The per-year rate itself is a single free-text note set once at the
+ * top of the page, not a per-member amount field. Read-only for every signed-in member; toggle/
+ * edit controls and the Historia zmian panel only render when GET /lista-wyjazdowa/my-role reports
+ * canManageSkladki (accountant/admin) - the server re-checks the role on every PUT/GET regardless,
+ * this only controls what the UI offers (design.md §8, §9).
  */
 
 // Same escapeHtml/escapeAttr pair as wyjazd.js/profil.js/person-tile.js - the established pattern
@@ -23,6 +25,11 @@ function escapeAttr(str) {
 // Icon-only Historia button (.audyt-history-btn, style.css) - same path everywhere it appears
 // site-wide (nav.js's 'history' icon, zarzadzanie-ludzmi/index.html, galerie/app.js, ...).
 const HISTORY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>';
+
+// Same "show profile" person icon as wyjazd.js's roster (profile-trigger--icon-inline, shared
+// profile-panel.css) - placed right after the name pill, which is itself wrapped in a
+// profile-trigger button too (see renderTable below).
+const PERSON_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>';
 
 // Section/city color coding (KRKG-0051) - same helper as wyjazd.js, see its comment: the actual
 // colors live in exactly one place, member-area.css's [data-section="..."] rules.
@@ -47,14 +54,18 @@ function displayName(member) {
   return member.nickname ? `${name} (${member.nickname})` : name;
 }
 
-// Same coin icon as wyjazd.js's renderSkladkaIcon (member-area.css's .lw-skladka-icon) - a plain
-// <span> for members who can't manage składki (nothing to click), an actual <button> otherwise.
-// data-kind distinguishes wpisowe from składka roczna for the shared click handler below.
+// Same badge shape as wyjazd.js's renderSkladkaIcon (member-area.css's .lw-skladka-icon,
+// red/green background from data-paid) - a plain <span> for members who can't manage składki
+// (nothing to click), an actual <button> otherwise. data-kind distinguishes wpisowe from składka
+// roczna for the shared click handler below. Wpisowe is a plain paid/unpaid fact (no rate to
+// speak of, see the year-fee panel above), shown as a check/cross; roczna keeps the coin - it's
+// the one with money actually changing hands against a rate.
 function paidIconHtml(kind, emailAttr, paid, label) {
+  const glyph = kind === 'wpisowe' ? (paid ? '✓' : '✕') : '💰';
   if (!canManageSkladki) {
-    return `<span class="lw-skladka-icon" data-paid="${paid}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">💰</span>`;
+    return `<span class="lw-skladka-icon" data-paid="${paid}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">${glyph}</span>`;
   }
-  return `<button type="button" class="lw-skladka-icon" data-kind="${kind}" data-email="${emailAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
+  return `<button type="button" class="lw-skladka-icon" data-kind="${kind}" data-email="${emailAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">${glyph}</button>`;
 }
 
 function formatDateTime(iso) {
@@ -182,23 +193,26 @@ function renderTable(roster, duesByEmail) {
       row.dataset.section = sectionId ?? '';
       // Wpisowe is independent of "Mój profil" (setWpisowePaid upserts one with empty
       // weaponIds/equipment/companions if none exists yet, server.ts) - every member gets the same
-      // icon regardless. Historia deep links (KRKG-0050 batch 5/6) - due:{memberEmail}:entry_fee is
-      // wpisowe's resource key (see server.ts's handleListaWyjazdowaPutWpisowe),
-      // due:{memberEmail}:{year} is roczna's (handleListaWyjazdowaPutDues). Point at /admin/audyt/,
-      // not the member-zone /audyt/: dues.* actions carry audience 'adminOrAccountant'
-      // (ACTION_REGISTRY, upload-service/src/audit.ts), which only the admin-scope viewer can see.
-      // Gated by canManageSkladki like every other privileged control on this row - a plain member
-      // has no page that can show them this history, so no point offering the icon.
-      const wpisoweHistoryHref = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}:entry_fee`)}`;
-      const rocznaHistoryHref = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}:${selectedYear}`)}`;
+      // icon regardless. One combined Historia deep link per member - server.ts's
+      // handleListaWyjazdowaPutWpisowe/handleListaWyjazdowaPutDues both write to the same
+      // `due:{memberEmail}` resource key (no :entry_fee/:{year} suffix), so this one link already
+      // covers wpisowe and every year of składka roczna; the action label (visible in the audit
+      // view) is what tells the two apart in that shared timeline. Point at /admin/audyt/, not the
+      // member-zone /audyt/: dues.* actions carry audience 'adminOrAccountant' (ACTION_REGISTRY,
+      // upload-service/src/audit.ts), which only the admin-scope viewer can see. Gated by
+      // canManageSkladki like every other privileged control on this row - a plain member has no
+      // page that can show them this history, so no point offering the icon.
+      const dueHistoryHref = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}`)}`;
       const wpisoweLabel = member.wpisowePaid ? 'Wpisowe: opłacone' : 'Wpisowe: nieopłacone';
       const rocznaLabel = `Składka ${selectedYear}: ${roczna ? 'opłacona' : 'nieopłacona'}`;
       row.innerHTML = `
-        <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
+        <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
+          <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
+        </button>
+        <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>
         ${paidIconHtml('wpisowe', emailAttr, member.wpisowePaid, wpisoweLabel)}
-        ${canManageSkladki ? `<a class="audyt-history-btn" href="${escapeAttr(wpisoweHistoryHref)}" title="Historia" aria-label="Historia wpisowego">${HISTORY_ICON}</a>` : ''}
         ${paidIconHtml('roczna', emailAttr, roczna, rocznaLabel)}
-        ${canManageSkladki ? `<a class="audyt-history-btn" href="${escapeAttr(rocznaHistoryHref)}" title="Historia" aria-label="Historia składki rocznej">${HISTORY_ICON}</a>` : ''}
+        ${canManageSkladki ? `<a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref)}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a>` : ''}
       `;
       sectionEl.appendChild(row);
     }
