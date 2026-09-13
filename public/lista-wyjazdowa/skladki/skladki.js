@@ -1,9 +1,11 @@
 /**
  * Składki page (Plan C, KRKG-0037): Wpisowe + Składka roczna (selectable year, KRKG-0047) for
- * every member, grouped by section. Read-only for every signed-in member; toggle/kwota-edit
- * controls and the Historia zmian panel only render when GET /lista-wyjazdowa/my-role reports
- * canManageSkladki (accountant/admin) - the server re-checks the role on every PUT/GET regardless,
- * this only controls what the UI offers (design.md §8, §9).
+ * every member, one line per person - a name pill plus a paid/unpaid coin icon each for wpisowe
+ * and składka roczna (same icon as wyjazd.js's per-event składka). The per-year rate itself is a
+ * single free-text note set once at the top of the page, not a per-member amount field. Read-only
+ * for every signed-in member; toggle/edit controls and the Historia zmian panel only render when
+ * GET /lista-wyjazdowa/my-role reports canManageSkladki (accountant/admin) - the server re-checks
+ * the role on every PUT/GET regardless, this only controls what the UI offers (design.md §8, §9).
  */
 
 // Same escapeHtml/escapeAttr pair as wyjazd.js/profil.js/person-tile.js - the established pattern
@@ -28,6 +30,12 @@ function sectionPillHtml(sectionId, label) {
   return `<span class="section-pill" data-section="${escapeAttr(sectionId ?? '')}">${escapeHtml(label)}</span>`;
 }
 
+// The classic person pill used everywhere else a member's name is listed (wyjazd.js's roster,
+// Spis Ludności/Zarządzanie ludźmi) - one line per person instead of the old multi-line row.
+function categoryNamePillAttrs(categoryId, label) {
+  return `class="category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak typu')}"`;
+}
+
 // Same as wyjazd.js's displayName/formatDateTime - duplicated per this codebase's existing
 // convention (escapeHtml/escapeAttr are already duplicated the same way across every Lista
 // Wyjazdowa page) rather than introducing a shared module for two small functions.
@@ -37,6 +45,16 @@ function sectionPillHtml(sectionId, label) {
 function displayName(member) {
   const name = member.fullName ?? member.email;
   return member.nickname ? `${name} (${member.nickname})` : name;
+}
+
+// Same coin icon as wyjazd.js's renderSkladkaIcon (member-area.css's .lw-skladka-icon) - a plain
+// <span> for members who can't manage składki (nothing to click), an actual <button> otherwise.
+// data-kind distinguishes wpisowe from składka roczna for the shared click handler below.
+function paidIconHtml(kind, emailAttr, paid, label) {
+  if (!canManageSkladki) {
+    return `<span class="lw-skladka-icon" data-paid="${paid}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">💰</span>`;
+  }
+  return `<button type="button" class="lw-skladka-icon" data-kind="${kind}" data-email="${emailAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
 }
 
 function formatDateTime(iso) {
@@ -98,11 +116,14 @@ const currentYear = new Date().getFullYear();
 let selectedYear = currentYear;
 const YEAR_RANGE_PAST = 5;
 const YEAR_RANGE_FUTURE = 1;
+// The club only started tracking składki from 2026 onward - no point offering earlier years the
+// backend would happily accept (server.ts's requireYear allows 2000-2100) but that never have data.
+const MIN_DUES_YEAR = 2026;
 
 function populateYearSelect() {
   const select = document.getElementById('skladki-year-select');
   const years = [];
-  for (let y = currentYear - YEAR_RANGE_PAST; y <= currentYear + YEAR_RANGE_FUTURE; y++) years.push(y);
+  for (let y = Math.max(MIN_DUES_YEAR, currentYear - YEAR_RANGE_PAST); y <= currentYear + YEAR_RANGE_FUTURE; y++) years.push(y);
   select.innerHTML = years.map((y) => `<option value="${y}">${y}</option>`).join('');
   select.value = String(selectedYear);
 }
@@ -126,6 +147,10 @@ let canManageSkladki = false;
 // names the rest of the site shows ("Kraków"). Retired sections are kept in the map on purpose -
 // members already assigned to one still have to be grouped under a readable heading.
 let sectionLabelById = new Map();
+
+// categoryId -> label from lookupLists/categories, fetched alongside the roster - feeds the name
+// pill's title/color the same way wyjazd.js's roster does (categoryNamePillAttrs above).
+let categoryLabelById = new Map();
 
 // sectionId is null for a member with no "Mój profil" saved yet (the roster now enumerates the
 // whole club allowlist, not just members with a profile document) - grouped under one readable
@@ -151,57 +176,29 @@ function renderTable(roster, duesByEmail) {
     for (const member of members) {
       const roczna = duesByEmail.get(member.email)?.paid ?? false;
       const emailAttr = escapeAttr(member.email);
+      const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
       const row = document.createElement('div');
       row.className = 'lw-skladki-row section-row-accent';
       row.dataset.section = sectionId ?? '';
-      // Wpisowe lives on the member's listaWyjazdowaProfile document, so a member who has not
-      // filled that profile in yet has nowhere to record it: PUT /lista-wyjazdowa/wpisowe answers
-      // 404 for them by design (it must not create a profile document with only the wpisowePaid
-      // field). Showing them as a plain "nieopłacone" with a working-looking toggle meant every
-      // click on that toggle failed with an error banner, so they get an explicit "brak profilu"
-      // and no button at all - the status is reported honestly and nothing unusable is offered.
-      // Składka roczna is unaffected: it is stored per member+year and needs no profile.
-      // Kwota (amount) is roczna-only (KRKG-0047) - wpisowe stays a plain toggle, per the design
-      // decision that wpisowe has no per-member rate to record. Free-text like skladkaFee on the
-      // wyjazd page, same input+Zapisz pattern (#skladka-fee-input/-save there).
-      const amount = duesByEmail.get(member.email)?.amount ?? null;
-      // Historia deep links (KRKG-0050 batch 5/6) - due:{memberEmail}:entry_fee is wpisowe's
-      // resource key (see server.ts's handleListaWyjazdowaPutWpisowe), due:{memberEmail}:{year}
-      // is roczna's (handleListaWyjazdowaPutDues) - implementation-contract.md's "Action registry"
-      // intro paragraph. Two separate links since they're two independent resources/query filters.
-      // Point at /admin/audyt/, not the member-zone /audyt/: dues.* actions carry audience
-      // 'adminOrAccountant' (ACTION_REGISTRY, upload-service/src/audit.ts), which the member-scope
-      // query (handleAuditEventsListPublic, scope: 'member') can never return regardless of who's
-      // asking - only the admin-scope viewer (resolveAdminAuditViewer) is ever allowed to see them.
-      // Gated by canManageSkladki like every other privileged control on this row (see file header)
-      // - a plain member has no page that can show them this history, so no point offering the icon.
+      // Wpisowe is independent of "Mój profil" (setWpisowePaid upserts one with empty
+      // weaponIds/equipment/companions if none exists yet, server.ts) - every member gets the same
+      // icon regardless. Historia deep links (KRKG-0050 batch 5/6) - due:{memberEmail}:entry_fee is
+      // wpisowe's resource key (see server.ts's handleListaWyjazdowaPutWpisowe),
+      // due:{memberEmail}:{year} is roczna's (handleListaWyjazdowaPutDues). Point at /admin/audyt/,
+      // not the member-zone /audyt/: dues.* actions carry audience 'adminOrAccountant'
+      // (ACTION_REGISTRY, upload-service/src/audit.ts), which only the admin-scope viewer can see.
+      // Gated by canManageSkladki like every other privileged control on this row - a plain member
+      // has no page that can show them this history, so no point offering the icon.
       const wpisoweHistoryHref = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}:entry_fee`)}`;
       const rocznaHistoryHref = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}:${selectedYear}`)}`;
+      const wpisoweLabel = member.wpisowePaid ? 'Wpisowe: opłacone' : 'Wpisowe: nieopłacone';
+      const rocznaLabel = `Składka ${selectedYear}: ${roczna ? 'opłacona' : 'nieopłacona'}`;
       row.innerHTML = `
-        <span>${escapeHtml(displayName(member))}</span>
-        <span data-wpisowe-status>Wpisowe: ${member.hasProfile ? (member.wpisowePaid ? 'opłacone' : 'nieopłacone') : 'brak profilu'}</span>
-        ${
-          canManageSkladki && member.hasProfile
-            ? `<button type="button" class="lw-wpisowe-toggle" data-email="${emailAttr}" data-paid="${member.wpisowePaid ? 'true' : 'false'}">${member.wpisowePaid ? 'Oznacz jako nieopłacone' : 'Oznacz jako opłacone'}</button>`
-            : ''
-        }
-        ${canManageSkladki && member.hasProfile ? `<a class="audyt-history-btn" href="${escapeAttr(wpisoweHistoryHref)}" title="Historia" aria-label="Historia wpisowego">${HISTORY_ICON}</a>` : ''}
-        <span>Składka ${selectedYear}: ${roczna ? 'opłacona' : 'nieopłacona'}</span>
-        ${
-          canManageSkladki
-            ? `<button type="button" class="lw-roczna-toggle" data-email="${emailAttr}" data-paid="${roczna ? 'true' : 'false'}">${roczna ? 'Oznacz jako nieopłaconą' : 'Oznacz jako opłaconą'}</button>`
-            : ''
-        }
+        <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
+        ${paidIconHtml('wpisowe', emailAttr, member.wpisowePaid, wpisoweLabel)}
+        ${canManageSkladki ? `<a class="audyt-history-btn" href="${escapeAttr(wpisoweHistoryHref)}" title="Historia" aria-label="Historia wpisowego">${HISTORY_ICON}</a>` : ''}
+        ${paidIconHtml('roczna', emailAttr, roczna, rocznaLabel)}
         ${canManageSkladki ? `<a class="audyt-history-btn" href="${escapeAttr(rocznaHistoryHref)}" title="Historia" aria-label="Historia składki rocznej">${HISTORY_ICON}</a>` : ''}
-        ${
-          canManageSkladki
-            ? `<span class="lw-roczna-amount-edit">
-                 Kwota:
-                 <input type="text" class="lw-roczna-amount-input" data-email="${emailAttr}" value="${escapeAttr(amount ?? '')}" placeholder="np. 100 zł" />
-                 <button type="button" class="lw-roczna-amount-save" data-email="${emailAttr}">Zapisz</button>
-               </span>`
-            : `<span>Kwota: ${amount ? escapeHtml(amount) : 'nie ustalono'}</span>`
-        }
       `;
       sectionEl.appendChild(row);
     }
@@ -229,9 +226,42 @@ async function renderDuesAuditLog() {
     .join('');
 }
 
+// The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety") - same
+// display/edit-panel pattern as wyjazd.js's renderSkladkaFee/saveSkladkaFee for its per-event fee.
+function renderYearFee(yearFee) {
+  const display = document.getElementById('skladki-year-fee-display');
+  const editPanel = document.getElementById('skladki-year-fee-edit');
+  const historyLink = document.getElementById('skladki-year-fee-history-link');
+  const note = yearFee?.note ?? null;
+  display.textContent = note ? `Składka ${selectedYear}: ${note}` : `Składka ${selectedYear}: nie ustalono`;
+  editPanel.hidden = !canManageSkladki;
+  if (canManageSkladki) document.getElementById('skladki-year-fee-input').value = note ?? '';
+  historyLink.hidden = !canManageSkladki;
+  historyLink.href = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:year:${selectedYear}`)}`;
+}
+
+async function saveYearFee() {
+  clearError();
+  try {
+    const value = document.getElementById('skladki-year-fee-input').value.trim();
+    await confirmedDuesMutation(document.getElementById('skladki-year-fee-save'), () => apiFetch(
+      `/lista-wyjazdowa/dues/year-fee?year=${selectedYear}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: value || null }) },
+      showReauth,
+      hideReauth,
+    ), () => {
+      document.getElementById('skladki-year-fee-display').textContent = value ? `Składka ${selectedYear}: ${value}` : `Składka ${selectedYear}: nie ustalono`;
+    });
+  } catch (err) {
+    showError(`Nie udało się zapisać składki: ${err.message}`);
+  }
+}
+
+document.getElementById('skladki-year-fee-save').addEventListener('click', saveYearFee);
+
 async function loadAndRender() {
   populateYearSelect();
-  const [{ canManageSkladki: role }, { roster }, { dues }, lookupLists] = await Promise.all([
+  const [{ canManageSkladki: role }, { roster }, { dues, yearFee }, lookupLists] = await Promise.all([
     apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/dues?year=${selectedYear}`, { method: 'GET' }, showReauth, hideReauth),
@@ -241,6 +271,8 @@ async function loadAndRender() {
   ]);
   canManageSkladki = role;
   sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
+  categoryLabelById = new Map((lookupLists.categories ?? []).map((c) => [c.id, c.label]));
+  renderYearFee(yearFee);
   const duesByEmail = new Map(dues.map((d) => [d.email, d]));
   renderTable(roster, duesByEmail);
   await renderDuesAuditLog();
@@ -256,10 +288,9 @@ async function toggleWpisowe(email, nextPaid, control) {
       hideReauth,
     ), () => {
       control.dataset.paid = String(nextPaid);
-      control.textContent = nextPaid ? 'Oznacz jako nieopłacone' : 'Oznacz jako opłacone';
-      const status = control.closest('.lw-skladki-row')?.querySelector('[data-wpisowe-status]');
-      if (!status) throw new Error('Nie znaleziono pola statusu wpisowego.');
-      status.textContent = `Wpisowe: ${nextPaid ? 'opłacone' : 'nieopłacone'}`;
+      const label = nextPaid ? 'Wpisowe: opłacone' : 'Wpisowe: nieopłacone';
+      control.title = `${label} — kliknij, aby zmienić`;
+      control.setAttribute('aria-label', label);
     });
   } catch (err) {
     showError(`Nie udało się zaktualizować wpisowego: ${err.message}`);
@@ -276,43 +307,22 @@ async function toggleRoczna(email, nextPaid, control) {
       hideReauth,
     ), () => {
       control.dataset.paid = String(nextPaid);
-      control.textContent = nextPaid ? 'Oznacz jako nieopłaconą' : 'Oznacz jako opłaconą';
+      const label = `Składka ${selectedYear}: ${nextPaid ? 'opłacona' : 'nieopłacona'}`;
+      control.title = `${label} — kliknij, aby zmienić`;
+      control.setAttribute('aria-label', label);
     });
   } catch (err) {
     showError(`Nie udało się zaktualizować składki: ${err.message}`);
   }
 }
 
-async function saveRocznaAmount(email, amount, control) {
-  clearError();
-  try {
-    await confirmedDuesMutation(control, () => apiFetch(
-      `/lista-wyjazdowa/dues?memberEmail=${encodeURIComponent(email)}&year=${selectedYear}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: amount || null }) },
-      showReauth,
-      hideReauth,
-    ), () => {});
-  } catch (err) {
-    showError(`Nie udało się zapisać kwoty składki: ${err.message}`);
-  }
-}
-
 document.getElementById('skladki-content').addEventListener('click', (e) => {
-  const wpisoweBtn = e.target.closest('.lw-wpisowe-toggle');
-  if (wpisoweBtn) {
-    toggleWpisowe(wpisoweBtn.dataset.email, wpisoweBtn.dataset.paid !== 'true', wpisoweBtn);
-    return;
-  }
-  const rocznaBtn = e.target.closest('.lw-roczna-toggle');
-  if (rocznaBtn) {
-    toggleRoczna(rocznaBtn.dataset.email, rocznaBtn.dataset.paid !== 'true', rocznaBtn);
-    return;
-  }
-  const amountBtn = e.target.closest('.lw-roczna-amount-save');
-  if (amountBtn) {
-    const input = amountBtn.closest('.lw-roczna-amount-edit').querySelector('.lw-roczna-amount-input');
-    saveRocznaAmount(amountBtn.dataset.email, input.value.trim(), amountBtn);
-  }
+  const icon = e.target.closest('.lw-skladka-icon[data-kind]');
+  if (!icon) return;
+  const email = icon.dataset.email;
+  const nextPaid = icon.dataset.paid !== 'true';
+  if (icon.dataset.kind === 'wpisowe') toggleWpisowe(email, nextPaid, icon);
+  else toggleRoczna(email, nextPaid, icon);
 });
 
 initGoogleSignIn({

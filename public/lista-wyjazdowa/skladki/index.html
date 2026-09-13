@@ -52,6 +52,19 @@
             <select id="skladki-year-select"></select>
           </p>
 
+          <!-- The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety"), set once by
+               an accountant/admin - same display/edit-panel pattern as wyjazd.js's
+               #skladka-fee-panel (display span + always-visible input+Zapisz for canManageSkladki,
+               plain text otherwise). Replaces the old per-member "Kwota" text field. -->
+          <div id="skladka-fee-panel">
+            <span id="skladki-year-fee-display"></span>
+            <a id="skladki-year-fee-history-link" class="audyt-history-btn" href="/admin/audyt/" title="Historia" aria-label="Historia składki rocznej" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
+            <span id="skladki-year-fee-edit" hidden>
+              <input type="text" id="skladki-year-fee-input" placeholder="np. 100 zł mężczyźni, 50 zł kobiety" />
+              <button type="button" id="skladki-year-fee-save" class="btn-cancel">Zapisz składkę</button>
+            </span>
+          </div>
+
           <!-- Every failed mutation on this page (wpisowe/składka toggle, initial load) reports
                here (design.md §9: fail closed with a user-facing Polish message), same pattern as
                wyjazd.js's #lw-error. -->

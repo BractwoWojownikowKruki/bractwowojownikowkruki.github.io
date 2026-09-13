@@ -55,7 +55,12 @@ const duesFields = {
   year: 'roleRestricted',
   eventId: 'roleRestricted',
   paid: 'roleRestricted',
+  // amount is now only ever produced by audit-migration.ts (legacy per-member duesAuditLog
+  // "kwotę składki" entries predating dues.year_fee.changed below) - the live write path moved to
+  // a shared per-year note instead of a per-member amount, but the field stays registered so that
+  // historical migration can still faithfully replay it.
   amount: 'roleRestricted',
+  note: 'roleRestricted',
   feeDigest: 'roleRestricted',
   feeLength: 'roleRestricted',
 } as const;
@@ -134,6 +139,7 @@ export const ACTION_REGISTRY = {
   'dues.annual.changed': action('dues', 'adminOrAccountant', ['due'], duesFields),
   'dues.entry_fee.changed': action('dues', 'adminOrAccountant', ['due'], duesFields),
   'dues.event_fee.changed': action('dues', 'adminOrAccountant', ['eventFee', 'signup'], duesFields),
+  'dues.year_fee.changed': action('dues', 'adminOrAccountant', ['due'], duesFields),
   'profile.member.updated': action('profile', 'adminOrModerator', ['member'], profileFields),
   'profile.drive_folder.changed': action('profile', 'adminOrModerator', ['member'], profileFields),
   'profile.person.created': action('profile', 'adminOrModerator', ['person'], profileFields),

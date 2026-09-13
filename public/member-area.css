@@ -629,8 +629,12 @@ button.lw-skladka-icon:disabled {
   border-radius: 8px;
 }
 
+/* #skladka-fee-panel is reused verbatim by both the wyjazd page's per-event fee (wyjazd.js) and
+   the Składki page's per-year rate note (skladki.js) - the two never render together, and sharing
+   the id means sharing that box styling for free. The inputs keep separate ids/rules below since
+   the year-fee note ("100 zł mężczyźni, 50 zł kobiety") runs longer than a single event's fee. */
 #skladka-fee-input,
-.lw-roczna-amount-input {
+#skladki-year-fee-input {
   background: var(--surface-deep);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -639,8 +643,9 @@ button.lw-skladka-icon:disabled {
   margin-right: 0.5rem;
 }
 
-.lw-roczna-amount-input {
-  width: 8rem;
+#skladki-year-fee-input {
+  width: 20rem;
+  max-width: 100%;
 }
 
 /* Year <select> above the Składki table (skladki.js's populateYearSelect, KRKG-0047) - same

@@ -66,9 +66,19 @@ test('saveProfile leaves fields it does not know about untouched', async () => {
   assert.deepEqual(stored?.weaponIds, ['topor']);
 });
 
-test('setWpisowePaid returns null when no profile exists', async () => {
+// Wpisowe is a club due, not a Lista Wyjazdowa feature - whether a member has ever filled in "Mój
+// profil" must not gate whether they can be marked as having paid it.
+test('setWpisowePaid creates a profile with empty weaponIds/equipment/companions when none exists', async () => {
   const client = createInMemoryFirestoreClient();
-  assert.equal(await setWpisowePaid(client, 'ala@example.test', true, 'accountant@example.test'), null);
+  const created = await setWpisowePaid(client, 'ala@example.test', true, 'accountant@example.test');
+  assert.equal(created.wpisowePaid, true);
+  assert.deepEqual(created.weaponIds, []);
+  assert.deepEqual(created.equipment, []);
+  assert.deepEqual(created.companions, []);
+  assert.equal(created.updatedBy, 'accountant@example.test');
+
+  const stored = await getProfile(client, 'ala@example.test');
+  assert.deepEqual(stored, created);
 });
 
 test('setWpisowePaid toggles paid, preserving weaponIds/equipment/companions', async () => {

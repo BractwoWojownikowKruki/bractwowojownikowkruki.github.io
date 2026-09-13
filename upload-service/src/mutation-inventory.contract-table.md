@@ -14,7 +14,7 @@ table into this file in the same change. If you forget, this test will keep pass
 stale copy while the real contract document silently diverges - exactly the failure mode this
 fixture exists to prevent.
 
-Last synced with implementation-contract.md: 2026-09-12 (KRKG-0070 addendum batch 2/3).
+Last synced with implementation-contract.md: 2026-09-13 (Składki rework: added PUT /lista-wyjazdowa/dues/year-fee, retired per-member dues amount).
 -->
 
 | Method and route | Classification and action | Resource and side effect | Execution |
@@ -50,6 +50,7 @@ Last synced with implementation-contract.md: 2026-09-12 (KRKG-0070 addendum batc
 | PUT `/lista-wyjazdowa/signups/skladka` | businessWrite — `dues.event_fee.changed` | eventFee; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/wpisowe` | businessWrite — `dues.entry_fee.changed` | due; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/dues` | businessWrite — `dues.annual.changed` | due; Firestore | requestAwaited |
+| PUT `/lista-wyjazdowa/dues/year-fee` | businessWrite — `dues.year_fee.changed` | due; Firestore | requestAwaited |
 | POST `/admin/settings` | businessWrite — `site.settings.updated` | settings; Drive text/config file | auditedOperationEnvelope |
 | POST `/delete-drive-gallery` | businessWrite — `gallery.deleted` | gallery; Drive | auditedOperationEnvelope |
 | POST `/start` | businessWrite — `gallery.created` | gallery; Drive folder/public share; provisional key then final gallery folder key | auditedOperationEnvelope |

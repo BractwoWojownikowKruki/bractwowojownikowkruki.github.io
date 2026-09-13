@@ -5841,7 +5841,6 @@ test('GET /lista-wyjazdowa/roster includes allowlisted members with no members/{
     assert.equal(noProfile.sectionId, null);
     assert.equal(noProfile.categoryId, null);
     assert.deepEqual(noProfile.weaponIds, []);
-    assert.equal(noProfile.hasProfile, false);
     assert.equal(noProfile.wpisowePaid, false);
   });
 });
@@ -5927,7 +5926,11 @@ function makeDepsWithRole(
 }
 
 test('GET /lista-wyjazdowa/my-role reflects granted roles', async () => {
-  await withServer(makeDeps({ firestore: makeListaWyjazdowaFirestore() }), async baseUrl => {
+  await withServer(makeDeps({
+    firestore: makeListaWyjazdowaFirestore(),
+    // Plain member: no userRoles grant, and not on the env admin allowlist either.
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  }), async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
     assert.deepEqual(await res.json(), { canManageSkladki: false });
   });
@@ -5941,9 +5944,20 @@ test('GET /lista-wyjazdowa/my-role reflects granted roles', async () => {
   });
 });
 
+// The env admin allowlist (deps.authenticateAdmin) is a second, independent way in - a site
+// administrator configured only there, with no userRoles doc at all, must still be able to manage
+// składki (requireSkladkiAccess's fallback, mirroring resolveAdminAuditAuth for /admin/audyt/).
+test('GET /lista-wyjazdowa/my-role also grants canManageSkladki via the env admin allowlist alone', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() }); // default authenticateAdmin succeeds
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
+    assert.deepEqual(await res.json(), { canManageSkladki: true });
+  });
+});
+
 test('PUT /lista-wyjazdowa/events with skladkaFee requires accountant, 403 for a plain member', async () => {
   const firestore = makeListaWyjazdowaFirestore();
-  const deps = makeDeps({ firestore });
+  const deps = makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { skladkaFee: '50 zł' });
@@ -5964,7 +5978,7 @@ test('PUT /lista-wyjazdowa/events with skladkaFee succeeds for accountant and is
 
 test('PUT /lista-wyjazdowa/signups/skladka requires accountant and 404s for a member with no signup', async () => {
   const firestore = makeListaWyjazdowaFirestore();
-  await withServer(makeDeps({ firestore }), async baseUrl => {
+  await withServer(makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } }), async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, { paid: true });
     assert.equal(res.status, 403);
@@ -5994,15 +6008,32 @@ test('PUT /lista-wyjazdowa/signups/skladka succeeds for accountant against an ex
   });
 });
 
-test('PUT /lista-wyjazdowa/wpisowe requires accountant and 404s without a profile', async () => {
+test('PUT /lista-wyjazdowa/wpisowe requires accountant', async () => {
   const firestore = makeListaWyjazdowaFirestore();
-  await withServer(makeDeps({ firestore }), async baseUrl => {
+  await withServer(makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } }), async baseUrl => {
     const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
     assert.equal(res.status, 403);
   });
-  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
-    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
-    assert.equal(res.status, 404);
+});
+
+// Wpisowe is a club due, not a Lista Wyjazdowa feature: whether this member has ever filled in
+// "Mój profil" must not gate whether it can be marked paid. setWpisowePaid upserts a profile
+// document with empty weaponIds/equipment/companions rather than 404ing.
+test('PUT /lista-wyjazdowa/wpisowe succeeds and creates a profile for a member with none yet', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore, {
+    listMemberEmails: async () => ['wojownik@gmail.com', 'bezprofilu@example.test'],
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=bezprofilu@example.test', { paid: true });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.profile.wpisowePaid, true);
+    assert.deepEqual(body.profile.weaponIds, []);
+
+    const roster = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
+    const member = roster.roster.find((r: { email: string }) => r.email === 'bezprofilu@example.test');
+    assert.equal(member.wpisowePaid, true);
   });
 });
 
@@ -6022,7 +6053,7 @@ test('PUT /lista-wyjazdowa/wpisowe succeeds for accountant against an existing p
 
 test('PUT /lista-wyjazdowa/dues requires accountant, validates member exists, and GET reflects it for the right year', async () => {
   const firestore = makeListaWyjazdowaFirestore();
-  await withServer(makeDeps({ firestore }), async baseUrl => {
+  await withServer(makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } }), async baseUrl => {
     const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
     assert.equal(res.status, 403);
   });
@@ -6100,7 +6131,7 @@ test('PUT /lista-wyjazdowa/events without skladkaFee in the body does not append
 
 test('GET /lista-wyjazdowa/dues/audit-log requires accountant, 403 for a plain member (KRKG-0047)', async () => {
   const firestore = makeListaWyjazdowaFirestore();
-  await withServer(makeDeps({ firestore }), async baseUrl => {
+  await withServer(makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } }), async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
     assert.equal(res.status, 403);
   });
@@ -6110,29 +6141,33 @@ test('GET /lista-wyjazdowa/dues/audit-log requires accountant, 403 for a plain m
   });
 });
 
-test('PUT /lista-wyjazdowa/dues can set/clear amount independently of paid with canonical audit entries', async () => {
+test('PUT /lista-wyjazdowa/dues/year-fee requires accountant and sets a shared per-year note', async () => {
   const firestore = makeListaWyjazdowaFirestore();
-  const deps = makeDepsWithRole('accountant', firestore);
-  await withServer(deps, async baseUrl => {
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
-
-    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { amount: '100 zł' });
+  await withServer(makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } }), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/year-fee?year=2027', { note: '100 zł' });
+    assert.equal(res.status, 403);
+  });
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/year-fee?year=2027', { note: '100 zł dla mężczyzn, 50 zł dla kobiet' });
     assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.equal(body.dues.amount, '100 zł');
-    assert.equal(body.dues.paid, false, 'paid must be untouched when only amount is sent');
+    assert.equal((await res.json()).yearFee.note, '100 zł dla mężczyzn, 50 zł dla kobiet');
 
-    const toggled = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
-    assert.equal((await toggled.json()).dues.amount, '100 zł', 'amount must be untouched when only paid is sent');
+    const getRes = await fetch(`${baseUrl}/lista-wyjazdowa/dues?year=2027`);
+    assert.equal((await getRes.json()).yearFee.note, '100 zł dla mężczyzn, 50 zł dla kobiet');
 
-    const auditRes = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
-    const entries = (await auditRes.json()).entries;
-    assert.deepEqual(entries, []);
-    const canonical = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; after: string | boolean }> }>('auditEvents'))
-      .filter(entry => entry.data.action === 'dues.annual.changed');
+    const wrongYear = await fetch(`${baseUrl}/lista-wyjazdowa/dues?year=2026`);
+    assert.equal((await wrongYear.json()).yearFee, null);
+
+    const cleared = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/year-fee?year=2027', { note: null });
+    assert.equal((await cleared.json()).yearFee.note, null);
+
+    const canonical = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; after: unknown }> }>('auditEvents'))
+      .filter(entry => entry.data.action === 'dues.year_fee.changed');
     assert.equal(canonical.length, 2);
-    assert.deepEqual(canonical[0].data.changes, [{ field: 'amount', after: '100 zł', visibility: 'roleRestricted' }]);
-    assert.deepEqual(canonical[1].data.changes, [{ field: 'paid', before: false, after: true, visibility: 'roleRestricted' }]);
+    assert.deepEqual(canonical[0].data.changes, [{ field: 'note', after: '100 zł dla mężczyzn, 50 zł dla kobiet', visibility: 'roleRestricted' }]);
+    assert.deepEqual(canonical[1].data.changes, [
+      { field: 'note', before: '100 zł dla mężczyzn, 50 zł dla kobiet', after: null, visibility: 'roleRestricted' },
+    ]);
   });
 });
 
@@ -6144,7 +6179,6 @@ test('GET /lista-wyjazdowa/roster includes wpisowePaid per member', async () => 
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/roster`);
     const body = await res.json();
     assert.equal(body.roster[0].wpisowePaid, false);
-    assert.equal(body.roster[0].hasProfile, true);
   });
 });
 
@@ -6200,7 +6234,6 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
     const annualDue = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', {
       paid: true,
-      amount: '100 zł',
     });
     assert.equal(annualDue.status, 200);
 
@@ -6249,44 +6282,10 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
     assert.equal(byAction.get('dues.entry_fee.changed')?.changes[0]?.field, 'paid');
     assert.deepEqual(byAction.get('dues.annual.changed')?.changes, [
       { field: 'paid', after: true, visibility: 'roleRestricted' },
-      { field: 'amount', after: '100 zł', visibility: 'roleRestricted' },
     ]);
     assert.equal((await firestore.listDocs('signupAuditLog')).length, 0);
     assert.equal((await firestore.listDocs('duesAuditLog')).length, 0);
     assert.equal((await firestore.listDocs('rolesAuditLog')).length, 0);
-  });
-});
-
-// wpisowePaid alone cannot express "there is no profile document to record this on", and the
-// Składki page needs that distinction: PUT /lista-wyjazdowa/wpisowe is a 404 for a member with no
-// listaWyjazdowaProfile, so the page must not offer a toggle for one. Both members below report
-// wpisowePaid: false; only hasProfile tells them apart.
-test('GET /lista-wyjazdowa/roster reports hasProfile: false for a member with no listaWyjazdowaProfile', async () => {
-  const firestore = makeListaWyjazdowaFirestore();
-  seedMember(firestore, 'bezprofilu@example.test');
-  const deps = makeDepsWithRole('accountant', firestore, {
-    listMemberEmails: async () => ['wojownik@gmail.com', 'bezprofilu@example.test'],
-  });
-  await withServer(deps, async baseUrl => {
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Ala Kowalska', sectionId: 'krakow' });
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
-
-    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
-    const withProfile = body.roster.find((r: { email: string }) => r.email === 'wojownik@gmail.com');
-    const withoutProfile = body.roster.find((r: { email: string }) => r.email === 'bezprofilu@example.test');
-    assert.equal(withProfile.hasProfile, true);
-    assert.equal(withProfile.wpisowePaid, false);
-    assert.equal(withoutProfile.hasProfile, false, 'a member with no profile document must be distinguishable');
-    assert.equal(withoutProfile.wpisowePaid, false, 'and still reports the same wpisowePaid as an unpaid member with a profile');
-
-    // The 404 that hasProfile: false exists to keep the UI from walking into.
-    const toggled = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=bezprofilu@example.test', { paid: true });
-    assert.equal(toggled.status, 404);
-
-    // And that refusal must leave no partial profile document behind: a listaWyjazdowaProfile with
-    // only wpisowePaid on it would have no equipment array for PUT /lista-wyjazdowa/signups to read.
-    const after = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
-    assert.equal(after.roster.find((r: { email: string }) => r.email === 'bezprofilu@example.test').hasProfile, false);
   });
 });
 
@@ -6385,9 +6384,9 @@ test('GET /members/directory falls back to the raw sectionId when it has no matc
   });
 });
 
-// The reason setWpisowePaid must never upsert: a signup for a profile-less member is legitimate and
-// reads targetProfile.equipment/companions. A profile document containing only wpisowePaid would
-// make that read a TypeError (500) instead of the clean 200 below.
+// setWpisowePaid now upserts a profile with empty weaponIds/equipment/companions rather than
+// 404ing, so a signup for such a member still reads a real (empty) array from
+// targetProfile.equipment/companions instead of crashing.
 test('PUT /lista-wyjazdowa/signups still works for a member with no listaWyjazdowaProfile', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'bezprofilu@example.test');

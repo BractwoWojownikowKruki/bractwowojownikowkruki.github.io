@@ -7,20 +7,23 @@ export interface DuesDoc {
   email: string;
   year: number;
   paid: boolean;
-  // Free-text like events.ts's skladkaFee (e.g. "100 zł") rather than a number - the roster
-  // covers members with different rates (see KRKG-0047 design discussion), so a single numeric
-  // type would not have captured the reasoning behind a given amount. null means "not set yet".
-  amount: string | null;
   updatedBy: string;
   updatedAt: string;
 }
 
-// paid/amount are independently settable (KRKG-0047, mirrors EventWritableFields'
-// name/startDate/status/skladkaFee split in events.ts) - a caller sends only the field it wants
-// to change, and saveDues below leaves the other one exactly as it already was.
 export interface DuesWritableFields {
   paid?: boolean;
-  amount?: string | null;
+}
+
+// The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety"), set once by an
+// accountant/admin instead of per member - replaces the old per-member DuesDoc.amount field,
+// which forced the same free-text rate to be retyped once per row for what is, in practice, one
+// club-wide decision per year.
+export interface DuesYearFeeDoc {
+  year: number;
+  note: string | null;
+  updatedBy: string;
+  updatedAt: string;
 }
 
 // A separate, member/event-scoped-but-not-event-owned log for the three money writes that don't
@@ -42,6 +45,7 @@ export interface DuesAuditEntry {
 
 const COLLECTION = 'duesAnnual';
 const AUDIT_COLLECTION = 'duesAuditLog';
+const YEAR_FEE_COLLECTION = 'duesYearFee';
 
 function duesId(email: string, year: number): string {
   return `${email.toLowerCase()}_${year}`;
@@ -69,11 +73,25 @@ export async function saveDues(
     email: email.toLowerCase(),
     year,
     paid: fields.paid ?? existing?.paid ?? false,
-    amount: fields.amount !== undefined ? fields.amount : (existing?.amount ?? null),
     updatedBy,
     updatedAt: new Date().toISOString(),
   };
   await client.setDoc(COLLECTION, id, doc);
+  return doc;
+}
+
+export async function getDuesYearFee(client: FirestoreLikeClient, year: number): Promise<DuesYearFeeDoc | null> {
+  return client.getDoc<DuesYearFeeDoc>(YEAR_FEE_COLLECTION, String(year));
+}
+
+export async function saveDuesYearFee(
+  client: FirestoreWriteContext,
+  year: number,
+  note: string | null,
+  updatedBy: string,
+): Promise<DuesYearFeeDoc> {
+  const doc: DuesYearFeeDoc = { year, note, updatedBy, updatedAt: new Date().toISOString() };
+  await client.setDoc(YEAR_FEE_COLLECTION, String(year), doc);
   return doc;
 }
 

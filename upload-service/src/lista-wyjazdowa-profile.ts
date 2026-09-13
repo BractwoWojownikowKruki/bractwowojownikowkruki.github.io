@@ -64,18 +64,29 @@ export async function saveProfile(
   return { ...writable, wpisowePaid: existing?.wpisowePaid ?? false };
 }
 
+/**
+ * Wpisowe is a club due, not a Lista Wyjazdowa feature - whether a member has ever filled in
+ * "Mój profil" (weaponIds/equipment/companions) must not gate whether they can be marked as
+ * having paid it. For a member with no existing document this creates one with empty defaults,
+ * the same "give a brand-new document its complete shape" approach saveProfile above already uses
+ * for a self-service first save.
+ */
 export async function setWpisowePaid(
   client: FirestoreWriteContext,
   email: string,
   paid: boolean,
   updatedBy: string,
-): Promise<ListaWyjazdowaProfileDoc | null> {
+): Promise<ListaWyjazdowaProfileDoc> {
   const id = email.toLowerCase();
   const existing = await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id);
-  if (!existing) return null;
   const writable = { wpisowePaid: paid, updatedBy, updatedAt: new Date().toISOString() };
-  await client.setDoc(COLLECTION, id, writable);
-  return { ...existing, ...writable };
+  await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, weaponIds: [], equipment: [], companions: [] });
+  return {
+    weaponIds: existing?.weaponIds ?? [],
+    equipment: existing?.equipment ?? [],
+    companions: existing?.companions ?? [],
+    ...writable,
+  };
 }
 
 // Plan B (roster join, GET /lista-wyjazdowa/roster): unlike getProfile, callers here need the

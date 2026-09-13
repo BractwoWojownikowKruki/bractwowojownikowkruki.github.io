@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
-import { getDues, listDuesForYear, saveDues, appendDuesAuditEntry, listDuesAuditLog } from './dues.ts';
+import { getDues, listDuesForYear, saveDues, appendDuesAuditEntry, listDuesAuditLog, getDuesYearFee, saveDuesYearFee } from './dues.ts';
 
 test('getDues returns null when no record exists', async () => {
   const client = createInMemoryFirestoreClient();
@@ -14,7 +14,6 @@ test('saveDues creates a record and getDues round-trips it', async () => {
   assert.equal(dues.email, 'ala@example.test');
   assert.equal(dues.year, 2027);
   assert.equal(dues.paid, true);
-  assert.equal(dues.amount, null);
   assert.equal(dues.updatedBy, 'accountant@example.test');
 
   const fetched = await getDues(client, 'ala@example.test', 2027);
@@ -29,20 +28,25 @@ test('saveDues on an existing record updates paid/updatedBy/updatedAt', async ()
   assert.equal(updated.updatedBy, 'accountant@example.test');
 });
 
-test('saveDues with only amount leaves an existing paid status untouched, and vice versa', async () => {
+test('getDuesYearFee returns null when no record exists', async () => {
   const client = createInMemoryFirestoreClient();
-  await saveDues(client, 'ala@example.test', 2027, { paid: true }, 'accountant@example.test');
-  const withAmount = await saveDues(client, 'ala@example.test', 2027, { amount: '100 zł' }, 'accountant@example.test');
-  assert.equal(withAmount.paid, true);
-  assert.equal(withAmount.amount, '100 zł');
+  assert.equal(await getDuesYearFee(client, 2027), null);
+});
 
-  const paidToggled = await saveDues(client, 'ala@example.test', 2027, { paid: false }, 'accountant@example.test');
-  assert.equal(paidToggled.amount, '100 zł');
-  assert.equal(paidToggled.paid, false);
+test('saveDuesYearFee creates/replaces the shared per-year note and getDuesYearFee round-trips it', async () => {
+  const client = createInMemoryFirestoreClient();
+  const yearFee = await saveDuesYearFee(client, 2027, '100 zł mężczyźni, 50 zł kobiety', 'accountant@example.test');
+  assert.equal(yearFee.year, 2027);
+  assert.equal(yearFee.note, '100 zł mężczyźni, 50 zł kobiety');
+  assert.equal(yearFee.updatedBy, 'accountant@example.test');
+  assert.deepEqual(await getDuesYearFee(client, 2027), yearFee);
 
-  const cleared = await saveDues(client, 'ala@example.test', 2027, { amount: null }, 'accountant@example.test');
-  assert.equal(cleared.amount, null);
-  assert.equal(cleared.paid, false);
+  const replaced = await saveDuesYearFee(client, 2027, '120 zł', 'admin@example.test');
+  assert.equal(replaced.note, '120 zł');
+  assert.deepEqual(await getDuesYearFee(client, 2027), replaced);
+
+  // A different year has its own independent note.
+  assert.equal(await getDuesYearFee(client, 2026), null);
 });
 
 test('listDuesForYear returns only records for the requested year', async () => {

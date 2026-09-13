@@ -69,7 +69,7 @@ import {
   type SignupWritableFields,
 } from './signups.ts';
 import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
-import { listDuesForYear, saveDues, type DuesDoc, type DuesWritableFields, listDuesAuditLog } from './dues.ts';
+import { listDuesForYear, saveDues, type DuesDoc, listDuesAuditLog, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc } from './dues.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -208,6 +208,7 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   signupFee: auditedRoute('PUT', '/lista-wyjazdowa/signups/skladka', ['dues.event_fee.changed']),
   entryFee: auditedRoute('PUT', '/lista-wyjazdowa/wpisowe', ['dues.entry_fee.changed']),
   annualDues: auditedRoute('PUT', '/lista-wyjazdowa/dues', ['dues.annual.changed']),
+  yearFee: auditedRoute('PUT', '/lista-wyjazdowa/dues/year-fee', ['dues.year_fee.changed']),
 } as const;
 
 export const AUDITED_MEMBER_MUTATION_ROUTE_DESCRIPTORS = Object.values(AUDITED_MEMBER_MUTATION_ROUTES);
@@ -2251,7 +2252,7 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
     fields.status = body.status;
   }
   if (body.skladkaFee !== undefined) {
-    await requireRole(deps.firestore, identity.email, 'accountant');
+    await requireSkladkiAccess(req, res, deps, identity.email);
     fields.skladkaFee = body.skladkaFee === null ? null : requireTrimmedString(body.skladkaFee, LW_MAX_NAME_LENGTH, 'Opis składki jest nieprawidłowy.');
   }
   const eventFieldCount = Number(fields.name !== undefined) + Number(fields.startDate !== undefined) + Number(fields.status !== undefined);
@@ -2423,14 +2424,10 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       weaponIds: profile?.weaponIds ?? [],
       equipment: profile?.equipment ?? [],
       companions: profile?.companions ?? [],
-      // hasProfile separates "has a listaWyjazdowaProfile document and hasn't paid" from "has no
-      // such document at all", which the wpisowePaid: false fallback alone cannot express. The
-      // Składki page needs the distinction: PUT /lista-wyjazdowa/wpisowe is a 404 for a member
-      // with no profile document (setWpisowePaid deliberately refuses to create one, since a
-      // wpisowePaid-only document would be missing weaponIds/equipment/companions and would break
-      // PUT /lista-wyjazdowa/signups' targetProfile.equipment access), so a toggle button must
-      // not be offered for those members in the first place.
-      hasProfile: profile !== undefined,
+      // wpisowePaid is independent of whether the member has ever filled in "Mój profil" -
+      // setWpisowePaid (lista-wyjazdowa-profile.ts) creates a profile document with empty
+      // weaponIds/equipment/companions on first use if none exists yet, so there is no "no
+      // profile to record this on" case left to distinguish here.
       wpisowePaid: profile?.wpisowePaid ?? false,
     };
   });
@@ -2471,18 +2468,39 @@ async function handleMembersDirectory(req: IncomingMessage, res: ServerResponse,
 }
 
 // Plan C (składki/dues): every route below that touches skladkaFee/skladkaPaid/wpisowePaid/
-// duesAnnual gates on the accountant role via requireRole before any read/write of that data -
-// see roles.ts. GET /lista-wyjazdowa/my-role lets the client know upfront whether to show the
-// accountant-only UI at all.
+// duesAnnual gates on "accountant" via requireSkladkiAccess before any read/write of that data.
+// GET /lista-wyjazdowa/my-role lets the client know upfront whether to show the accountant-only
+// UI at all.
+//
+// A Firestore-granted 'accountant'/'admin' role (roles.ts's satisfiesRole) is one way in; the
+// other is deps.authenticateAdmin's own env allowlist (the same allowlist every other
+// authenticateAdmin route in this file trusts) - a site administrator configured only that way,
+// with no separate userRoles grant, must still be able to manage money. Same admin-allowlist-or-
+// Firestore-role fallback as resolveAdminAuditAuth uses for /admin/audyt/.
+async function requireSkladkiAccess(req: IncomingMessage, res: ServerResponse, deps: ServerDeps, email: string): Promise<void> {
+  const granted = await getGrantedRoles(deps.firestore, email);
+  if (satisfiesRole(granted, 'accountant')) return;
+  await deps.authenticateAdmin(req, res);
+}
+
+async function canManageSkladki(req: IncomingMessage, res: ServerResponse, deps: ServerDeps, email: string): Promise<boolean> {
+  try {
+    await requireSkladkiAccess(req, res, deps, email);
+    return true;
+  } catch (err) {
+    if (!(err instanceof AuthError)) throw err;
+    return false;
+  }
+}
+
 async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  const granted = await getGrantedRoles(deps.firestore, identity.email);
-  sendJson(res, 200, { canManageSkladki: satisfiesRole(granted, 'accountant') });
+  sendJson(res, 200, { canManageSkladki: await canManageSkladki(req, res, deps, identity.email) });
 }
 
 async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  await requireRole(deps.firestore, identity.email, 'accountant');
+  await requireSkladkiAccess(req, res, deps, identity.email);
   const eventId = url.searchParams.get('eventId');
   const memberEmail = url.searchParams.get('memberEmail');
   if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
@@ -2518,31 +2536,29 @@ async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: Ser
 
 async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  await requireRole(deps.firestore, identity.email, 'accountant');
+  await requireSkladkiAccess(req, res, deps, identity.email);
   const memberEmail = url.searchParams.get('memberEmail');
   if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
   const paid = body.paid;
   const normalizedMemberEmail = memberEmail.toLowerCase();
+  // Wpisowe is a club due, not a Lista Wyjazdowa feature - whether this member has ever filled in
+  // "Mój profil" must not gate whether they can be marked as having paid it (setWpisowePaid
+  // upserts a profile with empty weaponIds/equipment/companions if none exists yet).
   const { result: profile } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.entryFee,
     'dues.entry_fee.changed',
     async tx => {
       const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', normalizedMemberEmail);
-      if (!existing) throw new AuthError('Ten członek nie ma jeszcze profilu Listy Wyjazdowej.', 404);
       return {
         actor: { email: identity.email },
         resource: { kind: 'due', key: `due:${normalizedMemberEmail}:entry_fee`, display: normalizedMemberEmail },
-        changes: [{ field: 'paid', before: existing.wpisowePaid, after: paid }],
+        changes: [{ field: 'paid', ...(existing ? { before: existing.wpisowePaid } : {}), after: paid }],
       };
     },
-    async tx => {
-      const updated = await setWpisowePaid(tx, normalizedMemberEmail, paid, identity.email);
-      if (!updated) throw new AuthError('Ten członek nie ma jeszcze profilu Listy Wyjazdowej.', 404);
-      return updated;
-    },
+    tx => setWpisowePaid(tx, normalizedMemberEmail, paid, identity.email),
   );
   sendJson(res, 200, { profile });
 }
@@ -2556,34 +2572,24 @@ function requireYear(value: string | null, message: string): number {
 async function handleListaWyjazdowaGetDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   await deps.authenticateWojownicyUpload(req, res);
   const year = requireYear(url.searchParams.get('year'), 'Nieprawidłowy rok.');
-  const dues = await listDuesForYear(deps.firestore, year);
-  sendJson(res, 200, { dues });
+  const [dues, yearFee] = await Promise.all([
+    listDuesForYear(deps.firestore, year),
+    getDuesYearFee(deps.firestore, year),
+  ]);
+  sendJson(res, 200, { dues, yearFee });
 }
 
 async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  await requireRole(deps.firestore, identity.email, 'accountant');
+  await requireSkladkiAccess(req, res, deps, identity.email);
   const memberEmail = url.searchParams.get('memberEmail');
   const year = requireYear(url.searchParams.get('year'), 'Nieprawidłowy rok.');
   if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
   const member = await getMember(deps.firestore, memberEmail);
   if (!member) throw new AuthError('Nie znaleziono takiego członka.', 404);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
-  // paid and amount (KRKG-0047) are independently settable - same optional-field shape as
-  // handleListaWyjazdowaPutEvent's skladkaFee, each producing its own audit entry below only
-  // when that field was actually present in the body.
-  const fields: DuesWritableFields = {};
-  if (body.paid !== undefined) {
-    if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
-    fields.paid = body.paid;
-  }
-  if (body.amount !== undefined) {
-    fields.amount =
-      body.amount === null ? null : requireTrimmedString(body.amount, LW_MAX_NAME_LENGTH, 'Kwota składki jest nieprawidłowa.');
-  }
-  if (fields.paid === undefined && fields.amount === undefined) {
-    throw new AuthError('Podaj paid lub amount do zmiany.', 400);
-  }
+  if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
+  const paid = body.paid;
   const normalizedMemberEmail = memberEmail.toLowerCase();
   const { result: dues } = await executeDeclaredAuditedMutation(
     deps,
@@ -2594,15 +2600,37 @@ async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResp
       return {
         actor: { email: identity.email },
         resource: { kind: 'due', key: `due:${normalizedMemberEmail}:${year}`, display: normalizedMemberEmail },
-        changes: [
-          ...(fields.paid !== undefined ? [{ field: 'paid', ...(existing ? { before: existing.paid } : {}), after: fields.paid }] : []),
-          ...(fields.amount !== undefined ? [{ field: 'amount', ...(existing ? { before: existing.amount } : {}), after: fields.amount }] : []),
-        ],
+        changes: [{ field: 'paid', ...(existing ? { before: existing.paid } : {}), after: paid }],
       };
     },
-    tx => saveDues(tx, normalizedMemberEmail, year, fields, identity.email),
+    tx => saveDues(tx, normalizedMemberEmail, year, { paid }, identity.email),
   );
   sendJson(res, 200, { dues });
+}
+
+// The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety", KRKG-0047 follow-up) -
+// set once by an accountant/admin instead of once per member row.
+async function handleListaWyjazdowaPutDuesYearFee(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  await requireSkladkiAccess(req, res, deps, identity.email);
+  const year = requireYear(url.searchParams.get('year'), 'Nieprawidłowy rok.');
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const note = optionalTrimmedString(body.note, LW_MAX_NAME_LENGTH, 'Opis składki jest nieprawidłowy.');
+  const { result: yearFee } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.yearFee,
+    'dues.year_fee.changed',
+    async tx => {
+      const existing = await tx.getDoc<DuesYearFeeDoc>('duesYearFee', String(year));
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'due', key: `due:year:${year}`, display: String(year) },
+        changes: [{ field: 'note', ...(existing ? { before: existing.note } : {}), after: note }],
+      };
+    },
+    tx => saveDuesYearFee(tx, year, note, identity.email),
+  );
+  sendJson(res, 200, { yearFee });
 }
 
 // Accountant/admin-only (KRKG-0047) - the dues audit log names who paid what and when, which is
@@ -2610,7 +2638,7 @@ async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResp
 // member the way it was before this story.
 async function handleListaWyjazdowaGetDuesAuditLog(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  await requireRole(deps.firestore, identity.email, 'accountant');
+  await requireSkladkiAccess(req, res, deps, identity.email);
   const entries = await listDuesAuditLog(deps.firestore);
   sendJson(res, 200, { entries });
 }
@@ -3613,6 +3641,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaGetDues(req, res, url, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/dues') {
         await handleListaWyjazdowaPutDues(req, res, url, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/dues/year-fee') {
+        await handleListaWyjazdowaPutDuesYearFee(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/dues/audit-log') {
         await handleListaWyjazdowaGetDuesAuditLog(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
