@@ -86,8 +86,8 @@ const MZ_ICON_PATHS = {
 /**
  * Single source of truth for the "Strefa Członków" link list - every place the menu appears
  * (top-nav dropdown, mobile panel, desktop sidebar box, each duplicated again on the Galerie
- * page's variant header) renders from this same array via renderMembersZoneMenus() below,
- * instead of each carrying its own hand-copied HTML that could drift out of sync.
+ * page's variant header) renders from this same array via buildMountContent()/reconcileAllMounts()
+ * below, instead of each carrying its own hand-copied HTML that could drift out of sync.
  * "Do przeczytania" is a non-clickable group heading with nested links, same order everywhere.
  */
 const MEMBERS_ZONE_MENU = [
@@ -106,138 +106,244 @@ const MEMBERS_ZONE_MENU = [
   },
   { href: '/discord', label: 'Forum/Discord', icon: 'chat', external: true },
 ];
-// KRKG-0049 split the single /admin/ page into 4, so "Panel admina" becomes a collapsible group
-// (same mechanism as "Do przeczytania" below) instead of one flat link. Unlike "Do przeczytania",
-// this group's toggle itself must stay admin-gated (not just its sub-links) - a plain member must
-// never see a "Panel admina" heading revealing the panel exists, even collapsed/empty. See
-// makeGroup's gateToggle param below.
-// KRKG-0049: each item declares its own visibilityClass explicitly, since this group mixes two
-// audiences - "Zarządzanie ludźmi" is reachable by a Firestore-role moderator too (gated the same
-// way server-side, via /admin/members/whoami), the other three stay admin-allowlist-only. The
-// toggle itself uses the broader 'admin-or-moderator-zone-link' (passed to makeGroup below) so it
-// reveals for either audience - a single gate, not the OR of two independently-set classes, which
-// would race (see the comment on the third initGoogleSignIn call further down).
+// KRKG-0049 split the single /admin/ page into 4, so "Zarządzanie" (né "Panel admina" -
+// KRKG-0073 renamed it because a moderator, who only ever sees 2 of its 5 items, legitimately
+// belongs in this group too - "Panel admina" wrongly implied it was admin-exclusive) becomes a
+// collapsible group (same mechanism as "Do przeczytania" below) instead of one flat link.
+// KRKG-0073: each item's `gate` says which zoneState flag (below) must be `true` before that
+// item exists in the DOM at all - "Zarządzanie ludźmi" and "Audyt" are reachable by a
+// Firestore-role moderator too (gated server-side via /admin/members/whoami ->
+// isAdminOrModerator), the other three stay admin-allowlist-only (isAdmin). The toggle itself
+// gates on the broader `isAdminOrModerator` (see reconcileAdminSection below) so it reveals for
+// either audience - never the OR of two independently-resolved flags, which would let one
+// resolve while the other is still unknown and either flash the toggle briefly for a plain
+// member (before the narrower check catches up) or hide it a moment too long for a moderator.
 const ADMIN_ZONE_MENU = {
-  label: 'Panel admina',
+  label: 'Zarządzanie',
   icon: 'tool',
   items: [
-    { href: '/admin/', label: 'Ogólne', icon: 'tool', visibilityClass: 'admin-zone-link' },
-    { href: '/admin/zgloszenia/', label: 'Zgłoszenia', icon: 'scroll', visibilityClass: 'admin-zone-link' },
-    { href: '/admin/zarzadzanie-ludzmi/', label: 'Zarządzanie ludźmi', icon: 'users', visibilityClass: 'admin-or-moderator-zone-link' },
-    { href: '/admin/publiczne-wizytowki/', label: 'Publiczne wizytówki', icon: 'user', visibilityClass: 'admin-zone-link' },
-    { href: '/admin/audyt/', label: 'Audyt', icon: 'history', visibilityClass: 'admin-or-moderator-zone-link' },
+    { href: '/admin/', label: 'Ogólne', icon: 'tool', gate: 'isAdmin' },
+    { href: '/admin/zgloszenia/', label: 'Zgłoszenia', icon: 'scroll', gate: 'isAdmin' },
+    { href: '/admin/zarzadzanie-ludzmi/', label: 'Zarządzanie ludźmi', icon: 'users', gate: 'isAdminOrModerator' },
+    { href: '/admin/publiczne-wizytowki/', label: 'Publiczne wizytówki', icon: 'user', gate: 'isAdmin' },
+    { href: '/admin/audyt/', label: 'Audyt', icon: 'history', gate: 'isAdminOrModerator' },
   ],
 };
 
+// KRKG-0073: `null` means "not yet known" (no whoami has answered for this browsing session /
+// verification round yet) - reconcile*Section below treats that identically to a confirmed
+// `false`, i.e. nothing gated renders. Shared, page-wide state: the whole point of this refactor
+// is that DOM presence for every member/admin-only nav element is driven from here, never from
+// `hidden`/CSS.
+const zoneState = { isMember: null, isAdmin: null, isAdminOrModerator: null };
+
+// KRKG-0073: which verification round the state above currently reflects (see
+// verificationGeneration in auth.js). Every onSignedIn/onSignedOut/onForbidden callback below
+// carries the generation its underlying request actually started from; one that doesn't match
+// this is a response to a round that a later, fresh sign-in has since superseded (onIdentity,
+// below, is what advances this) and must be ignored outright - otherwise a slow response from an
+// identity nobody is signed in as any more could resurrect that identity's old privileges.
+let acceptedGeneration = 0;
+
+// Built once per mount (on DOMContentLoaded, see the listener right after buildMountContent
+// below) and never rebuilt afterwards - only ever inserted into / removed from the DOM by
+// reconcile*Section, never destroyed, so toggle expand/collapse state and event listeners
+// survive a hide-then-show cycle. Keyed by the mount element itself since there can be up to 3
+// per page (top-nav dropdown, mobile panel, desktop sidebar - see reconcileAllMounts's doc
+// comment further down).
+const mountBuilds = new WeakMap();
+
 /**
- * Renders MEMBERS_ZONE_MENU into every `.members-zone-links` mount point found in the DOM.
- * `data-members-zone-flavor` picks the link classes for that mount ("nav" for the top-nav
- * dropdown and mobile panel, which share identical markup/classes; "sidebar" for the desktop
- * sidebar box) and `data-members-zone-exclude` (used on the Galerie page's header variant, which
- * has no reason to link back to the page it's already on) drops one href from that mount only.
- * Links start `hidden` - the membership/admin gates below reveal them, exactly as when they were
- * static HTML - and Panel admina is appended last as a group whose toggle and most sub-links
- * carry `.admin-zone-link` (admin-allowlist only), except "Zarządzanie ludźmi" which carries
- * `.admin-or-moderator-zone-link` instead (see ADMIN_ZONE_MENU's comment above).
+ * Builds (but does not insert anywhere) every element `renderMembersZoneMenus` used to build
+ * eagerly. `data-members-zone-flavor` picks the link classes for this mount ("nav" for the
+ * top-nav dropdown and mobile panel, which share identical markup/classes; "sidebar" for the
+ * desktop sidebar box) and `data-members-zone-exclude` (used on the Galerie page's header
+ * variant, which has no reason to link back to the page it's already on) drops one href from
+ * this mount only.
  */
-function renderMembersZoneMenus() {
-  document.querySelectorAll('.members-zone-links').forEach(mount => {
-    const flavor = mount.dataset.membersZoneFlavor || 'nav';
-    const exclude = mount.dataset.membersZoneExclude;
-    const linkClass = flavor === 'sidebar' ? 'members-zone-sidebar-link' : 'nav-item nav-subitem';
-    const groupLabelClass = flavor === 'sidebar' ? 'members-zone-sidebar-label members-zone-group-label' : 'nav-item nav-subitem members-zone-group-label';
-    const nestedClass = flavor === 'sidebar' ? 'members-zone-sidebar-link--nested' : 'nav-subitem--nested';
+function buildMountContent(mount) {
+  const flavor = mount.dataset.membersZoneFlavor || 'nav';
+  const exclude = mount.dataset.membersZoneExclude;
+  const linkClass = flavor === 'sidebar' ? 'members-zone-sidebar-link' : 'nav-item nav-subitem';
+  const groupLabelClass = flavor === 'sidebar' ? 'members-zone-sidebar-label members-zone-group-label' : 'nav-item nav-subitem members-zone-group-label';
+  const nestedClass = flavor === 'sidebar' ? 'members-zone-sidebar-link--nested' : 'nav-subitem--nested';
 
-    function makeIcon(icon, extraClass) {
-      const span = document.createElement('span');
-      span.className = extraClass ? `mz-icon ${extraClass}` : 'mz-icon';
-      span.setAttribute('aria-hidden', 'true');
-      span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MZ_ICON_PATHS[icon]}</svg>`;
-      return span;
+  function makeIcon(icon, extraClass) {
+    const span = document.createElement('span');
+    span.className = extraClass ? `mz-icon ${extraClass}` : 'mz-icon';
+    span.setAttribute('aria-hidden', 'true');
+    span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${MZ_ICON_PATHS[icon]}</svg>`;
+    return span;
+  }
+
+  // No `hidden`/visibility class of any kind any more - whether this element ever reaches the
+  // DOM at all is decided purely by whether reconcile*Section ever inserts it (see below).
+  function makeLink(item, extraClass) {
+    if (exclude && item.href === exclude) return null;
+    const a = document.createElement('a');
+    a.href = item.href;
+    a.className = `${linkClass}${extraClass ? ` ${extraClass}` : ''}`;
+    if (item.external) {
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
     }
+    a.append(makeIcon(item.icon), ` ${item.label}`);
+    return a;
+  }
 
-    function makeLink(item, extraClass, visibilityClass = 'member-zone-link') {
-      if (exclude && item.href === exclude) return null;
-      const a = document.createElement('a');
-      a.href = item.href;
-      a.className = `${linkClass} ${visibilityClass}${extraClass ? ` ${extraClass}` : ''}`;
-      a.hidden = true;
-      if (item.external) {
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-      }
-      a.append(makeIcon(item.icon), ` ${item.label}`);
-      return a;
-    }
+  // Collapses/expands its nested links - starts collapsed so the menu stays compact. A
+  // <button>, not a plain non-interactive label, so it's independently toggleable in each of
+  // the three flavors.
+  function makeGroupToggleAndSublist(item) {
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = `${groupLabelClass} mz-group-toggle`;
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.append(makeIcon(item.icon), ` ${item.label}`, makeIcon('chevron', 'mz-chevron'));
 
-    // Collapses/expands its nested links - starts collapsed so the menu stays compact. A
-    // <button>, not a plain non-interactive label, so it's independently toggleable in each of
-    // the three flavors. `gateToggle` adds `visibilityClass` to the toggle itself too (see
-    // ADMIN_ZONE_MENU's comment above) - "Do przeczytania" doesn't need this since reaching this
-    // function at all already implies membership, so its toggle is fine always-visible.
-    function makeGroup(item, visibilityClass, gateToggle) {
-      const toggle = document.createElement('button');
-      toggle.type = 'button';
-      toggle.className = `${groupLabelClass} mz-group-toggle${gateToggle ? ` ${visibilityClass}` : ''}`;
-      if (gateToggle) toggle.hidden = true;
-      toggle.setAttribute('aria-expanded', 'false');
-      toggle.append(makeIcon(item.icon), ` ${item.label}`, makeIcon('chevron', 'mz-chevron'));
+    const sublist = document.createElement('div');
+    sublist.className = 'mz-group-items';
+    sublist.hidden = true;
 
-      const sublist = document.createElement('div');
-      sublist.className = 'mz-group-items';
-      sublist.hidden = true;
-      item.items.forEach(sub => {
-        const link = makeLink(sub, nestedClass, sub.visibilityClass ?? visibilityClass);
-        if (link) sublist.append(link);
-      });
-
-      toggle.addEventListener('click', () => {
-        const expanded = toggle.getAttribute('aria-expanded') === 'true';
-        toggle.setAttribute('aria-expanded', String(!expanded));
-        sublist.hidden = expanded;
-      });
-
-      return { toggle, sublist };
-    }
-
-    mount.replaceChildren();
-    MEMBERS_ZONE_MENU.forEach(item => {
-      if (item.items) {
-        const { toggle, sublist } = makeGroup(item, 'member-zone-link', false);
-        mount.append(toggle, sublist);
-        return;
-      }
-      const link = makeLink(item);
-      if (link) mount.append(link);
+    toggle.addEventListener('click', () => {
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!expanded));
+      sublist.hidden = expanded;
     });
 
-    const { toggle: adminToggle, sublist: adminSublist } = makeGroup(ADMIN_ZONE_MENU, 'admin-or-moderator-zone-link', true);
-    mount.append(adminToggle, adminSublist);
+    return { toggle, sublist };
+  }
+
+  // Member section: flat links + "Do przeczytania" group, gated as a single all-or-nothing
+  // unit on zoneState.isMember (see reconcileMemberSection) - one gate, so no ordering concerns.
+  const memberNodes = [];
+  MEMBERS_ZONE_MENU.forEach(item => {
+    if (item.items) {
+      const { toggle, sublist } = makeGroupToggleAndSublist(item);
+      item.items.forEach(sub => {
+        const link = makeLink(sub, nestedClass);
+        if (link) sublist.append(link);
+      });
+      memberNodes.push(toggle, sublist);
+      return;
+    }
+    const link = makeLink(item);
+    if (link) memberNodes.push(link);
   });
 
-  // The menu's own links didn't exist yet when updateNavigation() ran on DOMContentLoaded
-  // (that listener is registered above this one), so the freshly-minted ones never got their
-  // current-page state. updateNavigation is declared with `function`, so it's hoisted and safe
-  // to call here regardless of listener order.
+  // "Zarządzanie" section: toggle gated on isAdminOrModerator (broadest - see ADMIN_ZONE_MENU's
+  // comment above), each item gated independently on its OWN `gate` - reconcileAdminSection
+  // inserts/removes each of these on its own, in ADMIN_ZONE_MENU.items order, regardless of
+  // which of isAdmin/isAdminOrModerator resolves first or how much later than the other.
+  const { toggle: adminToggle, sublist: adminSublist } = makeGroupToggleAndSublist(ADMIN_ZONE_MENU);
+  const adminItems = ADMIN_ZONE_MENU.items
+    .map(item => ({ el: makeLink(item, nestedClass), gate: item.gate }))
+    .filter(entry => entry.el);
+
+  return { memberNodes, adminToggle, adminSublist, adminItems };
+}
+
+// Single gate (zoneState.isMember) -> the whole fragment is all-or-nothing, so plain presence
+// (`some(el => el.isConnected)`) is enough to know the current state without a separate marker.
+function reconcileMemberSection(mount) {
+  const build = mountBuilds.get(mount);
+  if (!build) return;
+  const shouldShow = zoneState.isMember === true;
+  const isShown = build.memberNodes.some(el => el.isConnected);
+  if (shouldShow && !isShown) {
+    mount.prepend(...build.memberNodes);
+  } else if (!shouldShow && isShown) {
+    build.memberNodes.forEach(el => el.remove());
+  }
+}
+
+// Toggle and each sublist item reconcile independently, each against its own gate - see
+// ADMIN_ZONE_MENU's comment. Safe to call any number of times, in any order, for a state that has
+// gone true -> false -> true again (e.g. across a reset - see onIdentity further down), always
+// converging the DOM to match zoneState exactly.
+//
+// Deliberately `el.parentNode === adminSublist`, NOT `el.isConnected`, for each item's own
+// presence check - these answer different questions and only one of them is right here:
+// `isConnected` is "is this attached to the live document", which depends on whether adminSublist
+// ITSELF is currently attached to `mount` (the toggle-level gate below) - using it per-item would
+// make an item's own insertBefore ordering (which sibling counts as "already placed") depend on
+// the WHOLE section's visibility, not just on which other items are its current siblings. That
+// broke exactly this way during manual testing: hide the whole section (toggle-level gate closes,
+// item elements stay right where they were as children of the now-detached adminSublist, never
+// individually removed) then show a *different* subset later - an item asking `.isConnected`
+// about a sibling gets `false` for those untouched leftover children (their ANCESTOR is detached,
+// even though their relative order among each other is still perfectly intact) and inserts itself
+// at the end instead of before them, garbling the order. `parentNode` tracks "is this a child of
+// adminSublist right now" independent of whether adminSublist is itself in the document, so
+// relative order among items survives a hide/show cycle exactly like the toggle's own expand/
+// collapse state does. Security is untouched by this distinction: the toggle-level `isConnected`
+// check is what decides whether ANYTHING in the group can be part of the live document at all.
+function reconcileAdminSection(mount) {
+  const build = mountBuilds.get(mount);
+  if (!build) return;
+  const { adminToggle, adminSublist, adminItems } = build;
+
+  const toggleShouldShow = zoneState.isAdminOrModerator === true;
+  if (toggleShouldShow && !adminToggle.isConnected) {
+    mount.append(adminToggle, adminSublist);
+  } else if (!toggleShouldShow && adminToggle.isConnected) {
+    adminToggle.remove();
+    adminSublist.remove();
+  }
+
+  adminItems.forEach(({ el, gate }, idx) => {
+    const shouldShow = zoneState[gate] === true;
+    const isPresent = el.parentNode === adminSublist;
+    if (shouldShow && !isPresent) {
+      const nextPresent = adminItems.slice(idx + 1).find(entry => entry.el.parentNode === adminSublist);
+      adminSublist.insertBefore(el, nextPresent ? nextPresent.el : null);
+    } else if (!shouldShow && isPresent) {
+      el.remove();
+    }
+  });
+}
+
+/**
+ * Brings every `.members-zone-links` mount's DOM in line with the current `zoneState` - the
+ * single entry point called after any accepted (see acceptedGeneration) whoami result changes
+ * that state. "Strefa Członków" exists in the DOM up to three times per page - the desktop
+ * sidebar box (#members-zone-sidebar, see social_sidebar.html), the mobile header trigger/panel
+ * (#members-zone-mobile, see nav.html) and the desktop top-nav dropdown (#members-zone-nav) -
+ * shown/hidden by CSS media query rather than JS, so only one is ever visible at a time, but all
+ * three are kept in sync regardless.
+ */
+function reconcileAllMounts() {
+  document.querySelectorAll('.members-zone-links').forEach(mount => {
+    reconcileMemberSection(mount);
+    reconcileAdminSection(mount);
+  });
+  updateMembersZoneVisibility();
+  // Freshly inserted <a> elements haven't had a chance to pick up nav-item--active yet.
+  // updateNavigation is declared with `function`, so it's hoisted and safe to call here
+  // regardless of listener/call order.
   updateNavigation();
 }
 
-document.addEventListener('DOMContentLoaded', renderMembersZoneMenus);
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.members-zone-links').forEach(mount => {
+    mount.replaceChildren();
+    mountBuilds.set(mount, buildMountContent(mount));
+  });
+  // zoneState is still all-null at this point (no whoami has answered yet) - this call is a
+  // no-op for DOM content, but still runs updateMembersZoneVisibility/updateNavigation once so
+  // every container starts correctly hidden rather than however it happened to be left in HTML.
+  reconcileAllMounts();
+});
 
 /**
- * "Strefa Członków" exists in the DOM up to three times per page - the desktop sidebar box
- * (#members-zone-sidebar, see social_sidebar.html), the mobile header trigger/panel
- * (#members-zone-mobile, see nav.html) and the desktop top-nav dropdown (#members-zone-nav) -
- * each rendered from the same MEMBERS_ZONE_MENU above via renderMembersZoneMenus(), shown/hidden
- * by CSS media query rather than JS, so only one is ever visible at a time. Both gates below are
- * independent - Panel admina (admin allowlist) alongside the membership-only links (kruki group
- * membership) - so neither container has a single gate of its own; each shows whenever at least
- * one of ITS OWN links does. Called after either gate below changes any link's hidden state.
+ * Shows/hides each Strefa Członków container based on whether its own mount currently has any
+ * content - which, since KRKG-0073, means "any content at all" rather than "any non-hidden
+ * link", because nothing ungated ever reaches the mount in the first place.
  */
 function updateMembersZoneVisibility() {
-  document.querySelectorAll('.members-zone-container').forEach(zone => {
-    const anyLinkVisible = Array.from(zone.querySelectorAll('.member-zone-link, .admin-zone-link, .admin-or-moderator-zone-link')).some(link => !link.hidden);
-    zone.hidden = !anyLinkVisible;
+  document.querySelectorAll('.members-zone-links').forEach(mount => {
+    const zone = mount.closest('.members-zone-container');
+    if (zone) zone.hidden = mount.children.length === 0;
   });
 }
 
@@ -276,13 +382,13 @@ document.addEventListener('DOMContentLoaded', () => {
  * Site-wide sign-in status: the user's Google avatar in the always-visible top bar next to the
  * hamburger (#nav-auth-slot) once a member session is verified, plus a "Zaloguj się" link (to
  * /logowanie/) when no member session exists (#nav-login-link), a "Wyloguj się" button when one
- * does (#nav-logout-link), and the "Panel admina" links (.admin-zone-link, in both Strefa
- * Członków containers) only once the separate /admin/whoami check passes. Keeping the
- * login/logout controls and admin links out of the top bar avoids crowding it (logo + avatar +
- * hamburger/trigger already fill it on mobile) - they only need to be reachable, not always
- * visible. The actual Google sign-in button itself is no longer rendered in the nav - it lives on
- * /logowanie/ (see logowanie.js) - #nav-login-link is a plain link there, same as any other nav
- * item.
+ * does (#nav-logout-link), and the "Zarządzanie" links (in both Strefa Członków containers) only
+ * once the separate /admin/whoami or /admin/members/whoami check passes - see
+ * reconcileAdminSection above. Keeping the login/logout controls and admin links out of the top
+ * bar avoids crowding it (logo + avatar + hamburger/trigger already fill it on mobile) - they
+ * only need to be reachable, not always visible. The actual Google sign-in button itself is no
+ * longer rendered in the nav - it lives on /logowanie/ (see logowanie.js) - #nav-login-link is a
+ * plain link there, same as any other nav item.
  *
  * Reuses initGoogleSignIn from auth.js, which is safe to call alongside a page's own sign-in
  * flow - see the shared-listener comment in auth.js. Only runs on pages that carry this markup.
@@ -329,23 +435,30 @@ document.addEventListener('DOMContentLoaded', () => {
     if (logoutLink) logoutLink.hidden = false;
   }
 
-  function renderAdminLink(isAdmin) {
-    document.querySelectorAll('.admin-zone-link').forEach(link => { link.hidden = !isAdmin; });
-    updateMembersZoneVisibility();
+  // KRKG-0073: every onSignedIn/onSignedOut/onForbidden below is wrapped in this - `generation`
+  // is each call's own verification round (see auth.js), and a call whose round doesn't match
+  // the round our last onIdentity reset accepted is a stale response from an identity that a
+  // later, fresher sign-in has already superseded. Ignoring it outright (not just "don't grant",
+  // but "don't do anything at all") is what makes onIdentity's reset below actually stick until
+  // the CURRENT round's real answer comes in.
+  function ifCurrentRound(generation, apply) {
+    if (generation !== acceptedGeneration) return;
+    apply();
   }
 
-  // KRKG-0049: separate from renderAdminLink - a Firestore-role moderator passes
-  // /admin/members/whoami but not /admin/whoami, and vice versa isn't true (an admin passes
-  // both). Each gate only ever sets hidden on the elements carrying *its own* class, never
-  // touching '.admin-zone-link', so the two checks can't race against each other.
-  function renderAdminOrModeratorLink(canSeeIt) {
-    document.querySelectorAll('.admin-or-moderator-zone-link').forEach(link => { link.hidden = !canSeeIt; });
-    updateMembersZoneVisibility();
-  }
-
-  function renderMemberLinks(isMember) {
-    document.querySelectorAll('.member-zone-link').forEach(link => { link.hidden = !isMember; });
-    updateMembersZoneVisibility();
+  // The one and only reset path (registered on a single initGoogleSignIn call below - this is a
+  // whole-page reset, not a per-gate one). Fires synchronously on every fresh sign-in, before any
+  // of that round's whoami requests can possibly have resolved yet (see onIdentity's contract in
+  // auth.js) - so whatever was on screen for the PREVIOUS identity is torn down immediately, and
+  // only that same round's own (later) onSignedIn/onForbidden/onSignedOut calls - now guaranteed
+  // to pass the ifCurrentRound check above - can put anything back.
+  function resetForNewSignInRound(_payload, generation) {
+    acceptedGeneration = generation;
+    zoneState.isMember = null;
+    zoneState.isAdmin = null;
+    zoneState.isAdminOrModerator = null;
+    renderAvatar(null);
+    reconcileAllMounts();
   }
 
   if (logoutLink && typeof logout === 'function') {
@@ -355,33 +468,60 @@ document.addEventListener('DOMContentLoaded', () => {
   initGoogleSignIn({
     buttonIds: [],
     whoamiPath: '/wojownicy-upload/whoami',
-    onSignedIn: identity => {
+    onIdentity: resetForNewSignInRound,
+    onSignedIn: (identity, generation) => ifCurrentRound(generation, () => {
+      zoneState.isMember = true;
       renderAvatar(identity);
-      renderMemberLinks(true);
-    },
-    onSignedOut: () => {
+      reconcileAllMounts();
+    }),
+    onSignedOut: generation => ifCurrentRound(generation, () => {
+      zoneState.isMember = false;
       renderAvatar(null);
-      renderMemberLinks(false);
-    },
-    onForbidden: () => {
+      reconcileAllMounts();
+    }),
+    onForbidden: generation => ifCurrentRound(generation, () => {
+      zoneState.isMember = false;
       renderAvatar(null);
-      renderMemberLinks(false);
-    },
+      reconcileAllMounts();
+    }),
   });
 
   initGoogleSignIn({
     buttonIds: [],
     whoamiPath: '/admin/whoami',
-    onSignedIn: () => renderAdminLink(true),
-    onSignedOut: () => renderAdminLink(false),
-    onForbidden: () => renderAdminLink(false),
+    onSignedIn: (_identity, generation) => ifCurrentRound(generation, () => {
+      zoneState.isAdmin = true;
+      reconcileAllMounts();
+    }),
+    onSignedOut: generation => ifCurrentRound(generation, () => {
+      zoneState.isAdmin = false;
+      reconcileAllMounts();
+    }),
+    onForbidden: generation => ifCurrentRound(generation, () => {
+      zoneState.isAdmin = false;
+      reconcileAllMounts();
+    }),
   });
 
+  // KRKG-0049: separate from the /admin/whoami listener above - a Firestore-role moderator
+  // passes /admin/members/whoami but not /admin/whoami, and vice versa isn't true (an admin
+  // passes both). Each listener only ever sets its OWN zoneState flag, never the other one, so
+  // the two checks can't race against each other - see ADMIN_ZONE_MENU's and
+  // reconcileAdminSection's comments for how each item/toggle picks which flag it depends on.
   initGoogleSignIn({
     buttonIds: [],
     whoamiPath: '/admin/members/whoami',
-    onSignedIn: () => renderAdminOrModeratorLink(true),
-    onSignedOut: () => renderAdminOrModeratorLink(false),
-    onForbidden: () => renderAdminOrModeratorLink(false),
+    onSignedIn: (_identity, generation) => ifCurrentRound(generation, () => {
+      zoneState.isAdminOrModerator = true;
+      reconcileAllMounts();
+    }),
+    onSignedOut: generation => ifCurrentRound(generation, () => {
+      zoneState.isAdminOrModerator = false;
+      reconcileAllMounts();
+    }),
+    onForbidden: generation => ifCurrentRound(generation, () => {
+      zoneState.isAdminOrModerator = false;
+      reconcileAllMounts();
+    }),
   });
 });

@@ -35,6 +35,16 @@ let pendingReauthHide = null;
 let gisInitialized = false;
 const signedInListeners = [];
 
+// KRKG-0073: monotonic "which round of identity verification does this response belong to",
+// bumped once per FRESH sign-in (never for a reauth prompt - that's a step-up on the same
+// already-established identity, not a new one). Every onIdentity/onSignedIn/onSignedOut/
+// onForbidden call carries the generation number that was current when ITS underlying request
+// was issued, frozen at issue time (not at resolve time) - so a caller (nav.js) can tell a
+// response belonging to a round that has since been superseded apart from a current one, and
+// ignore it. Without this, a slow /admin/whoami from a since-replaced identity could resolve
+// after a fresh, lower-privileged sign-in and re-grant the old identity's access in the UI.
+let verificationGeneration = 0;
+
 function decodeJwtPayload(token) {
   const payload = token.split('.')[1];
   return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
@@ -93,12 +103,13 @@ async function apiFetch(path, options = {}, showReauthUI, hideReauthUI) {
 
 // A failed connection or a 5xx response says nothing about the visitor's authorization. Keep
 // the caller's neutral checking state intact in that case; only the two deliberate auth results
-// may change it into a sign-in or denied state.
-function notifyAuthFailure(listener, err) {
+// may change it into a sign-in or denied state. `generation` is passed straight through to the
+// listener - see verificationGeneration above.
+function notifyAuthFailure(listener, err, generation) {
   if (err.status === 401) {
-    listener.onSignedOut?.();
+    listener.onSignedOut?.(generation);
   } else if (err.status === 403) {
-    listener.onForbidden?.();
+    listener.onForbidden?.(generation);
   }
 }
 
@@ -138,20 +149,27 @@ async function handleCredentialResponse(response) {
     return;
   }
 
-  // Fresh, unprompted sign-in (a page's own button, not a reauth prompt). onIdentity fires here,
-  // synchronously from the locally-decoded payload, independent of whether the exchange below
-  // succeeds - for cosmetic UI with no allowlist of its own to wait on (e.g. /logowanie/, which
-  // greets any Google account, member or not). Safe: nothing privileged ever depends on this,
-  // only onSignedIn/onForbidden below (driven by the real server-verified exchange/whoami) does.
+  // Fresh, unprompted sign-in (a page's own button, not a reauth prompt) - the start of a new
+  // verification round (see verificationGeneration above). Captured once into a local const so
+  // every callback below reports the SAME round number regardless of how long its own await
+  // takes - re-reading the module variable after an await would report whatever round happens
+  // to be current by then, not the one this response actually belongs to.
+  const roundGeneration = ++verificationGeneration;
+
+  // onIdentity fires here, synchronously from the locally-decoded payload, independent of
+  // whether the exchange below succeeds - for cosmetic UI with no allowlist of its own to wait
+  // on (e.g. /logowanie/, which greets any Google account, member or not). Safe: nothing
+  // privileged ever depends on this, only onSignedIn/onForbidden below (driven by the real
+  // server-verified exchange/whoami) does.
   for (const listener of signedInListeners) {
-    listener.onIdentity?.(payload);
+    listener.onIdentity?.(payload, roundGeneration);
   }
 
   try {
     await exchangeForSession(googleIdToken);
   } catch (err) {
     for (const listener of signedInListeners) {
-      notifyAuthFailure(listener, err);
+      notifyAuthFailure(listener, err, roundGeneration);
     }
     return;
   }
@@ -162,7 +180,7 @@ async function handleCredentialResponse(response) {
     try {
       identity = await apiFetch(listener.whoamiPath, { method: 'GET' });
     } catch (err) {
-      notifyAuthFailure(listener, err);
+      notifyAuthFailure(listener, err, roundGeneration);
       continue;
     }
     // Deliberately outside the try above (same reasoning as initGoogleSignIn's two-argument
@@ -170,7 +188,7 @@ async function handleCredentialResponse(response) {
     // authorization failure and must never be reported as one. Calling it from a resolved
     // promise keeps one throwing listener from aborting the remaining ones, while still letting
     // the failure surface as an unhandled rejection in the console.
-    void Promise.resolve().then(() => listener.onSignedIn?.(identity));
+    void Promise.resolve().then(() => listener.onSignedIn?.(identity, roundGeneration));
   }
 }
 
@@ -191,13 +209,22 @@ async function handleCredentialResponse(response) {
 // /roster fetch failed" is not "you are not a member" and telling the user the latter is actively
 // misleading (see the fetch below).
 //
-// `onIdentity(payload)` is different: it fires on every *fresh* sign-in (not a reauth prompt),
-// synchronously from the locally-decoded Google JWT, before/regardless of whether the session
-// exchange behind it succeeds. For a page with no privilege gate of its own (e.g. /logowanie/,
-// which just wants to greet "Zalogowano jako ..." for any Google account, member or not) this is
-// the only callback needed - it never waits on or depends on any allowlist. A forged payload
-// here can't grant anything, since every actual privileged action still goes through
-// onSignedIn/onForbidden's server-verified check.
+// `onIdentity(payload, generation)` is different: it fires on every *fresh* sign-in (not a
+// reauth prompt), synchronously from the locally-decoded Google JWT, before/regardless of
+// whether the session exchange behind it succeeds. For a page with no privilege gate of its own
+// (e.g. /logowanie/, which just wants to greet "Zalogowano jako ..." for any Google account,
+// member or not) this is the only callback needed - it never waits on or depends on any
+// allowlist. A forged payload here can't grant anything, since every actual privileged action
+// still goes through onSignedIn/onForbidden's server-verified check.
+//
+// KRKG-0073: every callback's final argument is `generation` (see verificationGeneration
+// above) - the verification round its underlying request belongs to, frozen at the moment that
+// request was issued. A caller that renders UI purely from onSignedIn/onSignedOut/onForbidden
+// and needs the *absence* of privilege to also never render anything (not just render-then-hide)
+// should use onIdentity to synchronously reset to a neutral/nothing state and remember its
+// generation, then ignore any onSignedIn/onSignedOut/onForbidden call whose generation doesn't
+// match the latest one observed via onIdentity - that's how a slow response from an identity
+// that has since been replaced by a fresh sign-in is told apart from a current one (see nav.js).
 //
 // There is no "restored session" fast path anymore (see this file's top comment) - every
 // onSignedIn/onForbidden call asks the server once, on load, via `whoamiPath`. That's a real
@@ -217,6 +244,12 @@ function initGoogleSignIn({ buttonIds, onSignedIn, onSignedOut, onForbidden, onI
       return new Promise(resolve => setTimeout(resolve, remaining)).then(callback);
     };
 
+    // Frozen NOW, when this page-load check is issued - not read again after it resolves. If a
+    // fresh sign-in happens while this request is still in flight, handleCredentialResponse will
+    // have already bumped verificationGeneration by the time this one resolves, so the response
+    // correctly reports the (now-superseded) round it actually started from.
+    const initialGeneration = verificationGeneration;
+
     // Two-argument .then, NOT .then(...).catch(...): only a rejected `whoamiPath` check itself
     // (no session, or a session that isn't allowlisted) may map to onForbidden. A trailing
     // .catch() also catches whatever onSignedIn's own body throws - and on the Lista Wyjazdowa
@@ -226,8 +259,8 @@ function initGoogleSignIn({ buttonIds, onSignedIn, onSignedOut, onForbidden, onI
     // chained promise (visible in the console); showing the user a message for those is the
     // calling page's job, since only it knows where its own error UI lives.
     apiFetch(whoamiPath, { method: 'GET' }).then(
-      identity => afterMinimumSessionChecking(() => onSignedIn?.(identity)),
-      err => afterMinimumSessionChecking(() => notifyAuthFailure({ onSignedOut, onForbidden }, err)),
+      identity => afterMinimumSessionChecking(() => onSignedIn?.(identity, initialGeneration)),
+      err => afterMinimumSessionChecking(() => notifyAuthFailure({ onSignedOut, onForbidden }, err, initialGeneration)),
     );
   }
 
