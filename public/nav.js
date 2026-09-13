@@ -4,11 +4,6 @@
  * (which may be relative, e.g. "../galerie/") against the current location before
  * comparing, so this works regardless of whether the site is served from a domain root
  * or a GitHub Pages project subpath.
- *
- * Deliberately does not touch .nav-item--highlighted: that class is a static, always-on
- * style on the Nabór link (a permanent call-to-action), not a current-page indicator -
- * stripping and conditionally re-adding it here would only show it while literally on
- * /nabor, defeating its purpose.
  */
 function updateNavigation() {
   const currentPath = window.location.pathname;
