@@ -183,6 +183,14 @@ function categoryLabelFor(categoryId) {
   return categoryLabelById.get(categoryId) ?? categoryId;
 }
 
+// A group (section/category/the whole club) with nothing left to chase reads as a green checkmark
+// instead of "0 / N nieopłaconych" - the point of this summary is to draw the eye to groups that
+// still need follow-up, and a wall of "0 / N" rows for already-settled groups buried that signal.
+function unpaidCountHtml(unpaid, total) {
+  if (unpaid === 0) return `<span class="lw-summary-ok" title="Wszyscy opłacili (${total} os.)">✓</span>`;
+  return `<strong>${unpaid}</strong> / ${total} nieopłaconych`;
+}
+
 // How many members still owe składka roczna for the selected year, overall and broken down by
 // Sekcja and by Typ (kategoria) - the two axes an accountant actually chases people down by.
 // Wpisowe has no year selector, so it has no place in this per-year summary. Purely a client-side
@@ -214,7 +222,7 @@ function renderSummary(roster, duesByEmail) {
   const sectionLines = sortedIds(totalBySection, sectionLabel)
     .map((sectionId) => {
       const pill = sectionId === null ? escapeHtml(sectionLabel(sectionId)) : sectionPillHtml(sectionId, sectionLabel(sectionId));
-      return `<li>${pill}: <strong>${unpaidBySection.get(sectionId) ?? 0}</strong> / ${totalBySection.get(sectionId)} nieopłaconych</li>`;
+      return `<li>${pill}: ${unpaidCountHtml(unpaidBySection.get(sectionId) ?? 0, totalBySection.get(sectionId))}</li>`;
     })
     .join('');
 
@@ -222,12 +230,16 @@ function renderSummary(roster, duesByEmail) {
     .map((categoryId) => {
       const label = categoryLabelFor(categoryId);
       const pill = categoryId === null ? escapeHtml(label) : `<span ${categoryNamePillAttrs(categoryId, label)}>${escapeHtml(label)}</span>`;
-      return `<li>${pill}: <strong>${unpaidByCategory.get(categoryId) ?? 0}</strong> / ${totalByCategory.get(categoryId)} nieopłaconych</li>`;
+      return `<li>${pill}: ${unpaidCountHtml(unpaidByCategory.get(categoryId) ?? 0, totalByCategory.get(categoryId))}</li>`;
     })
     .join('');
 
+  const totalLine = unpaidTotal === 0
+    ? `Składka ${selectedYear}: ${unpaidCountHtml(0, roster.length)} wszyscy opłacili.`
+    : `Nieopłacona składka ${selectedYear}: <strong>${unpaidTotal}</strong> z ${roster.length} osób.`;
+
   document.getElementById('summary-content').innerHTML = `
-    <p>Nieopłacona składka ${selectedYear}: <strong>${unpaidTotal}</strong> z ${roster.length} osób.</p>
+    <p>${totalLine}</p>
     <div class="lw-summary-columns">
       <div>
         <h3>Wg sekcji</h3>

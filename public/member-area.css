@@ -655,50 +655,67 @@ button.lw-skladka-icon:disabled {
 }
 
 /* Breathing room between the page's major sections (fee panel, summary, roster, equipment/
-   companions, audit log) - previously these all touched with no vertical rhythm at all. */
+   companions, audit log) - previously these all touched with no vertical rhythm at all. Kept
+   tight (not the more generous rhythm a lone spacer would get) since #summary-content's own
+   .lw-summary-columns already carries several of these panels' worth of lines. */
 #skladka-fee-panel,
 #summary-panel,
 #roster-panel,
 #equipment-companions-panel,
 #skladki-content {
-  margin-bottom: 2rem;
+  margin-bottom: 1.25rem;
 }
 
 #summary-panel h2,
 #roster-panel h2,
 #equipment-companions-panel h2 {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.4rem;
   font-size: 20px;
   color: var(--text);
 }
 
-/* Składki page's #summary-content breakdown (skladki.js's renderSummary, KRKG-0047 follow-up) -
-   two side-by-side lists (Sekcja/Typ) on desktop, stacked on a narrow screen via the same wrap. */
+#summary-content > p {
+  margin: 0 0 0.5rem;
+}
+
+/* Składki/wyjazd summary breakdowns (skladki.js/wyjazd.js's renderSummary, KRKG-0047 follow-up) -
+   side-by-side lists (Sekcja/Typ[/Broń]) on desktop, stacked on a narrow screen via the same wrap.
+   Kept dense on purpose: this is a scannable tally, not prose, so it shouldn't read as bigger than
+   the roster it summarizes. */
 .lw-summary-columns {
   display: flex;
   flex-wrap: wrap;
-  gap: 2rem;
+  gap: 1.25rem 2rem;
 }
 
 .lw-summary-columns > div {
-  min-width: 220px;
+  min-width: 160px;
 }
 
 .lw-summary-columns h3 {
-  margin: 0 0 0.5rem;
-  font-size: 15px;
+  margin: 0 0 0.3rem;
+  font-size: 14px;
   color: var(--gold);
 }
 
 .lw-summary-columns ul {
   margin: 0;
   padding-left: 1.1rem;
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--text-muted);
 }
 
 .lw-summary-columns li {
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.1rem;
+}
+
+/* Green checkmark standing in for "0 nieopłaconych" (skladki.js's unpaidCountHtml) - a lighter
+   green than .lw-skladka-icon[data-paid="true"]'s badge border (#2e7d32), which is legible against
+   a colored badge background rather than plain text directly on the page's dark surface. */
+.lw-summary-ok {
+  color: #43a047;
+  font-weight: 700;
 }
 
 #skladka-fee-panel {

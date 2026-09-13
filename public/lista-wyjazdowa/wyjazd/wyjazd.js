@@ -56,6 +56,13 @@ function sectionAbbr(sectionId) {
   return SECTION_ABBR[sectionId] ?? (sectionId ?? '').slice(0, 3).toUpperCase();
 }
 
+// Section/city color coding (KRKG-0051), used by renderSummary's "Wg sekcji" breakdown below -
+// same helper as skladki.js: the actual colors live in exactly one place, member-area.css's
+// [data-section="..."] rules.
+function sectionPillHtml(sectionId, label) {
+  return `<span class="section-pill" data-section="${escapeAttr(sectionId ?? '')}">${escapeHtml(label)}</span>`;
+}
+
 // Typ (categoryId) shown by wrapping the name itself in a colored outline pill, instead of its
 // own column or a second pill next to the name (KRKG-0057) - same never-a-color-value-in-JS
 // convention as sectionPillHtml elsewhere; the colors themselves live in member-area.css's
@@ -195,17 +202,26 @@ async function toggleSkladkaPaid(email, nextPaid, control) {
 // Both #summary-content (counts, near the top) and #equipment-companions-content (named lists,
 // near the bottom, per feedback on section order) are derived from the same attending/roster
 // join, so this computes both in one pass and writes each half to its own container.
+//
+// Wg broni counts each attendee exactly once even if their profile lists more than one weapon -
+// same "first weaponId only" rule as weaponSortLabel/rosterSortBy's own grouping (a member able to
+// use several weapons isn't tallied under all of them at once, just whichever comes first).
 function renderSummary(roster, signups) {
   const attending = signups.filter((s) => s.attending);
   const rosterByEmail = new Map(roster.map((r) => [r.email, r]));
 
   const bySection = new Map();
+  const byWeapon = new Map();
+  const byCategory = new Map();
   const equipmentBearers = [];
   const companionBearers = [];
   for (const s of attending) {
     const member = rosterByEmail.get(s.memberEmail);
     if (!member) continue;
     bySection.set(member.sectionId, (bySection.get(member.sectionId) ?? 0) + 1);
+    const weaponId = member.weaponIds[0] ?? null;
+    byWeapon.set(weaponId, (byWeapon.get(weaponId) ?? 0) + 1);
+    byCategory.set(member.categoryId, (byCategory.get(member.categoryId) ?? 0) + 1);
     for (const eqId of s.equipmentIds) {
       const item = member.equipment.find((e) => e.id === eqId);
       if (item) equipmentBearers.push(`${escapeHtml(item.name)} — ${escapeHtml(displayName(member))}`);
@@ -216,13 +232,44 @@ function renderSummary(roster, signups) {
     }
   }
 
-  const sectionLines = Array.from(bySection.entries())
-    .map(([sectionId, count]) => `<li>${escapeHtml(sectionId ?? 'Bez sekcji')}: ${count}</li>`)
+  const sortedKeys = (counts, labelFor) =>
+    Array.from(counts.keys()).sort((a, b) =>
+      labelFor(a).toLocaleLowerCase('pl').localeCompare(labelFor(b).toLocaleLowerCase('pl'), 'pl'),
+    );
+
+  const sectionLines = sortedKeys(bySection, sectionLabelFor)
+    .map((sectionId) => {
+      const pill = sectionId === null ? escapeHtml(sectionLabelFor(sectionId)) : sectionPillHtml(sectionId, sectionLabelFor(sectionId));
+      return `<li>${pill}: ${bySection.get(sectionId)}</li>`;
+    })
+    .join('');
+
+  const weaponLines = sortedKeys(byWeapon, weaponLabelFor)
+    .map((weaponId) => {
+      const label = weaponLabelFor(weaponId);
+      // weaponIconHtml itself falls back to rendering the label as visible text when there's no
+      // icon for this id (e.g. weaponId === null, "Brak broni") - only prefix it here when there
+      // actually is an icon, or the label would print twice.
+      const icon = weaponId !== null && WEAPON_ICONS[weaponId] ? weaponIconHtml(weaponId, label) : '';
+      return `<li>${icon} ${escapeHtml(label)}: ${byWeapon.get(weaponId)}</li>`;
+    })
+    .join('');
+
+  const categoryLines = sortedKeys(byCategory, categoryLabelFor)
+    .map((categoryId) => {
+      const label = categoryLabelFor(categoryId);
+      const pill = categoryId === null ? escapeHtml(label) : `<span ${categoryNamePillAttrs(categoryId, label)}>${escapeHtml(label)}</span>`;
+      return `<li>${pill}: ${byCategory.get(categoryId)}</li>`;
+    })
     .join('');
 
   document.getElementById('summary-content').innerHTML = `
-    <p>Łącznie: ${attending.length} os.</p>
-    <ul>${sectionLines}</ul>
+    <p>Łącznie: <strong>${attending.length}</strong> os.</p>
+    <div class="lw-summary-columns">
+      <div><h3>Wg sekcji</h3><ul>${sectionLines}</ul></div>
+      <div><h3>Wg broni</h3><ul>${weaponLines}</ul></div>
+      <div><h3>Wg typu</h3><ul>${categoryLines}</ul></div>
+    </div>
   `;
 
   document.getElementById('equipment-companions-content').innerHTML = `
@@ -265,6 +312,22 @@ function sectionSortLabel(member) {
 function weaponSortLabel(member) {
   const firstId = member.weaponIds[0];
   return firstId ? (weaponLabelById.get(firstId) ?? firstId) : '';
+}
+
+// Display-label variants of the three lookup maps for renderSummary's breakdown below - unlike the
+// *SortLabel helpers above (empty string so an unset value sorts first), these need an actual
+// user-facing label for "no X assigned" ("Bez sekcji"/"Brak broni"/"Brak typu").
+function sectionLabelFor(sectionId) {
+  if (sectionId === null) return 'Bez sekcji';
+  return sectionLabelById.get(sectionId) ?? sectionId;
+}
+function weaponLabelFor(weaponId) {
+  if (weaponId === null) return 'Brak broni';
+  return weaponLabelById.get(weaponId) ?? weaponId;
+}
+function categoryLabelFor(categoryId) {
+  if (categoryId === null) return 'Brak typu';
+  return categoryLabelById.get(categoryId) ?? categoryId;
 }
 
 // EMPTY (KRKG-0052) mirrors czlonkowie.js's dense-table convention - flat rows sorted by the
