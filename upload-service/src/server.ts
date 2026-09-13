@@ -69,7 +69,7 @@ import {
   type SignupWritableFields,
 } from './signups.ts';
 import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
-import { listDuesForYear, saveDues, type DuesDoc, listDuesAuditLog, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc } from './dues.ts';
+import { listDuesForYear, saveDues, type DuesDoc, listDuesAuditLog, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, getDues } from './dues.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -2583,6 +2583,16 @@ async function handleListaWyjazdowaGetDues(req: IncomingMessage, res: ServerResp
   sendJson(res, 200, { dues, yearFee });
 }
 
+// Self-scoped read (mirrors GET /lista-wyjazdowa/signups/mine) - Mój profil shows the caller's own
+// wpisowe/składka roczna status right under their photo, and has no business reading the whole
+// roster's dues (handleListaWyjazdowaGetDues above) just to find its own row in it.
+async function handleListaWyjazdowaGetMyDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const year = requireYear(url.searchParams.get('year'), 'Nieprawidłowy rok.');
+  const dues = await getDues(deps.firestore, identity.email, year);
+  sendJson(res, 200, { dues });
+}
+
 async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   await requireSkladkiAccess(req, res, deps, identity.email);
@@ -3647,6 +3657,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaPutSkladkaPaid(req, res, url, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/wpisowe') {
         await handleListaWyjazdowaPutWpisowe(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/dues/mine') {
+        await handleListaWyjazdowaGetMyDues(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/dues') {
         await handleListaWyjazdowaGetDues(req, res, url, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/dues') {

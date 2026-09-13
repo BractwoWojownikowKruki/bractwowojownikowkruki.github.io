@@ -556,14 +556,19 @@ button.lw-skladka-icon:disabled {
    of the taller event-row proportions. */
 .lw-skladki-row {
   justify-content: flex-start;
+  flex-wrap: nowrap;
   padding: 0.4rem 0.9rem;
-  gap: 0.5rem;
+  gap: 0.4rem;
   font-size: 0.85em;
+  /* A one-liner by design (see the comment above) - once the labels/icons below no longer fit a
+     narrow phone width, the row scrolls sideways instead of wrapping into a multi-line card, the
+     one layout this row must never become (KRKG-0047 follow-up). */
+  overflow-x: auto;
 }
 
 .lw-skladki-row .profile-trigger:first-of-type {
   flex: 1 1 auto;
-  min-width: 0;
+  min-width: 3.5rem;
   overflow: hidden;
 }
 
@@ -578,11 +583,21 @@ button.lw-skladka-icon:disabled {
   width: 1.4rem;
   height: 1.4rem;
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .lw-skladki-row .audyt-history-btn {
   width: 1.5rem;
   height: 1.5rem;
+  flex-shrink: 0;
+}
+
+/* Short "Wpisowe"/"Składka {year}" captions in front of each icon (KRKG-0047 follow-up) - the
+   icon alone read as unlabeled once wpisowe stopped sharing roczna's coin glyph. */
+.lw-due-label {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 /* Sort/filter controls above the event page's roster (wyjazd.js's rosterSortBy/rosterFilter) -
@@ -724,13 +739,13 @@ button.lw-skladka-icon:disabled {
     align-items: flex-start;
   }
 
+  /* Unlike .lw-event-row above, .lw-skladki-row stays a one-liner even on a narrow phone (see the
+     desktop rule's own comment) - it keeps its row layout and just shrinks/scrolls instead of
+     stacking into a multi-line card. */
   .lw-skladki-row {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .lw-skladki-row button {
-    align-self: flex-start;
+    padding: 0.35rem 0.6rem;
+    gap: 0.3rem;
+    font-size: 0.78em;
   }
 
   /* Member tables (KRKG-0053) - .content-section already borders the whole page section, so

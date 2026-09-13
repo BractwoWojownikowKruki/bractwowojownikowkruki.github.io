@@ -64,6 +64,11 @@
               <div id="lw-photo-preview" class="lw-photo-preview" hidden></div>
             </fieldset>
 
+            <!-- Read-only wpisowe/składka roczna status (KRKG-0047 follow-up) - accountant/admin-
+                 only to change (see the Składki page), but every member can see their own state
+                 here without asking. Populated by renderDuesStatus() once profile+dues load. -->
+            <div id="lw-dues-status" class="lw-dues-status" hidden></div>
+
             <div class="field">
               <label for="lw-full-name">Imię i nazwisko</label>
               <input type="text" id="lw-full-name" name="fullName" />

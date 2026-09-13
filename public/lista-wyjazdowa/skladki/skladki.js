@@ -184,7 +184,16 @@ function renderTable(roster, duesByEmail) {
     const sectionEl = document.createElement('div');
     sectionEl.innerHTML =
       sectionId === null ? `<h3>${escapeHtml(sectionLabel(sectionId))}</h3>` : `<h3>${sectionPillHtml(sectionId, sectionLabel(sectionId))}</h3>`;
-    for (const member of members) {
+    // Unpaid-składka-roczna members first within each section - the accountant's actual task on
+    // this page is chasing down who still owes money, so that group should never be buried below
+    // everyone who's already settled. Alphabetical by display name within each of the two groups.
+    const sortedMembers = [...members].sort((a, b) => {
+      const aPaid = duesByEmail.get(a.email)?.paid ?? false;
+      const bPaid = duesByEmail.get(b.email)?.paid ?? false;
+      if (aPaid !== bPaid) return aPaid ? 1 : -1;
+      return displayName(a).toLocaleLowerCase('pl').localeCompare(displayName(b).toLocaleLowerCase('pl'), 'pl');
+    });
+    for (const member of sortedMembers) {
       const roczna = duesByEmail.get(member.email)?.paid ?? false;
       const emailAttr = escapeAttr(member.email);
       const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
@@ -210,7 +219,9 @@ function renderTable(roster, duesByEmail) {
           <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
         </button>
         <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>
+        <span class="lw-due-label">Wpisowe</span>
         ${paidIconHtml('wpisowe', emailAttr, member.wpisowePaid, wpisoweLabel)}
+        <span class="lw-due-label">Składka ${selectedYear}</span>
         ${paidIconHtml('roczna', emailAttr, roczna, rocznaLabel)}
         ${canManageSkladki ? `<a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref)}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a>` : ''}
       `;
@@ -302,6 +313,10 @@ async function toggleWpisowe(email, nextPaid, control) {
       hideReauth,
     ), () => {
       control.dataset.paid = String(nextPaid);
+      // The glyph (✓/✕) is kind-specific, unlike roczna's fixed 💰 coin - it must be repainted
+      // here too, not just the background color, or a confirmed toggle leaves the old glyph
+      // showing against the new color (e.g. a green ✕ right after marking something paid).
+      control.textContent = nextPaid ? '✓' : '✕';
       const label = nextPaid ? 'Wpisowe: opłacone' : 'Wpisowe: nieopłacone';
       control.title = `${label} — kliknij, aby zmienić`;
       control.setAttribute('aria-label', label);

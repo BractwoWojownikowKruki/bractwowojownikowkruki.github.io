@@ -28,6 +28,24 @@
   margin: -0.4rem 0 0.75rem;
 }
 
+/* Read-only wpisowe/składka roczna readout right under the photo fieldset (KRKG-0047 follow-up) -
+   .lw-skladka-icon itself comes from member-area.css, already loaded on this page. */
+.lw-dues-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  margin: -0.5rem 0 1.5rem;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.lw-dues-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .lw-checkbox-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));

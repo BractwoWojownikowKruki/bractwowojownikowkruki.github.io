@@ -6171,6 +6171,37 @@ test('PUT /lista-wyjazdowa/dues/year-fee requires accountant and sets a shared p
   });
 });
 
+test('GET /lista-wyjazdowa/dues/mine returns only the caller\'s own dues for the requested year', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const empty = await fetch(`${baseUrl}/lista-wyjazdowa/dues/mine?year=2027`);
+    assert.equal(empty.status, 200);
+    assert.deepEqual(await empty.json(), { dues: null });
+  });
+
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
+    // A different member's 2027 dues must not leak into this caller's own /mine read.
+    firestore.seed('members', 'inny@example.test', {
+      fullName: 'Inny', nickname: null, sectionId: 'krakow', categoryId: null, driveFolderId: null,
+      updatedAt: '2027-01-01T00:00:00.000Z', updatedBy: 'inny@example.test',
+    });
+    await firestore.setDoc('duesAnnual', 'inny@example.test_2027', {
+      email: 'inny@example.test', year: 2027, paid: false, updatedBy: 'accountant', updatedAt: '2027-01-01T00:00:00.000Z',
+    });
+
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/mine?year=2027`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.dues.email, 'wojownik@gmail.com');
+    assert.equal(body.dues.paid, true);
+
+    const wrongYear = await fetch(`${baseUrl}/lista-wyjazdowa/dues/mine?year=2026`);
+    assert.deepEqual((await wrongYear.json()).dues, null);
+  });
+});
+
 test('GET /lista-wyjazdowa/roster includes wpisowePaid per member', async () => {
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore(), listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {

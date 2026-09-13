@@ -136,6 +136,31 @@ document.getElementById('lw-current-submission').addEventListener('click', (e) =
   });
 });
 
+const CURRENT_YEAR = new Date().getFullYear();
+
+// Read-only wpisowe/składka roczna status shown right under the photo (KRKG-0047 follow-up) -
+// paid/unpaid is accountant/admin-only to change (see the Lista Wyjazdowa Składki page); this
+// just lets a member see their own current state without asking. Same .lw-skladka-icon
+// badge/glyph convention as lista-wyjazdowa/skladki/skladki.js's paidIconHtml (wpisowe as a
+// check/cross, roczna as a coin, both colored red/green via member-area.css's data-paid rule),
+// but always a plain, unclickable <span> here - nothing on this page can toggle it.
+function renderDuesStatus(wpisowePaid, rocznaPaid) {
+  const container = document.getElementById('lw-dues-status');
+  const wpisoweLabel = wpisowePaid ? 'Wpisowe: opłacone' : 'Wpisowe: nieopłacone';
+  const rocznaLabel = `Składka ${CURRENT_YEAR}: ${rocznaPaid ? 'opłacona' : 'nieopłacona'}`;
+  container.innerHTML = `
+    <span class="lw-dues-status-item">
+      <span class="lw-skladka-icon" data-paid="${wpisowePaid}" aria-hidden="true">${wpisowePaid ? '✓' : '✕'}</span>
+      ${escapeHtml(wpisoweLabel)}
+    </span>
+    <span class="lw-dues-status-item">
+      <span class="lw-skladka-icon" data-paid="${rocznaPaid}" aria-hidden="true">💰</span>
+      ${escapeHtml(rocznaLabel)}
+    </span>
+  `;
+  container.hidden = false;
+}
+
 // Same escapeHtml/escapeAttr pair as person-tile.js - the established pattern in this codebase
 // for interpolating user-controlled strings into an innerHTML template. Needed here because
 // equipment/companion name+description are member-entered free text, round-tripped straight back
@@ -545,14 +570,17 @@ async function initForm(lookupLists) {
   // still renders every non-retired option - a usable blank form.
   let member = null;
   let profile = null;
+  let dues = null;
   let loadError = null;
   try {
-    const [memberResponse, profileResponse] = await Promise.all([
+    const [memberResponse, profileResponse, duesResponse] = await Promise.all([
       apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
       apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
+      apiFetch(`/lista-wyjazdowa/dues/mine?year=${CURRENT_YEAR}`, { method: 'GET' }, showReauth, hideReauth),
     ]);
     member = memberResponse.member;
     profile = profileResponse.profile;
+    dues = duesResponse.dues;
   } catch (err) {
     loadError = err;
   }
@@ -576,6 +604,9 @@ async function initForm(lookupLists) {
     }
     fillRows(equipmentContainer, profile.equipment, addEquipmentRow);
     fillRows(companionContainer, profile.companions, addCompanionRow);
+  }
+  if (!loadError) {
+    renderDuesStatus(profile?.wpisowePaid ?? false, dues?.paid ?? false);
   }
 
   if (loadError) {
