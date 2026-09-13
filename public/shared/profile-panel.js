@@ -197,8 +197,24 @@
            .map((p, i) => `<img src="${escapeHtml(p.url)}" alt="" data-photo-index="${pendingOffset + i}" />`)
            .join('')}</div>`
       : '';
+    // Same visibility as the Lista Wyjazdowa Składki page itself (read-only for every signed-in
+    // member) - GET /member-profile always includes these fields now, see server.ts's
+    // handleMemberProfile. Same check/cross + coin convention as skladki.js's paidIconHtml.
+    const duesStatusHtml = `
+      <div class="lw-dues-status">
+        <span class="lw-dues-status-item">
+          <span class="lw-skladka-icon" data-paid="${profile.wpisowePaid}" aria-hidden="true">${profile.wpisowePaid ? '✓' : '✕'}</span>
+          Wpisowe: ${profile.wpisowePaid ? 'opłacone' : 'nieopłacone'}
+        </span>
+        <span class="lw-dues-status-item">
+          <span class="lw-skladka-icon" data-paid="${profile.duesPaid}" aria-hidden="true">💰</span>
+          Składka ${profile.duesYear}: ${profile.duesPaid ? 'opłacona' : 'nieopłacona'}
+        </span>
+      </div>
+    `;
     return `
       ${avatarHtml}
+      ${duesStatusHtml}
       ${galleryHtml}
       <h3>${escapeHtml(profile.fullName)}</h3>
       <dl class="profile-fields">

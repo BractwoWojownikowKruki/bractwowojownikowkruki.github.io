@@ -58,6 +58,25 @@
   margin: 1rem 0;
 }
 
+/* Wpisowe/składka roczna readout right under the photo (KRKG-0047 follow-up) - same
+   .lw-skladka-icon badge (member-area.css, loaded on every page that includes this drawer) and
+   layout as profil.js's own copy on Mój profil, which doesn't load this stylesheet at all. */
+.lw-dues-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  margin: 0.75rem 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.lw-dues-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .profile-fields dt {
   color: var(--text-muted);
   font-size: 0.8rem;

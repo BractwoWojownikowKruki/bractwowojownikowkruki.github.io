@@ -4860,6 +4860,57 @@ test('GET /member-profile returns basic fields, no photos, no description when t
   });
 });
 
+test('GET /member-profile includes wpisowePaid and the current year\'s składka roczna status', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  const currentYear = new Date().getFullYear();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: null }));
+  await firestore.setDoc('listaWyjazdowaProfile', 'ktos@gmail.com', {
+    weaponIds: [], equipment: [], companions: [], wpisowePaid: true,
+    updatedAt: new Date().toISOString(), updatedBy: 'ktos@gmail.com',
+  });
+  await firestore.setDoc('duesAnnual', `ktos@gmail.com_${currentYear}`, {
+    email: 'ktos@gmail.com', year: currentYear, paid: true,
+    updatedBy: 'accountant', updatedAt: new Date().toISOString(),
+  });
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['ktos@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.wpisowePaid, true);
+    assert.equal(body.duesYear, currentYear);
+    assert.equal(body.duesPaid, true);
+  });
+});
+
+test('GET /member-profile defaults wpisowePaid/duesPaid to false for a member with neither a profile nor a dues record', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['bezprofilu@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=bezprofilu@gmail.com`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.wpisowePaid, false);
+    assert.equal(body.duesPaid, false);
+  });
+});
+
 test('GET /member-profile returns pendingPhotos alongside a published profile when both folders are set', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();

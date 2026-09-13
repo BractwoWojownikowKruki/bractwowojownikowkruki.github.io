@@ -2042,10 +2042,12 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
     }
   }
 
-  const [member, profile, lookupLists] = await Promise.all([
+  const duesYear = new Date().getFullYear();
+  const [member, profile, lookupLists, dues] = await Promise.all([
     getMember(deps.firestore, email),
     getProfile(deps.firestore, email),
     getAllLookupLists(deps.firestore),
+    getDues(deps.firestore, email, duesYear),
   ]);
 
   // A hidden member is treated as entirely absent for a plain active caller, matching
@@ -2112,6 +2114,12 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
     pendingPhotos,
     description,
     published,
+    // Same visibility as the Lista Wyjazdowa Składki page itself (read-only for every signed-in
+    // member, design.md §8/§9) - showing it again here in the shared profile drawer is not a new
+    // exposure, just the same fact in a second place.
+    wpisowePaid: profile?.wpisowePaid ?? false,
+    duesYear,
+    duesPaid: dues?.paid ?? false,
   });
 }
 

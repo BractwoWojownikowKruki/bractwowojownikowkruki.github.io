@@ -219,9 +219,9 @@ function renderTable(roster, duesByEmail) {
           <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
         </button>
         <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>
-        <span class="lw-due-label">Wpisowe</span>
+        ${member.wpisowePaid ? '' : '<span class="lw-due-label">Wpisowe</span>'}
         ${paidIconHtml('wpisowe', emailAttr, member.wpisowePaid, wpisoweLabel)}
-        <span class="lw-due-label">Składka ${selectedYear}</span>
+        <span class="lw-due-label">${selectedYear}</span>
         ${paidIconHtml('roczna', emailAttr, roczna, rocznaLabel)}
         ${canManageSkladki ? `<a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref)}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a>` : ''}
       `;
@@ -320,6 +320,19 @@ async function toggleWpisowe(email, nextPaid, control) {
       const label = nextPaid ? 'Wpisowe: opłacone' : 'Wpisowe: nieopłacone';
       control.title = `${label} — kliknij, aby zmienić`;
       control.setAttribute('aria-label', label);
+      // The "Wpisowe" caption only shows while unpaid (saves row width for the name once it's
+      // settled, see renderTable) - add/remove it here too, or a confirmed toggle leaves a stale
+      // caption sitting next to an icon that already reads as paid.
+      const caption = control.previousElementSibling;
+      const hasCaption = caption?.classList.contains('lw-due-label');
+      if (nextPaid && hasCaption) {
+        caption.remove();
+      } else if (!nextPaid && !hasCaption) {
+        const newCaption = document.createElement('span');
+        newCaption.className = 'lw-due-label';
+        newCaption.textContent = 'Wpisowe';
+        control.before(newCaption);
+      }
     });
   } catch (err) {
     showError(`Nie udało się zaktualizować wpisowego: ${err.message}`);
