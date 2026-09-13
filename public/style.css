@@ -1,5 +1,19 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Security-relevant: nav.js (and other scripts) gate visibility of member/moderator/admin-only
+   links purely via the `hidden` attribute (e.g. Panel admina's links and its own toggle button).
+   The UA stylesheet's `[hidden] { display: none }` is lowest-priority origin, so ANY normal
+   author rule that sets `display` unconditionally on a matching class (.nav-subitem, .mz-group-
+   toggle, ...) silently wins the cascade and makes the "hidden" element visible anyway - this
+   codebase had already hit that exact fight repeatedly (see the many one-off `.foo[hidden] {
+   display: none; }` overrides throughout this file) and still missed two classes, which is
+   exactly how a plain member ended up seeing the admin panel's links. One global, !important
+   rule (the fix MDN's own docs recommend for this) closes the whole class of bug for good,
+   instead of relying on remembering to patch every new offending selector. */
+[hidden] {
+  display: none !important;
+}
+
 :root {
   --bg:           #13100e;
   --surface:      #1e1813;
