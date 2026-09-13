@@ -566,8 +566,11 @@ button.lw-skladka-icon:disabled {
   overflow-x: auto;
 }
 
+/* flex: 0 (not 1) so this button hugs its own content instead of stretching to fill the row -
+   stretching pushed the profile icon right after it (KRKG-0047 follow-up) far away from the
+   visible name pill, which sits at the *start* of that stretched box, not centered in it. */
 .lw-skladki-row .profile-trigger:first-of-type {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 3.5rem;
   overflow: hidden;
 }
@@ -592,12 +595,19 @@ button.lw-skladka-icon:disabled {
   flex-shrink: 0;
 }
 
-/* Short "Wpisowe"/"Składka {year}" captions in front of each icon (KRKG-0047 follow-up) - the
-   icon alone read as unlabeled once wpisowe stopped sharing roczna's coin glyph. */
+/* Short "Wpisowe"/year captions in front of each icon (KRKG-0047 follow-up) - the icon alone read
+   as unlabeled once wpisowe stopped sharing roczna's coin glyph. */
 .lw-due-label {
   flex-shrink: 0;
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+/* Name+profile-icon+wpisowe (if unpaid) stay left-aligned as a tight group; this margin pushes
+   everything from the year label onward (roczna's icon, the history button) to the row's right
+   edge instead - only składka roczna is right-aligned, per the KRKG-0047 follow-up request. */
+.lw-skladki-row .lw-roczna-label {
+  margin-left: auto;
 }
 
 /* Sort/filter controls above the event page's roster (wyjazd.js's rosterSortBy/rosterFilter) -

@@ -90,6 +90,10 @@
                 <!-- Admin/moderator-only column (KRKG-0049) - shown/hidden by
                      zarzadzanie-ludzmi.js based on payload.isAdmin from /admin/members/whoami. -->
                 <th scope="col" id="membership-role-header" hidden>Rola</th>
+                <!-- Accountant/admin-only (KRKG-0047 follow-up), same requireSkladkiAccess gate as
+                     the Lista Wyjazdowa Składki page - shown/hidden by zarzadzanie-ludzmi.js based
+                     on GET /lista-wyjazdowa/my-role's canManageSkladki. -->
+                <th scope="col" id="membership-wpisowe-header" hidden>Wpisowe</th>
                 <th scope="col">Akcje</th>
               </tr>
             </thead>

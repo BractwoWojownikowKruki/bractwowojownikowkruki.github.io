@@ -107,10 +107,14 @@ function clearError() {
   document.getElementById('skladki-error').hidden = true;
 }
 
-function confirmedDuesMutation(control, execute, apply) {
+// anchor defaults to control, but a caller whose apply() removes control from the DOM (wpisowe
+// once paid, see toggleWpisowe) must pass a still-connected anchor instead - MutationFeedback
+// requires its feedback anchor to stay isConnected after apply(), same reasoning as
+// zarzadzanie-ludzmi.js's postMembershipTransition anchoring to the table when apply() removes row.
+function confirmedDuesMutation(control, execute, apply, anchor = control) {
   return window.MutationFeedback.confirmed({
     control,
-    anchor: control,
+    anchor,
     execute,
     apply,
     viewRoot: document.getElementById('skladki-content'),
@@ -212,16 +216,17 @@ function renderTable(roster, duesByEmail) {
       // canManageSkladki like every other privileged control on this row - a plain member has no
       // page that can show them this history, so no point offering the icon.
       const dueHistoryHref = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}`)}`;
-      const wpisoweLabel = member.wpisowePaid ? 'Wpisowe: opłacone' : 'Wpisowe: nieopłacone';
       const rocznaLabel = `Składka ${selectedYear}: ${roczna ? 'opłacona' : 'nieopłacona'}`;
       row.innerHTML = `
         <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
           <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
         </button>
         <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>
-        ${member.wpisowePaid ? '' : '<span class="lw-due-label">Wpisowe</span>'}
-        ${paidIconHtml('wpisowe', emailAttr, member.wpisowePaid, wpisoweLabel)}
-        <span class="lw-due-label">${selectedYear}</span>
+        ${member.wpisowePaid ? '' : `
+          <span class="lw-due-label">Wpisowe</span>
+          ${paidIconHtml('wpisowe', emailAttr, false, 'Wpisowe: nieopłacone')}
+        `}
+        <span class="lw-due-label lw-roczna-label">${selectedYear}</span>
         ${paidIconHtml('roczna', emailAttr, roczna, rocznaLabel)}
         ${canManageSkladki ? `<a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref)}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a>` : ''}
       `;
@@ -305,6 +310,9 @@ async function loadAndRender() {
 
 async function toggleWpisowe(email, nextPaid, control) {
   clearError();
+  // Marking paid removes `control` itself from the DOM below - the confirmation checkmark needs a
+  // still-connected anchor to land next to instead (the row), see confirmedDuesMutation's comment.
+  const feedbackAnchor = nextPaid ? control.closest('.lw-skladki-row') : control;
   try {
     await confirmedDuesMutation(control, () => apiFetch(
       `/lista-wyjazdowa/wpisowe?memberEmail=${encodeURIComponent(email)}`,
@@ -312,28 +320,22 @@ async function toggleWpisowe(email, nextPaid, control) {
       showReauth,
       hideReauth,
     ), () => {
-      control.dataset.paid = String(nextPaid);
-      // The glyph (✓/✕) is kind-specific, unlike roczna's fixed 💰 coin - it must be repainted
-      // here too, not just the background color, or a confirmed toggle leaves the old glyph
-      // showing against the new color (e.g. a green ✕ right after marking something paid).
-      control.textContent = nextPaid ? '✓' : '✕';
-      const label = nextPaid ? 'Wpisowe: opłacone' : 'Wpisowe: nieopłacone';
-      control.title = `${label} — kliknij, aby zmienić`;
-      control.setAttribute('aria-label', label);
-      // The "Wpisowe" caption only shows while unpaid (saves row width for the name once it's
-      // settled, see renderTable) - add/remove it here too, or a confirmed toggle leaves a stale
-      // caption sitting next to an icon that already reads as paid.
-      const caption = control.previousElementSibling;
-      const hasCaption = caption?.classList.contains('lw-due-label');
-      if (nextPaid && hasCaption) {
-        caption.remove();
-      } else if (!nextPaid && !hasCaption) {
-        const newCaption = document.createElement('span');
-        newCaption.className = 'lw-due-label';
-        newCaption.textContent = 'Wpisowe';
-        control.before(newCaption);
+      if (nextPaid) {
+        // Wpisowe shows nothing at all once paid (KRKG-0047 follow-up, saves row width for the
+        // name) - undoing a mistaken "opłacone" is no longer possible from this row at all, only
+        // from Zarządzanie ludźmi's own Wpisowe column, so this removes the caption and the icon
+        // entirely rather than just repainting them.
+        const caption = control.previousElementSibling;
+        if (caption?.classList.contains('lw-due-label')) caption.remove();
+        control.remove();
+      } else {
+        control.dataset.paid = String(nextPaid);
+        control.textContent = '✕';
+        const label = 'Wpisowe: nieopłacone';
+        control.title = `${label} — kliknij, aby zmienić`;
+        control.setAttribute('aria-label', label);
       }
-    });
+    }, feedbackAnchor);
   } catch (err) {
     showError(`Nie udało się zaktualizować wpisowego: ${err.message}`);
   }
@@ -363,8 +365,14 @@ document.getElementById('skladki-content').addEventListener('click', (e) => {
   if (!icon) return;
   const email = icon.dataset.email;
   const nextPaid = icon.dataset.paid !== 'true';
-  if (icon.dataset.kind === 'wpisowe') toggleWpisowe(email, nextPaid, icon);
-  else toggleRoczna(email, nextPaid, icon);
+  if (icon.dataset.kind === 'wpisowe') {
+    // Marking wpisowe paid removes this row's only control for it entirely (see toggleWpisowe) -
+    // from that point on, undoing a mistake means going to Zarządzanie ludźmi's Wpisowe column.
+    if (nextPaid && !window.confirm('Czy na pewno chcesz zaznaczyć, że wpisowe zostało opłacone?')) return;
+    toggleWpisowe(email, nextPaid, icon);
+  } else {
+    toggleRoczna(email, nextPaid, icon);
+  }
 });
 
 initGoogleSignIn({

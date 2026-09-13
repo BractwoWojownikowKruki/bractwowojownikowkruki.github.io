@@ -146,13 +146,18 @@ const CURRENT_YEAR = new Date().getFullYear();
 // but always a plain, unclickable <span> here - nothing on this page can toggle it.
 function renderDuesStatus(wpisowePaid, rocznaPaid) {
   const container = document.getElementById('lw-dues-status');
-  const wpisoweLabel = wpisowePaid ? 'Wpisowe: opłacone' : 'Wpisowe: nieopłacone';
   const rocznaLabel = `Składka ${CURRENT_YEAR}: ${rocznaPaid ? 'opłacona' : 'nieopłacona'}`;
-  container.innerHTML = `
+  // Wpisowe shows nothing at all once paid (KRKG-0047 follow-up, same as skladki.js's row) - this
+  // page is read-only anyway, so there's no control being hidden, just a settled fact with nothing
+  // left to say about it.
+  const wpisoweHtml = wpisowePaid ? '' : `
     <span class="lw-dues-status-item">
-      <span class="lw-skladka-icon" data-paid="${wpisowePaid}" aria-hidden="true">${wpisowePaid ? '✓' : '✕'}</span>
-      ${escapeHtml(wpisoweLabel)}
+      <span class="lw-skladka-icon" data-paid="false" aria-hidden="true">✕</span>
+      ${escapeHtml('Wpisowe: nieopłacone')}
     </span>
+  `;
+  container.innerHTML = `
+    ${wpisoweHtml}
     <span class="lw-dues-status-item">
       <span class="lw-skladka-icon" data-paid="${rocznaPaid}" aria-hidden="true">💰</span>
       ${escapeHtml(rocznaLabel)}

@@ -7,10 +7,17 @@
 // reports isAdmin so a plain moderator never triggers the role-assignment-only fetches below
 // (GET /admin/roles(+/audit-log) are still admin-only and would 403 for them).
 let isAdminCaller = false;
+// Wpisowe management needs requireSkladkiAccess (accountant/Firestore-admin role, or the env admin
+// allowlist), same as the Lista Wyjazdowa Składki page - a plain moderator with neither must not
+// see or use the new Wpisowe column, even though this page's own admin-or-moderator gate lets them
+// in. Also requires the live kruki Google Group membership GET /lista-wyjazdowa/my-role itself
+// gates on - an admin-allowlist account that isn't a club member gets caught by the try/catch
+// below and simply doesn't see the column, same as it can't reach the Składki page either.
+let canManageSkladki = false;
 initGoogleSignIn({
   buttonIds: ['google-signin-button', 'google-reauth-button'],
   whoamiPath: '/admin/members/whoami',
-  onSignedIn: payload => {
+  onSignedIn: async payload => {
     document.getElementById('admin-checking').hidden = true;
     document.getElementById('admin-signin').hidden = true;
     document.getElementById('admin-email').textContent = payload.email;
@@ -18,6 +25,12 @@ initGoogleSignIn({
     isAdminCaller = payload.isAdmin === true;
     document.getElementById('roles-audit-log-panel').hidden = !isAdminCaller;
     document.getElementById('membership-role-header').hidden = !isAdminCaller;
+    try {
+      ({ canManageSkladki } = await apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth));
+    } catch {
+      canManageSkladki = false;
+    }
+    document.getElementById('membership-wpisowe-header').hidden = !canManageSkladki;
     loadMembershipMembers();
     if (isAdminCaller) renderRolesAuditLog();
   },
@@ -50,7 +63,7 @@ async function postMembershipTransition(row, email, transition) {
     apply: () => {
       membershipMembersCache.members = membershipMembersCache.members.filter(member => member.email !== email);
       row.remove();
-      if (!list.querySelector('.membership-member')) list.innerHTML = '<tr><td colspan="10" class="czl-empty">Brak członków w tym statusie.</td></tr>';
+      if (!list.querySelector('.membership-member')) list.innerHTML = '<tr><td colspan="11" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     },
     shouldShowCheck: result => !sheetSyncStatusMessage(result.sheetSyncStatus),
     viewRoot: list,
@@ -151,6 +164,18 @@ async function loadRolesByEmail() {
   if (!isAdminCaller) return new Map();
   const { roles } = await apiFetch('/admin/roles', { method: 'GET' }, showReauth, hideReauth);
   return new Map(roles.map(r => [r.email, r.roles]));
+}
+
+// GET /lista-wyjazdowa/roster is the only endpoint that already carries wpisowePaid for every
+// member at once (built for the Składki page) - reused here rather than adding a second one.
+async function loadWpisoweByEmail() {
+  if (!canManageSkladki) return new Map();
+  try {
+    const { roster } = await apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth);
+    return new Map(roster.map(m => [m.email, m.wpisowePaid]));
+  } catch {
+    return new Map();
+  }
 }
 
 // Sections/categories don't change within one open admin session - cached the same way
@@ -263,22 +288,23 @@ async function renderRolesAuditLog() {
 
 // Cached from the last successful load so the free-text filter can re-render instantly without
 // re-fetching - cleared/replaced on every status change or data-changing action.
-let membershipMembersCache = { members: [], status: 'active', driveFolderOptions: [], rolesByEmail: new Map(), sections: [], categories: [] };
+let membershipMembersCache = { members: [], status: 'active', driveFolderOptions: [], rolesByEmail: new Map(), sections: [], categories: [], wpisoweByEmail: new Map() };
 
 async function loadMembershipMembers() {
   const status = document.getElementById('membership-status-filter').value;
   const list = document.getElementById('membership-members-list');
   list.textContent = 'Ładowanie...';
   try {
-    const [{ members }, driveFolderOptions, rolesByEmail, sections, categories] = await Promise.all([
+    const [{ members }, driveFolderOptions, rolesByEmail, sections, categories, wpisoweByEmail] = await Promise.all([
       apiFetch(`/admin/members?status=${encodeURIComponent(status)}`, { method: 'GET' }, showReauth, hideReauth),
       loadDriveFolderOptions(),
       loadRolesByEmail(),
       loadSections(),
       loadCategories(),
+      loadWpisoweByEmail(),
     ]);
-    membershipMembersCache = { members, status, driveFolderOptions, rolesByEmail, sections, categories };
-    renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories);
+    membershipMembersCache = { members, status, driveFolderOptions, rolesByEmail, sections, categories, wpisoweByEmail };
+    renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories, wpisoweByEmail);
   } catch (err) {
     list.textContent = `Błąd: ${err.message}`;
   }
@@ -293,8 +319,8 @@ function filterMembershipMembers(members) {
 }
 
 document.getElementById('membership-members-filter').addEventListener('input', () => {
-  const { members, status, driveFolderOptions, rolesByEmail, sections, categories } = membershipMembersCache;
-  renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories);
+  const { members, status, driveFolderOptions, rolesByEmail, sections, categories, wpisoweByEmail } = membershipMembersCache;
+  renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories, wpisoweByEmail);
 });
 
 function memberFocusId(email, control) {
@@ -312,10 +338,10 @@ function roleCheckboxesHtml(email, roles) {
   ).join('');
 }
 
-function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections, categories) {
+function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections, categories, wpisoweByEmail) {
   const tbody = document.getElementById('membership-members-list');
   if (!members.length) {
-    tbody.innerHTML = '<tr><td colspan="11" class="czl-empty">Brak członków w tym statusie.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     return;
   }
   // Grouped by section, alphabetical within it (KRKG-0051) - same rule as czlonkowie.js's Sekcja
@@ -363,6 +389,12 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
         <span class="drive-folder-saved" style="color:var(--gold);" hidden>✓</span>
       </td>
       <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(m.email, rolesByEmail.get(m.email))}</td>
+      <td ${canManageSkladki ? '' : 'hidden'}>
+        <label class="member-role-label">
+          <input id="${memberFocusId(m.email, 'wpisowe')}" type="checkbox" class="member-wpisowe-checkbox" data-email="${escapeAttr(m.email)}" ${wpisoweByEmail.get(m.email) ? 'checked' : ''} />
+          Opłacone
+        </label>
+      </td>
       <td>
         ${actions.map(a => `<button id="${memberFocusId(m.email, `action-${a.transition}`)}" class="member-action" data-transition="${a.transition}">${a.label}</button>`).join('')}
       </td>
@@ -465,7 +497,46 @@ async function saveMemberHidden(email, hidden, control) {
   }
 }
 
+// Wpisowe is now hidden entirely from the Składki page's row once paid (KRKG-0047 follow-up) - no
+// UI there can undo a mistaken "opłacone" any more, so this checkbox is the only remaining way to
+// flip it back. Marking it *paid* is confirmed first (see the change handler below); un-marking it
+// is not, the same asymmetry as membership-status-filter's Zawieś/Usuń needing confirmation only
+// for the harder-to-undo actions.
+async function saveMemberWpisowe(email, nextPaid, control) {
+  const previousPaid = membershipMembersCache.wpisoweByEmail.get(email) ?? false;
+  try {
+    await window.MutationFeedback.confirmed({
+      control,
+      execute: () => apiFetch(
+        `/lista-wyjazdowa/wpisowe?memberEmail=${encodeURIComponent(email)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: nextPaid }) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: () => {
+        membershipMembersCache.wpisoweByEmail.set(email, nextPaid);
+      },
+      viewRoot: control.closest('tbody'),
+      refreshFragment: loadMembershipMembers,
+      rollback: () => { control.checked = previousPaid; },
+    });
+  } catch (err) {
+    window.alert(`Błąd zapisu: ${err.message}`);
+  }
+}
+
 document.getElementById('membership-members-list').addEventListener('change', async e => {
+  const wpisoweCheckbox = e.target.closest('.member-wpisowe-checkbox');
+  if (wpisoweCheckbox) {
+    const nextPaid = wpisoweCheckbox.checked;
+    if (nextPaid && !window.confirm('Czy na pewno chcesz zaznaczyć, że wpisowe zostało opłacone?')) {
+      wpisoweCheckbox.checked = false;
+      return;
+    }
+    await saveMemberWpisowe(wpisoweCheckbox.dataset.email, nextPaid, wpisoweCheckbox);
+    return;
+  }
+
   const hiddenCheckbox = e.target.closest('.member-hidden-checkbox');
   if (hiddenCheckbox) {
     const row = hiddenCheckbox.closest('tr');
