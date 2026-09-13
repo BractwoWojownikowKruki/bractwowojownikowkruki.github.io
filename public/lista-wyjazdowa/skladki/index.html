@@ -66,6 +66,15 @@
             </span>
           </div>
 
+          <!-- Ile osób jeszcze nie ma opłaconej składki rocznej za wybrany rok, wg sekcji i wg
+               typu (KRKG-0047 follow-up) - same #summary-panel/#summary-content ids and CSS as
+               wyjazd.js's own "Podsumowanie" panel, purely computed client-side from the same
+               roster+dues already fetched for the table below. -->
+          <section id="summary-panel">
+            <h2>Podsumowanie</h2>
+            <div id="summary-content"></div>
+          </section>
+
           <!-- Every failed mutation on this page (wpisowe/składka toggle, initial load) reports
                here (design.md §9: fail closed with a user-facing Polish message), same pattern as
                wyjazd.js's #lw-error. -->

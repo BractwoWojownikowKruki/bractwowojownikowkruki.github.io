@@ -672,6 +672,35 @@ button.lw-skladka-icon:disabled {
   color: var(--text);
 }
 
+/* Składki page's #summary-content breakdown (skladki.js's renderSummary, KRKG-0047 follow-up) -
+   two side-by-side lists (Sekcja/Typ) on desktop, stacked on a narrow screen via the same wrap. */
+.lw-summary-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+}
+
+.lw-summary-columns > div {
+  min-width: 220px;
+}
+
+.lw-summary-columns h3 {
+  margin: 0 0 0.5rem;
+  font-size: 15px;
+  color: var(--gold);
+}
+
+.lw-summary-columns ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.lw-summary-columns li {
+  margin-bottom: 0.25rem;
+}
+
 #skladka-fee-panel {
   padding: 0.85rem 1rem;
   background: var(--surface);

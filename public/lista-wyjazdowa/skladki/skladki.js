@@ -175,6 +175,72 @@ function sectionLabel(sectionId) {
   return sectionLabelById.get(sectionId) ?? sectionId;
 }
 
+// Same null-safe fallback as sectionLabel above, for the summary panel's "wg typu" breakdown -
+// named -For (not just categoryLabel) to avoid shadowing renderTable's own per-row local of that
+// name.
+function categoryLabelFor(categoryId) {
+  if (categoryId === null) return 'Brak typu';
+  return categoryLabelById.get(categoryId) ?? categoryId;
+}
+
+// How many members still owe składka roczna for the selected year, overall and broken down by
+// Sekcja and by Typ (kategoria) - the two axes an accountant actually chases people down by.
+// Wpisowe has no year selector, so it has no place in this per-year summary. Purely a client-side
+// tally over the same roster+dues loadAndRender already fetched for the table below - no extra
+// request.
+function renderSummary(roster, duesByEmail) {
+  const unpaidBySection = new Map();
+  const totalBySection = new Map();
+  const unpaidByCategory = new Map();
+  const totalByCategory = new Map();
+  let unpaidTotal = 0;
+
+  for (const member of roster) {
+    const paid = duesByEmail.get(member.email)?.paid ?? false;
+    totalBySection.set(member.sectionId, (totalBySection.get(member.sectionId) ?? 0) + 1);
+    totalByCategory.set(member.categoryId, (totalByCategory.get(member.categoryId) ?? 0) + 1);
+    if (!paid) {
+      unpaidTotal += 1;
+      unpaidBySection.set(member.sectionId, (unpaidBySection.get(member.sectionId) ?? 0) + 1);
+      unpaidByCategory.set(member.categoryId, (unpaidByCategory.get(member.categoryId) ?? 0) + 1);
+    }
+  }
+
+  const sortedIds = (totals, labelFor) =>
+    Array.from(totals.keys()).sort((a, b) =>
+      labelFor(a).toLocaleLowerCase('pl').localeCompare(labelFor(b).toLocaleLowerCase('pl'), 'pl'),
+    );
+
+  const sectionLines = sortedIds(totalBySection, sectionLabel)
+    .map((sectionId) => {
+      const pill = sectionId === null ? escapeHtml(sectionLabel(sectionId)) : sectionPillHtml(sectionId, sectionLabel(sectionId));
+      return `<li>${pill}: <strong>${unpaidBySection.get(sectionId) ?? 0}</strong> / ${totalBySection.get(sectionId)} nieopłaconych</li>`;
+    })
+    .join('');
+
+  const categoryLines = sortedIds(totalByCategory, categoryLabelFor)
+    .map((categoryId) => {
+      const label = categoryLabelFor(categoryId);
+      const pill = categoryId === null ? escapeHtml(label) : `<span ${categoryNamePillAttrs(categoryId, label)}>${escapeHtml(label)}</span>`;
+      return `<li>${pill}: <strong>${unpaidByCategory.get(categoryId) ?? 0}</strong> / ${totalByCategory.get(categoryId)} nieopłaconych</li>`;
+    })
+    .join('');
+
+  document.getElementById('summary-content').innerHTML = `
+    <p>Nieopłacona składka ${selectedYear}: <strong>${unpaidTotal}</strong> z ${roster.length} osób.</p>
+    <div class="lw-summary-columns">
+      <div>
+        <h3>Wg sekcji</h3>
+        <ul>${sectionLines}</ul>
+      </div>
+      <div>
+        <h3>Wg typu</h3>
+        <ul>${categoryLines}</ul>
+      </div>
+    </div>
+  `;
+}
+
 function renderTable(roster, duesByEmail) {
   const bySection = new Map();
   for (const member of roster) {
@@ -304,6 +370,7 @@ async function loadAndRender() {
   categoryLabelById = new Map((lookupLists.categories ?? []).map((c) => [c.id, c.label]));
   renderYearFee(yearFee);
   const duesByEmail = new Map(dues.map((d) => [d.email, d]));
+  renderSummary(roster, duesByEmail);
   renderTable(roster, duesByEmail);
   await renderDuesAuditLog();
 }
