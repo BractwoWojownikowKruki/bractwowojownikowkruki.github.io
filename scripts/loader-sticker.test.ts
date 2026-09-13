@@ -57,8 +57,8 @@ test('keeps an initial session check visible for at least one second without del
   assert.match(auth, /const MINIMUM_SESSION_CHECKING_MS = 1000;/);
   assert.match(auth, /const sessionCheckStartedAt = Date\.now\(\);/);
   assert.match(auth, /Math\.max\(0, MINIMUM_SESSION_CHECKING_MS - \(Date\.now\(\) - sessionCheckStartedAt\)\)/);
-  assert.match(auth, /identity => afterMinimumSessionChecking\(\(\) => onSignedIn\?\.\(identity\)\)/);
-  assert.match(auth, /err => afterMinimumSessionChecking\(\(\) => notifyAuthFailure\(\{ onSignedOut, onForbidden \}, err\)\)/);
+  assert.match(auth, /identity => afterMinimumSessionChecking\(\(\) => onSignedIn\?\.\(identity, initialGeneration\)\)/);
+  assert.match(auth, /err => afterMinimumSessionChecking\(\(\) => notifyAuthFailure\(\{ onSignedOut, onForbidden \}, err, initialGeneration\)\)/);
 });
 
 test('uses one shared large renderer in every full-page loading context', async () => {
