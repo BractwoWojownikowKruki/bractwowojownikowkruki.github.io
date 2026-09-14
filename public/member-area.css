@@ -10,12 +10,12 @@
      the [data-section="..."] rules below, never a hardcoded hex elsewhere.
      --section-color-default covers any sectionId with no rule below (unassigned, or
      unresolved like "nieznana"). */
-  --section-color-bydgoszcz: #4f8fd6;
-  --section-color-czukcze:   #a374d6;
+  --section-color-bydgoszcz: #0056e0;
+  --section-color-czukcze:   #a855f7;
   --section-color-krakow:    #8a8578;
-  --section-color-poznan:    #d6524f;
-  --section-color-warszawa:  #e0b93f;
-  --section-color-wroclaw:   #5cae6a;
+  --section-color-poznan:    #ef4444;
+  --section-color-warszawa:  #eab308;
+  --section-color-wroclaw:   #16a34a;
   --section-color-default:   #8a8578;
 }
 
@@ -33,11 +33,11 @@
    element's own data-category is the single source of truth, synced to the dropdown's value on
    change where one exists. */
 :root {
-  --category-color-brokul:    #4ade80;
+  --category-color-brokul:    #639f09;
   --category-color-niewiasta: #d93fa8;
   --category-color-thing:     #e8642e;
-  --category-color-blacha:    #4f6df5;
-  --category-color-kandydat:  #f59e0b;
+  --category-color-blacha:    #427bff;
+  --category-color-kandydat:  #fa9e00;
   --category-color-bobo:      #06b6d4;
   --category-color-emeryt:    #94a3b8;
   --category-color-default:   var(--text-faint);
@@ -59,8 +59,8 @@
   padding: 0.15rem 0.65rem;
   border-radius: 0;
   border: none;
-  background: color-mix(in srgb, var(--category-c, var(--category-color-default)) 24%, var(--surface-deep));
-  color: color-mix(in srgb, var(--category-c, var(--category-color-default)) 60%, white);
+  background: color-mix(in srgb, var(--category-c, var(--category-color-default)) 27%, var(--surface-deep));
+  color: color-mix(in srgb, var(--category-c, var(--category-color-default)) 70%, white);
 }
 
 /* Overrides .czl-field's own border/radius/background on the editable fullName <input>
@@ -84,7 +84,7 @@
    attribute entirely for an unset Typ, so an empty Typ stays the table's plain background rather
    than falling back to --category-color-default. */
 .czl-table td[data-category] {
-  background: color-mix(in srgb, var(--category-c, var(--category-color-default)) 22%, var(--surface-deep));
+  background: color-mix(in srgb, var(--category-c, var(--category-color-default)) 25%, var(--surface-deep));
 }
 
 /* The <select> inside would otherwise paint its own opaque .czl-field background right over the
@@ -103,14 +103,20 @@
 .section-pill {
   display: inline-flex;
   align-items: center;
-  padding: 0.15rem 0.55rem;
-  border-radius: 4px;
-  border: 1px solid color-mix(in srgb, var(--section-c, var(--section-color-default)) 35%, transparent);
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: none;
   font-size: 0.85em;
-  font-weight: 600;
+  font-weight: 700;
   white-space: nowrap;
-  background: color-mix(in srgb, var(--section-c, var(--section-color-default)) 16%, var(--surface-deep));
-  color: color-mix(in srgb, var(--section-c, var(--section-color-default)) 65%, white);
+  background: var(--section-c, var(--section-color-default));
+  color: #ffffff;
+}
+
+/* Warszawa's yellow (#eab308) is too bright for white text - use near-black instead. */
+[data-section="warszawa"] .section-pill,
+.section-pill[data-section="warszawa"] {
+  color: #1a160d;
 }
 
 /* Dense data table (KRKG-0045/KRKG-0051) shared by every member/person table (Spis Ludności,
