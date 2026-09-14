@@ -103,17 +103,6 @@ function formatDate(isoDate) {
   return `${d}.${m}.${y}`;
 }
 
-// changedAt IS a real instant (Date.toISOString()), so converting it through Date and reading
-// local getters back out is the right move here, unlike formatDate() above - the audit log should
-// show *when this happened in the viewer's own timezone*, not the stored UTC instant verbatim.
-function formatDateTime(iso) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const date = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
-  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  return `${date} ${time}`;
-}
-
 function showReauth() {} // no reauth banner on this page yet - matches lista-wyjazdowa.js's placeholder scope
 function hideReauth() {}
 
@@ -543,15 +532,6 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
   }
 });
 
-async function renderAuditLog() {
-  const { entries } = await apiFetch(`/lista-wyjazdowa/signups/audit-log?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth);
-  document.getElementById('audit-log-content').innerHTML = entries
-    .slice()
-    .reverse()
-    .map((e) => `<li>${escapeHtml(formatDateTime(e.changedAt))} — ${escapeHtml(e.changedBy)} → ${escapeHtml(e.targetMemberEmail)}: ${escapeHtml(e.changeSummary)}</li>`)
-    .join('');
-}
-
 async function loadAll() {
   const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue }, lookupLists] = await Promise.all([
     apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
@@ -589,7 +569,6 @@ async function loadAll() {
   cachedSignups = signups;
   renderSummary(roster, signups);
   renderRoster(roster, signups);
-  await renderAuditLog();
 }
 
 async function setEventStatus(status, failureMessage, control) {

@@ -908,7 +908,6 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
 
 /* <details> gives free collapse/expand with no JS - styled so the closed summary still reads as
    a clickable section header, matching the h2's used by every other section on these pages. */
-#audit-log-panel,
 #dues-audit-log-panel {
   padding: 0.85rem 1rem;
   background: var(--surface);
@@ -916,7 +915,6 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
   border-radius: 8px;
 }
 
-#audit-log-panel summary,
 #dues-audit-log-panel summary {
   cursor: pointer;
   font-size: 20px;
@@ -925,12 +923,10 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
   list-style: revert;
 }
 
-#audit-log-panel[open] summary,
 #dues-audit-log-panel[open] summary {
   margin-bottom: 0.75rem;
 }
 
-#audit-log-content,
 #dues-audit-log-content {
   list-style: none;
   display: flex;
