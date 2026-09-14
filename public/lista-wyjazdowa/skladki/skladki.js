@@ -10,12 +10,12 @@
  * (design.md §8, §9).
  *
  * The "Składka:" select's first option, "Wpisowe" (renderWpisoweList), swaps the whole page from
- * the year table (renderTable - Wpisowe and Składka roczna as their own icon-only columns, no
- * visible year number) to a flat list of every member who still owes wpisowe, with its own
- * Dołączył column instead of Składka, sorted by join date (members.ts's approvedAt) so the oldest
- * unpaid debt surfaces first. Neither table repeats the word "Wpisowe" as row text next to the
- * icon - the page is already scoped to whichever due is selected, so that word would only cost the
- * Nazwa column the width it needs for long names.
+ * the year table (renderTable - Składka roczna as its own icon-only column, no visible year
+ * number) to a flat list of every member who still owes wpisowe, with its own Dołączył column
+ * instead of Składka, sorted by join date (members.ts's approvedAt) so the oldest unpaid debt
+ * surfaces first. KRKG-0074: the year view no longer shows Wpisowe at all (no column, no summary
+ * line) - the dedicated Wpisowe view covers that due, so repeating it in the year view was just
+ * noise on an already dense table.
  *
  * Składka roczna is three-state, not a plain toggle (KRKG follow-up): unpaid/paid/not_applicable
  * (dues.ts's DuesStatus). 'not_applicable' - a grey coin - covers a member the club doesn't
@@ -320,12 +320,9 @@ function renderSummary(roster, duesByEmail) {
   const totalByCategory = new Map();
   let unpaidTotal = 0;
   let countedTotal = 0;
-  let unpaidWpisowe = 0;
   let notApplicableCount = 0;
 
   for (const member of roster) {
-    if (!member.wpisowePaid) unpaidWpisowe += 1;
-
     let unpaid;
     if (wpisoweMode) {
       unpaid = !member.wpisowePaid;
@@ -383,21 +380,16 @@ function renderSummary(roster, duesByEmail) {
       ? `Składka ${selectedYear}: wszyscy opłacili ${unpaidBadgeHtml(0, countedTotal)}`
       : `Nieopłacona składka ${selectedYear}: <strong>${unpaidTotal}</strong> z ${countedTotal} osób.`);
 
-  // Always shown regardless of the selected due, even when the breakdown above is already about
-  // wpisowe - an accountant looking at a year's składka roczna still wants to know at a glance
-  // whether anyone owes wpisowe too, without switching the dropdown.
-  const wpisoweLine = wpisoweMode ? '' : `<p>Nieopłacone wpisowe: <strong>${unpaidWpisowe}</strong> z ${roster.length} osób.</p>`;
-
   // Only in roczna mode - wpisowe has no not_applicable state. Spelled out so the numbers above
   // visibly add up (countedTotal + notApplicableCount === roster.length) rather than leaving an
-  // accountant to wonder why the total isn't the whole roster.
+  // accountant to wonder why the total isn't the whole roster. Wpisowe deliberately absent from
+  // the year view entirely (KRKG-0074) - it has its own Wpisowe option in the select above.
   const notApplicableLine = wpisoweMode || notApplicableCount === 0
     ? ''
     : `<p>Nie dotyczy: <strong>${notApplicableCount}</strong> z ${roster.length} osób.</p>`;
 
   document.getElementById('summary-content').innerHTML = `
     <p>${totalLine}</p>
-    ${wpisoweLine}
     ${notApplicableLine}
     <div class="lw-summary-columns">
       <div>
@@ -428,8 +420,9 @@ function dueHistoryHref(email) {
 // profile-icon pair) so this page reads consistently with the rest of Lista Wyjazdowa, not as an
 // ad-hoc layout of its own. Sortable by any column (shared/sortable-table.js, skladkiSortState) -
 // defaults to Sekcja then name, no more per-section <h3> headings or a baked-in unpaid-first
-// sub-sort (the summary panel above already surfaces who's unpaid, and Wpisowe/Składka are
-// themselves sortable now for anyone who wants that grouping back).
+// sub-sort (the summary panel above already surfaces who's unpaid, and Składka is itself sortable
+// now for anyone who wants that grouping back). No Wpisowe column (KRKG-0074) - that due has its
+// own Wpisowe view, and the year table stays scoped to Składka roczna only.
 //
 // KRKG-0074: not_applicable members (emeryci) are split out into their own "Emeryci" table
 // below instead of sitting among the unpaid/paid rows - the main list is what an accountant
@@ -456,7 +449,6 @@ function renderTable(roster, duesByEmail) {
   const sortValue = (member) => {
     switch (skladkiSortState.key) {
       case 'name': return displayName(member);
-      case 'wpisowe': return member.wpisowePaid;
       case 'roczna': return ROCZNA_SORT_RANK[effectiveDuesStatus(member, duesByEmail)];
       default: return sectionLabel(member.sectionId);
     }
@@ -479,7 +471,6 @@ function renderTable(roster, duesByEmail) {
           </button>
           <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>
         </td>
-        <td>${member.wpisowePaid ? '' : paidIconHtml(emailAttr, false, 'Wpisowe: nieopłacone')}</td>
         <td>${rocznaIconHtml(emailAttr, effectiveDuesStatus(member, duesByEmail))}</td>
         ${canManageSkladki ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.email))}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a></td>` : ''}
       </tr>`;
@@ -490,7 +481,6 @@ function renderTable(roster, duesByEmail) {
     <tr>
       <th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
       <th scope="col" class="lw-roster-name-cell" data-sort-key="name" aria-sort="none"><button type="button">Nazwa</button></th>
-      <th scope="col" class="lw-narrow-col" data-sort-key="wpisowe" aria-sort="none" title="Wpisowe"><button type="button"><span class="lw-col-icon" aria-hidden="true">✓</span><span class="lw-col-label">Wpisowe</span></button></th>
       <th scope="col" class="lw-narrow-col" data-sort-key="roczna" aria-sort="none" title="Składka roczna"><button type="button"><span class="lw-col-icon" aria-hidden="true">💰</span><span class="lw-col-label">Składka</span></button></th>
       ${canManageSkladki ? `<th scope="col" class="lw-narrow-col" title="Historia"><span class="lw-col-icon" aria-hidden="true">${HISTORY_ICON}</span><span class="lw-col-label">Historia</span></th>` : ''}
     </tr>
@@ -501,7 +491,6 @@ function renderTable(roster, duesByEmail) {
   const emeryciSortValue = (member) => {
     switch (emeryciSortState.key) {
       case 'name': return displayName(member);
-      case 'wpisowe': return member.wpisowePaid;
       default: return sectionLabel(member.sectionId);
     }
   };
@@ -516,7 +505,6 @@ function renderTable(roster, duesByEmail) {
     <tr>
       <th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
       <th scope="col" class="lw-roster-name-cell" data-sort-key="name" aria-sort="none"><button type="button">Nazwa</button></th>
-      <th scope="col" class="lw-narrow-col" data-sort-key="wpisowe" aria-sort="none" title="Wpisowe"><button type="button"><span class="lw-col-icon" aria-hidden="true">✓</span><span class="lw-col-label">Wpisowe</span></button></th>
       <th scope="col" class="lw-narrow-col" title="Składka roczna"><span class="lw-col-icon" aria-hidden="true">💰</span><span class="lw-col-label">Składka</span></th>
       ${canManageSkladki ? `<th scope="col" class="lw-narrow-col" title="Historia"><span class="lw-col-icon" aria-hidden="true">${HISTORY_ICON}</span><span class="lw-col-label">Historia</span></th>` : ''}
     </tr>
@@ -681,13 +669,12 @@ async function loadAndRender() {
   await renderDuesAuditLog();
 }
 
-// Wpisowe's icon only ever appears for an unpaid member on either table (renderTable leaves the
-// cell empty once paid, renderWpisoweList lists unpaid members only - see their own comments), so
-// marking it paid is a one-way action, never a toggle back - undoing a mistake afterward means
-// going to Zarządzanie ludźmi's own Wpisowe column instead. toRemove is the element that should
-// disappear from the DOM on success: the icon itself in the year table (leaving the rest of the
-// row - Sekcja, Nazwa, Składka - in place), or the whole `<tr>` in the Wpisowe-only list (every row
-// there exists only because it's unpaid, so the member simply drops off the list).
+// Wpisowe's icon only ever appears for an unpaid member in the Wpisowe-only list (renderTable
+// dropped its Wpisowe column entirely in KRKG-0074), so marking it paid is a one-way action,
+// never a toggle back - undoing a mistake afterward means going to Zarządzanie ludźmi's own
+// Wpisowe column instead. toRemove is the element that should disappear from the DOM on success:
+// the whole <tr> in the Wpisowe-only list (every row there exists only because it's unpaid, so
+// the member simply drops off the list).
 async function markWpisowePaid(email, control, toRemove) {
   clearError();
   try {
