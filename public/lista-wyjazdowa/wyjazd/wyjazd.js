@@ -21,22 +21,51 @@ function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, '&quot;');
 }
 
-// Weapon icons (KRKG-0054) - the roster's Broń column is dense enough that spelling out "Tarczownik
-// (T)"/"Włócznik (W)"/"Duńczyk (D)" for every row crowds the table, so it shows just the icon
-// (title attribute carries the full label for hover/assistive tech). Keyed by lookupLists/weapons'
-// fixed 3-item id set (see upload-service/scripts/seed-lookup-lists.ts) - an id with no icon here
-// falls back to its plain label so a future 4th weapon type doesn't just vanish.
-const WEAPON_ICONS = {
-  tarczownik: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 L19 6 V12 C19 17 15.5 20 12 21 C8.5 20 5 17 5 12 V6 Z"/></svg>',
-  wlocznik: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20 L16 8"/><path d="M14 4 L20 4 L20 10 Z" fill="currentColor" stroke="none"/></svg>',
-  dunczyk: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3 V21"/><path d="M12 4 C12 4 5.5 5.5 5 9.5 C4.7 11.8 7 13 9 13 C10.8 13 12 11.5 12 9.5 Z" fill="currentColor" stroke="none"/></svg>',
+// Weapon icons (KRKG-0054, art assets added later): keyed by lookupLists/weapons' fixed 3-item id
+// set (see upload-service/scripts/seed-lookup-lists.ts) via its ASCII item-name (see
+// WEAPON_ICON_KEYS below), pointing at the hand-drawn PNGs in /icons. A member holding two weapons
+// gets the matching two-item combo PNG rather than two icons side by side - see
+// weaponGroupIconFile below, which builds the same combo key weaponGroupLabel uses for its text.
+const WEAPON_ICON_KEYS = {
+  tarczownik: 'tarcza',
+  wlocznik: 'wlocznia',
+  dunczyk: 'topor',
 };
 
-function weaponIconHtml(id, label) {
-  const icon = WEAPON_ICONS[id];
-  return icon
-    ? `<span class="lw-weapon-icon" title="${escapeAttr(label)}">${icon}</span>`
-    : `<span class="lw-weapon-icon lw-weapon-icon--text" title="${escapeAttr(label)}">${escapeHtml(label)}</span>`;
+function weaponGroupIconFile(weaponIds) {
+  if (weaponIds.length === 0 || weaponIds.length > 2) return null;
+  const keys = [...weaponIds]
+    .sort((a, b) => WEAPON_DISPLAY_ORDER.indexOf(a) - WEAPON_DISPLAY_ORDER.indexOf(b))
+    .map((id) => WEAPON_ICON_KEYS[id]);
+  if (keys.some((key) => !key)) return null;
+  return `/icons/bron-${keys.join('-')}.png`;
+}
+
+// Icon-and-label together, for spots with room to spare (the "Wg broni" summary chips) - a bare
+// icon there would need a hover just to read what it means.
+function weaponGroupIconHtml(weaponIds, label) {
+  const iconFile = weaponGroupIconFile(weaponIds);
+  const icon = iconFile ? `<img class="lw-weapon-icon" src="${iconFile}" alt="" width="20" height="20">` : '';
+  return `<span class="lw-weapon-group">${icon}<span class="lw-weapon-group-label">${escapeHtml(label)}</span></span>`;
+}
+
+// Icon only, no visible caption - the roster table has no room to spare (especially on phones), so
+// its Broń column shows just the icon(s), with the full label as a hover/a11y title instead. Falls
+// back to one icon per weapon when the set has no matching combo PNG (weaponGroupIconFile only
+// covers 1-2 weapons; nobody is expected to hold all three, but this still degrades sanely).
+function weaponIconsOnlyHtml(weaponIds, title) {
+  const groupFile = weaponGroupIconFile(weaponIds);
+  if (groupFile) {
+    return `<img class="lw-weapon-icon" src="${groupFile}" alt="${escapeAttr(title)}" title="${escapeAttr(title)}" width="20" height="20">`;
+  }
+  return weaponIds
+    .map((id) => {
+      const file = weaponGroupIconFile([id]);
+      return file
+        ? `<img class="lw-weapon-icon" src="${file}" alt="${escapeAttr(weaponLabelFor(id))}" title="${escapeAttr(weaponLabelFor(id))}" width="20" height="20">`
+        : '';
+    })
+    .join('');
 }
 
 // 3-letter Sekcja abbreviations (KRKG-0063) for the compact, sticky first column - a display-only
@@ -64,16 +93,8 @@ function categoryNamePillAttrs(categoryId, label) {
   return `class="category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak statusu')}"`;
 }
 
-// The single place a member's display name is computed (KRKG-0059) - call this rather than
-// re-deriving it inline. Ksywa wins when set (it's what most members actually go by), then
-// fullName, then the email's local part (domain stripped) so a member with neither still gets a
-// findable, non-raw-email label - the roster enumerates the whole club allowlist (see server.ts's
-// handleListaWyjazdowaGetRoster), not just members who filled in "Mój profil".
-function displayName(member) {
-  if (member.nickname) return member.nickname;
-  if (member.fullName) return member.fullName;
-  return member.email.split('@')[0];
-}
+// displayName(member) itself now lives in shared/display-name.js (included via index.html) - see
+// its own comment for the priority order and the email-typed-into-a-name-field edge case.
 
 // startDate is a bare calendar date ("2027-05-01"), not a timestamp - plain string slicing avoids
 // the UTC-vs-local skew a Date object would risk (see lista-wyjazdowa.js's todayIsoDate fix).
@@ -215,7 +236,7 @@ function renderSummary(roster, signups) {
     const weaponKey = weaponGroupKey(member.weaponIds);
     const weaponGroup = byWeaponGroup.get(weaponKey);
     if (weaponGroup) weaponGroup.count += 1;
-    else byWeaponGroup.set(weaponKey, { label: weaponGroupLabel(member.weaponIds), count: 1 });
+    else byWeaponGroup.set(weaponKey, { weaponIds: member.weaponIds, label: weaponGroupLabel(member.weaponIds), count: 1 });
     byCategory.set(member.categoryId, (byCategory.get(member.categoryId) ?? 0) + 1);
     for (const eqId of s.equipmentIds) {
       const item = member.equipment.find((e) => e.id === eqId);
@@ -246,7 +267,7 @@ function renderSummary(roster, signups) {
 
   const weaponChips = Array.from(byWeaponGroup.values())
     .sort((a, b) => a.label.toLocaleLowerCase('pl').localeCompare(b.label.toLocaleLowerCase('pl'), 'pl'))
-    .map(({ label, count }) => `<span class="lw-summary-chip">${escapeHtml(label)}<span class="lw-summary-badge">${count}</span></span>`)
+    .map(({ weaponIds, label, count }) => `<span class="lw-summary-chip">${weaponGroupIconHtml(weaponIds, label)}<span class="lw-summary-badge">${count}</span></span>`)
     .join('');
 
   const categoryChips = sortedKeys(byCategory, categoryLabelFor)
@@ -278,15 +299,15 @@ function renderSummary(roster, signups) {
   `;
 }
 
-// rosterSortBy picks the grouping axis for #roster-content ('section' groups by member.sectionId,
-// the pre-existing behaviour; 'weapon' groups by the member's first weaponIds entry - a member can
-// carry several weapons, but the roster only ever has one row per member, so grouping uses just
-// the first one rather than duplicating the row into every weapon's group). rosterFilter picks
-// which members are shown at all: 'attending' (the default) hides every member who hasn't signed
+// The roster's sort is now click-a-header (shared/sortable-table.js, see the table's #roster-table
+// initSortableTable call below) rather than a "Sortuj wg" dropdown - 'weapon' groups by the
+// member's first weaponIds entry (a member can carry several, but the roster only ever has one row
+// per member, so grouping uses just the first one rather than duplicating the row into every
+// weapon's group). rosterFilter is a separate concern (which members are shown at all, not what
+// order) and keeps its own dropdown: 'attending' (the default) hides every member who hasn't signed
 // up for this event yet, keeping the list short; 'all' reveals the full club allowlist so someone
-// who hasn't been asked yet can be ticked as attending for the first time. Both are re-applied
-// locally from the roster/signups already fetched by loadAll() - no network round-trip needed.
-let rosterSortBy = 'section';
+// who hasn't been asked yet can be ticked as attending for the first time. Re-applied locally from
+// the roster/signups already fetched by loadAll() - no network round-trip needed.
 let rosterFilter = 'attending';
 let cachedRoster = [];
 let cachedSignups = [];
@@ -328,30 +349,29 @@ function categoryLabelFor(categoryId) {
   return categoryLabelById.get(categoryId) ?? categoryId;
 }
 
-// Short item names (not the "-townik"/"-nik" person-role labels weaponLabelFor returns) for
-// composing a multi-weapon label below - "tarcza" rather than "Tarczownik", etc.
+// Short item names (not the "-townik"/"-nik" person-role labels weaponLabelFor returns) - always
+// used for weaponGroupLabel below, single weapon or not: "tarcza" rather than "Tarczownik", etc.
 const WEAPON_ITEM_NAMES = {
   tarczownik: 'tarcza',
   wlocznik: 'włócznia',
-  dunczyk: 'dun',
+  dunczyk: 'topór',
 };
 // Fixed display order for a multi-weapon label, independent of weaponIds' own array order - same
-// order WEAPON_ICONS declares them in, so the same combination always prints the same way.
+// order weaponGroupIconFile sorts by, so the same combination always prints the same way.
 const WEAPON_DISPLAY_ORDER = ['tarczownik', 'wlocznik', 'dunczyk'];
 
 // renderSummary's "Wg broni" groups by a member's *full* weaponIds set, not just the first one
 // (unlike weaponSortLabel's roster grouping) - someone able to use two weapons is a genuinely
 // distinct headcount from someone who can only use one, not a duplicate tallied under each. A
-// member with two or three weapons is labelled by joining their short item names ("tarcza /
-// włócznia"), not a compound name like "Włócznik i tarczownik" or a generic "Dwie bronie" count.
-// Nobody is labelled "Brak broni" here - a member with no weapon at all is "Niewalczące"
-// (non-combatant), not "missing" one.
+// member is always labelled by their short item name(s) ("tarcza", or "tarcza / włócznia" for two),
+// never the "-townik"/"-nik" person-role name or a compound like "Dwie bronie". Nobody is labelled
+// "Brak broni" here - a member with no weapon at all is "Niewalczące" (non-combatant), not
+// "missing" one.
 function weaponGroupKey(weaponIds) {
   return [...weaponIds].sort().join('+');
 }
 function weaponGroupLabel(weaponIds) {
   if (weaponIds.length === 0) return 'Niewalczące';
-  if (weaponIds.length === 1) return weaponLabelFor(weaponIds[0]);
   return [...weaponIds]
     .sort((a, b) => WEAPON_DISPLAY_ORDER.indexOf(a) - WEAPON_DISPLAY_ORDER.indexOf(b))
     .map((id) => WEAPON_ITEM_NAMES[id] ?? weaponLabelFor(id))
@@ -359,10 +379,18 @@ function weaponGroupLabel(weaponIds) {
 }
 
 // EMPTY (KRKG-0052) mirrors czlonkowie.js's dense-table convention - flat rows sorted by the
-// chosen key (Sekcja, tie-broken alphabetically; or Rodzaj broni), grouped visually only by the
-// left accent bar (this member's own sectionId), no more per-group <h3> headings - the whole
-// roster is one .czl-table now, same shape as Spis Ludności's.
+// clicked header (Sekcja/Nazwa/Status/Broń, tie-broken alphabetically by name), grouped visually
+// only by the left accent bar (this member's own sectionId), no more per-group <h3> headings - the
+// whole roster is one .czl-table now, same shape as Spis Ludności's.
 const EMPTY = '—';
+
+// Click-to-sort wiring (shared/sortable-table.js) - see its own comment. onChange re-renders with
+// whatever roster/signups this page fetched last (loadAll() keeps them in cachedRoster/
+// cachedSignups precisely so a sort click doesn't need a fresh request).
+const rosterSortState = initSortableTable(document.getElementById('roster-table'), {
+  defaultKey: 'section',
+  onChange: () => renderRoster(cachedRoster, cachedSignups),
+});
 
 function renderRoster(roster, signups) {
   const signupByEmail = new Map(signups.map((s) => [s.memberEmail, s]));
@@ -376,16 +404,21 @@ function renderRoster(roster, signups) {
     return;
   }
 
-  const sortLabel = rosterSortBy === 'weapon' ? weaponSortLabel : sectionSortLabel;
+  const sortValue = (member) => {
+    switch (rosterSortState.key) {
+      case 'weapon': return weaponSortLabel(member);
+      case 'name': return displayName(member);
+      case 'status': return signupByEmail.get(member.email)?.attending ?? false;
+      default: return sectionSortLabel(member);
+    }
+  };
   const sorted = [...visible].sort((a, b) => {
-    const cmp = sortLabel(a).toLocaleLowerCase('pl').localeCompare(sortLabel(b).toLocaleLowerCase('pl'), 'pl');
+    const cmp = compareValues(sortValue(a), sortValue(b), rosterSortState.dir);
     if (cmp !== 0) return cmp;
-    // Within a tied section/weapon, surface attending members first (the old grouped view's
-    // sub-sort), then alphabetically by name.
-    const aAttending = signupByEmail.get(a.email)?.attending ? 0 : 1;
-    const bAttending = signupByEmail.get(b.email)?.attending ? 0 : 1;
-    if (aAttending !== bAttending) return aAttending - bAttending;
-    return displayName(a).toLocaleLowerCase('pl').localeCompare(displayName(b).toLocaleLowerCase('pl'), 'pl');
+    // Tie-break alphabetically by name, always ascending regardless of the primary column's own
+    // direction - a stable, predictable order for ties rather than one that flips with every
+    // direction toggle on an unrelated column.
+    return compareValues(displayName(a), displayName(b), 'asc');
   });
 
   tbody.innerHTML = sorted
@@ -394,7 +427,9 @@ function renderRoster(roster, signups) {
       const attending = signup?.attending ?? false;
       const emailAttr = escapeAttr(member.email);
       const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
-      const weaponIconsHtml = member.weaponIds.map((id) => weaponIconHtml(id, weaponLabelById.get(id) ?? id)).join('');
+      const weaponHtml = member.weaponIds.length
+        ? weaponIconsOnlyHtml(member.weaponIds, weaponGroupLabel(member.weaponIds))
+        : '';
       return `
     <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
       <td class="czl-section-cell" title="${escapeAttr(sectionSortLabel(member) || 'Brak sekcji')}">${member.sectionId ? escapeHtml(sectionAbbr(member.sectionId)) : EMPTY}</td>
@@ -413,7 +448,7 @@ function renderRoster(roster, signups) {
         </button>
         ${attending ? renderSkladkaIcon(emailAttr, signup?.skladkaPaid ?? false) : ''}
       </td>
-      <td class="${member.weaponIds.length ? '' : 'czl-empty'}">${member.weaponIds.length ? weaponIconsHtml : EMPTY}</td>
+      <td class="${member.weaponIds.length ? '' : 'czl-empty'}">${member.weaponIds.length ? weaponHtml : EMPTY}</td>
     </tr>`;
     })
     .join('');
@@ -469,11 +504,6 @@ async function toggleAttending(email, nextAttending, control) {
     showError(`Nie udało się zapisać zgłoszenia: ${err.message}`);
   }
 }
-
-document.getElementById('roster-sort-select').addEventListener('change', (e) => {
-  rosterSortBy = e.target.value;
-  renderRoster(cachedRoster, cachedSignups);
-});
 
 document.getElementById('roster-filter-select').addEventListener('change', (e) => {
   rosterFilter = e.target.value;

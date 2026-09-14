@@ -79,24 +79,25 @@
             <thead>
               <tr>
                 <th scope="col"></th>
-                <th scope="col" class="czl-section-cell" title="Sekcja">S</th>
-                <th scope="col">Imię i nazwisko</th>
-                <th scope="col">Ksywa</th>
+                <th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
+                <th scope="col" data-sort-key="name" aria-sort="none"><button type="button">Imię i nazwisko</button></th>
+                <th scope="col" data-sort-key="nickname" aria-sort="none"><button type="button">Ksywa</button></th>
                 <!-- "Typ członka" (KRKG-0050) shown as "Status" here, same as everywhere else on
                      the site (Spis Ludności, profile drawer, Lista Wyjazdowa/Składki summaries) -
                      the account-state filter above is labeled "Konto" precisely so it doesn't
                      collide with this. -->
-                <th scope="col">Status</th>
+                <th scope="col" data-sort-key="status" aria-sort="none"><button type="button">Status</button></th>
                 <!-- KRKG-0060: only Zarządzanie ludźmi can set this - every other member listing
                      (Spis Ludności, Lista Wyjazdowa) excludes a hidden member entirely, so this
                      is the only place a hidden member is even visible to toggle back. -->
-                <th scope="col">Ukryty</th>
-                <th scope="col">Email</th>
-                <th scope="col">Ostatnie logowanie</th>
+                <th scope="col" data-sort-key="hidden" aria-sort="none"><button type="button">Ukryty</button></th>
+                <th scope="col" data-sort-key="email" aria-sort="none"><button type="button">Email</button></th>
+                <th scope="col" data-sort-key="lastLogin" aria-sort="none"><button type="button">Ostatnie logowanie</button></th>
                 <th scope="col">Folder na Dysku</th>
                 <!-- Admin AND moderator-editable (KRKG bugfix), unlike Rola/Wpisowe below - writes
                      the same listaWyjazdowaProfile.weaponIds a member sets themselves on "Mój
-                     profil", via PUT /admin/members/weapons. -->
+                     profil", via PUT /admin/members/weapons. Not sortable - a checkbox-per-weapon
+                     cell has no single value to sort by, same reasoning as Rola/Akcje below. -->
                 <th scope="col">Broń</th>
                 <!-- Admin/moderator-only column (KRKG-0049) - shown/hidden by
                      zarzadzanie-ludzmi.js based on payload.isAdmin from /admin/members/whoami. -->
@@ -104,7 +105,7 @@
                 <!-- Accountant/admin-only (KRKG-0047 follow-up), same requireSkladkiAccess gate as
                      the Lista Wyjazdowa Składki page - shown/hidden by zarzadzanie-ludzmi.js based
                      on GET /lista-wyjazdowa/my-role's canManageSkladki. -->
-                <th scope="col" id="membership-wpisowe-header" hidden>Wpisowe</th>
+                <th scope="col" id="membership-wpisowe-header" data-sort-key="wpisowe" aria-sort="none" hidden><button type="button">Wpisowe</button></th>
                 <th scope="col">Akcje</th>
               </tr>
             </thead>
@@ -193,6 +194,7 @@
   <script src="../../nav.js"></script>
   <script src="../admin-shared.js"></script>
   <script src="../../shared/profile-panel.js"></script>
+  <script src="../../shared/sortable-table.js"></script>
   <script src="zarzadzanie-ludzmi.js"></script>
 </body>
 </html>

@@ -54,7 +54,14 @@ const duesFields = {
   memberEmail: 'roleRestricted',
   year: 'roleRestricted',
   eventId: 'roleRestricted',
+  // Still live for dues.entry_fee.changed (wpisowe) and dues.event_fee.changed (a signup's
+  // per-event fee) - both stay plain booleans. dues.annual.changed (składka roczna) moved to the
+  // three-state `status` field below (KRKG follow-up); `paid` stays registered here only so
+  // audit-migration.ts can still faithfully replay pre-existing roczna entries logged under it.
   paid: 'roleRestricted',
+  // The live field for dues.annual.changed going forward - 'unpaid' | 'paid' | 'not_applicable'
+  // (dues.ts's DuesStatus), replacing that action's own use of `paid` above.
+  status: 'roleRestricted',
   // amount is now only ever produced by audit-migration.ts (legacy per-member duesAuditLog
   // "kwotę składki" entries predating dues.year_fee.changed below) - the live write path moved to
   // a shared per-year note instead of a per-member amount, but the field stays registered so that

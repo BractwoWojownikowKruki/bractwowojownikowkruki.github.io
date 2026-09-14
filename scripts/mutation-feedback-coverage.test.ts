@@ -314,7 +314,9 @@ test('batch five events and dues mutations use local confirmed feedback', async 
   assert.match(extractListenerForElement(files[0], 'add-event-form', 'submit'), /anchor: document\.getElementById\('events-list'\)/);
   assert.match(files[1], /document\.getElementById\('roster-panel'\)/);
   assert.doesNotMatch(files[1], /\}, document\.getElementById\('roster-content'\)\)/);
-  // The status lives on the coin icon itself (data-paid/title/aria-label), not a separate status
-  // node - toggleWpisowe's apply callback must still patch it in place after a confirmed write.
-  assert.match(extractNamedFunction(files[2], 'toggleWpisowe'), /control\.dataset\.paid = String\(nextPaid\)/);
+  // The status lives on the coin icon itself (data-status/title/aria-label), not a separate status
+  // node - toggleRoczna's apply callback must still patch it in place after a confirmed write.
+  // (Wpisowe has no such in-place toggle any more - marking it paid is one-way, see
+  // markWpisowePaid's own comment - so it has no equivalent assertion here.)
+  assert.match(extractNamedFunction(files[2], 'toggleRoczna'), /control\.dataset\.status = nextStatus/);
 });

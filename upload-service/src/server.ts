@@ -69,7 +69,7 @@ import {
   type SignupWritableFields,
 } from './signups.ts';
 import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
-import { listDuesForYear, saveDues, type DuesDoc, listDuesAuditLog, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, getDues } from './dues.ts';
+import { listDuesForYear, saveDues, listDuesAuditLog, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, getDues, normalizeDuesStatus, effectiveDuesStatus } from './dues.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -2186,7 +2186,7 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
     // exposure, just the same fact in a second place.
     wpisowePaid: profile?.wpisowePaid ?? false,
     duesYear,
-    duesPaid: dues?.paid ?? false,
+    duesStatus: effectiveDuesStatus(dues, member?.categoryId ?? null),
   });
 }
 
@@ -2682,15 +2682,17 @@ async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResp
   const member = await getMember(deps.firestore, memberEmail);
   if (!member) throw new AuthError('Nie znaleziono takiego członka.', 404);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
-  if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
-  const paid = body.paid;
+  if (body.status !== 'unpaid' && body.status !== 'paid' && body.status !== 'not_applicable') {
+    throw new AuthError('Pole status musi być jednym z: unpaid, paid, not_applicable.', 400);
+  }
+  const status = body.status;
   const normalizedMemberEmail = memberEmail.toLowerCase();
   const { result: dues } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.annualDues,
     'dues.annual.changed',
     async tx => {
-      const existing = await tx.getDoc<DuesDoc>('duesAnnual', `${normalizedMemberEmail}_${year}`);
+      const existing = await tx.getDoc<{ status?: unknown; paid?: unknown }>('duesAnnual', `${normalizedMemberEmail}_${year}`);
       return {
         actor: { email: identity.email },
         // Same resource key as wpisowe above (due:{email}) - the year no longer lives in the key,
@@ -2698,12 +2700,12 @@ async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResp
         // say which year a given roczna entry was about.
         resource: { kind: 'due', key: `due:${normalizedMemberEmail}`, display: normalizedMemberEmail },
         changes: [
-          { field: 'paid', ...(existing ? { before: existing.paid } : {}), after: paid },
+          { field: 'status', ...(existing ? { before: normalizeDuesStatus(existing) } : {}), after: status },
           { field: 'year', after: year },
         ],
       };
     },
-    tx => saveDues(tx, normalizedMemberEmail, year, { paid }, identity.email),
+    tx => saveDues(tx, normalizedMemberEmail, year, { status }, identity.email),
   );
   sendJson(res, 200, { dues });
 }

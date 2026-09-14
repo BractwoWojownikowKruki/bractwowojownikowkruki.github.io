@@ -85,12 +85,6 @@
           <section id="roster-panel">
             <h2>Lista</h2>
             <div class="lw-roster-controls">
-              <label>Sortuj wg:
-                <select id="roster-sort-select">
-                  <option value="section">Sekcja</option>
-                  <option value="weapon">Rodzaj broni</option>
-                </select>
-              </label>
               <label>Pokaż:
                 <select id="roster-filter-select">
                   <option value="attending">Tylko zgłoszeni</option>
@@ -102,10 +96,10 @@
               <table class="czl-table" id="roster-table">
                 <thead>
                   <tr>
-                    <th scope="col" class="czl-section-cell" title="Sekcja">S</th>
-                    <th scope="col" class="lw-roster-name-cell">Imię i nazwisko</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Broń</th>
+                    <th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
+                    <th scope="col" class="lw-roster-name-cell" data-sort-key="name" aria-sort="none"><button type="button">Imię i nazwisko</button></th>
+                    <th scope="col" data-sort-key="status" aria-sort="none"><button type="button">Status</button></th>
+                    <th scope="col" data-sort-key="weapon" aria-sort="none"><button type="button">Broń</button></th>
                   </tr>
                 </thead>
                 <tbody id="roster-content"></tbody>
@@ -142,6 +136,8 @@
   <script src="../../nav.js"></script>
   <script src="../../instagram-feed.js"></script>
   <script src="../../youtube-feed.js"></script>
+  <script src="../../shared/display-name.js"></script>
+  <script src="../../shared/sortable-table.js"></script>
   <script src="../../shared/profile-panel.js"></script>
   <script src="wyjazd.js"></script>
 </body>

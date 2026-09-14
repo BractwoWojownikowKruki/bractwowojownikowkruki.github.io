@@ -5081,11 +5081,30 @@ test('GET /member-profile includes wpisowePaid and the current year\'s składka 
     const body = await res.json();
     assert.equal(body.wpisowePaid, true);
     assert.equal(body.duesYear, currentYear);
-    assert.equal(body.duesPaid, true);
+    assert.equal(body.duesStatus, 'paid');
   });
 });
 
-test('GET /member-profile defaults wpisowePaid/duesPaid to false for a member with neither a profile nor a dues record', async () => {
+test('GET /member-profile defaults an Emeryt with no dues record for the year to duesStatus not_applicable', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'emeryt@gmail.com', seedMemberDoc({ email: 'emeryt@gmail.com', driveFolderId: null, categoryId: 'emeryt' }));
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['emeryt@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrModerator: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=emeryt@gmail.com`);
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).duesStatus, 'not_applicable');
+  });
+});
+
+test('GET /member-profile defaults wpisowePaid to false and duesStatus to unpaid for a member with neither a profile nor a dues record', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
@@ -5101,7 +5120,7 @@ test('GET /member-profile defaults wpisowePaid/duesPaid to false for a member wi
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.wpisowePaid, false);
-    assert.equal(body.duesPaid, false);
+    assert.equal(body.duesStatus, 'unpaid');
   });
 });
 
@@ -6300,24 +6319,44 @@ test('PUT /lista-wyjazdowa/wpisowe succeeds for accountant against an existing p
 test('PUT /lista-wyjazdowa/dues requires accountant, validates member exists, and GET reflects it for the right year', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   await withServer(makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } }), async baseUrl => {
-    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { status: 'paid' });
     assert.equal(res.status, 403);
   });
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
-    const unknown = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=nikt@example.test&year=2027', { paid: true });
+    const unknown = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=nikt@example.test&year=2027', { status: 'paid' });
     assert.equal(unknown.status, 404);
 
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
-    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { status: 'paid' });
     assert.equal(res.status, 200);
 
     const getRes = await fetch(`${baseUrl}/lista-wyjazdowa/dues?year=2027`);
     const body = await getRes.json();
     assert.equal(body.dues.length, 1);
-    assert.equal(body.dues[0].paid, true);
+    assert.equal(body.dues[0].status, 'paid');
 
     const wrongYear = await fetch(`${baseUrl}/lista-wyjazdowa/dues?year=2026`);
     assert.deepEqual((await wrongYear.json()).dues, []);
+  });
+});
+
+test('PUT /lista-wyjazdowa/dues rejects a status outside unpaid/paid/not_applicable, and accepts not_applicable', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
+
+    const invalid = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { status: 'yes' });
+    assert.equal(invalid.status, 400);
+    const legacyBoolean = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
+    assert.equal(legacyBoolean.status, 400);
+
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { status: 'not_applicable' });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).dues.status, 'not_applicable');
+
+    const getRes = await fetch(`${baseUrl}/lista-wyjazdowa/dues?year=2027`);
+    assert.equal((await getRes.json()).dues[0].status, 'not_applicable');
   });
 });
 
@@ -6328,7 +6367,7 @@ test('GET /lista-wyjazdowa/dues/audit-log retains readable legacy entries while 
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { status: 'paid' });
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { skladkaFee: '50 zł' });
 
@@ -6427,8 +6466,10 @@ test('GET /lista-wyjazdowa/dues/mine returns only the caller\'s own dues for the
 
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
-    // A different member's 2027 dues must not leak into this caller's own /mine read.
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { status: 'paid' });
+    // A different member's 2027 dues must not leak into this caller's own /mine read. Seeded with
+    // the legacy paid-only shape on purpose - also covers normalizeDuesStatus reading a
+    // pre-existing record through this same endpoint, not just dues.test.ts's direct unit tests.
     firestore.seed('members', 'inny@example.test', {
       fullName: 'Inny', nickname: null, sectionId: 'krakow', categoryId: null, driveFolderId: null,
       updatedAt: '2027-01-01T00:00:00.000Z', updatedBy: 'inny@example.test',
@@ -6441,7 +6482,7 @@ test('GET /lista-wyjazdowa/dues/mine returns only the caller\'s own dues for the
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.dues.email, 'wojownik@gmail.com');
-    assert.equal(body.dues.paid, true);
+    assert.equal(body.dues.status, 'paid');
 
     const wrongYear = await fetch(`${baseUrl}/lista-wyjazdowa/dues/mine?year=2026`);
     assert.deepEqual((await wrongYear.json()).dues, null);
@@ -6510,7 +6551,7 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
 
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
     const annualDue = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', {
-      paid: true,
+      status: 'paid',
     });
     assert.equal(annualDue.status, 200);
 
@@ -6558,7 +6599,7 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
     assert.equal(byAction.get('dues.event_fee.changed')?.audience, 'adminOrAccountant');
     assert.equal(byAction.get('dues.entry_fee.changed')?.changes[0]?.field, 'paid');
     assert.deepEqual(byAction.get('dues.annual.changed')?.changes, [
-      { field: 'paid', after: true, visibility: 'roleRestricted' },
+      { field: 'status', after: 'paid', visibility: 'roleRestricted' },
       { field: 'year', after: 2027, visibility: 'roleRestricted' },
     ]);
     assert.equal((await firestore.listDocs('signupAuditLog')).length, 0);

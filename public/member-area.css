@@ -154,6 +154,62 @@
   font-weight: 700;
 }
 
+/* Sortable column headers (click-to-sort via shared/sortable-table.js) - moved here from
+   czlonkowie.css (KRKG-0045's original home for this) once every dense .czl-table on the site
+   started using the same click-to-sort wiring, not just Spis Ludności. A <button> fills the cell
+   instead of plain text, so the whole header is clickable/keyboard-focusable and shows an arrow for
+   the active sort direction. Scoped to th[data-sort-key] rather than every thead th, since a table
+   can mix sortable and plain-text headers (Zarządzanie ludźmi's Akcje column, Składki's Historia
+   column) - those keep the plain thead th padding above untouched. */
+.czl-table thead th[data-sort-key] {
+  padding: 0;
+}
+
+.czl-table thead th[data-sort-key] button {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.4rem 0.7rem;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.czl-table thead th[data-sort-key] button:hover,
+.czl-table thead th[data-sort-key] button:focus-visible {
+  color: var(--gold);
+}
+
+.czl-table thead th[data-sort-key] button::after {
+  content: '';
+  width: 0.6em;
+}
+
+.czl-table thead th[data-sort-key][aria-sort="ascending"] button::after {
+  content: '▲';
+  font-size: 0.7em;
+}
+
+.czl-table thead th[data-sort-key][aria-sort="descending"] button::after {
+  content: '▼';
+  font-size: 0.7em;
+}
+
+/* Sekcja's sortable header lives inside the narrow, sticky .czl-section-cell - the button's normal
+   0.7rem side padding plus its gap/arrow would blow well past that column's fixed width, so it
+   gets its own tighter, centered layout instead of the generic sortable-button one above. */
+.czl-table th.czl-section-cell[data-sort-key] button {
+  padding: 0.2rem 0.1rem;
+  justify-content: center;
+  gap: 0.15rem;
+}
+
+.czl-table th.czl-section-cell[data-sort-key] button::after {
+  font-size: 0.6em;
+}
+
 .czl-table tbody tr:hover {
   background: var(--surface);
 }
@@ -261,19 +317,23 @@
   margin-left: 0.3rem;
 }
 
-/* Weapon icon (KRKG-0054, see wyjazd.js's WEAPON_ICONS) - title carries the label for hover/a11y.
-   .lw-weapon-icon--text is the plain-label fallback for an id with no icon. */
+/* Weapon icon (KRKG-0054, hand-drawn PNGs added later - see wyjazd.js's WEAPON_ICON_KEYS). */
 .lw-weapon-icon {
-  display: inline-flex;
-  color: var(--text-muted);
+  display: inline-block;
   vertical-align: middle;
+  object-fit: contain;
 }
 
-.lw-weapon-icon:not(:last-child) {
-  margin-right: 0.35rem;
+/* Icon + visible label together (KRKG bugfix: an icon-only mark needed a hover just to read what
+   weapon it was) - shared by the roster's Broń column and the "Wg broni" summary chips so both
+   render identically for the same weaponGroupLabel/weaponGroupIconFile pairing. */
+.lw-weapon-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
-.lw-weapon-icon--text {
+.lw-weapon-group-label {
   font-size: 0.85em;
 }
 
@@ -555,8 +615,29 @@ button.lw-skladka-icon:disabled {
   border: 1px solid #c62828;
 }
 
-/* Sort/filter controls above the event page's roster (wyjazd.js's rosterSortBy/rosterFilter) -
-   inline selects rather than a form, since choosing either one re-renders the list immediately. */
+/* Składka roczna's third state (KRKG follow-up) - a member the club doesn't require this year's
+   due from at all (an "Emeryt" by default, or anyone set this way by hand), so neither the green
+   "paid" nor the red "unpaid" framing applies. Grey rather than either color says "not part of
+   this tally" at a glance, same spirit as .czl-empty elsewhere on these tables. Uses data-status
+   (skladki.js's rocznaIconHtml/profile-panel.js), not data-paid - wpisowe and every other paid/
+   unpaid icon on the site stays a plain boolean and keeps using data-paid above. */
+.lw-skladka-icon[data-status="paid"] {
+  background: color-mix(in srgb, #2e7d32 40%, var(--surface-deep));
+  border: 1px solid #2e7d32;
+}
+
+.lw-skladka-icon[data-status="unpaid"] {
+  background: color-mix(in srgb, #c62828 40%, var(--surface-deep));
+  border: 1px solid #c62828;
+}
+
+.lw-skladka-icon[data-status="not_applicable"] {
+  background: color-mix(in srgb, var(--text-faint) 40%, var(--surface-deep));
+  border: 1px solid var(--text-faint);
+}
+
+/* Sort/filter controls above the event page's roster (wyjazd.js's rosterFilter) - an inline select
+   rather than a form, since choosing it re-renders the list immediately. */
 .lw-roster-controls {
   display: flex;
   flex-wrap: wrap;

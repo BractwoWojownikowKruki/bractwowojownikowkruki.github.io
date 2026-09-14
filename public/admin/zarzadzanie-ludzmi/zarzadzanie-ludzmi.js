@@ -333,9 +333,22 @@ function filterMembershipMembers(members) {
   );
 }
 
-document.getElementById('membership-members-filter').addEventListener('input', () => {
+// Re-renders from the already-cached data (no re-fetch) - shared by both the free-text filter
+// input and a sortable-header click (membershipSortState below), so filtering and sorting always
+// compose the same way regardless of which one changed last.
+function rerenderMembershipMembers() {
   const { members, status, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail } = membershipMembersCache;
   renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail);
+}
+
+document.getElementById('membership-members-filter').addEventListener('input', rerenderMembershipMembers);
+
+// Click-to-sort wiring (shared/sortable-table.js) - the table's thead is static HTML here (unlike
+// Składki's), including the Rola/Wpisowe headers that stay in the DOM (just `hidden`) when the
+// viewer can't use those columns, so this only ever needs to run once, no .refresh() calls.
+const membershipSortState = initSortableTable(document.getElementById('membership-table'), {
+  defaultKey: 'section',
+  onChange: rerenderMembershipMembers,
 });
 
 function memberFocusId(email, control) {
@@ -376,14 +389,29 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
     tbody.innerHTML = '<tr><td colspan="13" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     return;
   }
-  // Grouped by section, alphabetical within it (KRKG-0051) - same rule as czlonkowie.js's Sekcja
-  // sort, just unconditional here since this list has no clickable column headers to override it.
+  // Defaults to grouped by section, alphabetical within it (KRKG-0051) - now click-to-sort
+  // (shared/sortable-table.js, membershipSortState) like every other dense table on the site,
+  // rather than an unconditional rule with no header to override it.
   const sectionLabelById = new Map(sections.map(s => [s.id, s.label]));
   const sectionLabel = sectionId => (sectionId ? (sectionLabelById.get(sectionId) ?? sectionId) : '');
+  const categoryLabelById = new Map(categories.map(c => [c.id, c.label]));
+  const categoryLabel = categoryId => (categoryId ? (categoryLabelById.get(categoryId) ?? categoryId) : '');
+  const sortValue = (member) => {
+    switch (membershipSortState.key) {
+      case 'name': return member.fullName ?? '';
+      case 'nickname': return member.nickname ?? '';
+      case 'status': return categoryLabel(member.categoryId);
+      case 'hidden': return member.hidden === true;
+      case 'email': return member.email;
+      case 'lastLogin': return member.lastLoginAt ?? '';
+      case 'wpisowe': return wpisoweByEmail.get(member.email) ?? false;
+      default: return sectionLabel(member.sectionId);
+    }
+  };
   members = [...members].sort((a, b) => {
-    const sectionCmp = sectionLabel(a.sectionId).toLocaleLowerCase('pl').localeCompare(sectionLabel(b.sectionId).toLocaleLowerCase('pl'), 'pl');
-    if (sectionCmp !== 0) return sectionCmp;
-    return (a.fullName ?? '').toLocaleLowerCase('pl').localeCompare((b.fullName ?? '').toLocaleLowerCase('pl'), 'pl');
+    const cmp = compareValues(sortValue(a), sortValue(b), membershipSortState.dir);
+    if (cmp !== 0) return cmp;
+    return compareValues(a.fullName ?? '', b.fullName ?? '', 'asc');
   });
   const actions = MEMBERSHIP_ACTIONS_BY_STATUS[status] ?? [];
   const labelByFolderId = new Map(driveFolderOptions.map(o => [o.folderId, o.label]));

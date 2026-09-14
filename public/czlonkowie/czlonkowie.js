@@ -64,15 +64,20 @@ function hideReauth() {}
 
 const EMPTY = '—';
 let members = [];
-// Default/Sekcja-column sort (KRKG-0051): grouped by section, alphabetical within each - see the
-// sortKey === 'sectionLabel' special case in renderTable's comparator below.
-let sortKey = 'sectionLabel';
-let sortDir = 'asc';
 let filterText = '';
 
 function cell(value) {
   return value ? escapeHtml(value) : EMPTY;
 }
+
+// Default/Sekcja-column sort (KRKG-0051): grouped by section, alphabetical within each - see the
+// sortState.key === 'sectionLabel' special case in renderTable's comparator below. Click-to-sort
+// wiring itself (aria-sort, toggling asc/desc, which header is active) lives in
+// shared/sortable-table.js - every dense table on the site uses the same one now.
+const sortState = initSortableTable(document.getElementById('czl-table'), {
+  defaultKey: 'sectionLabel',
+  onChange: renderTable,
+});
 
 function renderTable() {
   const needle = filterText.trim().toLocaleLowerCase('pl');
@@ -84,19 +89,14 @@ function renderTable() {
         ),
       );
   const sorted = [...filtered].sort((a, b) => {
-    const av = (a[sortKey] ?? '').toString().toLocaleLowerCase('pl');
-    const bv = (b[sortKey] ?? '').toString().toLocaleLowerCase('pl');
-    const cmp = av.localeCompare(bv, 'pl');
+    const cmp = compareValues(a[sortState.key], b[sortState.key], sortState.dir);
     // Sorting by Sekcja ties every member in the same section - break the tie alphabetically by
     // name instead of leaving it at the server's arbitrary order, so "grouped by section, A-Z
     // within it" is what both the default view and an explicit click on the Sekcja header show.
-    if (cmp === 0 && sortKey === 'sectionLabel') {
-      const an = (a.fullName ?? '').toString().toLocaleLowerCase('pl');
-      const bn = (b.fullName ?? '').toString().toLocaleLowerCase('pl');
-      const nameCmp = an.localeCompare(bn, 'pl');
-      return sortDir === 'asc' ? nameCmp : -nameCmp;
+    if (cmp === 0 && sortState.key === 'sectionLabel') {
+      return compareValues(a.fullName, b.fullName, sortState.dir);
     }
-    return sortDir === 'asc' ? cmp : -cmp;
+    return cmp;
   });
 
   const tbody = document.getElementById('czl-table-body');
@@ -128,29 +128,11 @@ function renderTable() {
     filtered.length === members.length
       ? `Liczba członków: ${members.length}`
       : `Liczba członków: ${filtered.length} / ${members.length}`;
-
-  document.querySelectorAll('#czl-table thead th[data-sort-key]').forEach((th) => {
-    const isActive = th.dataset.sortKey === sortKey;
-    th.setAttribute('aria-sort', isActive ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none');
-  });
 }
 
 document.getElementById('czl-filter').addEventListener('input', (e) => {
   filterText = e.target.value;
   renderTable();
-});
-
-document.querySelectorAll('#czl-table thead th[data-sort-key]').forEach((th) => {
-  th.querySelector('button').addEventListener('click', () => {
-    const key = th.dataset.sortKey;
-    if (sortKey === key) {
-      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-    } else {
-      sortKey = key;
-      sortDir = 'asc';
-    }
-    renderTable();
-  });
 });
 
 // Tapping a row highlights it gold (KRKG-0052) - touch devices have no hover state, so this is the

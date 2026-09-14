@@ -199,7 +199,11 @@
       : '';
     // Same visibility as the Lista Wyjazdowa Składki page itself (read-only for every signed-in
     // member) - GET /member-profile always includes these fields now, see server.ts's
-    // handleMemberProfile. Same check/cross + coin convention as skladki.js's paidIconHtml.
+    // handleMemberProfile. Same check/cross + coin convention as skladki.js's paidIconHtml, and the
+    // same three-state roczna status (data-status, grey "nie dotyczy") as its rocznaIconHtml -
+    // server.ts's effectiveDuesStatus already resolves an emeryt-with-no-record to
+    // 'not_applicable' before this ever sees it, so no category check is needed here.
+    const rocznaLabels = { unpaid: 'nieopłacona', paid: 'opłacona', not_applicable: 'nie dotyczy' };
     const duesStatusHtml = `
       <div class="lw-dues-status">
         <span class="lw-dues-status-item">
@@ -207,8 +211,8 @@
           Wpisowe: ${profile.wpisowePaid ? 'opłacone' : 'nieopłacone'}
         </span>
         <span class="lw-dues-status-item">
-          <span class="lw-skladka-icon" data-paid="${profile.duesPaid}" aria-hidden="true">💰</span>
-          Składka ${profile.duesYear}: ${profile.duesPaid ? 'opłacona' : 'nieopłacona'}
+          <span class="lw-skladka-icon" data-status="${profile.duesStatus}" aria-hidden="true">💰</span>
+          Składka ${profile.duesYear}: ${rocznaLabels[profile.duesStatus]}
         </span>
       </div>
     `;

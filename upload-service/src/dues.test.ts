@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
-import { getDues, listDuesForYear, saveDues, appendDuesAuditEntry, listDuesAuditLog, getDuesYearFee, saveDuesYearFee } from './dues.ts';
+import { getDues, listDuesForYear, saveDues, appendDuesAuditEntry, listDuesAuditLog, getDuesYearFee, saveDuesYearFee, normalizeDuesStatus, effectiveDuesStatus, EMERYT_CATEGORY_ID } from './dues.ts';
 
 test('getDues returns null when no record exists', async () => {
   const client = createInMemoryFirestoreClient();
@@ -10,22 +10,57 @@ test('getDues returns null when no record exists', async () => {
 
 test('saveDues creates a record and getDues round-trips it', async () => {
   const client = createInMemoryFirestoreClient();
-  const dues = await saveDues(client, 'Ala@Example.test', 2027, { paid: true }, 'accountant@example.test');
+  const dues = await saveDues(client, 'Ala@Example.test', 2027, { status: 'paid' }, 'accountant@example.test');
   assert.equal(dues.email, 'ala@example.test');
   assert.equal(dues.year, 2027);
-  assert.equal(dues.paid, true);
+  assert.equal(dues.status, 'paid');
   assert.equal(dues.updatedBy, 'accountant@example.test');
 
   const fetched = await getDues(client, 'ala@example.test', 2027);
   assert.deepEqual(fetched, dues);
 });
 
-test('saveDues on an existing record updates paid/updatedBy/updatedAt', async () => {
+test('saveDues on an existing record updates status/updatedBy/updatedAt', async () => {
   const client = createInMemoryFirestoreClient();
-  await saveDues(client, 'ala@example.test', 2027, { paid: false }, 'admin@example.test');
-  const updated = await saveDues(client, 'ala@example.test', 2027, { paid: true }, 'accountant@example.test');
-  assert.equal(updated.paid, true);
+  await saveDues(client, 'ala@example.test', 2027, { status: 'unpaid' }, 'admin@example.test');
+  const updated = await saveDues(client, 'ala@example.test', 2027, { status: 'paid' }, 'accountant@example.test');
+  assert.equal(updated.status, 'paid');
   assert.equal(updated.updatedBy, 'accountant@example.test');
+});
+
+test('saveDues on an existing record preserves status when fields.status is omitted', async () => {
+  const client = createInMemoryFirestoreClient();
+  await saveDues(client, 'ala@example.test', 2027, { status: 'paid' }, 'accountant@example.test');
+  const touched = await saveDues(client, 'ala@example.test', 2027, {}, 'accountant@example.test');
+  assert.equal(touched.status, 'paid');
+});
+
+test('normalizeDuesStatus reads the current status field, falls back to legacy paid, and defaults to unpaid', () => {
+  assert.equal(normalizeDuesStatus({ status: 'not_applicable' }), 'not_applicable');
+  assert.equal(normalizeDuesStatus({ paid: true }), 'paid');
+  assert.equal(normalizeDuesStatus({ paid: false }), 'unpaid');
+  assert.equal(normalizeDuesStatus({}), 'unpaid');
+});
+
+test('getDues/listDuesForYear normalize a legacy paid-only record to the new status field', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.setDoc('duesAnnual', 'legacy@example.test_2027', {
+    email: 'legacy@example.test', year: 2027, paid: true, updatedBy: 'accountant@example.test', updatedAt: '2027-01-01T00:00:00.000Z',
+  });
+  const fetched = await getDues(client, 'legacy@example.test', 2027);
+  assert.equal(fetched?.status, 'paid');
+
+  const listed = await listDuesForYear(client, 2027);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].status, 'paid');
+});
+
+test('effectiveDuesStatus defaults an Emeryt with no record to not_applicable, everyone else to unpaid, and an explicit record always wins', () => {
+  assert.equal(effectiveDuesStatus(null, EMERYT_CATEGORY_ID), 'not_applicable');
+  assert.equal(effectiveDuesStatus(null, 'pelnoprawny'), 'unpaid');
+  assert.equal(effectiveDuesStatus(null, null), 'unpaid');
+  const doc = { email: 'a@example.test', year: 2027, status: 'paid' as const, updatedBy: 'x', updatedAt: 'x' };
+  assert.equal(effectiveDuesStatus(doc, EMERYT_CATEGORY_ID), 'paid');
 });
 
 test('getDuesYearFee returns null when no record exists', async () => {
@@ -51,9 +86,9 @@ test('saveDuesYearFee creates/replaces the shared per-year note and getDuesYearF
 
 test('listDuesForYear returns only records for the requested year', async () => {
   const client = createInMemoryFirestoreClient();
-  await saveDues(client, 'ala@example.test', 2026, { paid: true }, 'accountant@example.test');
-  await saveDues(client, 'ala@example.test', 2027, { paid: false }, 'accountant@example.test');
-  await saveDues(client, 'bea@example.test', 2027, { paid: true }, 'accountant@example.test');
+  await saveDues(client, 'ala@example.test', 2026, { status: 'paid' }, 'accountant@example.test');
+  await saveDues(client, 'ala@example.test', 2027, { status: 'unpaid' }, 'accountant@example.test');
+  await saveDues(client, 'bea@example.test', 2027, { status: 'paid' }, 'accountant@example.test');
 
   const for2027 = await listDuesForYear(client, 2027);
   assert.equal(for2027.length, 2);
