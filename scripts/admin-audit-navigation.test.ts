@@ -26,10 +26,10 @@ test('member management exposes one unfiltered Historia icon button beside the C
   assert.match(stylesheet, /\.member-management-heading-row\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/);
 });
 
-test('member table leaves member audit history out of its row template and preserves roles history', () => {
+test('member table leaves member audit history out of its row template and drops the legacy roles history panel', () => {
   assert.doesNotMatch(memberManagementScript, /resourceKey=\$\{encodeURIComponent\(`member:/);
   assert.doesNotMatch(memberManagementScript, /member:\$\{m\.email\}/);
-  assert.match(memberManagementHtml, /<details id="roles-audit-log-panel"/);
+  assert.doesNotMatch(memberManagementHtml, /roles-audit-log-panel/);
 });
 
 test('admin audit shell authorizes through its own whoami endpoint, not the admin-or-moderator-only one', () => {

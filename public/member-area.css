@@ -906,36 +906,6 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
   padding: 0.25rem 0.5rem;
 }
 
-/* <details> gives free collapse/expand with no JS - styled so the closed summary still reads as
-   a clickable section header, matching the h2's used by every other section on these pages. */
-#dues-audit-log-panel {
-  padding: 0.85rem 1rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-#dues-audit-log-panel summary {
-  cursor: pointer;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text);
-  list-style: revert;
-}
-
-#dues-audit-log-panel[open] summary {
-  margin-bottom: 0.75rem;
-}
-
-#dues-audit-log-content {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  font-size: 14px;
-  color: var(--text-muted);
-}
-
 @media (max-width: 768px) {
   .lw-event-row {
     flex-direction: column;

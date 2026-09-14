@@ -217,7 +217,7 @@ test('batch two admin mutations use confirmed local feedback without full-list s
   assert.match(memberChange, /\/admin\/members\/drive-folder/);
   assert.equal((memberChange.match(/viewRoot:/g) ?? []).length >= 2, true);
   assert.equal((memberChange.match(/MutationFeedback\.confirmed\(/g) ?? []).length >= 2, true);
-  assert.match(memberChange, /await renderRolesAuditLog\(\);/);
+  assert.doesNotMatch(memberChange, /renderRolesAuditLog/);
   assert.match(members, /function memberFocusId\(email, control\)/);
   assert.match(members, /id="\$\{memberFocusId\(m\.email, 'section'\)\}"/);
   assert.match(members, /id="\$\{memberFocusId\(email, `role-\$\{r\.value\}`\)\}"/);

@@ -5,7 +5,7 @@
 // whoamiPath is this page's own /admin/members/whoami (not /admin/whoami like the other 3 admin
 // pages) - it also accepts a Firestore 'moderator'/'admin' role, not just the admin allowlist, and
 // reports isAdmin so a plain moderator never triggers the role-assignment-only fetches below
-// (GET /admin/roles(+/audit-log) are still admin-only and would 403 for them).
+// (GET /admin/roles is still admin-only and would 403 for them).
 let isAdminCaller = false;
 // Wpisowe management needs requireSkladkiAccess (accountant/Firestore-admin role, or the env admin
 // allowlist), same as the Lista Wyjazdowa Składki page - a plain moderator with neither must not
@@ -23,7 +23,6 @@ initGoogleSignIn({
     document.getElementById('admin-email').textContent = payload.email;
     document.getElementById('admin-panel').hidden = false;
     isAdminCaller = payload.isAdmin === true;
-    document.getElementById('roles-audit-log-panel').hidden = !isAdminCaller;
     document.getElementById('membership-role-header').hidden = !isAdminCaller;
     // Admin-only (KRKG bugfix): a moderator manages member records but must not trigger the
     // Sheets backup sync or the Google Group drift check - both now also 403 server-side
@@ -38,7 +37,6 @@ initGoogleSignIn({
     }
     document.getElementById('membership-wpisowe-header').hidden = !canManageSkladki;
     loadMembershipMembers();
-    if (isAdminCaller) renderRolesAuditLog();
   },
   onSignedOut: () => {
     document.getElementById('admin-checking').hidden = true;
@@ -288,17 +286,6 @@ const ASSIGNABLE_ROLES = [
   { value: 'admin', label: 'Admin' },
 ];
 const ROLE_LABELS = Object.fromEntries(ASSIGNABLE_ROLES.map(r => [r.value, r.label]));
-
-// KRKG-0049: every role change, admin-only same as the page itself - not gated any further since
-// reaching this page at all already requires the admin allowlist.
-async function renderRolesAuditLog() {
-  const { entries } = await apiFetch('/admin/roles/audit-log', { method: 'GET' }, showReauth, hideReauth);
-  document.getElementById('roles-audit-log-content').innerHTML = entries
-    .slice()
-    .reverse()
-    .map(e => `<li>${escapeHtml(formatDateTime(e.changedAt))} — ${escapeHtml(e.changedBy)} → ${escapeHtml(e.targetEmail)}: ${escapeHtml(e.changeSummary)}</li>`)
-    .join('');
-}
 
 // Cached from the last successful load so the free-text filter can re-render instantly without
 // re-fetching - cleared/replaced on every status change or data-changing action.
@@ -680,14 +667,11 @@ document.getElementById('membership-members-list').addEventListener('change', as
           showReauth,
           hideReauth,
         ),
-        apply: async () => {
+        apply: () => {
           membershipMembersCache.rolesByEmail.set(email, nextRoles);
-          await renderRolesAuditLog();
         },
         viewRoot: container.closest('tbody'),
-        refreshFragment: async () => {
-          await Promise.all([loadMembershipMembers(), renderRolesAuditLog()]);
-        },
+        refreshFragment: loadMembershipMembers,
         rollback: () => { roleCheckbox.checked = !roleCheckbox.checked; },
       });
     } catch (err) {

@@ -136,13 +136,6 @@ function formatDate(iso) {
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
 }
 
-function formatDateTime(iso) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  return `${formatDate(iso)} ${time}`;
-}
-
 const panels = {
   checking: document.getElementById('lw-checking'),
   signedOut: document.getElementById('signed-out-panel'),
@@ -590,26 +583,6 @@ function renderWpisoweList(roster) {
   skladkiSortState.refresh();
 }
 
-// Accountant/admin-only (KRKG-0047): GET /lista-wyjazdowa/dues/audit-log now 403s for a plain
-// member, so the panel is hidden entirely for them rather than fetched and left to error.
-async function renderDuesAuditLog() {
-  const panel = document.getElementById('dues-audit-log-panel');
-  panel.hidden = !canManageSkladki;
-  if (!canManageSkladki) return;
-  const { entries } = await apiFetch('/lista-wyjazdowa/dues/audit-log', { method: 'GET' }, showReauth, hideReauth);
-  // targetMemberEmail is null for an eventFee entry (the event's name is already baked into its
-  // changeSummary text server-side, see server.ts's handleListaWyjazdowaPutEvent) - the arrow only
-  // makes sense for wpisowe/roczna entries, which name a member but not in the summary text.
-  document.getElementById('dues-audit-log-content').innerHTML = entries
-    .slice()
-    .reverse()
-    .map((e) => {
-      const target = e.targetMemberEmail ? ` → ${escapeHtml(e.targetMemberEmail)}` : '';
-      return `<li>${escapeHtml(formatDateTime(e.changedAt))} — ${escapeHtml(e.changedBy)}${target}: ${escapeHtml(e.changeSummary)}</li>`;
-    })
-    .join('');
-}
-
 // The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety") - same
 // display/edit-panel pattern as wyjazd.js's renderSkladkaFee/saveSkladkaFee for its per-event fee.
 function renderYearFee(yearFee) {
@@ -669,7 +642,6 @@ async function loadAndRender() {
   } else {
     renderTable(roster, duesByEmail);
   }
-  await renderDuesAuditLog();
 }
 
 // Wpisowe's icon only ever appears for an unpaid member in the Wpisowe-only list (renderTable

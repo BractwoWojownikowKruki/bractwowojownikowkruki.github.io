@@ -113,18 +113,10 @@
           </table>
         </div>
         <datalist id="drive-folder-datalist"></datalist>
-
-        <!-- Every Rola change lands here (roles.ts's rolesAuditLog) - collapsed by default, same
-             as the Skladki page's Historia zmian, since who has admin/accountant is looked up
-             rarely compared to the table above it. -->
-        <details id="roles-audit-log-panel" style="margin-top:1rem;">
-          <summary>Historia zmian ról</summary>
-          <ul id="roles-audit-log-content"></ul>
-        </details>
       </section>
 
       <!-- Admin-only (KRKG bugfix) - shown/hidden by zarzadzanie-ludzmi.js based on isAdminCaller,
-           same gate as the Rola column/audit log above. A moderator manages member records but
+           same gate as the Rola column above. A moderator manages member records but
            must not trigger the Sheets backup sync. -->
       <section id="membership-sheet-sync-section" style="margin-bottom: 2rem;" hidden>
         <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Backup w arkuszu Google Sheets</h2>
