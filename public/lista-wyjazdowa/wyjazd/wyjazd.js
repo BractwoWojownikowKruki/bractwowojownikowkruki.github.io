@@ -433,11 +433,11 @@ function renderRoster(roster, signups) {
       // KRKG-0074: the name cell splits into two rows - the name pill + person icon on top, and
       // (only while something is still owed club-wide) a second row of tiny red badges underneath:
       // the one-time Wpisowe (money bag + "wpisowe") first, then the current year's składka roczna
-      // (money bag only) next to it. member.duesStatus comes from the roster endpoint, which
+      // (money bag + "roczna") next to it. member.duesStatus comes from the roster endpoint, which
       // resolves the emeryt default server-side; not_applicable owes nothing, and a fully settled
       // member gets no second row at all.
       const duesBadgesHtml = member.duesStatus === 'unpaid' || !member.wpisowePaid
-        ? `<span class="lw-dues-badges">${!member.wpisowePaid ? '<span class="lw-dues-badge lw-dues-badge--wpisowe" title="Wpisowe nieopłacone">💰<span>wpisowe</span></span>' : ''}${member.duesStatus === 'unpaid' ? '<span class="lw-dues-badge lw-dues-badge--roczna" title="Składka roczna nieopłacona">💰</span>' : ''}</span>`
+        ? `<span class="lw-dues-badges">${!member.wpisowePaid ? '<span class="lw-dues-badge lw-dues-badge--wpisowe" title="Wpisowe nieopłacone">💰<span>wpisowe</span></span>' : ''}${member.duesStatus === 'unpaid' ? '<span class="lw-dues-badge lw-dues-badge--roczna" title="Składka roczna nieopłacona">💰<span>roczna</span></span>' : ''}</span>`
         : '';
       return `
     <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
