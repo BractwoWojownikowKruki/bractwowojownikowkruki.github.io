@@ -25,6 +25,12 @@ initGoogleSignIn({
     isAdminCaller = payload.isAdmin === true;
     document.getElementById('roles-audit-log-panel').hidden = !isAdminCaller;
     document.getElementById('membership-role-header').hidden = !isAdminCaller;
+    // Admin-only (KRKG bugfix): a moderator manages member records but must not trigger the
+    // Sheets backup sync or the Google Group drift check - both now also 403 server-side
+    // (handleAdminMembersSynchronize/handleAdminMembersGroupSync use authenticateAdmin), this
+    // just keeps the buttons from being shown at all.
+    document.getElementById('membership-sheet-sync-section').hidden = !isAdminCaller;
+    document.getElementById('membership-group-sync-section').hidden = !isAdminCaller;
     try {
       ({ canManageSkladki } = await apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth));
     } catch {
@@ -63,7 +69,7 @@ async function postMembershipTransition(row, email, transition) {
     apply: () => {
       membershipMembersCache.members = membershipMembersCache.members.filter(member => member.email !== email);
       row.remove();
-      if (!list.querySelector('.membership-member')) list.innerHTML = '<tr><td colspan="11" class="czl-empty">Brak członków w tym statusie.</td></tr>';
+      if (!list.querySelector('.membership-member')) list.innerHTML = '<tr><td colspan="12" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     },
     shouldShowCheck: result => !sheetSyncStatusMessage(result.sheetSyncStatus),
     viewRoot: list,
@@ -192,11 +198,19 @@ function loadLookupLists() {
 function loadSections() {
   return loadLookupLists().then(data => data.sections ?? []);
 }
-// "Typ członka" (KRKG-0050) - lookupLists/categories, "Rola" in the original sheet; a different,
+// "Typ członka" (KRKG-0050, shown to the admin/moderator as "Status" - see the Status <th>'s
+// comment in index.html; the unrelated account-state filter above is labeled "Konto" precisely so
+// it doesn't collide with this) - lookupLists/categories, "Rola" in the original sheet; a different,
 // unrelated taxonomy from the public About-Us Drive folder categories (Blachowi/Niewiasty/
 // Emeryci/Kandydaci) used on the Publiczne wizytówki page - see design.md's note on this ambiguity.
 function loadCategories() {
   return loadLookupLists().then(data => data.categories ?? []);
+}
+// lookupLists/weapons - same list "Mój profil" (profil.js's populateWeaponCheckboxes) offers a
+// member for their own listaWyjazdowaProfile.weaponIds; the Broń column here lets an
+// admin/moderator set or correct it on someone else's behalf (see weaponCheckboxesHtml below).
+function loadWeapons() {
+  return loadLookupLists().then(data => data.weapons ?? []);
 }
 
 // 3-letter Sekcja abbreviations (KRKG-0063) for the compact, sticky first column - a display-only
@@ -288,23 +302,24 @@ async function renderRolesAuditLog() {
 
 // Cached from the last successful load so the free-text filter can re-render instantly without
 // re-fetching - cleared/replaced on every status change or data-changing action.
-let membershipMembersCache = { members: [], status: 'active', driveFolderOptions: [], rolesByEmail: new Map(), sections: [], categories: [], wpisoweByEmail: new Map() };
+let membershipMembersCache = { members: [], status: 'active', driveFolderOptions: [], rolesByEmail: new Map(), sections: [], categories: [], weapons: [], wpisoweByEmail: new Map() };
 
 async function loadMembershipMembers() {
   const status = document.getElementById('membership-status-filter').value;
   const list = document.getElementById('membership-members-list');
   list.textContent = 'Ładowanie...';
   try {
-    const [{ members }, driveFolderOptions, rolesByEmail, sections, categories, wpisoweByEmail] = await Promise.all([
+    const [{ members }, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail] = await Promise.all([
       apiFetch(`/admin/members?status=${encodeURIComponent(status)}`, { method: 'GET' }, showReauth, hideReauth),
       loadDriveFolderOptions(),
       loadRolesByEmail(),
       loadSections(),
       loadCategories(),
+      loadWeapons(),
       loadWpisoweByEmail(),
     ]);
-    membershipMembersCache = { members, status, driveFolderOptions, rolesByEmail, sections, categories, wpisoweByEmail };
-    renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories, wpisoweByEmail);
+    membershipMembersCache = { members, status, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail };
+    renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail);
   } catch (err) {
     list.textContent = `Błąd: ${err.message}`;
   }
@@ -319,8 +334,8 @@ function filterMembershipMembers(members) {
 }
 
 document.getElementById('membership-members-filter').addEventListener('input', () => {
-  const { members, status, driveFolderOptions, rolesByEmail, sections, categories, wpisoweByEmail } = membershipMembersCache;
-  renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories, wpisoweByEmail);
+  const { members, status, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail } = membershipMembersCache;
+  renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail);
 });
 
 function memberFocusId(email, control) {
@@ -338,10 +353,27 @@ function roleCheckboxesHtml(email, roles) {
   ).join('');
 }
 
-function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections, categories, wpisoweByEmail) {
+// A retired weapon (same "still resolve for someone who already has it" rule as
+// sectionOptions/categoryOptions above) stays offered here if this member currently has it
+// checked, otherwise drops out of new selection - mirrors profil.js's selectableLookupItems.
+function weaponCheckboxesHtml(email, weapons, currentWeaponIds) {
+  const current = new Set(currentWeaponIds ?? []);
+  return weapons
+    .filter(w => !w.retired || current.has(w.id))
+    .map(
+      w => `
+        <label class="member-role-label">
+          <input id="${memberFocusId(email, `weapon-${w.id}`)}" type="checkbox" class="member-weapon-checkbox" value="${escapeAttr(w.id)}" ${current.has(w.id) ? 'checked' : ''} />
+          ${escapeHtml(w.label)}
+        </label>`,
+    )
+    .join('');
+}
+
+function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail) {
   const tbody = document.getElementById('membership-members-list');
   if (!members.length) {
-    tbody.innerHTML = '<tr><td colspan="12" class="czl-empty">Brak członków w tym statusie.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     return;
   }
   // Grouped by section, alphabetical within it (KRKG-0051) - same rule as czlonkowie.js's Sekcja
@@ -388,6 +420,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
         <input id="${memberFocusId(m.email, 'drive-folder')}" type="text" class="czl-field drive-folder-input" list="drive-folder-datalist" placeholder="Folder na stronie..." value="${escapeAttr(currentValue)}" />
         <span class="drive-folder-saved" style="color:var(--gold);" hidden>✓</span>
       </td>
+      <td class="member-weapons-cell">${weaponCheckboxesHtml(m.email, weapons, m.weaponIds)}</td>
       <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(m.email, rolesByEmail.get(m.email))}</td>
       <td ${canManageSkladki ? '' : 'hidden'}>
         <label class="member-role-label">
@@ -497,6 +530,39 @@ async function saveMemberHidden(email, hidden, control) {
   }
 }
 
+// Broń (KRKG bugfix): admin/moderator-editable, unlike Rola/Wpisowe above - writes the same
+// listaWyjazdowaProfile.weaponIds a member sets themselves on "Mój profil", via
+// PUT /admin/members/weapons. Sends the whole checked set on every change, same shape as the role
+// checkboxes (a member can hold more than one weapon at once).
+async function saveMemberWeapons(email, nextWeaponIds, control) {
+  const previousMember = membershipMembersCache.members.find(member => member.email === email);
+  try {
+    await window.MutationFeedback.confirmed({
+      control,
+      execute: () => apiFetch(
+        '/admin/members/weapons',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, weaponIds: nextWeaponIds }) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: () => {
+        const member = membershipMembersCache.members.find(candidate => candidate.email === email);
+        if (member) member.weaponIds = nextWeaponIds;
+      },
+      viewRoot: control.closest('tbody'),
+      refreshFragment: loadMembershipMembers,
+      rollback: () => {
+        const cell = control.closest('.member-weapons-cell');
+        for (const cb of cell.querySelectorAll('.member-weapon-checkbox')) {
+          cb.checked = (previousMember?.weaponIds ?? []).includes(cb.value);
+        }
+      },
+    });
+  } catch (err) {
+    window.alert(`Błąd zapisu: ${err.message}`);
+  }
+}
+
 // Wpisowe is now hidden entirely from the Składki page's row once paid (KRKG-0047 follow-up) - no
 // UI there can undo a mistaken "opłacone" any more, so this checkbox is the only remaining way to
 // flip it back. Marking it *paid* is confirmed first (see the change handler below); un-marking it
@@ -534,6 +600,17 @@ document.getElementById('membership-members-list').addEventListener('change', as
       return;
     }
     await saveMemberWpisowe(wpisoweCheckbox.dataset.email, nextPaid, wpisoweCheckbox);
+    return;
+  }
+
+  const weaponCheckbox = e.target.closest('.member-weapon-checkbox');
+  if (weaponCheckbox) {
+    const cell = weaponCheckbox.closest('.member-weapons-cell');
+    const row = weaponCheckbox.closest('tr');
+    const nextWeaponIds = Array.from(cell.querySelectorAll('.member-weapon-checkbox'))
+      .filter(cb => cb.checked)
+      .map(cb => cb.value);
+    await saveMemberWeapons(row.dataset.email, nextWeaponIds, weaponCheckbox);
     return;
   }
 

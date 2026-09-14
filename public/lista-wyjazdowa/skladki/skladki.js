@@ -40,7 +40,7 @@ function sectionPillHtml(sectionId, label) {
 // The classic person pill used everywhere else a member's name is listed (wyjazd.js's roster,
 // Spis Ludności/Zarządzanie ludźmi) - one line per person instead of the old multi-line row.
 function categoryNamePillAttrs(categoryId, label) {
-  return `class="category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak typu')}"`;
+  return `class="category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak statusu')}"`;
 }
 
 // Same as wyjazd.js's displayName/formatDateTime - duplicated per this codebase's existing
@@ -175,11 +175,11 @@ function sectionLabel(sectionId) {
   return sectionLabelById.get(sectionId) ?? sectionId;
 }
 
-// Same null-safe fallback as sectionLabel above, for the summary panel's "wg typu" breakdown -
+// Same null-safe fallback as sectionLabel above, for the summary panel's "wg statusu" breakdown -
 // named -For (not just categoryLabel) to avoid shadowing renderTable's own per-row local of that
 // name.
 function categoryLabelFor(categoryId) {
-  if (categoryId === null) return 'Brak typu';
+  if (categoryId === null) return 'Brak statusu';
   return categoryLabelById.get(categoryId) ?? categoryId;
 }
 
@@ -256,7 +256,7 @@ function renderSummary(roster, duesByEmail) {
         <div class="lw-summary-chips">${sectionChips}</div>
       </div>
       <div>
-        <h3>Wg typu</h3>
+        <h3>Wg statusu</h3>
         <div class="lw-summary-chips">${categoryChips}</div>
       </div>
     </div>

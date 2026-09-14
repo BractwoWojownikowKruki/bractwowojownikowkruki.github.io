@@ -14,7 +14,7 @@ table into this file in the same change. If you forget, this test will keep pass
 stale copy while the real contract document silently diverges - exactly the failure mode this
 fixture exists to prevent.
 
-Last synced with implementation-contract.md: 2026-09-13 (Składki rework: added PUT /lista-wyjazdowa/dues/year-fee, retired per-member dues amount).
+Last synced with implementation-contract.md: 2026-09-14 (KRKG bugfix: added PUT /admin/members/weapons for the Zarządzanie ludźmi page's admin/moderator-editable Broń column).
 -->
 
 | Method and route | Classification and action | Resource and side effect | Execution |
@@ -27,6 +27,7 @@ Last synced with implementation-contract.md: 2026-09-13 (Składki rework: added 
 | POST `/admin/members/transition` | businessWrite — data-resolved membership status action; correlated `membership.sheet_backup.synchronized` if mirror is requested | member; Firestore, optional Sheets | Firestore requestAwaited; Sheets auditedOperationEnvelope |
 | PUT `/admin/members/drive-folder` | businessWrite — `profile.drive_folder.changed` | member; Firestore | requestAwaited |
 | PUT `/admin/members/profile` | businessWrite — `profile.member.updated` | member; Firestore | requestAwaited |
+| PUT `/admin/members/weapons` | businessWrite — `profile.member.updated` | member; Firestore | requestAwaited |
 | POST `/admin/members/synchronize` | businessWrite — `membership.sheet_backup.synchronized` | member set; Sheets | auditedOperationEnvelope |
 | PUT `/admin/roles` | businessWrite — data-resolved role action | member; Firestore | requestAwaited |
 | POST/DELETE `/admin/redirects` | businessWrite — `site.redirect.created` / `site.redirect.deleted` | redirect; GitHub | auditedOperationEnvelope |

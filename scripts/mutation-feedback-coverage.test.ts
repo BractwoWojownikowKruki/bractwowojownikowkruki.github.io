@@ -206,6 +206,12 @@ test('batch two admin mutations use confirmed local feedback without full-list s
     assert.match(profileSave, /refreshFragment:/);
   }
 
+  const weaponsSave = extractNamedFunction(members, 'saveMemberWeapons');
+  assert.match(weaponsSave, /\/admin\/members\/weapons/);
+  assert.match(weaponsSave, /MutationFeedback\.confirmed\(/);
+  assert.match(weaponsSave, /viewRoot:/);
+  assert.match(weaponsSave, /refreshFragment:/);
+
   const memberChange = extractListenerForElement(members, 'membership-members-list', 'change');
   assert.match(memberChange, /\/admin\/roles/);
   assert.match(memberChange, /\/admin\/members\/drive-folder/);

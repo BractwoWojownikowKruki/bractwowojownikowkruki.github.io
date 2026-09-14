@@ -58,8 +58,11 @@
           Sekcje/foldery, mapowanie do Dysku Google oraz rola (Księgowy/Admin) - rolę nadaje/odbiera tylko admin,
           zmiana wymaga świeżego logowania.
         </p>
+        <!-- Labeled "Konto" (account), not "Status" - it filters by this member's account state
+             on the site (Aktywni/Zawieszeni/Usunięci/Odrzuceni), which is a different concept from
+             the Status column below (categoryId/"typ członka" - Brokuł/Niewiasta/etc.). -->
         <label style="display:block; margin-bottom:0.75rem;">
-          Status
+          Konto
           <select id="membership-status-filter" style="display:block; width:100%; margin-top:4px;">
             <option value="active">Aktywni</option>
             <option value="suspended">Zawieszeni</option>
@@ -79,7 +82,11 @@
                 <th scope="col" class="czl-section-cell" title="Sekcja">S</th>
                 <th scope="col">Imię i nazwisko</th>
                 <th scope="col">Ksywa</th>
-                <th scope="col">Typ</th>
+                <!-- "Typ członka" (KRKG-0050) shown as "Status" here, same as everywhere else on
+                     the site (Spis Ludności, profile drawer, Lista Wyjazdowa/Składki summaries) -
+                     the account-state filter above is labeled "Konto" precisely so it doesn't
+                     collide with this. -->
+                <th scope="col">Status</th>
                 <!-- KRKG-0060: only Zarządzanie ludźmi can set this - every other member listing
                      (Spis Ludności, Lista Wyjazdowa) excludes a hidden member entirely, so this
                      is the only place a hidden member is even visible to toggle back. -->
@@ -87,6 +94,10 @@
                 <th scope="col">Email</th>
                 <th scope="col">Ostatnie logowanie</th>
                 <th scope="col">Folder na Dysku</th>
+                <!-- Admin AND moderator-editable (KRKG bugfix), unlike Rola/Wpisowe below - writes
+                     the same listaWyjazdowaProfile.weaponIds a member sets themselves on "Mój
+                     profil", via PUT /admin/members/weapons. -->
+                <th scope="col">Broń</th>
                 <!-- Admin/moderator-only column (KRKG-0049) - shown/hidden by
                      zarzadzanie-ludzmi.js based on payload.isAdmin from /admin/members/whoami. -->
                 <th scope="col" id="membership-role-header" hidden>Rola</th>
@@ -111,7 +122,10 @@
         </details>
       </section>
 
-      <section style="margin-bottom: 2rem;">
+      <!-- Admin-only (KRKG bugfix) - shown/hidden by zarzadzanie-ludzmi.js based on isAdminCaller,
+           same gate as the Rola column/audit log above. A moderator manages member records but
+           must not trigger the Sheets backup sync. -->
+      <section id="membership-sheet-sync-section" style="margin-bottom: 2rem;" hidden>
         <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Backup w arkuszu Google Sheets</h2>
         <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
           Kopia zapasowa listy członków - aktualizowana automatycznie przy każdej zmianie statusu. Użyj przycisku,
@@ -139,7 +153,8 @@
         <p id="membership-synchronize-status" style="margin-top:0.5rem;"></p>
       </section>
 
-      <section style="margin-bottom: 2rem;">
+      <!-- Admin-only (KRKG bugfix) - same isAdminCaller gate as the Sheets backup section above. -->
+      <section id="membership-group-sync-section" style="margin-bottom: 2rem;" hidden>
         <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Synchronizacja z Grupą Google</h2>
         <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
           Grupa jest teraz aktualizowana ręcznie, niezależnie od Firestore. Sprawdź, czy się nie rozjechały -

@@ -220,7 +220,7 @@
       <dl class="profile-fields">
         ${profile.nickname ? `<dt>Ksywka</dt><dd>${escapeHtml(profile.nickname)}</dd>` : ''}
         ${profile.sectionLabel ? `<dt>Sekcja</dt><dd>${escapeHtml(profile.sectionLabel)}</dd>` : ''}
-        ${profile.categoryLabel ? `<dt>Typ</dt><dd>${escapeHtml(profile.categoryLabel)}</dd>` : ''}
+        ${profile.categoryLabel ? `<dt>Status</dt><dd>${escapeHtml(profile.categoryLabel)}</dd>` : ''}
         ${weaponsHtml}
       </dl>
       ${descriptionHtml}

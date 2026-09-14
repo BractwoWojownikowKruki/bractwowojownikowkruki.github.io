@@ -1116,6 +1116,32 @@ test('GET /admin/people lists people for a category (same shape as public endpoi
   });
 });
 
+// KRKG bugfix: Zarządzanie ludźmi's loadDriveFolderOptions() calls this GET inside the same
+// Promise.all as the member list itself - before this fix it stayed authenticateAdmin-only while
+// every sibling route on that page (list/transition/drive-folder/profile/lookup-lists) moved to
+// authenticateAdminOrModerator under KRKG-0049, so a Firestore-role-only moderator's whole table
+// load 403'd even though the page itself let them in.
+test('GET /admin/people is accessible to a Firestore-role-only moderator, not just the admin allowlist', async () => {
+  resetAboutUsBootstrapForTests();
+  const deps = makeDeps({
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@gmail.com' }),
+    authenticateAdmin: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
+    },
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `folder-${name}`,
+      listGalleryFolders: async parentId =>
+        parentId === 'folder-Emeryci' ? [{ id: 'p1', name: 'Jan', modifiedTime: '2024-01-01T00:00:00Z' }] : [],
+      readTextFile: async () => null,
+      listImageFiles: async () => [],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people?category=Emeryci`);
+    assert.equal(res.status, 200);
+  });
+});
+
 test('GET /admin/people?category=upload lists people from the upload staging folder', async () => {
   resetAboutUsBootstrapForTests();
   const deps = makeDeps({
@@ -2439,6 +2465,37 @@ test('GET /admin/members includes a member marked hidden - the one listing allow
   });
 });
 
+// KRKG bugfix: the Broń column on Zarządzanie ludźmi reads weaponIds straight off this response
+// (joined from listaWyjazdowaProfile, not MemberDoc) rather than a separate fetch, since the
+// roster route it could otherwise reuse (GET /lista-wyjazdowa/roster) requires live kruki Google
+// Group membership that a moderator/admin-allowlist account isn't guaranteed to have.
+test('GET /admin/members includes weaponIds joined from listaWyjazdowaProfile', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'zbrojny@example.com', {
+    email: 'zbrojny@example.com', fullName: 'Zbrojny', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x',
+    approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x', hidden: false,
+  });
+  client.seed('listaWyjazdowaProfile', 'zbrojny@example.com', {
+    weaponIds: ['miecz', 'topor'], equipment: [], companions: [], wpisowePaid: false,
+    updatedAt: 'x', updatedBy: 'x',
+  });
+  client.seed('members', 'goly@example.com', {
+    email: 'goly@example.com', fullName: 'Goly', nickname: null, sectionId: 's',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x',
+    approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x', hidden: false,
+  });
+  const deps = makeDeps({ firestore: client });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members?status=active`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    const byEmail = Object.fromEntries(body.members.map((m: { email: string }) => [m.email, m]));
+    assert.deepEqual(byEmail['zbrojny@example.com'].weaponIds, ['miecz', 'topor']);
+    assert.deepEqual(byEmail['goly@example.com'].weaponIds, []);
+  });
+});
+
 test('GET /admin/members rejects an unknown status value', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
@@ -3012,6 +3069,115 @@ test('PUT /admin/members/profile requires step-up freshness (rejects a stale rea
   });
 });
 
+// KRKG bugfix: Zarządzanie ludźmi's own Broń column, editable by admin AND moderator - writes the
+// same listaWyjazdowaProfile the member's own "Mój profil" (PUT /lista-wyjazdowa/profile) does,
+// but keyed to an arbitrary member (?email=/body.email) rather than the caller, same split as
+// PUT /lista-wyjazdowa/wpisowe.
+test('PUT /admin/members/weapons sets weaponIds on an existing member, creating the profile doc', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'weapons', { items: [{ id: 'miecz', label: 'Miecz', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'mod-1', email: 'moderator@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/weapons`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', weaponIds: ['miecz'] }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.profile.weaponIds, ['miecz']);
+  });
+  const stored = await client.getDoc<{ weaponIds: string[] }>('listaWyjazdowaProfile', 'ala@example.com');
+  assert.deepEqual(stored?.weaponIds, ['miecz']);
+});
+
+test('PUT /admin/members/weapons can clear weaponIds back to empty', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'weapons', { items: [{ id: 'miecz', label: 'Miecz', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  client.seed('listaWyjazdowaProfile', 'ala@example.com', {
+    weaponIds: ['miecz'], equipment: [], companions: [], wpisowePaid: false, updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/weapons`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', weaponIds: [] }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ weaponIds: string[] }>('listaWyjazdowaProfile', 'ala@example.com');
+  assert.deepEqual(stored?.weaponIds, []);
+});
+
+test('PUT /admin/members/weapons rejects a weaponId that is not in lookupLists', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'weapons', { items: [{ id: 'miecz', label: 'Miecz', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', fullName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/weapons`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', weaponIds: ['nieistniejaca'] }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /admin/members/weapons 404s for an unknown member', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'weapons', { items: [{ id: 'miecz', label: 'Miecz', retired: false }] });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/weapons`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'brak@example.com', weaponIds: [] }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('PUT /admin/members/weapons requires step-up freshness (rejects a stale reauthAt)', async () => {
+  const deps = makeDeps({
+    authenticateAdminOrModeratorWithStepUp: async () => {
+      throw new AuthError('Wymagane ponowne logowanie.', 401);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/weapons`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', weaponIds: [] }),
+    });
+    assert.equal(res.status, 401);
+  });
+});
+
 test('GET /admin/lookup-lists returns sections/categories/weapons', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
@@ -3215,7 +3381,7 @@ test('POST /admin/members/synchronize syncs the full member list and requires st
   let syncedCount = -1;
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
     sheetsClient: {
       syncAllMembers: async members => {
         syncedCount = members.length;
@@ -3237,7 +3403,7 @@ test('POST /admin/members/synchronize syncs the full member list and requires st
 
 test('POST /admin/members/synchronize rejects a stale admin session', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModeratorWithStepUp: async () => {
+    authenticateAdminWithStepUp: async () => {
       throw new AuthError('Wymagane ponowne logowanie.', 401);
     },
   });
@@ -3247,12 +3413,26 @@ test('POST /admin/members/synchronize rejects a stale admin session', async () =
   });
 });
 
+// Admin-only (not authenticateAdminOrModerator, unlike the rest of Zarządzanie ludźmi) - a
+// moderator can manage member records but must not trigger the Sheets backup sync.
+test('POST /admin/members/synchronize rejects a Firestore-role-only moderator', async () => {
+  const deps = makeDeps({
+    authenticateAdminWithStepUp: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/synchronize`, { method: 'POST', headers: { origin: ALLOWED_ORIGIN_FOR_TESTS } });
+    assert.equal(res.status, 403);
+  });
+});
+
 // KRKG-0065: GET /admin/members/group-sync diffs the raw Google Group membership (deps.listGroupEmails
 // - never used for authorization, see ServerDeps.listGroupEmails) against Firestore's active members
 // (deps.listMemberEmails, already exactly that set) in both directions.
 test('GET /admin/members/group-sync reports emails present on only one side, in both directions', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdmin: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
     listMemberEmails: async () => ['a@example.com', 'b@example.com'],
     listGroupEmails: async () => ['b@example.com', 'c@example.com'],
   });
@@ -3267,7 +3447,7 @@ test('GET /admin/members/group-sync reports emails present on only one side, in 
 
 test('GET /admin/members/group-sync reports no drift when both sides match', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdmin: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
     listMemberEmails: async () => ['a@example.com'],
     listGroupEmails: async () => ['a@example.com'],
   });
@@ -3280,10 +3460,24 @@ test('GET /admin/members/group-sync reports no drift when both sides match', asy
   });
 });
 
-test('GET /admin/members/group-sync rejects a caller who is neither admin nor moderator', async () => {
+test('GET /admin/members/group-sync rejects a caller who is not an admin', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModerator: async () => {
+    authenticateAdmin: async () => {
       throw new AuthError('Brak uprawnień.', 403);
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/group-sync`, { headers: { origin: ALLOWED_ORIGIN_FOR_TESTS } });
+    assert.equal(res.status, 403);
+  });
+});
+
+// Admin-only (not authenticateAdminOrModerator, unlike the rest of Zarządzanie ludźmi) - a
+// moderator can manage member records but must not run the Google Group drift check.
+test('GET /admin/members/group-sync rejects a Firestore-role-only moderator', async () => {
+  const deps = makeDeps({
+    authenticateAdmin: async () => {
+      throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
   });
   await withServer(deps, async baseUrl => {
@@ -5313,7 +5507,8 @@ const STEP_UP_GATED_ROUTES: { method: string; path: string; stepUpDep: keyof Ser
   { method: 'POST', path: '/admin/members/transition', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
   { method: 'PUT', path: '/admin/members/drive-folder', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
   { method: 'PUT', path: '/admin/members/profile', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
-  { method: 'POST', path: '/admin/members/synchronize', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'PUT', path: '/admin/members/weapons', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'POST', path: '/admin/members/synchronize', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'PUT', path: '/admin/roles', stepUpDep: 'authenticateAdminWithStepUp' },
 ];
 
@@ -5322,13 +5517,13 @@ const STEP_UP_GATED_ROUTES: { method: string; path: string; stepUpDep: keyof Ser
 const READ_ONLY_ROUTES_SHARING_A_ROLE: { method: string; path: string; stepUpDep: keyof ServerDeps }[] = [
   { method: 'GET', path: '/admin/whoami', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'GET', path: '/admin/redirects', stepUpDep: 'authenticateAdminWithStepUp' },
-  { method: 'GET', path: '/admin/people', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'GET', path: '/admin/people', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
   { method: 'GET', path: '/admin/settings', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'GET', path: '/admin/members?status=active', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
   { method: 'GET', path: '/admin/members/whoami', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
   { method: 'GET', path: '/admin/lookup-lists', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
   { method: 'GET', path: '/admin/roles', stepUpDep: 'authenticateAdminWithStepUp' },
-  { method: 'GET', path: '/admin/members/group-sync', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'GET', path: '/admin/members/group-sync', stepUpDep: 'authenticateAdminWithStepUp' },
 ];
 
 for (const { method, path, stepUpDep } of STEP_UP_GATED_ROUTES) {

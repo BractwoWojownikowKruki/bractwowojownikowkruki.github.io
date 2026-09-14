@@ -61,7 +61,7 @@ function sectionAbbr(sectionId) {
 // convention as member-area.css's [data-section="..."] rules for Sekcja. This page never lets
 // anyone edit Typ, so it's always read-only here - no sync-on-change counterpart needed.
 function categoryNamePillAttrs(categoryId, label) {
-  return `class="category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak typu')}"`;
+  return `class="category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak statusu')}"`;
 }
 
 // The single place a member's display name is computed (KRKG-0059) - call this rather than
@@ -266,7 +266,7 @@ function renderSummary(roster, signups) {
     <div class="lw-summary-columns">
       <div><h3>Wg sekcji</h3><div class="lw-summary-chips">${sectionChips}</div></div>
       <div><h3>Wg broni</h3><div class="lw-summary-chips">${weaponChips}</div></div>
-      <div><h3>Wg typu</h3><div class="lw-summary-chips">${categoryChips}</div></div>
+      <div><h3>Wg statusu</h3><div class="lw-summary-chips">${categoryChips}</div></div>
     </div>
   `;
 
@@ -314,7 +314,7 @@ function weaponSortLabel(member) {
 
 // Display-label variants of the three lookup maps for renderSummary's breakdown below - unlike the
 // *SortLabel helpers above (empty string so an unset value sorts first), these need an actual
-// user-facing label for "no X assigned" ("Bez sekcji"/"Brak broni"/"Brak typu").
+// user-facing label for "no X assigned" ("Bez sekcji"/"Brak broni"/"Brak statusu").
 function sectionLabelFor(sectionId) {
   if (sectionId === null) return 'Bez sekcji';
   return sectionLabelById.get(sectionId) ?? sectionId;
@@ -324,7 +324,7 @@ function weaponLabelFor(weaponId) {
   return weaponLabelById.get(weaponId) ?? weaponId;
 }
 function categoryLabelFor(categoryId) {
-  if (categoryId === null) return 'Brak typu';
+  if (categoryId === null) return 'Brak statusu';
   return categoryLabelById.get(categoryId) ?? categoryId;
 }
 

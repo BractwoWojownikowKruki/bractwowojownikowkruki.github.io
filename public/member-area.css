@@ -219,6 +219,12 @@
   white-space: normal;
 }
 
+/* Broń column (KRKG bugfix) - same checkbox-per-item shape and wrapping as .member-roles-cell
+   above, but admin/moderator-editable (always visible, no isAdminCaller gate). */
+.member-weapons-cell {
+  white-space: normal;
+}
+
 .member-role-label {
   display: flex;
   align-items: center;

@@ -89,6 +89,31 @@ export async function setWpisowePaid(
   };
 }
 
+/**
+ * Admin/moderator write of another member's weaponIds, from Zarządzanie ludźmi's own weapon
+ * checkboxes - unlike weaponIds via saveProfile above (self-service, the member's own "Mój
+ * profil"), this lets an admin/moderator correct or set it on someone else's behalf, e.g. for a
+ * member who hasn't filled in their profile yet. Same upsert shape as setWpisowePaid: creates a
+ * document with empty equipment/companions defaults if the member has none yet.
+ */
+export async function setProfileWeaponIds(
+  client: FirestoreWriteContext,
+  email: string,
+  weaponIds: string[],
+  updatedBy: string,
+): Promise<ListaWyjazdowaProfileDoc> {
+  const id = email.toLowerCase();
+  const existing = await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id);
+  const writable = { weaponIds, updatedBy, updatedAt: new Date().toISOString() };
+  await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, equipment: [], companions: [], wpisowePaid: false });
+  return {
+    equipment: existing?.equipment ?? [],
+    companions: existing?.companions ?? [],
+    wpisowePaid: existing?.wpisowePaid ?? false,
+    ...writable,
+  };
+}
+
 // Plan B (roster join, GET /lista-wyjazdowa/roster): unlike getProfile, callers here need the
 // email too, since ListaWyjazdowaProfileDoc itself doesn't carry it - it's only known via the doc id.
 export async function listAllProfiles(client: FirestoreLikeClient): Promise<Array<ListaWyjazdowaProfileDoc & { email: string }>> {

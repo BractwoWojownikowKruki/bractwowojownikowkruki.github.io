@@ -41,6 +41,7 @@ const mutationFeedbackWiredRoutes = new Set([
   'POST /admin/members/transition',
   'PUT /admin/members/drive-folder',
   'PUT /admin/members/profile',
+  'PUT /admin/members/weapons',
   'POST /admin/members/synchronize',
   'PUT /admin/roles',
   'POST /admin/redirects',

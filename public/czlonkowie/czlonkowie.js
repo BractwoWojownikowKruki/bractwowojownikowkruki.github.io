@@ -34,13 +34,14 @@ function sectionAbbr(sectionId) {
   return SECTION_ABBR[sectionId] ?? (sectionId ?? '').slice(0, 3).toUpperCase();
 }
 
-// Typ (categoryId) shown by wrapping the name itself in a colored outline pill, instead of its
-// own column or a second pill next to the name (KRKG-0057) - never-a-color-value-in-JS
-// convention, same as the section abbreviation above; the actual colors live in member-area.css's
-// [data-category="..."] rules. extraClass carries czl-empty for an empty fullName, nothing
-// otherwise. Spis Ludności is read-only (KRKG-0063), so this has no sync-on-change counterpart.
+// Status (categoryId) shown by wrapping the name itself in a colored outline pill (KRKG-0057) -
+// never-a-color-value-in-JS convention, same as the section abbreviation above; the actual colors
+// live in member-area.css's [data-category="..."] rules. Also broken out into its own plain-text
+// Status column (KRKG bugfix) for filtering/sorting - the pill stays as a compact at-a-glance cue
+// next to the name. extraClass carries czl-empty for an empty fullName, nothing otherwise. Spis
+// Ludności is read-only (KRKG-0063), so this has no sync-on-change counterpart.
 function categoryNamePillAttrs(categoryId, label, extraClass) {
-  return `class="${extraClass} category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak typu')}"`;
+  return `class="${extraClass} category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak statusu')}"`;
 }
 
 const panels = {
@@ -115,6 +116,7 @@ function renderTable() {
         </button>
       </td>
       <td class="${m.nickname ? '' : 'czl-empty'}">${cell(m.nickname)}</td>
+      <td class="${m.categoryLabel ? '' : 'czl-empty'}">${cell(m.categoryLabel)}</td>
       <td>${escapeHtml(m.email)}</td>
     `;
     tbody.append(row);

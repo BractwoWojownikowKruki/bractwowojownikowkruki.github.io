@@ -55,7 +55,7 @@ import { applyForMembershipInTransaction, applyAdminTransitionInTransaction, lis
 import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
 import { createDisabledSheetsClient, createSheetsClient, type SheetsClient } from './sheets.ts';
-import { getProfile, listAllProfiles, saveProfile, setWpisowePaid, type ListaWyjazdowaProfileDoc, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
+import { getProfile, listAllProfiles, saveProfile, setProfileWeaponIds, setWpisowePaid, type ListaWyjazdowaProfileDoc, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 import { getAllLookupLists, getLookupList } from './lookup-lists.ts';
 import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWritableFields } from './events.ts';
 import {
@@ -101,9 +101,9 @@ export interface ServerDeps {
   // route handlers can't accidentally mix the two up.
   authenticateAdmin: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
   // authenticateAdmin plus the step-up freshness + forced allowlist refresh described above -
-  // required on every *mutating* admin route (14 of the 18 authenticateAdmin call sites; the 4
-  // read-only admin/whoami|redirects|people|settings GETs use plain authenticateAdmin, since
-  // there's no destructive side effect to gate).
+  // required on every *mutating* admin route (the read-only admin/whoami|redirects|settings GETs
+  // use plain authenticateAdmin, since there's no destructive side effect to gate; GET
+  // /admin/people moved to authenticateAdminOrModerator, see handleAdminListPeople's comment).
   authenticateAdminWithStepUp: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
   // Same shape again, checked against the kruki Google Group's live membership (via an Apps
   // Script Web App, see createAppsScriptAllowlist) instead of a Sheet - gates the self-service
@@ -112,8 +112,11 @@ export interface ServerDeps {
   authenticateWojownicyUpload: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
   // KRKG-0049: admin-allowlist OR Firestore 'moderator'/'admin' role (see roles.ts's
   // createRoleAuthorizer and this file's anyOf()) - gates the "Zarządzanie ludźmi" page's people-
-  // management actions (member list/transition/drive-folder/profile/sync, lookup-lists) to a
-  // moderator without giving them the rest of the admin panel. Replaces the old Google-Group-
+  // management actions (member list/transition/drive-folder/profile/weapons, lookup-lists) to a
+  // moderator without giving them the rest of the admin panel. The Sheets backup sync and Google
+  // Group sync check on that same page stay admin-only (handleAdminMembersSynchronize/
+  // handleAdminMembersGroupSync use authenticateAdmin directly) - a moderator manages member
+  // records but must not trigger that external infrastructure sync. Replaces the old Google-Group-
   // backed authenticateModerator (KRKG-0027, gated gallery deletion, never actually configured in
   // production) - galleries are plain-admin-gated now, see handleDeleteDriveGallery/handleUnregister.
   authenticateAdminOrModerator: (req: IncomingMessage, res: ServerResponse) => Promise<SessionClaims>;
@@ -199,6 +202,7 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   ]),
   memberDriveFolder: auditedRoute('PUT', '/admin/members/drive-folder', ['profile.drive_folder.changed']),
   memberProfile: auditedRoute('PUT', '/admin/members/profile', ['profile.member.updated']),
+  memberWeapons: auditedRoute('PUT', '/admin/members/weapons', ['profile.member.updated']),
   roles: auditedRoute('PUT', '/admin/roles', ['role.granted', 'role.revoked', 'role.replaced']),
   tripMember: auditedRoute('PUT', '/lista-wyjazdowa/member', ['profile.member.updated']),
   tripProfile: auditedRoute('PUT', '/lista-wyjazdowa/profile', ['profile.member.updated']),
@@ -895,8 +899,18 @@ async function handleAdminListMembers(req: IncomingMessage, res: ServerResponse,
   if (!status || !(MEMBERSHIP_STATUSES as readonly string[]).includes(status)) {
     throw new AuthError('Nieprawidłowy status.', 400);
   }
-  const members = await listMembersByStatus(deps.firestore, status as MembershipStatus);
-  sendJson(res, 200, { members });
+  const [members, profiles] = await Promise.all([
+    listMembersByStatus(deps.firestore, status as MembershipStatus),
+    listAllProfiles(deps.firestore),
+  ]);
+  // weaponIds for the Zarządzanie ludźmi page's own weapon checkboxes (KRKG bugfix) - joined in
+  // here (not fetched separately, unlike wpisowePaid via GET /lista-wyjazdowa/roster) since that
+  // roster route requires live kruki Google Group membership (authenticateWojownicyUpload), which
+  // an admin-allowlist or Firestore-moderator-role account isn't guaranteed to have - the same gap
+  // that made GET /admin/people 403 for a moderator.
+  const weaponIdsByEmail = new Map(profiles.map((p) => [p.email, p.weaponIds]));
+  const enriched = members.map((m) => ({ ...m, weaponIds: weaponIdsByEmail.get(m.email) ?? [] }));
+  sendJson(res, 200, { members: enriched });
 }
 
 const ADMIN_TRANSITIONS = ['approve', 'reject', 'suspend', 'reactivate', 'remove'] as const;
@@ -994,8 +1008,11 @@ async function handleAdminSetMemberDriveFolder(req: IncomingMessage, res: Server
   sendJson(res, 200, { ok: true });
 }
 
+// Admin-only: the Sheets backup and the Google Group it feeds are administrator-level
+// infrastructure, unlike the rest of the Zarządzanie ludźmi page - a moderator can manage member
+// profiles/status/Drive folders but must not trigger a full external re-sync.
 async function handleAdminMembersSynchronize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateAdminOrModeratorWithStepUp(req, res);
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
   const allMembers = await listAllMembers(deps.firestore);
   const { result: sheetSyncStatus } = await executeAuditedExternalMutation(deps.firestore, { action: 'membership.sheet_backup.synchronized', actor: { email: identity.email }, resource: { kind: 'member', key: 'member:sheet-backup', display: 'sheet-backup' }, changes: [{ field: 'sheetBackup', after: 'requested' }] }, async () => deps.sheetsClient.syncAllMembers(allMembers), { eventInput: status => ({ action: 'membership.sheet_backup.synchronized', actor: { email: identity.email }, resource: { kind: 'member', key: 'member:sheet-backup', display: 'sheet-backup' }, changes: [{ field: 'sheetBackup', after: status }] }) });
   sendJson(res, 200, { sheetSyncStatus });
@@ -1005,9 +1022,11 @@ async function handleAdminMembersSynchronize(req: IncomingMessage, res: ServerRe
 // Firestore's active members - the Group is now updated by hand as a secondary record (KRKG-0046
 // moved actual authorization to Firestore), so this is purely a drift check for the admin to spot
 // where the two have diverged, not an authorization path. No step-up: it reads two lists and
-// returns a diff, nothing is mutated.
+// returns a diff, nothing is mutated. Admin-only, same as handleAdminMembersSynchronize above -
+// this diagnostic is about the same admin-level Sheets/Group infrastructure, not ordinary member
+// management, so it's excluded from the moderator's authenticateAdminOrModerator scope.
 async function handleAdminMembersGroupSync(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminOrModerator(req, res);
+  await deps.authenticateAdmin(req, res);
   const [groupEmails, firestoreEmails] = await Promise.all([deps.listGroupEmails(), deps.listMemberEmails()]);
   const groupSet = new Set(groupEmails);
   const firestoreSet = new Set(firestoreEmails);
@@ -1197,8 +1216,14 @@ async function enrichUploadEntryWithPublicStatus(
   };
 }
 
+// KRKG bugfix: this GET backs Zarządzanie ludźmi's Drive-folder-link picker
+// (loadDriveFolderOptions in zarzadzanie-ludzmi.js), fetched inside the same Promise.all as the
+// member list - it was left on authenticateAdmin when KRKG-0049 moved every other route on that
+// page (list/transition/drive-folder/profile/lookup-lists) to authenticateAdminOrModerator, so a
+// Firestore-role-only moderator's whole table load 403'd on this one call. The mutating people
+// routes (order/category/photo/delete, Publiczne wizytówki's own scope) stay authenticateAdmin.
 async function handleAdminListPeople(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req, res);
+  await deps.authenticateAdminOrModerator(req, res);
   const department = parseAdminDepartment(url.searchParams.get('category'));
   const folders = await bootstrapAboutUsStructure(deps.drive);
   const people = await fetchCategoryPeople(deps.drive, departmentFolderId(folders, department));
@@ -1881,12 +1906,12 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
   if (body.categoryId !== undefined) {
     const categoryIdRaw = body.categoryId;
     if (categoryIdRaw !== null && typeof categoryIdRaw !== 'string') {
-      throw new AuthError('Nieprawidłowy typ członka.', 400);
+      throw new AuthError('Nieprawidłowy status członka.', 400);
     }
     categoryId = categoryIdRaw === null || categoryIdRaw === '' ? null : categoryIdRaw;
     if (categoryId !== null) {
       const lookupLists = await getAllLookupLists(deps.firestore);
-      requireKnownLookupId(lookupLists.categories, categoryId, 'Wybrany typ członka nie istnieje.');
+      requireKnownLookupId(lookupLists.categories, categoryId, 'Wybrany status członka nie istnieje.');
     }
   }
   let hidden: boolean | undefined;
@@ -1937,6 +1962,48 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
     },
   );
   sendJson(res, 200, { member });
+}
+
+// Admin/moderator counterpart to handleListaWyjazdowaPutProfile's self-service weaponIds write -
+// the Zarządzanie ludźmi page's own weapon checkboxes (KRKG bugfix). Unlike categoryId/hidden
+// above, weaponIds lives on listaWyjazdowaProfile (not MemberDoc), so this writes that other
+// collection directly rather than going through executeDeclaredAuditedMutation's MemberDoc-shaped
+// helpers - same split as handleListaWyjazdowaPutWpisowe, which also lets an admin/moderator-
+// adjacent role edit another member's listaWyjazdowaProfile fields from an admin page. Requires
+// the member to already exist, same as handleAdminUpdateMemberProfile - editing from an existing
+// row should never accidentally create a bare member doc from a mistyped email.
+async function handleAdminSetMemberWeapons(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdminOrModeratorWithStepUp(req, res);
+  const body = await readJsonBody<{ email?: string; weaponIds?: unknown }>(req, deps.maxJsonBodyBytes);
+  const email = body.email;
+  if (typeof email !== 'string' || !email.trim()) throw new AuthError('Brak email.', 400);
+  const existing = await getMember(deps.firestore, email);
+  if (!existing) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  const weaponIds = requireArray(body.weaponIds, 'Lista broni ma nieprawidłowy format.').map((id) =>
+    requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista broni ma nieprawidłowy format.'),
+  );
+  const lookupLists = await getAllLookupLists(deps.firestore);
+  for (const weaponId of weaponIds) {
+    requireKnownLookupId(lookupLists.weapons, weaponId, 'Wybrana broń nie istnieje.');
+  }
+  const normalizedEmail = email.toLowerCase();
+  const { result: profile } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.memberWeapons,
+    'profile.member.updated',
+    async tx => {
+      const currentProfile = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', normalizedEmail);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${normalizedEmail}`, display: 'member' },
+        changes: [
+          { field: 'weaponCount', ...(currentProfile ? { before: currentProfile.weaponIds.length } : {}), after: weaponIds.length },
+        ],
+      };
+    },
+    tx => setProfileWeaponIds(tx, normalizedEmail, weaponIds, identity.email),
+  );
+  sendJson(res, 200, { profile });
 }
 
 async function handleListaWyjazdowaGetProfile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -3563,6 +3630,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminSetMemberDriveFolder(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/members/profile') {
         await handleAdminUpdateMemberProfile(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/members/weapons') {
+        await handleAdminSetMemberWeapons(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/lookup-lists') {
         await handleAdminGetLookupLists(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/members/synchronize') {
