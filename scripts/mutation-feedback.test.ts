@@ -12,6 +12,8 @@ class FakeElement {
   isConnected = true;
   scrollTop = 0;
   textContent = '';
+  nextElementSibling: FakeElement | null = null;
+  previousElementSibling: FakeElement | null = null;
   readonly attributes = new Map<string, string>();
   readonly children: FakeElement[] = [];
   readonly insertedAfter: FakeElement[] = [];
@@ -19,6 +21,11 @@ class FakeElement {
   focusedWith: unknown;
 
   constructor(readonly tagName: string) {}
+
+  get classList() {
+    const self = this;
+    return { contains: (cls: string) => self.className.split(/\s+/).includes(cls) };
+  }
 
   setAttribute(name: string, value: string) {
     this.attributes.set(name, value);
@@ -31,7 +38,18 @@ class FakeElement {
   insertAdjacentElement(position: string, element: FakeElement) {
     assert.equal(position, 'afterend');
     this.insertedAfter.push(element);
+    element.previousElementSibling = this;
+    element.nextElementSibling = this.nextElementSibling;
+    if (this.nextElementSibling) this.nextElementSibling.previousElementSibling = element;
+    this.nextElementSibling = element;
     return element;
+  }
+
+  remove() {
+    if (this.previousElementSibling) this.previousElementSibling.nextElementSibling = this.nextElementSibling;
+    if (this.nextElementSibling) this.nextElementSibling.previousElementSibling = this.previousElementSibling;
+    this.previousElementSibling = null;
+    this.nextElementSibling = null;
   }
 
   addEventListener(type: string, listener: ClickListener) {
@@ -110,6 +128,35 @@ test('shows a bare accessible check only after execute and apply resolve in orde
   assert.equal(check.className, 'mutation-feedback-check');
   assert.equal(check.attributes.get('role'), 'status');
   assert.equal(check.attributes.get('aria-label'), 'Zapisano');
+});
+
+test('replaces a previous check instead of stacking a new one on repeated saves', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  const control = new FakeElement('button');
+
+  await feedback.confirmed({
+    control,
+    execute: async () => {},
+    apply: async () => {},
+  });
+  await feedback.confirmed({
+    control,
+    execute: async () => {},
+    apply: async () => {},
+  });
+  await feedback.confirmed({
+    control,
+    execute: async () => {},
+    apply: async () => {},
+  });
+
+  assert.equal(control.insertedAfter.length, 3, 'a check span was created for each save');
+  const [first, second, third] = control.insertedAfter;
+  assert.equal(control.nextElementSibling, third, 'only the latest check remains attached');
+  assert.equal(third.nextElementSibling, null);
+  assert.equal(first.nextElementSibling, null, 'earlier checks were detached');
+  assert.equal(second.nextElementSibling, null, 'earlier checks were detached');
 });
 
 test('rethrows an execute failure after an optional rollback without showing a check', async () => {

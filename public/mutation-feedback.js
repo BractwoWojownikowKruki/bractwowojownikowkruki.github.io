@@ -4,7 +4,18 @@
     anchor.insertAdjacentElement('afterend', element);
   }
 
+  function removeExistingChecks(anchor) {
+    if (!anchor?.isConnected) return;
+    let sibling = anchor.nextElementSibling;
+    while (sibling?.classList?.contains('mutation-feedback-check')) {
+      const next = sibling.nextElementSibling;
+      sibling.remove();
+      sibling = next;
+    }
+  }
+
   function showCheck(anchor) {
+    removeExistingChecks(anchor);
     const check = document.createElement('span');
     check.className = 'mutation-feedback-check';
     check.textContent = '✓';
@@ -74,6 +85,7 @@
 
   async function confirmed({ execute, apply, refreshFragment, control, anchor, rollback, shouldShowCheck, viewRoot }) {
     const feedbackAnchor = anchor || control;
+    removeExistingChecks(feedbackAnchor);
     let result;
 
     try {
