@@ -430,14 +430,14 @@ function renderRoster(roster, signups) {
       const weaponHtml = member.weaponIds.length
         ? weaponIconsOnlyHtml(member.weaponIds, weaponGroupLabel(member.weaponIds))
         : '';
-      // KRKG-0074: tiny vertically-stacked badges in the name cell for what this member still
-      // owes club-wide - a red one with the money-bag glyph for the current year's składka roczna
-      // (member.duesStatus comes from the roster endpoint, which resolves the emeryt default
-      // server-side), and a grey "wpisowe" one for the one-time entry fee. Shown only while
-      // unpaid, so a settled member's name cell stays clean; not_applicable (emeryt) owes nothing
-      // and gets neither.
+      // KRKG-0074: the name cell splits into two rows - the name pill + person icon on top, and
+      // (only while something is still owed club-wide) a second row of tiny red badges underneath:
+      // the one-time Wpisowe (money bag + "wpisowe") first, then the current year's składka roczna
+      // (money bag only) next to it. member.duesStatus comes from the roster endpoint, which
+      // resolves the emeryt default server-side; not_applicable owes nothing, and a fully settled
+      // member gets no second row at all.
       const duesBadgesHtml = member.duesStatus === 'unpaid' || !member.wpisowePaid
-        ? `<span class="lw-dues-badges">${member.duesStatus === 'unpaid' ? '<span class="lw-dues-badge lw-dues-badge--roczna" title="Składka roczna nieopłacona">💰</span>' : ''}${!member.wpisowePaid ? '<span class="lw-dues-badge lw-dues-badge--wpisowe" title="Wpisowe nieopłacone">wpisowe</span>' : ''}</span>`
+        ? `<span class="lw-dues-badges">${!member.wpisowePaid ? '<span class="lw-dues-badge lw-dues-badge--wpisowe" title="Wpisowe nieopłacone">💰<span>wpisowe</span></span>' : ''}${member.duesStatus === 'unpaid' ? '<span class="lw-dues-badge lw-dues-badge--roczna" title="Składka roczna nieopłacona">💰</span>' : ''}</span>`
         : '';
       return `
     <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">

@@ -387,23 +387,23 @@
   height: 1.7rem;
 }
 
-/* KRKG-0074: tiny club-dues badges next to a member's name on the event roster (wyjazd.js's
-   renderRoster) - what's still unpaid *outside* this event, so the name cell says at a glance
-   whether to chase someone. Vertically stacked, deliberately ~9px so they don't push the Nazwa
-   column wider or make the row taller than it already is. Red + money bag for the current year's
-   składka roczna, plain grey "wpisowe" for the one-time entry fee. */
+/* KRKG-0074: tiny club-dues badges in the event roster's name cell (wyjazd.js's renderRoster) -
+   what's still unpaid *outside* this event. The cell splits into two rows: the name pill + person
+   icon on top, and this badge row (block-level flex, so it sits on its own line) only while
+   something is owed - a fully settled member keeps just the name row. Both badges are red and
+   deliberately ~9px so they don't push the Nazwa column wider: Wpisowe shows the money bag plus
+   its label, składka roczna just the money bag (its title tooltip carries the label). */
 .lw-dues-badges {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  margin-left: 0.4em;
-  vertical-align: middle;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
 }
 
 .lw-dues-badge {
   display: inline-flex;
   align-items: center;
+  gap: 2px;
   font-size: 9px;
   font-weight: 700;
   line-height: 1;
@@ -412,16 +412,11 @@
   white-space: nowrap;
 }
 
-.lw-dues-badge--roczna {
+.lw-dues-badge--roczna,
+.lw-dues-badge--wpisowe {
   background: color-mix(in srgb, #c62828 25%, var(--surface-deep));
   border: 1px solid #c62828;
   color: #ef5350;
-}
-
-.lw-dues-badge--wpisowe {
-  background: var(--surface-deep);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
 }
 
 /* Icon + visible label together (KRKG bugfix: an icon-only mark needed a hover just to read what

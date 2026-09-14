@@ -6112,10 +6112,12 @@ test('GET /lista-wyjazdowa/roster includes the current year\'s składka roczna s
   });
   await withServer(deps, async baseUrl => {
     const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
-    const byEmail = new Map(body.roster.map((r: { email: string }) => [r.email, r]));
-    assert.equal(byEmail.get('wojownik@gmail.com').duesStatus, 'paid');
-    assert.equal(byEmail.get('emeryt@example.test').duesStatus, 'not_applicable');
-    assert.equal(byEmail.get('bezprofilu@example.test').duesStatus, 'unpaid');
+    const byEmail = new Map<string, { duesStatus: string }>(
+      body.roster.map((r: { email: string; duesStatus: string }) => [r.email, r]),
+    );
+    assert.equal(byEmail.get('wojownik@gmail.com')?.duesStatus, 'paid');
+    assert.equal(byEmail.get('emeryt@example.test')?.duesStatus, 'not_applicable');
+    assert.equal(byEmail.get('bezprofilu@example.test')?.duesStatus, 'unpaid');
   });
 });
 
