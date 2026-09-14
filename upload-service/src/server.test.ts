@@ -5043,8 +5043,11 @@ test('GET /member-profile returns basic fields, no photos, no description when t
     const body = await res.json();
     assert.equal(body.fullName, 'Jan Kowalski');
     assert.equal(body.nickname, 'Kowal');
+    assert.equal(body.sectionId, 'sekcja-1');
     assert.equal(body.sectionLabel, 'Kraków');
+    assert.equal(body.categoryId, 'kandydat');
     assert.equal(body.categoryLabel, 'Kandydat');
+    assert.deepEqual(body.weaponIds, ['miecz']);
     assert.deepEqual(body.weapons, ['Miecz']);
     assert.equal(body.mainPhoto, null);
     assert.deepEqual(body.photos, []);

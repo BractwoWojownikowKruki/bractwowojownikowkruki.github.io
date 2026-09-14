@@ -18,6 +18,60 @@
   const ICON_CHEVRON_LEFT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
   const ICON_CHEVRON_RIGHT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
 
+  // Weapon icons (KRKG-0074): the same hand-drawn PNG set wyjazd.js/profil.js use for a member's
+  // weapons. The seeded lookup label "Duńczyk (D)" still carries its "(D)" placeholder, which
+  // reads as broken when printed as plain text - so Broń renders the same icon + short item-name
+  // pair the roster and "Wg broni" chips use (see wyjazd.js's WEAPON_ICON_KEYS/WEAPON_ITEM_NAMES,
+  // duplicated per-file by the same established convention). weaponGroupIconFile mirrors
+  // wyjazd.js's of the same name: one combo PNG for a member holding two weapons.
+  const WEAPON_ICON_KEYS = {
+    tarczownik: 'tarcza',
+    wlocznik: 'wlocznia',
+    dunczyk: 'topor',
+  };
+  const WEAPON_ITEM_NAMES = {
+    tarczownik: 'tarcza',
+    wlocznik: 'włócznia',
+    dunczyk: 'topór',
+  };
+  const WEAPON_DISPLAY_ORDER = ['tarczownik', 'wlocznik', 'dunczyk'];
+
+  function weaponGroupIconFile(weaponIds) {
+    if (weaponIds.length === 0 || weaponIds.length > 2) return null;
+    const keys = [...weaponIds]
+      .sort((a, b) => WEAPON_DISPLAY_ORDER.indexOf(a) - WEAPON_DISPLAY_ORDER.indexOf(b))
+      .map((id) => WEAPON_ICON_KEYS[id]);
+    if (keys.some((key) => !key)) return null;
+    return `/icons/bron-${keys.join('-')}.png`;
+  }
+
+  // Icon(s) + short item-name label ("tarcza / włócznia" for two). Unknown weapon ids (not in
+  // WEAPON_ITEM_NAMES) fall back to the server-provided label at the same index - the backend
+  // builds profile.weapons from the same weaponIds array in order, so the two stay aligned.
+  function weaponFieldHtml(profile) {
+    const weaponIds = Array.isArray(profile.weaponIds) ? profile.weaponIds : null;
+    // A backend without weaponIds yet (KRKG-0074 rollout skew): plain labels, same as before.
+    if (!weaponIds) {
+      return profile.weapons.length
+        ? `<dt>Broń</dt><dd>${escapeHtml(profile.weapons.join(', '))}</dd>`
+        : '';
+    }
+    if (!weaponIds.length) return '';
+    const labelByIndex = new Map(weaponIds.map((id, i) => [id, profile.weapons[i] ?? id]));
+    const ordered = [...weaponIds].sort((a, b) => WEAPON_DISPLAY_ORDER.indexOf(a) - WEAPON_DISPLAY_ORDER.indexOf(b));
+    const label = ordered.map((id) => WEAPON_ITEM_NAMES[id] ?? labelByIndex.get(id)).join(' / ');
+    const comboFile = weaponGroupIconFile(weaponIds);
+    const icon = comboFile
+      ? `<img class="lw-weapon-icon" src="${comboFile}" alt="" width="20" height="20">`
+      : ordered
+          .map((id) => {
+            const file = weaponGroupIconFile([id]);
+            return file ? `<img class="lw-weapon-icon" src="${file}" alt="" width="20" height="20">` : '';
+          })
+          .join('');
+    return `<dt>Broń</dt><dd><span class="lw-weapon-group">${icon}<span class="lw-weapon-group-label">${escapeHtml(label)}</span></span></dd>`;
+  }
+
   let els = null;
   let lastFocused = null;
   let lightboxEls = null;
@@ -176,9 +230,7 @@
            <img src="${escapeHtml(effectiveMainPhoto.url)}" alt="${escapeHtml(profile.fullName)}" />
          </div>`
       : `<div class="person-main-photo profile-avatar-placeholder">${escapeHtml(initials(profile.fullName))}</div>`;
-    const weaponsHtml = profile.weapons.length
-      ? `<dt>Broń</dt><dd>${escapeHtml(profile.weapons.join(', '))}</dd>`
-      : '';
+    const weaponsHtml = weaponFieldHtml(profile);
     // photos is populated for both a published public profile and a still-pending upload (see
     // GET /member-profile) - render it unconditionally rather than re-checking `published` here,
     // so this can't drift out of sync with what the backend actually decided to return.
@@ -223,8 +275,8 @@
       <h3>${escapeHtml(profile.fullName)}</h3>
       <dl class="profile-fields">
         ${profile.nickname ? `<dt>Ksywka</dt><dd>${escapeHtml(profile.nickname)}</dd>` : ''}
-        ${profile.sectionLabel ? `<dt>Sekcja</dt><dd>${escapeHtml(profile.sectionLabel)}</dd>` : ''}
-        ${profile.categoryLabel ? `<dt>Status</dt><dd>${escapeHtml(profile.categoryLabel)}</dd>` : ''}
+        ${profile.sectionLabel ? `<dt>Sekcja</dt><dd><span class="section-pill" data-section="${escapeHtml(profile.sectionId ?? '')}">${escapeHtml(profile.sectionLabel)}</span></dd>` : ''}
+        ${profile.categoryLabel ? `<dt>Status</dt><dd><span class="category-name-pill" data-category="${escapeHtml(profile.categoryId ?? '')}" title="${escapeHtml(profile.categoryLabel)}">${escapeHtml(profile.categoryLabel)}</span></dd>` : ''}
         ${weaponsHtml}
       </dl>
       ${descriptionHtml}

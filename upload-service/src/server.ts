@@ -2173,8 +2173,15 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
     // profil") still gets a usable name, same fallback as wyjazd.js's displayName().
     fullName: member?.fullName ?? email.split('@')[0],
     nickname: member?.nickname ?? null,
+    // sectionId/categoryId/weaponIds alongside their *Label/*s (KRKG-0074) - the profile drawer
+    // renders Sekcja/Status as the same colored pills as every dense table ([data-section]/
+    // [data-category] in member-area.css) and Broń with the hand-drawn PNG icons, and both of
+    // those need the raw ids, not just the resolved labels.
+    sectionId: member?.sectionId ?? null,
     sectionLabel: member?.sectionId ? (sectionLabelById.get(member.sectionId) ?? member.sectionId) : null,
+    categoryId: member?.categoryId ?? null,
     categoryLabel: member?.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null,
+    weaponIds: profile?.weaponIds ?? [],
     weapons: (profile?.weaponIds ?? []).map(id => weaponLabelById.get(id) ?? id),
     mainPhoto,
     photos,
