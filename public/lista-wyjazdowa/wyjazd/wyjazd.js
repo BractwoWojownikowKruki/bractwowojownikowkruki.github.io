@@ -328,22 +328,34 @@ function categoryLabelFor(categoryId) {
   return categoryLabelById.get(categoryId) ?? categoryId;
 }
 
+// Short item names (not the "-townik"/"-nik" person-role labels weaponLabelFor returns) for
+// composing a multi-weapon label below - "tarcza" rather than "Tarczownik", etc.
+const WEAPON_ITEM_NAMES = {
+  tarczownik: 'tarcza',
+  wlocznik: 'włócznia',
+  dunczyk: 'dun',
+};
+// Fixed display order for a multi-weapon label, independent of weaponIds' own array order - same
+// order WEAPON_ICONS declares them in, so the same combination always prints the same way.
+const WEAPON_DISPLAY_ORDER = ['tarczownik', 'wlocznik', 'dunczyk'];
+
 // renderSummary's "Wg broni" groups by a member's *full* weaponIds set, not just the first one
 // (unlike weaponSortLabel's roster grouping) - someone able to use two weapons is a genuinely
-// distinct headcount from someone who can only use one, not a duplicate tallied under each.
-// Włócznik+tarczownik is common enough to name on its own; any other 2- or 3-weapon combination
-// falls back to a generic "Dwie/Trzy bronie" count. Nobody is labelled "Brak broni" here - a
-// member with no weapon at all is "Niewalczące" (non-combatant), not "missing" one.
+// distinct headcount from someone who can only use one, not a duplicate tallied under each. A
+// member with two or three weapons is labelled by joining their short item names ("tarcza /
+// włócznia"), not a compound name like "Włócznik i tarczownik" or a generic "Dwie bronie" count.
+// Nobody is labelled "Brak broni" here - a member with no weapon at all is "Niewalczące"
+// (non-combatant), not "missing" one.
 function weaponGroupKey(weaponIds) {
   return [...weaponIds].sort().join('+');
 }
 function weaponGroupLabel(weaponIds) {
   if (weaponIds.length === 0) return 'Niewalczące';
   if (weaponIds.length === 1) return weaponLabelFor(weaponIds[0]);
-  if (weaponIds.length === 2 && weaponIds.includes('wlocznik') && weaponIds.includes('tarczownik')) {
-    return 'Włócznik i tarczownik';
-  }
-  return weaponIds.length === 2 ? 'Dwie bronie' : 'Trzy bronie';
+  return [...weaponIds]
+    .sort((a, b) => WEAPON_DISPLAY_ORDER.indexOf(a) - WEAPON_DISPLAY_ORDER.indexOf(b))
+    .map((id) => WEAPON_ITEM_NAMES[id] ?? weaponLabelFor(id))
+    .join(' / ');
 }
 
 // EMPTY (KRKG-0052) mirrors czlonkowie.js's dense-table convention - flat rows sorted by the
