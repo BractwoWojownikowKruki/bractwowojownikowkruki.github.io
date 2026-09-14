@@ -22,7 +22,8 @@
  * require this year's due from at all, defaulting for the "Emeryt" category
  * (EMERYT_CATEGORY_ID/effectiveDuesStatus) but overridable by hand either way (an emeryt who
  * actually pays just gets flipped to 'paid'). Excluded from renderSummary's counts entirely so
- * they don't dilute "who's unpaid", but still shown as an ordinary row in the table itself.
+ * they don't dilute "who's unpaid", and (KRKG-0074) rendered in their own "Emeryci" table below
+ * the main one instead of as ordinary rows in it.
  */
 
 // Same escapeHtml/escapeAttr pair as wyjazd.js/profil.js/person-tile.js - the established pattern
@@ -224,6 +225,15 @@ const skladkiSortState = initSortableTable(document.getElementById('skladki-tabl
   onChange: renderCurrentView,
 });
 
+// KRKG-0074: the Emeryci table gets its own independent sort state - its headers are clickable
+// like the main table's (same shared/sortable-table.js wiring, delegation per <table>), but its
+// Składka column has no data-sort-key (every row is not_applicable by definition, so sorting by
+// it would be a no-op).
+const emeryciSortState = initSortableTable(document.getElementById('skladki-emeryci-table'), {
+  defaultKey: 'section',
+  onChange: renderCurrentView,
+});
+
 let cachedRoster = [];
 let cachedDuesByEmail = new Map();
 
@@ -242,6 +252,7 @@ document.getElementById('skladki-year-select').addEventListener('change', async 
   // (the whole point of that view), "Sekcja" for the year table - rather than carrying over
   // whatever was active in the other one, which may not even name a column that still exists.
   skladkiSortState.reset(wpisoweMode ? 'joined' : 'section');
+  emeryciSortState.reset('section');
   clearError();
   try {
     await loadAndRender();
@@ -300,7 +311,8 @@ function unpaidBadgeHtml(unpaid, total) {
 // A roczna 'not_applicable' member (an Emeryt by default) is skipped entirely here, not just
 // counted as "paid" - counting them in the denominator too would misleadingly dilute e.g. "3 z 20
 // osób zalega" when 3 of those 20 were never asked to pay in the first place. They still show up
-// in the table itself (renderTable), just with a grey icon instead of a red/green one.
+// below, in their own "Emeryci" table (renderTable), just with a grey icon instead of a red/green
+// one.
 function renderSummary(roster, duesByEmail) {
   const unpaidBySection = new Map();
   const totalBySection = new Map();
@@ -418,13 +430,28 @@ function dueHistoryHref(email) {
 // defaults to Sekcja then name, no more per-section <h3> headings or a baked-in unpaid-first
 // sub-sort (the summary panel above already surfaces who's unpaid, and Wpisowe/Składka are
 // themselves sortable now for anyone who wants that grouping back).
+//
+// KRKG-0074: not_applicable members (emeryci) are split out into their own "Emeryci" table
+// below instead of sitting among the unpaid/paid rows - the main list is what an accountant
+// actually chases, and grey "nie dotyczy" rows only dilute it. The whole section is hidden when
+// nobody falls into it. Both tables share the same row template; the Emeryci one just has its own
+// sort state (emeryciSortState) and no sortable Składka column (every row is not_applicable).
 function renderTable(roster, duesByEmail) {
   cachedRoster = roster;
   cachedDuesByEmail = duesByEmail;
 
+  const mainRoster = [];
+  const emeryciRoster = [];
+  for (const member of roster) {
+    if (effectiveDuesStatus(member, duesByEmail) === 'not_applicable') emeryciRoster.push(member);
+    else mainRoster.push(member);
+  }
+
   // unpaid < not_applicable < paid, so ascending puts who-owes-money first and the settled/exempt
   // at the far end - the same "false (owed) sorts before true (settled)" spirit as every plain
   // boolean paid/unpaid column already on this site, just with a middle rung for not_applicable.
+  // (not_applicable never reaches this sort any more - KRKG-0074 - but the rank keeps the
+  // explicit state list readable rather than silently relying on absence.)
   const ROCZNA_SORT_RANK = { unpaid: 0, not_applicable: 1, paid: 2 };
   const sortValue = (member) => {
     switch (skladkiSortState.key) {
@@ -434,17 +461,16 @@ function renderTable(roster, duesByEmail) {
       default: return sectionLabel(member.sectionId);
     }
   };
-  const sorted = [...roster].sort((a, b) => {
+  const sorted = [...mainRoster].sort((a, b) => {
     const cmp = compareValues(sortValue(a), sortValue(b), skladkiSortState.dir);
     if (cmp !== 0) return cmp;
     return compareValues(displayName(a), displayName(b), 'asc');
   });
 
-  const rows = sorted
-    .map((member) => {
-      const emailAttr = escapeAttr(member.email);
-      const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
-      return `
+  const rowHtml = (member) => {
+    const emailAttr = escapeAttr(member.email);
+    const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
+    return `
       <tr data-section="${escapeAttr(member.sectionId ?? '')}">
         <td class="czl-section-cell" title="${escapeAttr(sectionLabel(member.sectionId))}">${member.sectionId ? escapeHtml(sectionAbbr(member.sectionId)) : EMPTY}</td>
         <td class="lw-roster-name-cell">
@@ -457,8 +483,7 @@ function renderTable(roster, duesByEmail) {
         <td>${rocznaIconHtml(emailAttr, effectiveDuesStatus(member, duesByEmail))}</td>
         ${canManageSkladki ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.email))}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a></td>` : ''}
       </tr>`;
-    })
-    .join('');
+  };
 
   const table = document.getElementById('skladki-table');
   table.querySelector('thead').innerHTML = `
@@ -470,8 +495,36 @@ function renderTable(roster, duesByEmail) {
       ${canManageSkladki ? '<th scope="col">Historia</th>' : ''}
     </tr>
   `;
-  table.querySelector('tbody').innerHTML = rows;
+  table.querySelector('tbody').innerHTML = sorted.map(rowHtml).join('');
   skladkiSortState.refresh();
+
+  const emeryciSortValue = (member) => {
+    switch (emeryciSortState.key) {
+      case 'name': return displayName(member);
+      case 'wpisowe': return member.wpisowePaid;
+      default: return sectionLabel(member.sectionId);
+    }
+  };
+  const emeryciSorted = [...emeryciRoster].sort((a, b) => {
+    const cmp = compareValues(emeryciSortValue(a), emeryciSortValue(b), emeryciSortState.dir);
+    if (cmp !== 0) return cmp;
+    return compareValues(displayName(a), displayName(b), 'asc');
+  });
+
+  const emeryciTable = document.getElementById('skladki-emeryci-table');
+  emeryciTable.querySelector('thead').innerHTML = `
+    <tr>
+      <th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
+      <th scope="col" class="lw-roster-name-cell" data-sort-key="name" aria-sort="none"><button type="button">Nazwa</button></th>
+      <th scope="col" data-sort-key="wpisowe" aria-sort="none"><button type="button">Wpisowe</button></th>
+      <th scope="col" title="Składka roczna"><button type="button">Składka</button></th>
+      ${canManageSkladki ? '<th scope="col">Historia</th>' : ''}
+    </tr>
+  `;
+  emeryciTable.querySelector('tbody').innerHTML = emeryciSorted.map(rowHtml).join('');
+  emeryciSortState.refresh();
+
+  document.getElementById('skladki-emeryci').hidden = emeryciRoster.length === 0;
 }
 
 // The "Wpisowe" option in the Składka: select (see WPISOWE_OPTION) - a flat list of everyone who
@@ -483,6 +536,9 @@ function renderTable(roster, duesByEmail) {
 // row would only cost the Nazwa column width without telling the reader anything new.
 function renderWpisoweList(roster) {
   cachedRoster = roster;
+  // Wpisowe has no not_applicable state, so the Emeryci table (KRKG-0074) never applies here -
+  // hide it in case the user switched over from a year view that had it visible.
+  document.getElementById('skladki-emeryci').hidden = true;
 
   // Every row here is unpaid by definition (see the filter below), so unlike the year table above,
   // there is no meaningful "sort by paid status" column - the icon column carries no data-sort-key.

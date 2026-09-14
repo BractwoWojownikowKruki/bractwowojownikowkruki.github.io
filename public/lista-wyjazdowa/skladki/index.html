@@ -87,6 +87,20 @@
                 <tbody></tbody>
               </table>
             </div>
+
+            <!-- KRKG-0074: osoby, których składka roczna "nie dotyczy" (domyślnie emeryci), mają
+                 własną tabelę pod główną listą, żeby nie zaśmiecać jej wierszami, które i tak nie
+                 wymagają zapłaty. Cała sekcja ukrywana, gdy takich osób nie ma (i w trybie
+                 Wpisowe). -->
+            <div id="skladki-emeryci" hidden>
+              <h2>Emeryci</h2>
+              <div class="czl-table-wrap">
+                <table class="czl-table" id="skladki-emeryci-table">
+                  <thead></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
           </div>
 
           <!-- Wpisowe/składka-roczna/event-fee changes all land in one member/event-agnostic log

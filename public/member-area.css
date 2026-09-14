@@ -223,7 +223,8 @@
    actually wants it - full names, at whatever length. Scoped to this one table (not every
    .czl-table) since Zarządzanie ludźmi's short-looking columns are real editable text
    inputs/selects that still need their own room, not simply another icon. */
-#skladki-table th:not(.czl-section-cell):not([data-sort-key="name"]) {
+#skladki-table th:not(.czl-section-cell):not([data-sort-key="name"]),
+#skladki-emeryci-table th:not(.czl-section-cell):not([data-sort-key="name"]) {
   width: 1%;
 }
 
@@ -637,10 +638,14 @@ button.lw-skladka-icon:disabled {
    "paid" nor the red "unpaid" framing applies. Grey rather than either color says "not part of
    this tally" at a glance, same spirit as .czl-empty elsewhere on these tables. Uses data-status
    (skladki.js's rocznaIconHtml/profile-panel.js), not data-paid - wpisowe and every other paid/
-   unpaid icon on the site stays a plain boolean and keeps using data-paid above. */
-.lw-skladka-icon[data-status="paid"] {
-  background: color-mix(in srgb, #2e7d32 40%, var(--surface-deep));
-  border: 1px solid #2e7d32;
+   unpaid icon on the site stays a plain boolean and keeps using data-paid above.
+   KRKG-0074: opacity on top of the grey - the badge now lives in its own "Emeryci" table off the
+   main list, so it should read as background info, not something still owed; half-transparent
+   keeps it legible without competing with the red/green badges that actually demand attention. */
+.lw-skladka-icon[data-status="not_applicable"] {
+  background: color-mix(in srgb, var(--text-faint) 40%, var(--surface-deep));
+  border: 1px solid var(--text-faint);
+  opacity: 0.45;
 }
 
 .lw-skladka-icon[data-status="unpaid"] {
@@ -698,6 +703,15 @@ button.lw-skladka-icon:disabled {
 #roster-panel h2,
 #equipment-companions-panel h2 {
   margin-bottom: 0.4rem;
+  font-size: 20px;
+  color: var(--text);
+}
+
+/* KRKG-0074: the "Emeryci" heading above the second Składki table - same h2 treatment as the
+   other sections on this page, plus a top margin so it reads as a separate section sitting below
+   the main table rather than a stray header. */
+#skladki-emeryci h2 {
+  margin: 1.25rem 0 0.4rem;
   font-size: 20px;
   color: var(--text);
 }
