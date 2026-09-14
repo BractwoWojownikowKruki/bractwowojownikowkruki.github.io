@@ -1881,11 +1881,15 @@ button.nav-item {
   height: 15px;
 }
 
-/* The "Do przeczytania" group heading in the top-nav dropdown/mobile panel flavor - not a link
-   (no href, no hover/active state), just a button that expands/collapses its nested links (see
-   .mz-group-toggle below). */
+/* The "Do przeczytania"/"Zarządzanie" group headings (KRKG-0074) - not links (no href, no
+   hover/active state), just buttons that expand/collapse their nested links (see .mz-group-toggle
+   below). Plain text color like every other menu entry: the gold previously used here collided
+   with .nav-item--active's current-page gold, making a section header look like the active page.
+   Load-bearing source order: this rule sits after .members-zone-sidebar-label (the sidebar box
+   title, which keeps its gold), so at equal specificity it wins for the sidebar-flavor group
+   toggle (which carries both classes) without touching the box title itself. */
 .members-zone-group-label {
-  color: var(--gold);
+  color: var(--text);
   font-weight: 600;
 }
 
