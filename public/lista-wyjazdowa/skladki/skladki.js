@@ -1,17 +1,21 @@
 /**
  * Składki page (Plan C, KRKG-0037): Wpisowe + Składka roczna (selectable year, KRKG-0047) for
- * every member, one line per person - a name pill (opens the shared profile drawer, same as
- * wyjazd.js's roster) plus a paid/unpaid check/cross for wpisowe, a paid/unpaid coin for składka
- * roczna, and one combined Historia button covering both (server.ts writes both to the same
- * `due:{email}` resource key). The per-year rate itself is a single free-text note set once at the
- * top of the page, not a per-member amount field. Read-only for every signed-in member; toggle/
- * edit controls and the Historia zmian panel only render when GET /lista-wyjazdowa/my-role reports
- * canManageSkladki (accountant/admin) - the server re-checks the role on every PUT/GET regardless,
- * this only controls what the UI offers (design.md §8, §9).
+ * every member, one .czl-table row per person - same dense-table shape as every other member list
+ * on the site (Spis Ludności, Zarządzanie ludźmi, Lista Wyjazdowa's roster): a colored, sticky,
+ * vertical-text Sekcja cell first, then a name pill (opens the shared profile drawer). The per-year
+ * rate itself is a single free-text note set once at the top of the page, not a per-member amount
+ * field. Read-only for every signed-in member; toggle/edit controls and the Historia zmian panel
+ * only render when GET /lista-wyjazdowa/my-role reports canManageSkladki (accountant/admin) - the
+ * server re-checks the role on every PUT/GET regardless, this only controls what the UI offers
+ * (design.md §8, §9).
  *
- * The "Składka:" select's first option, "Wpisowe", swaps the whole page from the year table above
- * to a flat, section-agnostic list of every member who still owes wpisowe (renderWpisoweList),
- * sorted by join date (members.ts's approvedAt) so the oldest unpaid debt surfaces first.
+ * The "Składka:" select's first option, "Wpisowe" (renderWpisoweList), swaps the whole page from
+ * the year table (renderTable - Wpisowe and Składka roczna as their own icon-only columns, no
+ * visible year number) to a flat list of every member who still owes wpisowe, with its own
+ * Dołączył column instead of Składka, sorted by join date (members.ts's approvedAt) so the oldest
+ * unpaid debt surfaces first. Neither table repeats the word "Wpisowe" as row text next to the
+ * icon - the page is already scoped to whichever due is selected, so that word would only cost the
+ * Nazwa column the width it needs for long names.
  */
 
 // Same escapeHtml/escapeAttr pair as wyjazd.js/profil.js/person-tile.js - the established pattern
@@ -35,10 +39,23 @@ const HISTORY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 // profile-trigger button too (see renderTable below).
 const PERSON_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>';
 
-// Section/city color coding (KRKG-0051) - same helper as wyjazd.js, see its comment: the actual
-// colors live in exactly one place, member-area.css's [data-section="..."] rules.
-function sectionPillHtml(sectionId, label) {
-  return `<span class="section-pill" data-section="${escapeAttr(sectionId ?? '')}">${escapeHtml(label)}</span>`;
+// Same em-dash convention as czlonkowie.js/wyjazd.js's dense tables, for a cell with nothing to show.
+const EMPTY = '—';
+
+// 3-letter Sekcja abbreviations for the compact, sticky first column - same map as
+// czlonkowie.js/wyjazd.js/zarzadzanie-ludzmi.js (duplicated per that established convention, see
+// czlonkowie.js's own comment). Falls back to the id's own first 3 letters for anything not in
+// this map, same never-hide-an-unresolved-reference spirit as sectionLabel's own fallback below.
+const SECTION_ABBR = {
+  bydgoszcz: 'BDG',
+  czukcze: 'CZU',
+  krakow: 'KRK',
+  poznan: 'POZ',
+  warszawa: 'WAW',
+  wroclaw: 'WRO',
+};
+function sectionAbbr(sectionId) {
+  return SECTION_ABBR[sectionId] ?? (sectionId ?? '').slice(0, 3).toUpperCase();
 }
 
 // The classic person pill used everywhere else a member's name is listed (wyjazd.js's roster,
@@ -47,15 +64,18 @@ function categoryNamePillAttrs(categoryId, label) {
   return `class="category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak statusu')}"`;
 }
 
-// Same as wyjazd.js's displayName/formatDateTime - duplicated per this codebase's existing
-// convention (escapeHtml/escapeAttr are already duplicated the same way across every Lista
-// Wyjazdowa page) rather than introducing a shared module for two small functions.
+// Same priority as wyjazd.js's displayName - duplicated per this codebase's existing convention
+// (escapeHtml/escapeAttr are already duplicated the same way across every Lista Wyjazdowa page)
+// rather than introducing a shared module for one small function.
 //
-// fullName falls back to email for the same reason as wyjazd.js's displayName: the roster now
-// enumerates the whole club allowlist, including members with no "Mój profil" saved yet.
+// email.split('@')[0] (not the raw email) is the fallback for the same reason as wyjazd.js's
+// displayName: the roster now enumerates the whole club allowlist, including members with no "Mój
+// profil" saved yet, and "jan.kowalski" reads far better in a name column than the full
+// "jan.kowalski@gmail.com".
 function displayName(member) {
-  const name = member.fullName ?? member.email;
-  return member.nickname ? `${name} (${member.nickname})` : name;
+  if (member.nickname) return member.nickname;
+  if (member.fullName) return member.fullName;
+  return member.email.split('@')[0];
 }
 
 // Same badge shape as wyjazd.js's renderSkladkaIcon (member-area.css's .lw-skladka-icon,
@@ -116,10 +136,11 @@ function clearError() {
   document.getElementById('skladki-error').hidden = true;
 }
 
-// anchor defaults to control, but a caller whose apply() removes control from the DOM (wpisowe
-// once paid, see toggleWpisowe) must pass a still-connected anchor instead - MutationFeedback
-// requires its feedback anchor to stay isConnected after apply(), same reasoning as
-// zarzadzanie-ludzmi.js's postMembershipTransition anchoring to the table when apply() removes row.
+// anchor defaults to control, but a caller whose apply() removes control from the DOM (the
+// Wpisowe-list view's toggleWpisoweInList, which drops the whole row once it's paid) must pass a
+// still-connected anchor instead - MutationFeedback requires its feedback anchor to stay
+// isConnected after apply(), same reasoning as zarzadzanie-ludzmi.js's postMembershipTransition
+// anchoring to the table when apply() removes a row.
 function confirmedDuesMutation(control, execute, apply, anchor = control) {
   return window.MutationFeedback.confirmed({
     control,
@@ -293,75 +314,85 @@ function renderSummary(roster, duesByEmail) {
   `;
 }
 
-function renderTable(roster, duesByEmail) {
-  const bySection = new Map();
-  for (const member of roster) {
-    if (!bySection.has(member.sectionId)) bySection.set(member.sectionId, []);
-    bySection.get(member.sectionId).push(member);
-  }
+// Same one-account-key comment as before applies to both tables below: server.ts's
+// handleListaWyjazdowaPutWpisowe/handleListaWyjazdowaPutDues both write to the same
+// `due:{memberEmail}` resource key (no :entry_fee/:{year} suffix), so one Historia deep link per
+// member already covers wpisowe and every year of składka roczna - the action label (visible in
+// the audit view) is what tells the two apart in that shared timeline. Points at /admin/audyt/,
+// not the member-zone /audyt/: dues.* actions carry audience 'adminOrAccountant'
+// (ACTION_REGISTRY, upload-service/src/audit.ts), which only the admin-scope viewer can see.
+function dueHistoryHref(email) {
+  return `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${email}`)}`;
+}
 
+// Same shape as czlonkowie.js/wyjazd.js's dense .czl-table roster (KRKG-0052) - Sekcja/Nazwa
+// columns match those exactly (sectionAbbr's colored, sticky, vertical-text cell; the name pill +
+// profile-icon pair) so this page reads consistently with the rest of Lista Wyjazdowa, not as an
+// ad-hoc layout of its own. Sorted by Sekcja then name, same convention as those tables' default
+// sort - no more per-section <h3> headings or an unpaid-first sub-sort (the summary panel above
+// already surfaces who's unpaid; a plain member scanning for themselves benefits more from a
+// stable, predictable order).
+function renderTable(roster, duesByEmail) {
   const container = document.getElementById('skladki-content');
-  container.innerHTML = '';
-  for (const [sectionId, members] of bySection.entries()) {
-    const sectionEl = document.createElement('div');
-    sectionEl.innerHTML =
-      sectionId === null ? `<h3>${escapeHtml(sectionLabel(sectionId))}</h3>` : `<h3>${sectionPillHtml(sectionId, sectionLabel(sectionId))}</h3>`;
-    // Unpaid-składka-roczna members first within each section - the accountant's actual task on
-    // this page is chasing down who still owes money, so that group should never be buried below
-    // everyone who's already settled. Alphabetical by display name within each of the two groups.
-    const sortedMembers = [...members].sort((a, b) => {
-      const aPaid = duesByEmail.get(a.email)?.paid ?? false;
-      const bPaid = duesByEmail.get(b.email)?.paid ?? false;
-      if (aPaid !== bPaid) return aPaid ? 1 : -1;
-      return displayName(a).toLocaleLowerCase('pl').localeCompare(displayName(b).toLocaleLowerCase('pl'), 'pl');
-    });
-    for (const member of sortedMembers) {
+
+  const sorted = [...roster].sort((a, b) => {
+    const cmp = sectionLabel(a.sectionId).toLocaleLowerCase('pl').localeCompare(sectionLabel(b.sectionId).toLocaleLowerCase('pl'), 'pl');
+    if (cmp !== 0) return cmp;
+    return displayName(a).toLocaleLowerCase('pl').localeCompare(displayName(b).toLocaleLowerCase('pl'), 'pl');
+  });
+
+  const rows = sorted
+    .map((member) => {
       const roczna = duesByEmail.get(member.email)?.paid ?? false;
       const emailAttr = escapeAttr(member.email);
       const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
-      const row = document.createElement('div');
-      row.className = 'lw-skladki-row section-row-accent';
-      row.dataset.section = sectionId ?? '';
-      // Wpisowe is independent of "Mój profil" (setWpisowePaid upserts one with empty
-      // weaponIds/equipment/companions if none exists yet, server.ts) - every member gets the same
-      // icon regardless. One combined Historia deep link per member - server.ts's
-      // handleListaWyjazdowaPutWpisowe/handleListaWyjazdowaPutDues both write to the same
-      // `due:{memberEmail}` resource key (no :entry_fee/:{year} suffix), so this one link already
-      // covers wpisowe and every year of składka roczna; the action label (visible in the audit
-      // view) is what tells the two apart in that shared timeline. Point at /admin/audyt/, not the
-      // member-zone /audyt/: dues.* actions carry audience 'adminOrAccountant' (ACTION_REGISTRY,
-      // upload-service/src/audit.ts), which only the admin-scope viewer can see. Gated by
-      // canManageSkladki like every other privileged control on this row - a plain member has no
-      // page that can show them this history, so no point offering the icon.
-      const dueHistoryHref = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}`)}`;
+      const wpisoweLabel = `Wpisowe: ${member.wpisowePaid ? 'opłacone' : 'nieopłacone'}`;
+      // The year only appears in this tooltip, never as visible row text - the icon alone (💰) is
+      // the cell's whole content, same as every other paid/unpaid glyph on this page.
       const rocznaLabel = `Składka ${selectedYear}: ${roczna ? 'opłacona' : 'nieopłacona'}`;
-      row.innerHTML = `
-        <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
-          <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
-        </button>
-        <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>
-        ${member.wpisowePaid ? '' : `
-          <span class="lw-due-label">Wpisowe</span>
-          ${paidIconHtml('wpisowe', emailAttr, false, 'Wpisowe: nieopłacone')}
-        `}
-        <span class="lw-due-label lw-roczna-label">${selectedYear}</span>
-        ${paidIconHtml('roczna', emailAttr, roczna, rocznaLabel)}
-        ${canManageSkladki ? `<a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref)}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a>` : ''}
-      `;
-      sectionEl.appendChild(row);
-    }
-    container.appendChild(sectionEl);
-  }
+      return `
+      <tr data-section="${escapeAttr(member.sectionId ?? '')}">
+        <td class="czl-section-cell" title="${escapeAttr(sectionLabel(member.sectionId))}">${member.sectionId ? escapeHtml(sectionAbbr(member.sectionId)) : EMPTY}</td>
+        <td class="lw-roster-name-cell">
+          <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
+            <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
+          </button>
+          <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>
+        </td>
+        <td>${paidIconHtml('wpisowe', emailAttr, member.wpisowePaid, wpisoweLabel)}</td>
+        <td>${paidIconHtml('roczna', emailAttr, roczna, rocznaLabel)}</td>
+        ${canManageSkladki ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.email))}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a></td>` : ''}
+      </tr>`;
+    })
+    .join('');
+
+  container.innerHTML = `
+    <div class="czl-table-wrap">
+      <table class="czl-table">
+        <thead>
+          <tr>
+            <th scope="col" class="czl-section-cell" title="Sekcja">S</th>
+            <th scope="col" class="lw-roster-name-cell">Nazwa</th>
+            <th scope="col">Wpisowe</th>
+            <th scope="col" title="Składka roczna">Składka</th>
+            ${canManageSkladki ? '<th scope="col">Historia</th>' : ''}
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
 }
 
-// The "Wpisowe" option in the Składka: select (see WPISOWE_OPTION) - a flat, section-agnostic list
-// of everyone who still owes wpisowe, sorted by join date (members.ts's approvedAt, the closest
-// thing this codebase has to one) so the accountant chases the longest-standing debt first. A
-// member with no approvedAt yet (no members/{email} document, or one predating KRKG-0046) sorts to
-// the end rather than crashing a string compare against null.
+// The "Wpisowe" option in the Składka: select (see WPISOWE_OPTION) - a flat list of everyone who
+// still owes wpisowe, sorted by join date (members.ts's approvedAt, the closest thing this
+// codebase has to one) so the accountant chases the longest-standing debt first. A member with no
+// approvedAt yet (no members/{email} document, or one predating KRKG-0046) sorts to the end rather
+// than crashing a string compare against null. No "Wpisowe" caption anywhere in this table (column
+// header included) - the page itself is already scoped to wpisowe, so repeating the word on every
+// row would only cost the Nazwa column width without telling the reader anything new.
 function renderWpisoweList(roster) {
   const container = document.getElementById('skladki-content');
-  container.innerHTML = '';
 
   const unpaid = roster
     .filter((member) => !member.wpisowePaid)
@@ -379,26 +410,42 @@ function renderWpisoweList(roster) {
     return;
   }
 
-  for (const member of unpaid) {
-    const emailAttr = escapeAttr(member.email);
-    const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
-    const row = document.createElement('div');
-    row.className = 'lw-skladki-row section-row-accent';
-    row.dataset.section = member.sectionId ?? '';
-    const dueHistoryHref = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}`)}`;
-    const joinLabel = member.approvedAt ? `Dołączył(a): ${escapeHtml(formatDate(member.approvedAt))}` : '';
-    row.innerHTML = `
-      <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
-        <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
-      </button>
-      <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>
-      ${joinLabel ? `<span class="lw-due-label">${joinLabel}</span>` : ''}
-      <span class="lw-due-label">Wpisowe</span>
-      ${paidIconHtml('wpisowe', emailAttr, false, 'Wpisowe: nieopłacone')}
-      ${canManageSkladki ? `<a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref)}" title="Historia" aria-label="Historia wpisowego">${HISTORY_ICON}</a>` : ''}
-    `;
-    container.appendChild(row);
-  }
+  const rows = unpaid
+    .map((member) => {
+      const emailAttr = escapeAttr(member.email);
+      const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
+      return `
+      <tr data-section="${escapeAttr(member.sectionId ?? '')}">
+        <td class="czl-section-cell" title="${escapeAttr(sectionLabel(member.sectionId))}">${member.sectionId ? escapeHtml(sectionAbbr(member.sectionId)) : EMPTY}</td>
+        <td class="lw-roster-name-cell">
+          <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
+            <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
+          </button>
+          <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>
+        </td>
+        <td class="${member.approvedAt ? '' : 'czl-empty'}">${member.approvedAt ? escapeHtml(formatDate(member.approvedAt)) : EMPTY}</td>
+        <td>${paidIconHtml('wpisowe', emailAttr, false, 'Wpisowe: nieopłacone')}</td>
+        ${canManageSkladki ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.email))}" title="Historia" aria-label="Historia wpisowego">${HISTORY_ICON}</a></td>` : ''}
+      </tr>`;
+    })
+    .join('');
+
+  container.innerHTML = `
+    <div class="czl-table-wrap">
+      <table class="czl-table">
+        <thead>
+          <tr>
+            <th scope="col" class="czl-section-cell" title="Sekcja">S</th>
+            <th scope="col" class="lw-roster-name-cell">Nazwa</th>
+            <th scope="col">Dołączył</th>
+            <th scope="col" title="Wpisowe">✓</th>
+            ${canManageSkladki ? '<th scope="col">Historia</th>' : ''}
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 // Accountant/admin-only (KRKG-0047): GET /lista-wyjazdowa/dues/audit-log now 403s for a plain
@@ -483,11 +530,11 @@ async function loadAndRender() {
   await renderDuesAuditLog();
 }
 
+// Used from the year table (renderTable), where Wpisowe is a stable column - marking it paid just
+// flips the icon in place (✕ -> ✓) rather than removing anything, so it stays a plain reversible
+// toggle same as toggleRoczna below.
 async function toggleWpisowe(email, nextPaid, control) {
   clearError();
-  // Marking paid removes `control` itself from the DOM below - the confirmation checkmark needs a
-  // still-connected anchor to land next to instead (the row), see confirmedDuesMutation's comment.
-  const feedbackAnchor = nextPaid ? control.closest('.lw-skladki-row') : control;
   try {
     await confirmedDuesMutation(control, () => apiFetch(
       `/lista-wyjazdowa/wpisowe?memberEmail=${encodeURIComponent(email)}`,
@@ -495,34 +542,24 @@ async function toggleWpisowe(email, nextPaid, control) {
       showReauth,
       hideReauth,
     ), () => {
-      if (nextPaid) {
-        // Wpisowe shows nothing at all once paid (KRKG-0047 follow-up, saves row width for the
-        // name) - undoing a mistaken "opłacone" is no longer possible from this row at all, only
-        // from Zarządzanie ludźmi's own Wpisowe column, so this removes the caption and the icon
-        // entirely rather than just repainting them.
-        const caption = control.previousElementSibling;
-        if (caption?.classList.contains('lw-due-label')) caption.remove();
-        control.remove();
-      } else {
-        control.dataset.paid = String(nextPaid);
-        control.textContent = '✕';
-        const label = 'Wpisowe: nieopłacone';
-        control.title = `${label} — kliknij, aby zmienić`;
-        control.setAttribute('aria-label', label);
-      }
-    }, feedbackAnchor);
+      control.dataset.paid = String(nextPaid);
+      control.textContent = nextPaid ? '✓' : '✕';
+      const label = `Wpisowe: ${nextPaid ? 'opłacone' : 'nieopłacone'}`;
+      control.title = `${label} — kliknij, aby zmienić`;
+      control.setAttribute('aria-label', label);
+    });
   } catch (err) {
     showError(`Nie udało się zaktualizować wpisowego: ${err.message}`);
   }
 }
 
 // Same PUT as toggleWpisowe above, but for the "Wpisowe" list view (renderWpisoweList): every row
-// there exists only because it's unpaid, so marking it paid removes the whole row instead of just
-// the caption+icon - the member simply drops off this list, same effect as in the year table but
-// there's no rest-of-row left behind to keep.
+// there exists only because it's unpaid, so marking it paid removes the whole row instead of
+// flipping its icon - the member simply drops off this list. Undoing that afterward means going to
+// Zarządzanie ludźmi's own Wpisowe column - there's no toggle left in this view once the row is gone.
 async function toggleWpisoweInList(email, control) {
   clearError();
-  const row = control.closest('.lw-skladki-row');
+  const row = control.closest('tr');
   try {
     await confirmedDuesMutation(control, () => apiFetch(
       `/lista-wyjazdowa/wpisowe?memberEmail=${encodeURIComponent(email)}`,
@@ -562,12 +599,15 @@ document.getElementById('skladki-content').addEventListener('click', (e) => {
   const email = icon.dataset.email;
   const nextPaid = icon.dataset.paid !== 'true';
   if (icon.dataset.kind === 'wpisowe') {
-    // Marking wpisowe paid removes this row's only control for it entirely (see toggleWpisowe) -
-    // from that point on, undoing a mistake means going to Zarządzanie ludźmi's Wpisowe column.
-    if (nextPaid && !window.confirm('Czy na pewno chcesz zaznaczyć, że wpisowe zostało opłacone?')) return;
     if (wpisoweMode) {
+      // Marking paid removes this row from the unpaid-only list entirely (see
+      // toggleWpisoweInList) - from that point on, undoing a mistake means going to Zarządzanie
+      // ludźmi's Wpisowe column, so this one confirms first.
+      if (!window.confirm('Czy na pewno chcesz zaznaczyć, że wpisowe zostało opłacone?')) return;
       toggleWpisoweInList(email, icon);
     } else {
+      // A plain reversible toggle in the year table (see toggleWpisowe) - no confirmation needed,
+      // same as toggleRoczna's icon right next to it.
       toggleWpisowe(email, nextPaid, icon);
     }
   } else {
