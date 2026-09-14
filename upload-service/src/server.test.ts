@@ -6092,6 +6092,33 @@ test('GET /lista-wyjazdowa/roster joins members with their listaWyjazdowaProfile
   });
 });
 
+// KRKG-0074: the event page's roster badge needs the current year's składka roczna status per
+// member - stored record wins, an Emeryt without one defaults to not_applicable, everyone else
+// without one defaults to unpaid (same effectiveDuesStatus contract as GET /member-profile).
+test('GET /lista-wyjazdowa/roster includes the current year\'s składka roczna status per member', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const year = new Date().getFullYear();
+  seedMember(firestore, 'wojownik@gmail.com');
+  firestore.seed('members', 'emeryt@example.test', {
+    fullName: 'Emeryt', nickname: null, sectionId: 'krakow', categoryId: 'emeryt',
+    driveFolderId: null, updatedAt: '2027-01-01T00:00:00.000Z', updatedBy: 'x',
+  });
+  firestore.seed('duesAnnual', `wojownik@gmail.com_${year}`, {
+    email: 'wojownik@gmail.com', year, status: 'paid', updatedBy: 'x', updatedAt: 'x',
+  });
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['wojownik@gmail.com', 'emeryt@example.test', 'bezprofilu@example.test'],
+  });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
+    const byEmail = new Map(body.roster.map((r: { email: string }) => [r.email, r]));
+    assert.equal(byEmail.get('wojownik@gmail.com').duesStatus, 'paid');
+    assert.equal(byEmail.get('emeryt@example.test').duesStatus, 'not_applicable');
+    assert.equal(byEmail.get('bezprofilu@example.test').duesStatus, 'unpaid');
+  });
+});
+
 // The roster now enumerates the live allowlist (like GET /members/directory), not just
 // members/{email} docs - a club member who never opened "Mój profil" must still get a row so the
 // event page's "Wszyscy" filter can offer them an attending checkbox.

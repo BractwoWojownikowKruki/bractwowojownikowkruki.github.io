@@ -378,6 +378,52 @@
   object-fit: contain;
 }
 
+/* KRKG-0074: the event roster's Broń column renders its icon at the same size as the składka
+   badge (1.7rem, .lw-skladka-icon below) - at the old 20px it read as a minor detail next to the
+   badge and got lost. Scoped to .czl-table so the summary chips / Mój profil checkboxes / profile
+   drawer keep their smaller inline size. */
+.czl-table .lw-weapon-icon {
+  width: 1.7rem;
+  height: 1.7rem;
+}
+
+/* KRKG-0074: tiny club-dues badges next to a member's name on the event roster (wyjazd.js's
+   renderRoster) - what's still unpaid *outside* this event, so the name cell says at a glance
+   whether to chase someone. Vertically stacked, deliberately ~9px so they don't push the Nazwa
+   column wider or make the row taller than it already is. Red + money bag for the current year's
+   składka roczna, plain grey "wpisowe" for the one-time entry fee. */
+.lw-dues-badges {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-left: 0.4em;
+  vertical-align: middle;
+}
+
+.lw-dues-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 3px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.lw-dues-badge--roczna {
+  background: color-mix(in srgb, #c62828 25%, var(--surface-deep));
+  border: 1px solid #c62828;
+  color: #ef5350;
+}
+
+.lw-dues-badge--wpisowe {
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
 /* Icon + visible label together (KRKG bugfix: an icon-only mark needed a hover just to read what
    weapon it was) - shared by the roster's Broń column and the "Wg broni" summary chips so both
    render identically for the same weaponGroupLabel/weaponGroupIconFile pairing. */

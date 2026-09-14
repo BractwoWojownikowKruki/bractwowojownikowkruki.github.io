@@ -430,6 +430,15 @@ function renderRoster(roster, signups) {
       const weaponHtml = member.weaponIds.length
         ? weaponIconsOnlyHtml(member.weaponIds, weaponGroupLabel(member.weaponIds))
         : '';
+      // KRKG-0074: tiny vertically-stacked badges in the name cell for what this member still
+      // owes club-wide - a red one with the money-bag glyph for the current year's składka roczna
+      // (member.duesStatus comes from the roster endpoint, which resolves the emeryt default
+      // server-side), and a grey "wpisowe" one for the one-time entry fee. Shown only while
+      // unpaid, so a settled member's name cell stays clean; not_applicable (emeryt) owes nothing
+      // and gets neither.
+      const duesBadgesHtml = member.duesStatus === 'unpaid' || !member.wpisowePaid
+        ? `<span class="lw-dues-badges">${member.duesStatus === 'unpaid' ? '<span class="lw-dues-badge lw-dues-badge--roczna" title="Składka roczna nieopłacona">💰</span>' : ''}${!member.wpisowePaid ? '<span class="lw-dues-badge lw-dues-badge--wpisowe" title="Wpisowe nieopłacone">wpisowe</span>' : ''}</span>`
+        : '';
       return `
     <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
       <td class="czl-section-cell" title="${escapeAttr(sectionSortLabel(member) || 'Brak sekcji')}">${member.sectionId ? escapeHtml(sectionAbbr(member.sectionId)) : EMPTY}</td>
@@ -440,6 +449,7 @@ function renderRoster(roster, signups) {
         <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
         </button>
+        ${duesBadgesHtml}
       </td>
       <td>
         <button type="button" class="lw-attend-toggle" data-email="${emailAttr}" data-attending="${attending}" aria-pressed="${attending}">

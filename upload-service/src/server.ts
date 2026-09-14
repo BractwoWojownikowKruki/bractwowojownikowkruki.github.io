@@ -2485,13 +2485,20 @@ async function handleListaWyjazdowaGetAuditLog(req: IncomingMessage, res: Server
 // zgłoszeni" so a long allowlist doesn't bury the people who already signed up.
 async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   await deps.authenticateWojownicyUpload(req, res);
-  const [emails, members, profiles] = await Promise.all([
+  const duesYear = new Date().getFullYear();
+  const [emails, members, profiles, dues] = await Promise.all([
     deps.listMemberEmails(),
     listAllMembers(deps.firestore),
     listAllProfiles(deps.firestore),
+    // KRKG-0074: the event page's roster shows a tiny red "składka roczna" badge next to a
+    // member's name while their current-year due is unpaid, so every roster entry now carries its
+    // effective dues status - same effectiveDuesStatus defaulting as handleMemberProfile (an
+    // Emeryt with no stored record reads as not_applicable, anything else unpaid).
+    listDuesForYear(deps.firestore, duesYear),
   ]);
   const memberByEmail = new Map(members.map((m) => [m.email, m]));
   const profileByEmail = new Map(profiles.map((p) => [p.email, p]));
+  const duesByEmail = new Map(dues.map((d) => [d.email, d]));
   // KRKG-0060: a member marked hidden (only settable from Zarządzanie ludźmi) is excluded from
   // this roster entirely, not just their name - they read as absent, not as an anonymous row.
   const roster = emails.filter((email) => memberByEmail.get(email)?.hidden !== true).map((email) => {
@@ -2511,6 +2518,9 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       // weaponIds/equipment/companions on first use if none exists yet, so there is no "no
       // profile to record this on" case left to distinguish here.
       wpisowePaid: profile?.wpisowePaid ?? false,
+      // Current-year składka roczna status (KRKG-0074, see the listDuesForYear fetch above) -
+      // the event page's roster badge reads only this, never the raw dues docs.
+      duesStatus: effectiveDuesStatus(duesByEmail.get(email) ?? null, member?.categoryId ?? null),
       // Set once, when a pending application is approved (membership.ts's applyMembershipTransition)
       // - the closest thing this codebase has to a "join date", used by skladki.js to sort the
       // unpaid-wpisowe list (whoever has owed it longest first). null for a member with no
