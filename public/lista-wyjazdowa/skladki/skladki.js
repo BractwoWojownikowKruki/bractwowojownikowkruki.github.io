@@ -22,8 +22,10 @@
  * require this year's due from at all, defaulting for the "Emeryt" category
  * (EMERYT_CATEGORY_ID/effectiveDuesStatus) but overridable by hand either way (an emeryt who
  * actually pays just gets flipped to 'paid'). Excluded from renderSummary's counts entirely so
- * they don't dilute "who's unpaid", and (KRKG-0074) rendered in their own "Emeryci" table below
- * the main one instead of as ordinary rows in it.
+ * they don't dilute "who's unpaid", and (KRKG-0074, criterion corrected in KRKG-0075) rendered in
+ * their own "Emeryci" table below the main one instead of as ordinary rows in it. That table's
+ * membership is the member's category ("Emeryt"), not their dues status - a non-emeryt hand-set
+ * to not_applicable stays in the main table, and a paying emeryt stays in the Emeryci one.
  */
 
 // Same escapeHtml/escapeAttr pair as wyjazd.js/profil.js/person-tile.js - the established pattern
@@ -226,9 +228,9 @@ const skladkiSortState = initSortableTable(document.getElementById('skladki-tabl
 });
 
 // KRKG-0074: the Emeryci table gets its own independent sort state - its headers are clickable
-// like the main table's (same shared/sortable-table.js wiring, delegation per <table>), but its
-// Składka column has no data-sort-key (every row is not_applicable by definition, so sorting by
-// it would be a no-op).
+// like the main table's (same shared/sortable-table.js wiring, delegation per <table>), including
+// its Składka column (KRKG-0075: the table holds members by category now, so an emeryt's status
+// can be unpaid/paid/not_applicable and sorting by it is meaningful).
 const emeryciSortState = initSortableTable(document.getElementById('skladki-emeryci-table'), {
   defaultKey: 'section',
   onChange: renderCurrentView,
@@ -310,9 +312,9 @@ function unpaidBadgeHtml(unpaid, total) {
 //
 // A roczna 'not_applicable' member (an Emeryt by default) is skipped entirely here, not just
 // counted as "paid" - counting them in the denominator too would misleadingly dilute e.g. "3 z 20
-// osób zalega" when 3 of those 20 were never asked to pay in the first place. They still show up
-// below, in their own "Emeryci" table (renderTable), just with a grey icon instead of a red/green
-// one.
+// osób zalega" when 3 of those 20 were never asked to pay in the first place. Emeryci as a
+// category show up below in their own "Emeryci" table (renderTable); a non-emeryt hand-set to
+// not_applicable stays in the main table with a grey icon.
 function renderSummary(roster, duesByEmail) {
   const unpaidBySection = new Map();
   const totalBySection = new Map();
@@ -424,11 +426,12 @@ function dueHistoryHref(email) {
 // now for anyone who wants that grouping back). No Wpisowe column (KRKG-0074) - that due has its
 // own Wpisowe view, and the year table stays scoped to Składka roczna only.
 //
-// KRKG-0074: not_applicable members (emeryci) are split out into their own "Emeryci" table
-// below instead of sitting among the unpaid/paid rows - the main list is what an accountant
-// actually chases, and grey "nie dotyczy" rows only dilute it. The whole section is hidden when
-// nobody falls into it. Both tables share the same row template; the Emeryci one just has its own
-// sort state (emeryciSortState) and no sortable Składka column (every row is not_applicable).
+// KRKG-0074/KRKG-0075: the "Emeryt" category gets its own "Emeryci" table below the main one -
+// membership is the member's category, not their dues status (a non-emeryt hand-set to
+// not_applicable stays in the main list, and a paying emeryt stays here). The whole section is
+// hidden when nobody falls into it. Both tables share the same row template; the Emeryci one has
+// its own sort state (emeryciSortState) and a sortable Składka column of its own, since an
+// emeryt's status can be anything (not_applicable by default, unpaid/paid when set by hand).
 function renderTable(roster, duesByEmail) {
   cachedRoster = roster;
   cachedDuesByEmail = duesByEmail;
@@ -436,15 +439,14 @@ function renderTable(roster, duesByEmail) {
   const mainRoster = [];
   const emeryciRoster = [];
   for (const member of roster) {
-    if (effectiveDuesStatus(member, duesByEmail) === 'not_applicable') emeryciRoster.push(member);
+    if (member.categoryId === EMERYT_CATEGORY_ID) emeryciRoster.push(member);
     else mainRoster.push(member);
   }
 
   // unpaid < not_applicable < paid, so ascending puts who-owes-money first and the settled/exempt
   // at the far end - the same "false (owed) sorts before true (settled)" spirit as every plain
-  // boolean paid/unpaid column already on this site, just with a middle rung for not_applicable.
-  // (not_applicable never reaches this sort any more - KRKG-0074 - but the rank keeps the
-  // explicit state list readable rather than silently relying on absence.)
+  // boolean paid/unpaid column already on this site, just with a middle rung for not_applicable
+  // (still reachable in the main table - a non-emeryt hand-set to not_applicable stays there).
   const ROCZNA_SORT_RANK = { unpaid: 0, not_applicable: 1, paid: 2 };
   const sortValue = (member) => {
     switch (skladkiSortState.key) {
@@ -491,6 +493,7 @@ function renderTable(roster, duesByEmail) {
   const emeryciSortValue = (member) => {
     switch (emeryciSortState.key) {
       case 'name': return displayName(member);
+      case 'roczna': return ROCZNA_SORT_RANK[effectiveDuesStatus(member, duesByEmail)];
       default: return sectionLabel(member.sectionId);
     }
   };
@@ -505,7 +508,7 @@ function renderTable(roster, duesByEmail) {
     <tr>
       <th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
       <th scope="col" class="lw-roster-name-cell" data-sort-key="name" aria-sort="none"><button type="button">Nazwa</button></th>
-      <th scope="col" class="lw-narrow-col" title="Składka roczna"><span class="lw-col-icon" aria-hidden="true">💰</span><span class="lw-col-label">Składka</span></th>
+      <th scope="col" class="lw-narrow-col" data-sort-key="roczna" aria-sort="none" title="Składka roczna"><button type="button"><span class="lw-col-icon" aria-hidden="true">💰</span><span class="lw-col-label">Składka</span></button></th>
       ${canManageSkladki ? `<th scope="col" class="lw-narrow-col" title="Historia"><span class="lw-col-icon" aria-hidden="true">${HISTORY_ICON}</span><span class="lw-col-label">Historia</span></th>` : ''}
     </tr>
   `;

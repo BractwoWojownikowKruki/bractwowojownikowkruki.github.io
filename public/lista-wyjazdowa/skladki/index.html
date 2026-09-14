@@ -88,10 +88,10 @@
               </table>
             </div>
 
-            <!-- KRKG-0074: osoby, których składka roczna "nie dotyczy" (domyślnie emeryci), mają
-                 własną tabelę pod główną listą, żeby nie zaśmiecać jej wierszami, które i tak nie
-                 wymagają zapłaty. Cała sekcja ukrywana, gdy takich osób nie ma (i w trybie
-                 Wpisowe). -->
+            <!-- KRKG-0074/KRKG-0075: osoby ze statusem członka "Emeryt" mają własną tabelę pod
+                 główną listą - kryterium to kategoria członka, nie status składki (emeryt może
+                 tu pokazywać też "opłacona"/"nieopłacona"/"nie dotyczy"). Cała sekcja ukrywana,
+                 gdy emerytów nie ma (i w trybie Wpisowe). -->
             <div id="skladki-emeryci" hidden>
               <h2>Emeryci</h2>
               <div class="czl-table-wrap">
