@@ -192,7 +192,7 @@
       : '';
     const pendingOffset = profile.mainPhoto ? 1 + profile.photos.length : profile.photos.length;
     const pendingHtml = pendingPhotos.length
-      ? `<h4 class="profile-pending-heading">Zdjęcia oczekujące na zatwierdzenie</h4>
+      ? `<h4 class="profile-pending-heading">Zdjęcia oczekujące na publikację na publicznej części strony</h4>
          <div class="person-gallery">${pendingPhotos
            .map((p, i) => `<img src="${escapeHtml(p.url)}" alt="" data-photo-index="${pendingOffset + i}" />`)
            .join('')}</div>`

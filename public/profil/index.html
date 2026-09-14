@@ -52,6 +52,7 @@
             <fieldset class="lw-fieldset">
               <legend>Zdjęcie profilowe</legend>
               <div id="lw-current-submission" class="lw-photo-preview" hidden></div>
+              <br/>
               <div class="field">
                 <label for="lw-main-photo">Główne zdjęcie</label>
                 <input type="file" id="lw-main-photo" name="mainPhoto" accept="image/*" />
@@ -60,7 +61,7 @@
                 <label for="lw-extra-photos">Dodatkowe zdjęcia (opcjonalnie)</label>
                 <input type="file" id="lw-extra-photos" name="extraPhotos" accept="image/*" multiple />
               </div>
-              <p class="lw-hint">Zdjęcia trafią na dysk Drive dopiero po zapisaniu profilu.</p>
+              <p class="lw-hint">Zdjęcia pojawią się na publicznej części strony dopiero po zatwierdzeniu przez administratorów.</p>
               <div id="lw-photo-preview" class="lw-photo-preview" hidden></div>
             </fieldset>
 
@@ -77,7 +78,7 @@
               <label for="lw-nickname">Ksywa</label>
               <input type="text" id="lw-nickname" name="nickname" />
             </div>
-            <p class="lw-hint">Podaj przynajmniej jedno z: Imię i nazwisko lub Ksywa.</p>
+            <p class="lw-hint">Podaj przynajmniej jedno z: Imię i nazwisko lub Ksywa pod jaką jesteś znany w Bractwie.</p>
             <div class="field">
               <label for="lw-section">Sekcja</label>
               <select id="lw-section" name="sectionId" required></select>
@@ -85,10 +86,11 @@
 
             <fieldset class="lw-fieldset">
               <legend>Bronie</legend>
+              <p class="lw-hint">Zaznacz jaką bronią walczysz na wyjazdach.</p>
               <div id="weapons-checkboxes" class="lw-checkbox-grid"></div>
             </fieldset>
 
-            <p class="lw-category-readout">Twoja kategoria: <span id="category-readout">—</span></p>
+            <p class="lw-category-readout">Twój status: <span id="category-readout">—</span></p>
 
             <fieldset class="lw-fieldset">
               <legend>Sprzęt obozowy</legend>
