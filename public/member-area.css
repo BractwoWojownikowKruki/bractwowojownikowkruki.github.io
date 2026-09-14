@@ -228,6 +228,42 @@
   width: 1%;
 }
 
+/* KRKG-0074 fix: the two Składki tables' icon-only columns (Wpisowe/Składka/Historia) keep their
+   word labels on desktop but collapse to just the icon on phones - a word-width header over a
+   single-icon cell was exactly what kept the tables too wide to fit one phone view. The <th>'s
+   title tooltip explains the icon either way. */
+.lw-narrow-col .lw-col-icon {
+  display: none;
+}
+
+/* The narrow columns don't need the sortable header's full 0.7rem side padding - tighter sides
+   (and tighter cell padding below on phones) keep the table inside one view. */
+#skladki-table th.lw-narrow-col button,
+#skladki-emeryci-table th.lw-narrow-col button {
+  padding: 0.4rem 0.35rem;
+}
+
+@media (max-width: 768px) {
+  .lw-narrow-col .lw-col-icon {
+    display: inline-block;
+  }
+
+  .lw-narrow-col .lw-col-label {
+    display: none;
+  }
+
+  /* The sticky Sekcja cell keeps its own padding (it frames the colored abbreviation), but every
+     other cell in these two tables tightens horizontally - the space between the Wpisowe/Składka/
+     Historia columns was mostly this padding either side of a single small icon. */
+  #skladki-table th:not(.czl-section-cell),
+  #skladki-table td:not(.czl-section-cell),
+  #skladki-emeryci-table th:not(.czl-section-cell),
+  #skladki-emeryci-table td:not(.czl-section-cell) {
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+  }
+}
+
 .czl-table tbody tr:hover {
   background: var(--surface);
 }
@@ -638,14 +674,10 @@ button.lw-skladka-icon:disabled {
    "paid" nor the red "unpaid" framing applies. Grey rather than either color says "not part of
    this tally" at a glance, same spirit as .czl-empty elsewhere on these tables. Uses data-status
    (skladki.js's rocznaIconHtml/profile-panel.js), not data-paid - wpisowe and every other paid/
-   unpaid icon on the site stays a plain boolean and keeps using data-paid above.
-   KRKG-0074: opacity on top of the grey - the badge now lives in its own "Emeryci" table off the
-   main list, so it should read as background info, not something still owed; half-transparent
-   keeps it legible without competing with the red/green badges that actually demand attention. */
-.lw-skladka-icon[data-status="not_applicable"] {
-  background: color-mix(in srgb, var(--text-faint) 40%, var(--surface-deep));
-  border: 1px solid var(--text-faint);
-  opacity: 0.45;
+   unpaid icon on the site stays a plain boolean and keeps using data-paid above. */
+.lw-skladka-icon[data-status="paid"] {
+  background: color-mix(in srgb, #2e7d32 40%, var(--surface-deep));
+  border: 1px solid #2e7d32;
 }
 
 .lw-skladka-icon[data-status="unpaid"] {
@@ -653,9 +685,13 @@ button.lw-skladka-icon:disabled {
   border: 1px solid #c62828;
 }
 
+/* KRKG-0074: opacity on top of the grey - the badge now lives in its own "Emeryci" table off the
+   main list, so it should read as background info, not something still owed; half-transparent
+   keeps it legible without competing with the red/green badges that actually demand attention. */
 .lw-skladka-icon[data-status="not_applicable"] {
   background: color-mix(in srgb, var(--text-faint) 40%, var(--surface-deep));
   border: 1px solid var(--text-faint);
+  opacity: 0.45;
 }
 
 /* Sort/filter controls above the event page's roster (wyjazd.js's rosterFilter) - an inline select

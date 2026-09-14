@@ -490,9 +490,9 @@ function renderTable(roster, duesByEmail) {
     <tr>
       <th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
       <th scope="col" class="lw-roster-name-cell" data-sort-key="name" aria-sort="none"><button type="button">Nazwa</button></th>
-      <th scope="col" data-sort-key="wpisowe" aria-sort="none"><button type="button">Wpisowe</button></th>
-      <th scope="col" data-sort-key="roczna" aria-sort="none" title="Składka roczna"><button type="button">Składka</button></th>
-      ${canManageSkladki ? '<th scope="col">Historia</th>' : ''}
+      <th scope="col" class="lw-narrow-col" data-sort-key="wpisowe" aria-sort="none" title="Wpisowe"><button type="button"><span class="lw-col-icon" aria-hidden="true">✓</span><span class="lw-col-label">Wpisowe</span></button></th>
+      <th scope="col" class="lw-narrow-col" data-sort-key="roczna" aria-sort="none" title="Składka roczna"><button type="button"><span class="lw-col-icon" aria-hidden="true">💰</span><span class="lw-col-label">Składka</span></button></th>
+      ${canManageSkladki ? `<th scope="col" class="lw-narrow-col" title="Historia"><span class="lw-col-icon" aria-hidden="true">${HISTORY_ICON}</span><span class="lw-col-label">Historia</span></th>` : ''}
     </tr>
   `;
   table.querySelector('tbody').innerHTML = sorted.map(rowHtml).join('');
@@ -516,9 +516,9 @@ function renderTable(roster, duesByEmail) {
     <tr>
       <th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
       <th scope="col" class="lw-roster-name-cell" data-sort-key="name" aria-sort="none"><button type="button">Nazwa</button></th>
-      <th scope="col" data-sort-key="wpisowe" aria-sort="none"><button type="button">Wpisowe</button></th>
-      <th scope="col" title="Składka roczna"><button type="button">Składka</button></th>
-      ${canManageSkladki ? '<th scope="col">Historia</th>' : ''}
+      <th scope="col" class="lw-narrow-col" data-sort-key="wpisowe" aria-sort="none" title="Wpisowe"><button type="button"><span class="lw-col-icon" aria-hidden="true">✓</span><span class="lw-col-label">Wpisowe</span></button></th>
+      <th scope="col" class="lw-narrow-col" title="Składka roczna"><span class="lw-col-icon" aria-hidden="true">💰</span><span class="lw-col-label">Składka</span></th>
+      ${canManageSkladki ? `<th scope="col" class="lw-narrow-col" title="Historia"><span class="lw-col-icon" aria-hidden="true">${HISTORY_ICON}</span><span class="lw-col-label">Historia</span></th>` : ''}
     </tr>
   `;
   emeryciTable.querySelector('tbody').innerHTML = emeryciSorted.map(rowHtml).join('');
