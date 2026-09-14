@@ -8,6 +8,10 @@
  * edit controls and the Historia zmian panel only render when GET /lista-wyjazdowa/my-role reports
  * canManageSkladki (accountant/admin) - the server re-checks the role on every PUT/GET regardless,
  * this only controls what the UI offers (design.md §8, §9).
+ *
+ * The "Składka:" select's first option, "Wpisowe", swaps the whole page from the year table above
+ * to a flat, section-agnostic list of every member who still owes wpisowe (renderWpisoweList),
+ * sorted by join date (members.ts's approvedAt) so the oldest unpaid debt surfaces first.
  */
 
 // Same escapeHtml/escapeAttr pair as wyjazd.js/profil.js/person-tile.js - the established pattern
@@ -68,12 +72,17 @@ function paidIconHtml(kind, emailAttr, paid, label) {
   return `<button type="button" class="lw-skladka-icon" data-kind="${kind}" data-email="${emailAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">${glyph}</button>`;
 }
 
+function formatDate(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+}
+
 function formatDateTime(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const date = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
   const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  return `${date} ${time}`;
+  return `${formatDate(iso)} ${time}`;
 }
 
 const panels = {
@@ -124,11 +133,17 @@ function confirmedDuesMutation(control, execute, apply, anchor = control) {
 
 const currentYear = new Date().getFullYear();
 
-// Selected in the year <select> (KRKG-0047) - defaults to the current year, but the backend has
+// The <select>'s special first option (above every year) - picks the unpaid-wpisowe list view
+// instead of a year's składka roczna table, see renderWpisoweList below.
+const WPISOWE_OPTION = 'wpisowe';
+
+// Selected in the "Składka:" <select> - defaults to the current year, but the backend has
 // always accepted any year 2000-2100 (see server.ts's requireYear), so this is purely a frontend
 // gap being closed: someone paying składka roczna for next year (joining late) or checking a past
-// year's records needs a way to pick a year other than "now".
+// year's records needs a way to pick a year other than "now". selectedYear keeps its last numeric
+// value even while wpisoweMode is true, so switching back to a year doesn't need re-picking one.
 let selectedYear = currentYear;
+let wpisoweMode = false;
 const YEAR_RANGE_PAST = 5;
 const YEAR_RANGE_FUTURE = 1;
 // The club only started tracking składki from 2026 onward - no point offering earlier years the
@@ -139,12 +154,14 @@ function populateYearSelect() {
   const select = document.getElementById('skladki-year-select');
   const years = [];
   for (let y = Math.max(MIN_DUES_YEAR, currentYear - YEAR_RANGE_PAST); y <= currentYear + YEAR_RANGE_FUTURE; y++) years.push(y);
-  select.innerHTML = years.map((y) => `<option value="${y}">${y}</option>`).join('');
-  select.value = String(selectedYear);
+  const yearOptions = years.map((y) => `<option value="${y}">${y}</option>`).join('');
+  select.innerHTML = `<option value="${WPISOWE_OPTION}">Wpisowe</option>${yearOptions}`;
+  select.value = wpisoweMode ? WPISOWE_OPTION : String(selectedYear);
 }
 
 document.getElementById('skladki-year-select').addEventListener('change', async (e) => {
-  selectedYear = Number(e.target.value);
+  wpisoweMode = e.target.value === WPISOWE_OPTION;
+  if (!wpisoweMode) selectedYear = Number(e.target.value);
   clearError();
   try {
     await loadAndRender();
@@ -193,21 +210,24 @@ function unpaidBadgeHtml(unpaid, total) {
     : `<span class="lw-summary-badge" title="${unpaid} z ${total} nieopłaconych">${unpaid}</span>`;
 }
 
-// How many members still owe składka roczna for the selected year, overall and broken down by
-// Sekcja and by Typ (kategoria) - the two axes an accountant actually chases people down by.
-// Wpisowe has no year selector, so it has no place in this per-year summary. Purely a client-side
-// tally over the same roster+dues loadAndRender already fetched for the table below - no extra
-// request. Rendered as wrapped pill+badge chips rather than a line-per-group list - a vertical
-// list of "Sekcja: N z M nieopłaconych" read as far more text than the numbers actually need.
+// How many members still owe the selected due - składka roczna for a chosen year, or wpisowe when
+// wpisoweMode is on - overall and broken down by Sekcja and by Typ (kategoria), the two axes an
+// accountant actually chases people down by. Purely a client-side tally over the same roster+dues
+// loadAndRender already fetched for the table/list below - no extra request. Rendered as wrapped
+// pill+badge chips rather than a line-per-group list - a vertical list of "Sekcja: N z M
+// nieopłaconych" read as far more text than the numbers actually need.
 function renderSummary(roster, duesByEmail) {
+  const paidFor = (member) => (wpisoweMode ? member.wpisowePaid : (duesByEmail.get(member.email)?.paid ?? false));
   const unpaidBySection = new Map();
   const totalBySection = new Map();
   const unpaidByCategory = new Map();
   const totalByCategory = new Map();
   let unpaidTotal = 0;
+  let unpaidWpisowe = 0;
 
   for (const member of roster) {
-    const paid = duesByEmail.get(member.email)?.paid ?? false;
+    const paid = paidFor(member);
+    if (!member.wpisowePaid) unpaidWpisowe += 1;
     totalBySection.set(member.sectionId, (totalBySection.get(member.sectionId) ?? 0) + 1);
     totalByCategory.set(member.categoryId, (totalByCategory.get(member.categoryId) ?? 0) + 1);
     if (!paid) {
@@ -244,12 +264,22 @@ function renderSummary(roster, duesByEmail) {
     })
     .join('');
 
-  const totalLine = unpaidTotal === 0
-    ? `Składka ${selectedYear}: wszyscy opłacili ${unpaidBadgeHtml(0, roster.length)}`
-    : `Nieopłacona składka ${selectedYear}: <strong>${unpaidTotal}</strong> z ${roster.length} osób.`;
+  const totalLine = wpisoweMode
+    ? (unpaidTotal === 0
+      ? `Wpisowe: wszyscy opłacili ${unpaidBadgeHtml(0, roster.length)}`
+      : `Nieopłacone wpisowe: <strong>${unpaidTotal}</strong> z ${roster.length} osób.`)
+    : (unpaidTotal === 0
+      ? `Składka ${selectedYear}: wszyscy opłacili ${unpaidBadgeHtml(0, roster.length)}`
+      : `Nieopłacona składka ${selectedYear}: <strong>${unpaidTotal}</strong> z ${roster.length} osób.`);
+
+  // Always shown regardless of the selected due, even when the breakdown above is already about
+  // wpisowe - an accountant looking at a year's składka roczna still wants to know at a glance
+  // whether anyone owes wpisowe too, without switching the dropdown.
+  const wpisoweLine = wpisoweMode ? '' : `<p>Nieopłacone wpisowe: <strong>${unpaidWpisowe}</strong> z ${roster.length} osób.</p>`;
 
   document.getElementById('summary-content').innerHTML = `
     <p>${totalLine}</p>
+    ${wpisoweLine}
     <div class="lw-summary-columns">
       <div>
         <h3>Wg sekcji</h3>
@@ -324,6 +354,53 @@ function renderTable(roster, duesByEmail) {
   }
 }
 
+// The "Wpisowe" option in the Składka: select (see WPISOWE_OPTION) - a flat, section-agnostic list
+// of everyone who still owes wpisowe, sorted by join date (members.ts's approvedAt, the closest
+// thing this codebase has to one) so the accountant chases the longest-standing debt first. A
+// member with no approvedAt yet (no members/{email} document, or one predating KRKG-0046) sorts to
+// the end rather than crashing a string compare against null.
+function renderWpisoweList(roster) {
+  const container = document.getElementById('skladki-content');
+  container.innerHTML = '';
+
+  const unpaid = roster
+    .filter((member) => !member.wpisowePaid)
+    .sort((a, b) => {
+      if (a.approvedAt !== b.approvedAt) {
+        if (!a.approvedAt) return 1;
+        if (!b.approvedAt) return -1;
+        return a.approvedAt.localeCompare(b.approvedAt);
+      }
+      return displayName(a).toLocaleLowerCase('pl').localeCompare(displayName(b).toLocaleLowerCase('pl'), 'pl');
+    });
+
+  if (unpaid.length === 0) {
+    container.innerHTML = '<p>Wszyscy członkowie mają opłacone wpisowe.</p>';
+    return;
+  }
+
+  for (const member of unpaid) {
+    const emailAttr = escapeAttr(member.email);
+    const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
+    const row = document.createElement('div');
+    row.className = 'lw-skladki-row section-row-accent';
+    row.dataset.section = member.sectionId ?? '';
+    const dueHistoryHref = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${member.email}`)}`;
+    const joinLabel = member.approvedAt ? `Dołączył(a): ${escapeHtml(formatDate(member.approvedAt))}` : '';
+    row.innerHTML = `
+      <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
+        <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
+      </button>
+      <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>
+      ${joinLabel ? `<span class="lw-due-label">${joinLabel}</span>` : ''}
+      <span class="lw-due-label">Wpisowe</span>
+      ${paidIconHtml('wpisowe', emailAttr, false, 'Wpisowe: nieopłacone')}
+      ${canManageSkladki ? `<a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref)}" title="Historia" aria-label="Historia wpisowego">${HISTORY_ICON}</a>` : ''}
+    `;
+    container.appendChild(row);
+  }
+}
+
 // Accountant/admin-only (KRKG-0047): GET /lista-wyjazdowa/dues/audit-log now 403s for a plain
 // member, so the panel is hidden entirely for them rather than fetched and left to error.
 async function renderDuesAuditLog() {
@@ -347,6 +424,11 @@ async function renderDuesAuditLog() {
 // The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety") - same
 // display/edit-panel pattern as wyjazd.js's renderSkladkaFee/saveSkladkaFee for its per-event fee.
 function renderYearFee(yearFee) {
+  // Wpisowe has no per-year rate note - it's a plain paid/unpaid fact (see paidIconHtml's comment)
+  // - so this whole panel has nothing to show while the "Wpisowe" option is selected.
+  const panel = document.getElementById('skladka-fee-panel');
+  panel.hidden = wpisoweMode;
+  if (wpisoweMode) return;
   const display = document.getElementById('skladki-year-fee-display');
   const editPanel = document.getElementById('skladki-year-fee-edit');
   const historyLink = document.getElementById('skladki-year-fee-history-link');
@@ -393,7 +475,11 @@ async function loadAndRender() {
   renderYearFee(yearFee);
   const duesByEmail = new Map(dues.map((d) => [d.email, d]));
   renderSummary(roster, duesByEmail);
-  renderTable(roster, duesByEmail);
+  if (wpisoweMode) {
+    renderWpisoweList(roster);
+  } else {
+    renderTable(roster, duesByEmail);
+  }
   await renderDuesAuditLog();
 }
 
@@ -430,6 +516,27 @@ async function toggleWpisowe(email, nextPaid, control) {
   }
 }
 
+// Same PUT as toggleWpisowe above, but for the "Wpisowe" list view (renderWpisoweList): every row
+// there exists only because it's unpaid, so marking it paid removes the whole row instead of just
+// the caption+icon - the member simply drops off this list, same effect as in the year table but
+// there's no rest-of-row left behind to keep.
+async function toggleWpisoweInList(email, control) {
+  clearError();
+  const row = control.closest('.lw-skladki-row');
+  try {
+    await confirmedDuesMutation(control, () => apiFetch(
+      `/lista-wyjazdowa/wpisowe?memberEmail=${encodeURIComponent(email)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: true }) },
+      showReauth,
+      hideReauth,
+    ), () => {
+      row.remove();
+    }, row);
+  } catch (err) {
+    showError(`Nie udało się zaktualizować wpisowego: ${err.message}`);
+  }
+}
+
 async function toggleRoczna(email, nextPaid, control) {
   clearError();
   try {
@@ -458,7 +565,11 @@ document.getElementById('skladki-content').addEventListener('click', (e) => {
     // Marking wpisowe paid removes this row's only control for it entirely (see toggleWpisowe) -
     // from that point on, undoing a mistake means going to Zarządzanie ludźmi's Wpisowe column.
     if (nextPaid && !window.confirm('Czy na pewno chcesz zaznaczyć, że wpisowe zostało opłacone?')) return;
-    toggleWpisowe(email, nextPaid, icon);
+    if (wpisoweMode) {
+      toggleWpisoweInList(email, icon);
+    } else {
+      toggleWpisowe(email, nextPaid, icon);
+    }
   } else {
     toggleRoczna(email, nextPaid, icon);
   }

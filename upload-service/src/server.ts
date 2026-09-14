@@ -2504,6 +2504,11 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       // weaponIds/equipment/companions on first use if none exists yet, so there is no "no
       // profile to record this on" case left to distinguish here.
       wpisowePaid: profile?.wpisowePaid ?? false,
+      // Set once, when a pending application is approved (membership.ts's applyMembershipTransition)
+      // - the closest thing this codebase has to a "join date", used by skladki.js to sort the
+      // unpaid-wpisowe list (whoever has owed it longest first). null for a member with no
+      // members/{email} document yet.
+      approvedAt: member?.approvedAt ?? null,
     };
   });
   sendJson(res, 200, { roster });
