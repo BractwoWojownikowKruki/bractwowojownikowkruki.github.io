@@ -175,6 +175,10 @@
   padding: 0.4rem 0.7rem;
   color: var(--text-muted);
   font-weight: 700;
+  /* A touch smaller than the table's own body text - a sortable label plus its arrow indicator
+     was consistently the widest thing in narrow columns (Wpisowe, Składka, ...), pushing them
+     wider than the single icon they actually hold. */
+  font-size: 0.85em;
 }
 
 .czl-table thead th[data-sort-key] button:hover,
@@ -208,6 +212,19 @@
 
 .czl-table th.czl-section-cell[data-sort-key] button::after {
   font-size: 0.6em;
+}
+
+/* Składki's Wpisowe/Składka/Historia/Dołączył/✓ columns each hold one short icon or word, but the
+   browser's default `auto` table layout algorithm was handing each of them a wide, mostly-empty
+   share of the row's 100% width anyway (the classic empty-icon-column problem) - visible as large
+   gaps either side of the coin/check icons and the whole table needing to scroll sideways to fit.
+   width:1% is the standard trick to force a column to shrink to its own content's width instead;
+   whatever space that frees up funnels into Nazwa (data-sort-key="name"), the one column that
+   actually wants it - full names, at whatever length. Scoped to this one table (not every
+   .czl-table) since Zarządzanie ludźmi's short-looking columns are real editable text
+   inputs/selects that still need their own room, not simply another icon. */
+#skladki-table th:not(.czl-section-cell):not([data-sort-key="name"]) {
+  width: 1%;
 }
 
 .czl-table tbody tr:hover {
