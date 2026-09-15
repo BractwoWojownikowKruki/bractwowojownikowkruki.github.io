@@ -167,8 +167,7 @@ export async function detectDocTypeAndFetchTitle(
 
     if (response.status < 200 || response.status >= 300) return { docType, title: null };
 
-    const contentType = response.headers.get('content-type') ?? '';
-    if (!/text\/html|application\/xhtml\+xml/i.test(contentType)) return { docType, title: null };
+    if (!isHtmlContentType(response)) return { docType, title: null };
 
     const contentLength = Number(response.headers.get('content-length') ?? '0');
     if (contentLength > TITLE_FETCH_MAX_BYTES) return { docType, title: null };

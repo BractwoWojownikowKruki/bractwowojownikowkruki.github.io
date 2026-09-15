@@ -92,12 +92,11 @@ test('detectDocTypeAndFetchTitle returns null title (not empty string) for an em
 });
 
 test('detectDocTypeAndFetchTitle rejects a non-HTML content type without reading the body', async () => {
-  let bodyRead = false;
+  let body: ReadableStream<Uint8Array>;
   await withMockedFetch(
     () => {
-      const body = new ReadableStream({
+      body = new ReadableStream({
         pull(controller) {
-          bodyRead = true;
           controller.enqueue(new TextEncoder().encode('<html><head><title>X</title></head></html>'));
           controller.close();
         },
@@ -107,18 +106,17 @@ test('detectDocTypeAndFetchTitle rejects a non-HTML content type without reading
     async () => {
       const result = await detectDocTypeAndFetchTitle('https://docs.google.com/document/d/x/edit');
       assert.equal(result.title, null);
-      assert.equal(bodyRead, false, 'must not read the body of a rejected content type');
+      assert.equal(body.locked, false, 'must not acquire a reader for a rejected content type');
     },
   );
 });
 
 test('detectDocTypeAndFetchTitle rejects an oversized response by Content-Length without reading the body', async () => {
-  let bodyRead = false;
+  let body: ReadableStream<Uint8Array>;
   await withMockedFetch(
     () => {
-      const body = new ReadableStream({
+      body = new ReadableStream({
         pull(controller) {
-          bodyRead = true;
           controller.enqueue(new TextEncoder().encode('<html><head><title>X</title></head></html>'));
           controller.close();
         },
@@ -128,7 +126,7 @@ test('detectDocTypeAndFetchTitle rejects an oversized response by Content-Length
     async () => {
       const result = await detectDocTypeAndFetchTitle('https://docs.google.com/document/d/x/edit');
       assert.equal(result.title, null);
-      assert.equal(bodyRead, false, 'must not read the body of an oversized response');
+      assert.equal(body.locked, false, 'must not acquire a reader for an oversized response');
     },
   );
 });
