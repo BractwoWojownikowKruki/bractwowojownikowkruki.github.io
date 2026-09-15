@@ -33,16 +33,19 @@ function formatDate(iso) {
   return new Date(iso).toLocaleDateString('pl-PL', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-// The API returns addedByEmail, not a full member record - the profile-trigger badge shows the
-// email's local part until ProfilePanel.open() replaces it with the real name inside the drawer,
-// same graceful-degradation fallback as display-name.js's stripEmailDomain.
-function displayNameFromEmail(email) {
-  const at = email.indexOf('@');
-  return at === -1 ? email : email.slice(0, at);
-}
+const OPEN_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
+
+// Populated once per sign-in from GET /members/directory (email -> {nickname, fullName, email}),
+// the same roster endpoint czlonkowie.js uses - GET /files only returns addedByEmail, not a
+// display name, so the badge needs this to show a real name (nickname/imię i nazwisko) instead of
+// a raw email fragment, matching every other member badge on the site (display-name.js's
+// displayName()). A member briefly missing from the roster (e.g. hidden) falls back to a bare
+// { email } stub, which displayName() itself reduces to the email's local part.
+let memberByEmail = new Map();
 
 function fileTileHtml(file) {
   const emailAttr = escapeHtml(file.addedByEmail);
+  const member = memberByEmail.get(file.addedByEmail) || { email: file.addedByEmail };
   const deleteButton = file.canDelete
     ? `<button type="button" class="pliki-tile-delete" data-delete-id="${escapeHtml(file.id)}" aria-label="Usuń plik">✕</button>`
     : '';
@@ -54,9 +57,9 @@ function fileTileHtml(file) {
       ${file.description ? `<p class="pliki-tile-description">${escapeHtml(file.description)}</p>` : ''}
       <div class="pliki-tile-meta">
         <span>${formatDate(file.addedAt)}</span>
-        <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">${escapeHtml(displayNameFromEmail(file.addedByEmail))}</button>
+        <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">${escapeHtml(displayName(member))}</button>
       </div>
-      <a class="btn pliki-tile-open" href="${escapeHtml(file.url)}" target="_blank" rel="noopener">Otwórz</a>
+      <a class="btn-drive-action pliki-tile-open" href="${escapeHtml(file.url)}" target="_blank" rel="noopener">${OPEN_ICON}Otwórz</a>
     </article>
   `;
 }
@@ -143,6 +146,13 @@ initGoogleSignIn({
     showOnly(null);
     wireAddForm();
     wireDeleteButtons();
+    try {
+      const { members } = await apiFetch('/members/directory', { method: 'GET' });
+      memberByEmail = new Map(members.map(m => [m.email, m]));
+    } catch (err) {
+      // Non-fatal: fileTileHtml() falls back to a bare { email } stub per file, which still
+      // renders a usable (if less friendly) badge - a roster hiccup shouldn't block the page.
+    }
     try {
       await loadFiles();
     } catch (err) {

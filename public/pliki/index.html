@@ -48,8 +48,8 @@
               </p>
             </div>
             <div class="pliki-header-actions">
-              <a href="/audyt/?category=files" class="pliki-history-link">◷ Historia</a>
-              <button type="button" class="btn btn-primary" id="pliki-add-toggle">Dodaj plik</button>
+              <a class="audyt-history-btn" href="/audyt/?category=files" title="Historia" aria-label="Historia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
+              <button type="button" class="btn-add-album" id="pliki-add-toggle">Dodaj plik</button>
             </div>
           </div>
 
@@ -59,8 +59,8 @@
             <label for="pliki-add-description">Opis</label>
             <textarea id="pliki-add-description" name="description" maxlength="2000" rows="2" placeholder="Np. Arkusz zapisów na turniej"></textarea>
             <div class="pliki-add-form-actions">
-              <button type="submit" class="btn btn-primary" id="pliki-add-submit">Dodaj</button>
-              <button type="button" class="btn" id="pliki-add-cancel">Anuluj</button>
+              <button type="submit" class="btn-add-album" id="pliki-add-submit">Dodaj</button>
+              <button type="button" class="btn-cancel" id="pliki-add-cancel">Anuluj</button>
             </div>
             <p class="pliki-add-error" id="pliki-add-error" hidden></p>
           </form>
@@ -78,6 +78,7 @@
   <script src="../auth.js"></script>
   <script src="../nav.js"></script>
   <script src="../mutation-feedback.js"></script>
+  <script src="../shared/display-name.js"></script>
   <script src="../shared/profile-panel.js"></script>
   <script src="pliki.js"></script>
 </body>

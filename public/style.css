@@ -2160,6 +2160,22 @@ button.nav-item {
   border-bottom: none;
 }
 
+/* KRKG-0076: same class of bug as .content-section .btn-add-album above, but for
+   .btn-drive-action's first usage inside .content-section (the /pliki page's "Otwórz" tile
+   button) - .content-section a's higher-specificity class+type selector was overriding this
+   button's own color and (via its border-bottom longhand beating .btn-drive-action's border
+   shorthand) redrawing just its bottom edge in link-red, at rest, not only on hover. */
+.content-section .btn-drive-action {
+  color: var(--text);
+  border-color: var(--border);
+  text-decoration: none;
+}
+
+.content-section .btn-drive-action:hover {
+  color: var(--gold);
+  border-color: var(--accent);
+}
+
 /* Google Docs' HTML export hard-codes its own text/highlight colors and font as inline styles
    on individual runs of text - an inline style normally beats any external stylesheet rule
    regardless of selector, so these need !important to win instead, matching the site's own

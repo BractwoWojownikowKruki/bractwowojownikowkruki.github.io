@@ -113,13 +113,20 @@
   padding: 2rem 0;
 }
 
-/* Trigger elements added to existing name cells across the app. */
+/* Trigger elements added to existing name cells across the app. Every existing caller wraps its
+   visible text in its own colored <span> (a category pill) or renders an icon only, so this base
+   rule never needed its own text color - KRKG-0076's /pliki page was the first to put plain
+   escaped text directly inside the <button>, which left it at the browser's default button text
+   color (opaque black) instead of the surrounding muted/light text color, rendering unreadable
+   against this site's dark background. `color: inherit` makes plain-text usage correct too,
+   without changing anything for callers whose inner <span>/icon already sets its own color. */
 .profile-trigger {
   background: none;
   border: none;
   padding: 0;
   margin: 0;
   font: inherit;
+  color: inherit;
   cursor: pointer;
   text-align: left;
 }

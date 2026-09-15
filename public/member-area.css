@@ -1030,12 +1030,6 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
   gap: 1rem;
 }
 
-.pliki-history-link {
-  color: var(--text-muted);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
 .pliki-add-form {
   display: flex;
   flex-direction: column;
@@ -1078,6 +1072,7 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
 
 .pliki-tile-name {
   margin: 0;
+  padding-right: 1.5rem;
   font-size: 1rem;
 }
 
@@ -1093,6 +1088,10 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
   align-items: center;
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+.pliki-tile-open {
+  justify-content: center;
 }
 
 .pliki-tile-delete {

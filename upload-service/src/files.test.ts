@@ -51,6 +51,16 @@ test('detectDocTypeAndFetchTitle fetches and cleans the title for a whitelisted 
   );
 });
 
+test('detectDocTypeAndFetchTitle strips Polish-locale Google product suffixes too, not just English', async () => {
+  await withMockedFetch(
+    () => new Response('<html><head><title>Zapisy na turniej - Arkusze Google</title></head></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    async () => {
+      const result = await detectDocTypeAndFetchTitle('https://sheets.google.com/spreadsheets/d/abc/edit');
+      assert.deepEqual(result, { docType: 'googleSheet', title: 'Zapisy na turniej' });
+    },
+  );
+});
+
 test('detectDocTypeAndFetchTitle recognizes sheets, drive, and any *.sharepoint.com subdomain', async () => {
   await withMockedFetch(
     () => new Response('<html><head><title>Arkusz</title></head></html>', { status: 200, headers: { 'content-type': 'text/html' } }),

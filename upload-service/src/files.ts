@@ -72,7 +72,18 @@ function isFetchableWhitelistedUrl(url: URL): boolean {
   return detectDocType(url) !== null;
 }
 
-const TITLE_SUFFIXES = [' - Google Docs', ' - Google Sheets', ' - Google Drive', ' - Word', ' - Excel', ' - PowerPoint', ' - Office'];
+// English and Polish product-name suffixes Google/Office append to a shared doc's own <title> -
+// this club's Google Workspace is Polish-locale, so a real fetched title is typically "Nazwa -
+// Dokumenty Google"/"Nazwa - Arkusze Google", not the English form; both are listed so the
+// stripped tile name never carries a leftover "- Arkusze Google" fragment regardless of the
+// viewing member's own locale (KRKG-0076 UI feedback: the icon alone should say what kind of
+// file it is, not repeated as text after the name).
+const TITLE_SUFFIXES = [
+  ' - Google Docs', ' - Dokumenty Google',
+  ' - Google Sheets', ' - Arkusze Google',
+  ' - Google Drive', ' - Dysk Google',
+  ' - Word', ' - Excel', ' - PowerPoint', ' - Office',
+];
 
 function cleanTitle(rawTitle: string): string | null {
   let title = rawTitle.trim();
