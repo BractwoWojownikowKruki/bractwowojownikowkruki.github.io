@@ -71,3 +71,17 @@ function compareValues(a, b, dir) {
   }
   return dir === 'desc' ? -cmp : cmp;
 }
+
+// Date/timestamp comparator for optional values - missing dates always remain after real dates,
+// even when the user switches from ascending to descending order. ISO timestamps sort
+// lexicographically, so no Date parsing or timezone conversion is needed here.
+function compareDateValues(a, b, dir) {
+  const aMissing = a == null || a === '';
+  const bMissing = b == null || b === '';
+  if (aMissing || bMissing) {
+    if (aMissing && bMissing) return 0;
+    return aMissing ? 1 : -1;
+  }
+  const cmp = String(a).localeCompare(String(b));
+  return dir === 'desc' ? -cmp : cmp;
+}

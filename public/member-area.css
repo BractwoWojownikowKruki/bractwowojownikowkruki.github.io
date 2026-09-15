@@ -291,6 +291,15 @@
   color: var(--text);
 }
 
+/* The status-change timestamp is deliberately quieter and smaller than the action/status cells,
+   while retaining tabular numerals so equal-width digits make a dense roster easy to scan. */
+.czl-table tbody td.lw-status-changed-cell {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .czl-table tbody td.czl-empty,
 .czl-table tbody .czl-empty {
   color: var(--text-faint);

@@ -103,6 +103,15 @@ function formatDate(isoDate) {
   return `${d}.${m}.${y}`;
 }
 
+function formatStatusChangedAt(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const date = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `${date} ${time}`;
+}
+
 function showReauth() {} // no reauth banner on this page yet - matches lista-wyjazdowa.js's placeholder scope
 function hideReauth() {}
 
@@ -389,7 +398,7 @@ function renderRoster(roster, signups) {
 
   const tbody = document.getElementById('roster-content');
   if (visible.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="czl-empty">Brak osób do wyświetlenia.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="czl-empty">Brak osób do wyświetlenia.</td></tr>';
     return;
   }
 
@@ -398,11 +407,14 @@ function renderRoster(roster, signups) {
       case 'weapon': return weaponSortLabel(member);
       case 'name': return displayName(member);
       case 'status': return signupByEmail.get(member.email)?.attending ?? false;
+      case 'statusChangedAt': return signupByEmail.get(member.email)?.statusChangedAt ?? '';
       default: return sectionSortLabel(member);
     }
   };
   const sorted = [...visible].sort((a, b) => {
-    const cmp = compareValues(sortValue(a), sortValue(b), rosterSortState.dir);
+    const cmp = rosterSortState.key === 'statusChangedAt'
+      ? compareDateValues(sortValue(a), sortValue(b), rosterSortState.dir)
+      : compareValues(sortValue(a), sortValue(b), rosterSortState.dir);
     if (cmp !== 0) return cmp;
     // Tie-break alphabetically by name, always ascending regardless of the primary column's own
     // direction - a stable, predictable order for ties rather than one that flips with every
@@ -448,6 +460,7 @@ function renderRoster(roster, signups) {
         ${attending ? renderSkladkaIcon(emailAttr, signup?.skladkaPaid ?? false) : ''}
       </td>
       <td class="${member.weaponIds.length ? '' : 'czl-empty'}">${member.weaponIds.length ? weaponHtml : EMPTY}</td>
+      <td class="lw-status-changed-cell">${escapeHtml(formatStatusChangedAt(signup?.statusChangedAt))}</td>
     </tr>`;
     })
     .join('');
@@ -492,10 +505,11 @@ async function toggleAttending(email, nextAttending, control) {
       },
       showReauth,
       hideReauth,
-    ), () => {
+    ), (result) => {
+      const savedSignup = result.signup;
       const signup = cachedSignups.find(item => item.memberEmail === email);
-      if (signup) signup.attending = nextAttending;
-      else cachedSignups.push({ memberEmail: email, attending: nextAttending, equipmentIds: [], companionIds: [], skladkaPaid: false });
+      if (signup) Object.assign(signup, savedSignup);
+      else cachedSignups.push(savedSignup);
       renderSummary(cachedRoster, cachedSignups);
       renderRoster(cachedRoster, cachedSignups);
     }, document.getElementById('roster-panel'));
