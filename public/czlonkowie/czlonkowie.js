@@ -108,8 +108,8 @@ function renderTable() {
   for (const m of sorted) {
     const row = document.createElement('tr');
     row.dataset.section = m.sectionId ?? '';
-    // Display name gets its own colored outline pill for Typ (KRKG-0057); Imię i nazwisko is its
-    // own column rather than sharing a cell with the display name.
+    // Display name gets its own colored outline pill for Typ (KRKG-0057); the full name remains
+    // available in the profile drawer instead of taking space in this compact directory table.
     row.innerHTML = `
       <td class="czl-section-cell" title="${escapeAttr(m.sectionLabel || 'Brak sekcji')}">${m.sectionId ? escapeHtml(sectionAbbr(m.sectionId)) : EMPTY}</td>
       <td>
@@ -120,7 +120,6 @@ function renderTable() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
         </button>
       </td>
-      <td class="${m.fullName ? '' : 'czl-empty'}">${cell(m.fullName)}</td>
       <td><span ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, m.categoryLabel ? '' : 'czl-empty')}>${escapeHtml(m.categoryLabel || 'Brak statusu')}</span></td>
       <td>${escapeHtml(m.email)}</td>
     `;
