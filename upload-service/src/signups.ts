@@ -3,6 +3,10 @@ import type { FirestoreDoc, FirestoreLikeClient } from './firestore.ts';
 
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
 
+/**
+ * A member's status and selections for one event, including separate timestamps for general
+ * document edits and actual attending-status changes so the roster can show the latter reliably.
+ */
 export interface SignupDoc {
   eventId: string;
   memberEmail: string;
@@ -12,6 +16,8 @@ export interface SignupDoc {
   skladkaPaid: boolean;
   lastChangedBy: string;
   lastChangedAt: string;
+  /** Time of the last actual attending-status change; absent on legacy documents. */
+  statusChangedAt?: string;
 }
 
 export interface SignupWritableFields {
@@ -57,6 +63,8 @@ export async function saveSignup(
 ): Promise<SignupDoc> {
   const id = signupId(eventId, email);
   const existing = await client.getDoc<SignupDoc>(SIGNUPS_COLLECTION, id);
+  const now = new Date().toISOString();
+  const statusChanged = !existing || existing.attending !== fields.attending;
   const writable = {
     eventId,
     memberEmail: email.toLowerCase(),
@@ -64,7 +72,8 @@ export async function saveSignup(
     equipmentIds: fields.equipmentIds,
     companionIds: fields.companionIds,
     lastChangedBy: changedBy,
-    lastChangedAt: new Date().toISOString(),
+    lastChangedAt: now,
+    ...(statusChanged ? { statusChangedAt: now } : {}),
   };
   if (!existing) {
     // First signup for this (event, member) pair - skladkaPaid doesn't exist yet, set its default.
