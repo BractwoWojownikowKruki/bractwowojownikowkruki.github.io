@@ -11,7 +11,8 @@ export type AuditCategory =
   | 'session'
   | 'application'
   | 'gallery'
-  | 'site';
+  | 'site'
+  | 'files';
 
 export type AuditAudience = 'admin' | 'adminOrAccountant' | 'adminOrModerator' | 'members';
 export type AuditFieldVisibility = 'memberVisible' | 'roleRestricted';
@@ -27,7 +28,8 @@ export type AuditResourceKind =
   | 'redirect'
   | 'settings'
   | 'session'
-  | 'application';
+  | 'application'
+  | 'file';
 
 export interface AuditActionDefinition {
   category: AuditCategory;
@@ -113,6 +115,9 @@ const galleryFields = {
   folderId: 'memberVisible',
 } as const;
 const siteFields = { path: 'roleRestricted', target: 'roleRestricted', liveFetchPostCount: 'roleRestricted', status: 'roleRestricted' } as const;
+// Plain club content, same visibility level as galleryFields - nothing here is sensitive, every
+// member can already see every field on the /pliki page itself.
+const filesFields = { name: 'memberVisible', url: 'memberVisible', description: 'memberVisible', docType: 'memberVisible' } as const;
 
 function action(
   category: AuditCategory,
@@ -175,6 +180,8 @@ export const ACTION_REGISTRY = {
   'site.redirect.deleted': action('site', 'admin', ['redirect'], siteFields),
   'site.settings.updated': action('site', 'admin', ['settings'], siteFields),
   'site.social_cache.refreshed': action('site', 'admin', ['settings'], siteFields),
+  'file.added': action('files', 'members', ['file'], filesFields),
+  'file.deleted': action('files', 'members', ['file'], filesFields),
 } as const satisfies Record<string, AuditActionDefinition>;
 
 export type AuditAction = keyof typeof ACTION_REGISTRY;

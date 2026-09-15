@@ -14,7 +14,7 @@ table into this file in the same change. If you forget, this test will keep pass
 stale copy while the real contract document silently diverges - exactly the failure mode this
 fixture exists to prevent.
 
-Last synced with implementation-contract.md: 2026-09-14 (KRKG bugfix: added PUT /admin/members/weapons for the Zarządzanie ludźmi page's admin/moderator-editable Broń column).
+Last synced with implementation-contract.md: 2026-09-15 (KRKG-0076: added POST/DELETE /files for the Pliki page's shared-file-link add/delete routes).
 -->
 
 | Method and route | Classification and action | Resource and side effect | Execution |
@@ -61,3 +61,4 @@ Last synced with implementation-contract.md: 2026-09-14 (KRKG bugfix: added PUT 
 | POST `/finalize` | businessWrite — `gallery.finalized` | gallery; Drive manifest | auditedOperationEnvelope |
 | POST `/gallery-photos/start` | transientNoBusinessWrite — verifies an existing gallery and issues only an expiring submission token | no business record | n/a |
 | POST `/gallery-photos/finalize` | businessWrite — `gallery.photo.contribution.finalized` | gallery; Drive manifest/public share | auditedOperationEnvelope |
+| POST/DELETE `/files` | businessWrite — `file.added` / `file.deleted` | file; Firestore | requestAwaited |

@@ -26,6 +26,7 @@ import { createInMemoryFirestoreClient } from './firestore.ts';
 import { createDisabledSheetsClient } from './sheets.ts';
 import { listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
 import { executeAuditedFirestoreMutation, startExternalOperation, completeExternalOperation } from './audit.ts';
+import { getFile } from './files.ts';
 
 const nodeFetch = globalThis.fetch;
 const ALLOWED_ORIGIN_FOR_TESTS = 'https://example.test'; // matches makeDeps()'s allowedOrigin
@@ -3624,6 +3625,253 @@ test('DELETE /admin/redirects removes the matching redirects.json entry', async 
   const [event] = await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents');
   assert.equal(event.data.action, 'site.redirect.deleted');
   assert.equal(event.data.resource.key, 'redirect:discord');
+});
+
+test('GET /files rejects an unauthenticated caller', async () => {
+  const deps = makeDeps({
+    authenticate: async () => { throw new AuthError('Brak sesji.', 401); },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/files`);
+    assert.equal(res.status, 401);
+  });
+});
+
+test('POST then GET /files round-trips a file and marks it deletable by its owner', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const postRes = await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/arkusz', description: 'Nasz arkusz' }),
+    });
+    assert.equal(postRes.status, 200);
+    const { file } = (await postRes.json()) as { file: { id: string; name: string; docType: string; addedByEmail: string } };
+    assert.equal(file.name, 'Nasz arkusz');
+    assert.equal(file.docType, 'generic');
+    assert.equal(file.addedByEmail, 'ala@example.test');
+
+    const getRes = await fetch(`${baseUrl}/files`);
+    const { files } = (await getRes.json()) as { files: Array<{ id: string; canDelete: boolean }> };
+    assert.equal(files.length, 1);
+    assert.equal(files[0].id, file.id);
+    assert.equal(files[0].canDelete, true);
+  });
+});
+
+test('GET /files marks another member\'s file as not deletable for a plain member', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }), async baseUrl => {
+    await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/x', description: 'Plik Ali' }),
+    });
+  });
+  await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'bob@example.test' }) }), async baseUrl => {
+    const res = await fetch(`${baseUrl}/files`);
+    const { files } = (await res.json()) as { files: Array<{ canDelete: boolean }> };
+    assert.equal(files[0].canDelete, false);
+  });
+});
+
+test('GET /files marks every file deletable for a moderator', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }), async baseUrl => {
+    await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/x', description: 'Plik Ali' }),
+    });
+  });
+  firestore.seed('userRoles', 'mod@example.test', { roles: ['moderator'] });
+  await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'mod@example.test' }) }), async baseUrl => {
+    const res = await fetch(`${baseUrl}/files`);
+    const { files } = (await res.json()) as { files: Array<{ canDelete: boolean }> };
+    assert.equal(files[0].canDelete, true);
+  });
+});
+
+test('POST /files rejects a body with no url', async () => {
+  const deps = makeDeps({ authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: 'brak URL' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('POST /files rejects a syntactically invalid url', async () => {
+  const deps = makeDeps({ authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'nie-jest-URL' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('POST /files rejects a javascript: URL', async () => {
+  const deps = makeDeps({ authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'javascript:alert(1)' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('POST /files rejects a plain http: URL', async () => {
+  const deps = makeDeps({ authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'http://example.com/x' }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('DELETE /files lets the owner delete their own file, with a full before-state in the audit event', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  let fileId = '';
+  await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }), async baseUrl => {
+    const postRes = await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/x', description: 'Plik' }),
+    });
+    fileId = ((await postRes.json()) as { file: { id: string } }).file.id;
+    const delRes = await fetch(`${baseUrl}/files?id=${fileId}`, { method: 'DELETE' });
+    assert.equal(delRes.status, 200);
+  });
+  assert.equal(await getFile(firestore, fileId), null);
+
+  const events = await firestore.listDocs<{ action: string; changes: Array<{ field: string; before?: unknown }> }>('auditEvents');
+  const deleteEvent = events.map(e => e.data).find(e => e.action === 'file.deleted');
+  const beforeFields = new Set(deleteEvent!.changes.map(c => c.field));
+  assert.deepEqual([...beforeFields].sort(), ['description', 'docType', 'name', 'url']);
+});
+
+test('DELETE /files rejects a different plain member deleting someone else\'s file', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  let fileId = '';
+  await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }), async baseUrl => {
+    const postRes = await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/x', description: 'Plik' }),
+    });
+    fileId = ((await postRes.json()) as { file: { id: string } }).file.id;
+  });
+  await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'bob@example.test' }) }), async baseUrl => {
+    const res = await fetch(`${baseUrl}/files?id=${fileId}`, { method: 'DELETE' });
+    assert.equal(res.status, 403);
+  });
+  assert.ok(await getFile(firestore, fileId));
+});
+
+test('DELETE /files lets a moderator delete someone else\'s file', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  let fileId = '';
+  await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }), async baseUrl => {
+    const postRes = await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/x', description: 'Plik' }),
+    });
+    fileId = ((await postRes.json()) as { file: { id: string } }).file.id;
+  });
+  firestore.seed('userRoles', 'mod@example.test', { roles: ['moderator'] });
+  await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'mod@example.test' }) }), async baseUrl => {
+    const res = await fetch(`${baseUrl}/files?id=${fileId}`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(await getFile(firestore, fileId), null);
+});
+
+test('DELETE /files returns 404 for an unknown id', async () => {
+  const deps = makeDeps({ authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/files?id=does-not-exist`, { method: 'DELETE' });
+    assert.equal(res.status, 404);
+  });
+});
+
+// A round-2 delegated review (reviews/KRKG-0076-plan-review-round2-opencode.md, finding #1) caught
+// two real problems with an earlier version of this test: (a) a bare Promise.all of two fetch()
+// calls against this same in-process node:http server does not actually force concurrent handler
+// execution - it serializes, the same reason server.test.ts's own '/upload does not tell a
+// concurrent duplicate request "skipped"...' test (server.test.ts:4054) needs an explicit
+// setTimeout+gate to force interleaving, not a bare Promise.all; and (b) even under genuine
+// concurrency, this route's actual implementation does NOT guarantee a 404 for the loser -
+// getFile() runs outside the transaction and tx.deleteDoc is a no-op on an already-missing
+// document, so two truly concurrent DELETEs that both pass the ownership check before either
+// commits both return 200. design.md's "Poprawki po recenzji" section explains why this plan
+// keeps the read-before-transaction pattern (matching handleListaWyjazdowaDeleteProfilePhoto)
+// instead of adopting the round-1 review's tx-read suggestion - so this test must honestly assert
+// what that choice actually produces (idempotent double-200, not a race-losing 404), with real
+// gating so it is a genuine concurrency test rather than an accidentally-sequential one.
+test('two genuinely concurrent DELETEs of the same file both succeed (idempotent, not a false 404)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  let fileId = '';
+  await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }), async baseUrl => {
+    const postRes = await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/x', description: 'Plik' }),
+    });
+    fileId = ((await postRes.json()) as { file: { id: string } }).file.id;
+  });
+
+  let getFileCalls = 0;
+  let releaseBothGetFileReads: (() => void) | undefined;
+  const bothGetFileReadsGate = new Promise<void>(resolve => {
+    releaseBothGetFileReads = resolve;
+  });
+  // Wraps the real firestore client's getDoc so BOTH DELETEs' ownership-check reads park until
+  // both have actually arrived at this wrapper, then releases them together - the same "hold the
+  // first request open until the second has definitely started" technique server.test.ts's
+  // /upload test uses, applied here via a dependency wrapper instead of a fake-drive hook since
+  // there is no equivalent seam on FirestoreLikeClient itself. (Gating only the first call and
+  // releasing it as soon as the second fetch() is issued - rather than once the second call has
+  // actually reached this wrapper - lets the first call's real read, resume, and full
+  // read-then-transaction sequence complete as a same-tick microtask chain before the second
+  // request's network round trip ever reaches its own getDoc call, collapsing the test back into
+  // an effectively-sequential run that deterministically produces a false 404 for the second
+  // request instead of exercising genuine concurrency. Gating both calls until both have arrived
+  // is what actually forces the overlap the test's name promises.)
+  const gatingFirestore: typeof firestore = {
+    ...firestore,
+    async getDoc(collection, id) {
+      if (collection === 'sharedFiles') {
+        getFileCalls++;
+        if (getFileCalls <= 2) await bothGetFileReadsGate;
+      }
+      return firestore.getDoc(collection, id);
+    },
+  };
+  await withServer(makeDeps({ firestore: gatingFirestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }), async baseUrl => {
+    const firstRequest = fetch(`${baseUrl}/files?id=${fileId}`, { method: 'DELETE' });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const secondRequest = fetch(`${baseUrl}/files?id=${fileId}`, { method: 'DELETE' });
+    while (getFileCalls < 2) {
+      await new Promise(resolve => setTimeout(resolve, 1));
+    }
+    releaseBothGetFileReads?.();
+    const [first, second] = await Promise.all([firstRequest, secondRequest]);
+    assert.deepEqual([first.status, second.status], [200, 200]);
+  });
+  assert.equal(await getFile(firestore, fileId), null);
 });
 
 test('/delete-drive-gallery rejects an unauthenticated caller before touching Drive', async () => {

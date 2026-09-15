@@ -70,6 +70,7 @@ import {
 } from './signups.ts';
 import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
 import { listDuesForYear, saveDues, listDuesAuditLog, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, getDues, normalizeDuesStatus, effectiveDuesStatus } from './dues.ts';
+import { buildSharedFileDoc, saveFileInTransaction, deleteFileInTransaction, getFile, listFiles, InvalidFileUrlError, type SharedFileDoc } from './files.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -213,6 +214,8 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   entryFee: auditedRoute('PUT', '/lista-wyjazdowa/wpisowe', ['dues.entry_fee.changed']),
   annualDues: auditedRoute('PUT', '/lista-wyjazdowa/dues', ['dues.annual.changed']),
   yearFee: auditedRoute('PUT', '/lista-wyjazdowa/dues/year-fee', ['dues.year_fee.changed']),
+  filesAdd: auditedRoute('POST', '/files', ['file.added']),
+  filesDelete: auditedRoute('DELETE', '/files', ['file.deleted']),
 } as const;
 
 export const AUDITED_MEMBER_MUTATION_ROUTE_DESCRIPTORS = Object.values(AUDITED_MEMBER_MUTATION_ROUTES);
@@ -651,6 +654,80 @@ async function* validatedUploadStream(
       yield chunk;
     }
   }
+}
+
+async function handleListFiles(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const [files, grantedRoles] = await Promise.all([
+    listFiles(deps.firestore),
+    getGrantedRoles(deps.firestore, identity.email),
+  ]);
+  const canDeleteAny = satisfiesRole(grantedRoles, 'moderator');
+  const email = identity.email.toLowerCase();
+  sendJson(res, 200, {
+    files: files.map(file => ({ ...file, canDelete: canDeleteAny || file.addedByEmail === email })),
+  });
+}
+
+async function handleAddFile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const body = await readJsonBody<{ url?: unknown; description?: unknown }>(req, deps.maxJsonBodyBytes);
+  if (typeof body.url !== 'string' || !body.url.trim()) throw new AuthError('Podaj adres URL.', 400);
+  const description = optionalTrimmedString(body.description, 2000, 'Opis może mieć najwyżej 2000 znaków.') ?? '';
+  let doc: SharedFileDoc;
+  try {
+    doc = await buildSharedFileDoc({ url: body.url.trim(), description }, identity.email);
+  } catch (err) {
+    if (err instanceof InvalidFileUrlError) throw new AuthError(err.message, 400);
+    throw err;
+  }
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.filesAdd,
+    'file.added',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'file', key: `file:${doc.id}`, display: doc.name },
+      changes: [
+        { field: 'name', after: doc.name },
+        { field: 'url', after: doc.url },
+        { field: 'description', after: doc.description },
+        { field: 'docType', after: doc.docType },
+      ],
+    },
+    async tx => {
+      await saveFileInTransaction(tx, doc);
+      return doc;
+    },
+  );
+  sendJson(res, 200, { file: result });
+}
+
+async function handleDeleteFile(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const id = url.searchParams.get('id');
+  if (!id) throw new AuthError('Brak id.', 400);
+  const file = await getFile(deps.firestore, id);
+  if (!file) throw new AuthError('Plik nie istnieje.', 404);
+  const isOwner = identity.email.toLowerCase() === file.addedByEmail;
+  if (!isOwner) await requireRole(deps.firestore, identity.email, 'moderator');
+  await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.filesDelete,
+    'file.deleted',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'file', key: `file:${id}`, display: file.name },
+      changes: [
+        { field: 'name', before: file.name },
+        { field: 'url', before: file.url },
+        { field: 'description', before: file.description },
+        { field: 'docType', before: file.docType },
+      ],
+    },
+    async tx => deleteFileInTransaction(tx, id),
+  );
+  sendJson(res, 200, { ok: true });
 }
 
 async function handleWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -3680,6 +3757,12 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAuditEventsListPublic(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/audyt/event') {
         await handleAuditEventDetailPublic(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/files') {
+        await handleListFiles(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/files') {
+        await handleAddFile(req, res, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/files') {
+        await handleDeleteFile(req, res, url, deps);
       } else if (req.method === 'POST' && url.pathname === '/internal/audit/reconcile') {
         await handleInternalAuditReconcile(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/redirects') {

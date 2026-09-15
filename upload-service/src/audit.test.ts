@@ -34,7 +34,7 @@ test('checked-in Firestore index manifest covers every supported audit primary s
 test('audit registry contains every required logical category and no unregistered action is accepted', () => {
   assert.deepEqual(
     [...new Set(Object.values(ACTION_REGISTRY).map(action => action.category))].sort(),
-    ['application', 'dues', 'events', 'gallery', 'membership', 'permissions', 'profile', 'session', 'signups', 'site'],
+    ['application', 'dues', 'events', 'files', 'gallery', 'membership', 'permissions', 'profile', 'session', 'signups', 'site'],
   );
   assert.equal(ACTION_REGISTRY['profile.photo_submission.created'].audience, 'adminOrModerator');
   assert.equal(ACTION_REGISTRY['gallery.created'].audience, 'members');
@@ -48,6 +48,14 @@ test('audit registry contains every required logical category and no unregistere
       }),
     AuditInputError,
   );
+});
+
+test('ACTION_REGISTRY has file.added and file.deleted registered under the files category', () => {
+  assert.equal(ACTION_REGISTRY['file.added'].category, 'files');
+  assert.equal(ACTION_REGISTRY['file.added'].audience, 'members');
+  assert.deepEqual(ACTION_REGISTRY['file.added'].resourceKinds, ['file']);
+  assert.equal(ACTION_REGISTRY['file.deleted'].category, 'files');
+  assert.deepEqual(Object.keys(ACTION_REGISTRY['file.added'].fields).sort(), ['description', 'docType', 'name', 'url']);
 });
 
 test('canonical audit event is server-shaped and uses a compact technical value instead of prose', () => {
