@@ -46,16 +46,17 @@ function parseAllowedUrl(rawUrl: string): URL {
 // fetch only ever runs for one of these known doc-provider hosts - everything else gets 'generic'
 // and no fetch attempt at all. '*.sharepoint.com' is matched separately below (any subdomain),
 // every other entry is an exact hostname match.
-const KNOWN_HOSTS: Record<string, SharedFileDocType> = {
-  'docs.google.com': 'googleDoc',
-  'sheets.google.com': 'googleSheet',
-  'drive.google.com': 'googleDrive',
-  '1drv.ms': 'office',
-  'office.com': 'office',
-};
+const KNOWN_HOSTS: ReadonlyMap<string, SharedFileDocType> = new Map<string, SharedFileDocType>([
+  ['docs.google.com', 'googleDoc'],
+  ['sheets.google.com', 'googleSheet'],
+  ['drive.google.com', 'googleDrive'],
+  ['1drv.ms', 'office'],
+  ['office.com', 'office'],
+]);
 
 function detectDocType(url: URL): SharedFileDocType | null {
-  if (KNOWN_HOSTS[url.hostname]) return KNOWN_HOSTS[url.hostname];
+  const known = KNOWN_HOSTS.get(url.hostname);
+  if (known) return known;
   if (url.hostname.endsWith('.sharepoint.com')) return 'office';
   return null;
 }
@@ -137,44 +138,54 @@ export async function detectDocTypeAndFetchTitle(
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    let response: Response;
     try {
-      response = await fetch(currentUrl, { signal: controller.signal, redirect: 'manual' });
-    } catch {
-      return { docType, title: null };
+      let response: Response;
+      try {
+        response = await fetch(currentUrl, { signal: controller.signal, redirect: 'manual' });
+      } catch {
+        return { docType, title: null };
+      }
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (!location) {
+          try {
+            if (response.body) await response.body.getReader().cancel();
+          } catch {}
+          return { docType, title: null };
+        }
+        try {
+          currentUrl = new URL(location, currentUrl);
+        } catch {
+          try {
+            if (response.body) await response.body.getReader().cancel();
+          } catch {}
+          return { docType, title: null };
+        }
+        try {
+          if (response.body) await response.body.getReader().cancel();
+        } catch {}
+        continue;
+      }
+
+      if (response.status < 200 || response.status >= 300) return { docType, title: null };
+
+      if (!isHtmlContentType(response)) return { docType, title: null };
+
+      const contentLength = Number(response.headers.get('content-length') ?? '0');
+      if (contentLength > TITLE_FETCH_MAX_BYTES) return { docType, title: null };
+
+      let html: string;
+      try {
+        html = await readBoundedText(response);
+      } catch {
+        return { docType, title: null };
+      }
+      const match = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+      return { docType, title: match ? cleanTitle(match[1]) : null };
     } finally {
       clearTimeout(timeout);
     }
-
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location');
-      if (!location) {
-        try {
-          if (response.body) await response.body.getReader().cancel();
-        } catch {}
-        return { docType, title: null };
-      }
-      try {
-        currentUrl = new URL(location, currentUrl);
-      } catch {
-        try {
-          if (response.body) await response.body.getReader().cancel();
-        } catch {}
-        return { docType, title: null };
-      }
-      continue;
-    }
-
-    if (response.status < 200 || response.status >= 300) return { docType, title: null };
-
-    if (!isHtmlContentType(response)) return { docType, title: null };
-
-    const contentLength = Number(response.headers.get('content-length') ?? '0');
-    if (contentLength > TITLE_FETCH_MAX_BYTES) return { docType, title: null };
-
-    const html = await readBoundedText(response);
-    const match = html.match(/<title[^>]*>([^<]*)<\/title>/i);
-    return { docType, title: match ? cleanTitle(match[1]) : null };
   }
   return { docType, title: null };
 }

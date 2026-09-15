@@ -61,6 +61,57 @@ test('detectDocTypeAndFetchTitle recognizes sheets, drive, and any *.sharepoint.
   );
 });
 
+test('detectDocTypeAndFetchTitle rejects Object.prototype-inherited hostnames without fetching', async () => {
+  await withMockedFetch(
+    () => {
+      throw new Error('must not fetch a non-whitelisted host');
+    },
+    async () => {
+      assert.deepEqual(await detectDocTypeAndFetchTitle('https://constructor/x'), { docType: 'generic', title: null });
+      assert.deepEqual(await detectDocTypeAndFetchTitle('https://__proto__/x'), { docType: 'generic', title: null });
+    },
+  );
+});
+
+test('detectDocTypeAndFetchTitle refuses a whitelisted host on a non-standard port', async () => {
+  await withMockedFetch(
+    () => {
+      throw new Error('must not fetch a non-standard port');
+    },
+    async () => {
+      const result = await detectDocTypeAndFetchTitle('https://docs.google.com:444/document/d/x/edit');
+      assert.deepEqual(result, { docType: 'googleDoc', title: null });
+    },
+  );
+});
+
+test('detectDocTypeAndFetchTitle returns null title (not a thrown error) when the body stream errors mid-read', async () => {
+  await withMockedFetch(
+    () => {
+      const body = new ReadableStream({
+        pull(controller) {
+          controller.error(new Error('connection reset'));
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'content-type': 'text/html' } });
+    },
+    async () => {
+      const result = await detectDocTypeAndFetchTitle('https://docs.google.com/document/d/x/edit');
+      assert.deepEqual(result, { docType: 'googleDoc', title: null });
+    },
+  );
+});
+
+test('detectDocTypeAndFetchTitle returns null title after exceeding the max redirect hops', async () => {
+  await withMockedFetch(
+    () => new Response(null, { status: 302, headers: { location: 'https://docs.google.com/next' } }),
+    async () => {
+      const result = await detectDocTypeAndFetchTitle('https://docs.google.com/start');
+      assert.deepEqual(result, { docType: 'googleDoc', title: null });
+    },
+  );
+});
+
 test('detectDocTypeAndFetchTitle returns null title (not a thrown error) on a non-2xx response', async () => {
   await withMockedFetch(
     () => new Response('nope', { status: 403 }),
