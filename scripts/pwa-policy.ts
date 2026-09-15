@@ -65,6 +65,9 @@ export const GATED_PATH_PREFIXES = [
   // sensitivity class as /profil//czlonkowie/ above. /admin/audyt/ needs no separate entry - it's
   // already covered by the existing '/admin/' prefix.
   '/audyt/',
+  // KRKG-0076: the Pliki page (public/pliki/) lists member-added file links and who added
+  // them - same personal-data/member-only sensitivity class as /profil//czlonkowie//audyt/ above.
+  '/pliki/',
 ] as const;
 
 /** Returns whether a pathname belongs to the intentionally public PWA entry-point set. */

@@ -23,11 +23,14 @@ initGoogleSignIn({
   whoamiPath: '/wojownicy-upload/whoami',
   onSignedIn: () => {
     showOnly(null);
-    const resourceKey = new URLSearchParams(window.location.search).get('resourceKey') || undefined;
+    const params = new URLSearchParams(window.location.search);
+    const resourceKey = params.get('resourceKey') || undefined;
+    const category = params.get('category') || undefined;
+    const initialFilters = resourceKey ? { resourceKey } : category ? { category } : undefined;
     AuditView.mount(document.getElementById('audyt-container'), {
       apiBase: '/audyt',
       scope: 'member',
-      initialFilters: resourceKey ? { resourceKey } : undefined,
+      initialFilters,
     });
   },
   onSignedOut: () => showOnly(panels.signedOut),

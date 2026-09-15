@@ -98,6 +98,8 @@
     'site.redirect.deleted': 'Usunięcie przekierowania',
     'site.settings.updated': 'Zmiana ustawień',
     'site.social_cache.refreshed': 'Odświeżenie cache',
+    'file.added': 'Dodanie pliku',
+    'file.deleted': 'Usunięcie pliku',
   };
 
   const CATEGORY_LABELS = {
@@ -111,6 +113,7 @@
     application: 'Aplikacja',
     gallery: 'Galerie',
     site: 'Strona',
+    files: 'Pliki',
   };
 
   // Every category whose audience is 'members' in ACTION_REGISTRY (implementation-contract.md's
@@ -118,7 +121,7 @@
   // category's audience is admin/adminOrAccountant/adminOrModerator, so projectAuditEvent() on the
   // server always returns null for a member-scope query against them - offering them in the
   // member shell's category filter would just be a filter that structurally never returns a row).
-  const MEMBER_VISIBLE_CATEGORIES = ['events', 'signups', 'gallery'];
+  const MEMBER_VISIBLE_CATEGORIES = ['events', 'signups', 'gallery', 'files'];
 
   // action -> category, derived from ACTION_LABELS' keys against implementation-contract.md's
   // registry table, used to populate the category/action two-step filter control.
@@ -165,6 +168,7 @@
       'gallery.photo.contribution.finalized',
     ],
     site: ['site.redirect.created', 'site.redirect.deleted', 'site.settings.updated', 'site.social_cache.refreshed'],
+    files: ['file.added', 'file.deleted'],
   };
 
   function actionLabel(action) {
@@ -218,6 +222,9 @@
   function defaultAuditState(initialFilters, now) {
     if (initialFilters && initialFilters.resourceKey) {
       return { selector: { kind: 'resourceKey', key: initialFilters.resourceKey }, fromDate: '', toDate: '' };
+    }
+    if (initialFilters && initialFilters.category) {
+      return { selector: { kind: 'categoryAction', category: initialFilters.category }, fromDate: '', toDate: '' };
     }
     const today = now ? new Date(now.getTime()) : new Date();
     const targetMonth = today.getMonth() - 1;
@@ -565,6 +572,16 @@
       els.selectorKind.value = 'resourceKey';
       showSelectorValue('resourceKey');
       els.resourceInput.value = initialState.selector.key;
+    } else if (initialState.selector.kind === 'categoryAction') {
+      els.selectorKind.value = 'categoryAction';
+      showSelectorValue('categoryAction');
+      if (els.categorySelect) {
+        els.categorySelect.value = initialState.selector.category;
+        // categorySelect's own 'change' listener (not triggered by a programmatic .value set) is
+        // what populates actionSelect's options - fire it manually so the two-step control ends
+        // up in the same state a user clicking through it by hand would reach.
+        els.categorySelect.dispatchEvent(new Event('change'));
+      }
     } else {
       showSelectorValue('none');
     }

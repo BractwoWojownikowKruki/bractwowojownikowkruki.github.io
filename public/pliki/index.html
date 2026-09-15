@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pliki - Bractwo Wojowników Kruki</title>
+  <meta name="robots" content="noindex, nofollow" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Pliki - Bractwo Wojowników Kruki" />
+  <meta property="og:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+  <meta property="og:locale" content="pl_PL" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Pliki - Bractwo Wojowników Kruki" />
+  <meta name="twitter:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <link rel="apple-touch-icon" href="../favicon.png" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../member-area.css" />
+  <link rel="stylesheet" href="../shared/profile-panel.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <!-- PARTIAL:nav -->
+
+  <main class="main-content">
+    <div class="content-left">
+      <section class="content-section">
+        <p class="auth-checking busy-sticker-loader--feature" id="pliki-checking" role="status"><span class="busy-sticker-aura busy-sticker-aura--feature" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--feature" alt=""></span><span class="busy-sticker-label">PLEASE HOLD THE LINE...</span></p>
+        <div class="upload-signin" id="signed-out-panel" hidden>
+          <p>Zaloguj się kontem Google, aby zobaczyć pliki.</p>
+          <div id="google-signin-button"></div>
+        </div>
+        <p class="upload-forbidden" id="forbidden-panel" hidden>
+          Brak uprawnień. Ta sekcja jest dostępna tylko dla członków Bractwa.
+        </p>
+
+        <div id="main-content" hidden>
+          <div class="pliki-header">
+            <div>
+              <h1>📎 Pliki</h1>
+              <p style="color: var(--text-muted);">
+                Na tej stronie możesz dodać własne linki do plików do udostępniania reszcie drużyny, na przykład arkusze.
+              </p>
+            </div>
+            <div class="pliki-header-actions">
+              <a href="/audyt/?category=files" class="pliki-history-link">◷ Historia</a>
+              <button type="button" class="btn btn-primary" id="pliki-add-toggle">Dodaj plik</button>
+            </div>
+          </div>
+
+          <form id="pliki-add-form" class="pliki-add-form" hidden>
+            <label for="pliki-add-url">Adres URL (https)</label>
+            <input type="url" id="pliki-add-url" name="url" required maxlength="2000" pattern="https://.*" placeholder="https://..." />
+            <label for="pliki-add-description">Opis</label>
+            <textarea id="pliki-add-description" name="description" maxlength="2000" rows="2" placeholder="Np. Arkusz zapisów na turniej"></textarea>
+            <div class="pliki-add-form-actions">
+              <button type="submit" class="btn btn-primary" id="pliki-add-submit">Dodaj</button>
+              <button type="button" class="btn" id="pliki-add-cancel">Anuluj</button>
+            </div>
+            <p class="pliki-add-error" id="pliki-add-error" hidden></p>
+          </form>
+
+          <div id="pliki-list" class="pliki-tile-grid"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- PARTIAL:social_sidebar -->
+  </main>
+
+  <!-- PARTIAL:footer -->
+
+  <script src="../auth.js"></script>
+  <script src="../nav.js"></script>
+  <script src="../mutation-feedback.js"></script>
+  <script src="../shared/profile-panel.js"></script>
+  <script src="pliki.js"></script>
+</body>
+</html>
