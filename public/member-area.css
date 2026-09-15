@@ -1096,8 +1096,33 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
   font-size: 0.85em;
 }
 
-.pliki-tile-open {
+.pliki-tile-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pliki-tile-open,
+.pliki-tile-copy {
+  flex: 1;
   justify-content: center;
+}
+
+/* One-shot pulse for a /pliki/#slug deep link landing on this tile (scrollToHashedTile in
+   pliki.js) - confirms which tile the link actually opened, since a plain scroll alone can leave
+   it unclear which of several similarly-shaped cards the browser just centered on. */
+.pliki-tile--highlight {
+  animation: pliki-tile-highlight-pulse 2s ease-out;
+}
+
+@keyframes pliki-tile-highlight-pulse {
+  0%, 40% {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 2px var(--gold);
+  }
+  100% {
+    border-color: var(--border);
+    box-shadow: none;
+  }
 }
 
 .pliki-tile-delete {
