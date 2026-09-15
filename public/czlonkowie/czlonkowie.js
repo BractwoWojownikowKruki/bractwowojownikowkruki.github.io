@@ -34,12 +34,12 @@ function sectionAbbr(sectionId) {
   return SECTION_ABBR[sectionId] ?? (sectionId ?? '').slice(0, 3).toUpperCase();
 }
 
-// Status (categoryId) shown two ways with the same pill: wrapping the name itself (KRKG-0057) and,
+// Status (categoryId) shown two ways with the same pill: wrapping the display name itself (KRKG-0057) and,
 // as its own dedicated Status column (KRKG bugfix), a standalone badge - same colored-pill
 // convention used everywhere else on the site (Zarządzanie ludźmi's Wpisowe-adjacent name cells,
 // Lista Wyjazdowa/Składki rosters), rather than plain text. never-a-color-value-in-JS convention,
 // same as the section abbreviation above; the actual colors live in member-area.css's
-// [data-category="..."] rules. extraClass carries czl-empty for an empty fullName/categoryLabel,
+// [data-category="..."] rules. extraClass carries czl-empty for an empty displayName/categoryLabel,
 // nothing otherwise. Spis Ludności is read-only (KRKG-0063), so this has no sync-on-change
 // counterpart.
 function categoryNamePillAttrs(categoryId, label, extraClass) {
@@ -70,6 +70,10 @@ function cell(value) {
   return value ? escapeHtml(value) : EMPTY;
 }
 
+function sortValue(member) {
+  return sortState.key === 'displayName' ? displayName(member) : member[sortState.key];
+}
+
 // Default/Sekcja-column sort (KRKG-0051): grouped by section, alphabetical within each - see the
 // sortState.key === 'sectionLabel' special case in renderTable's comparator below. Click-to-sort
 // wiring itself (aria-sort, toggling asc/desc, which header is active) lives in
@@ -89,12 +93,12 @@ function renderTable() {
         ),
       );
   const sorted = [...filtered].sort((a, b) => {
-    const cmp = compareValues(a[sortState.key], b[sortState.key], sortState.dir);
+    const cmp = compareValues(sortValue(a), sortValue(b), sortState.dir);
     // Sorting by Sekcja ties every member in the same section - break the tie alphabetically by
     // name instead of leaving it at the server's arbitrary order, so "grouped by section, A-Z
     // within it" is what both the default view and an explicit click on the Sekcja header show.
     if (cmp === 0 && sortState.key === 'sectionLabel') {
-      return compareValues(a.fullName, b.fullName, sortState.dir);
+      return compareValues(displayName(a), displayName(b), sortState.dir);
     }
     return cmp;
   });
@@ -104,20 +108,19 @@ function renderTable() {
   for (const m of sorted) {
     const row = document.createElement('tr');
     row.dataset.section = m.sectionId ?? '';
-    // Imię i nazwisko gets its own colored outline pill for Typ (KRKG-0057); Ksywa is its own
-    // column (KRKG-0064) rather than sharing a cell (KRKG-0053's original stacked layout, dropped
-    // now that this table has the room - it matches Zarządzanie ludźmi's own separate column).
+    // Display name gets its own colored outline pill for Typ (KRKG-0057); Imię i nazwisko is its
+    // own column rather than sharing a cell with the display name.
     row.innerHTML = `
       <td class="czl-section-cell" title="${escapeAttr(m.sectionLabel || 'Brak sekcji')}">${m.sectionId ? escapeHtml(sectionAbbr(m.sectionId)) : EMPTY}</td>
       <td>
         <button type="button" class="profile-trigger" data-profile-trigger data-email="${escapeAttr(m.email)}">
-          <span ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, m.fullName ? '' : 'czl-empty')}>${cell(m.fullName)}</span>
+          <span ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, displayName(m) ? '' : 'czl-empty')}>${cell(displayName(m))}</span>
         </button>
         <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${escapeAttr(m.email)}" aria-label="Pokaż profil" title="Pokaż profil">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
         </button>
       </td>
-      <td class="${m.nickname ? '' : 'czl-empty'}">${cell(m.nickname)}</td>
+      <td class="${m.fullName ? '' : 'czl-empty'}">${cell(m.fullName)}</td>
       <td><span ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, m.categoryLabel ? '' : 'czl-empty')}>${escapeHtml(m.categoryLabel || 'Brak statusu')}</span></td>
       <td>${escapeHtml(m.email)}</td>
     `;
