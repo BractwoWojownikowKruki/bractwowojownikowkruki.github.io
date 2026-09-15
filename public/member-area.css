@@ -1090,6 +1090,12 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
   color: var(--text-muted);
 }
 
+/* Same downscale as .lw-roster-name-cell .category-name-pill - full table-cell sizing (0.15rem
+   0.65rem padding, 1rem+ default font) reads as oversized crammed into this compact meta line. */
+.pliki-tile-meta .category-name-pill {
+  font-size: 0.85em;
+}
+
 .pliki-tile-open {
   justify-content: center;
 }

@@ -57,7 +57,9 @@ function fileTileHtml(file) {
       ${file.description ? `<p class="pliki-tile-description">${escapeHtml(file.description)}</p>` : ''}
       <div class="pliki-tile-meta">
         <span>${formatDate(file.addedAt)}</span>
-        <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">${escapeHtml(displayName(member))}</button>
+        <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
+          <span class="category-name-pill" data-category="${escapeHtml(member.categoryId ?? '')}" title="${escapeHtml(member.categoryLabel ?? '')}">${escapeHtml(displayName(member))}</span>
+        </button>
       </div>
       <a class="btn-drive-action pliki-tile-open" href="${escapeHtml(file.url)}" target="_blank" rel="noopener">${OPEN_ICON}Otwórz</a>
     </article>

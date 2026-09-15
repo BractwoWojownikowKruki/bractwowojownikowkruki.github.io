@@ -225,11 +225,16 @@
     // either way. Shown identically to an approved main photo, by explicit product decision - no
     // "pending" label - and still also listed again below in the "Oczekujące" section.
     const effectiveMainPhoto = profile.mainPhoto || pendingPhotos[0] || null;
+    // KRKG-0076 UI feedback: this drawer used to header/avatar itself on the raw fullName,
+    // inconsistent with every trigger that opens it (skladki.js/wyjazd.js/czlonkowie.js/pliki.js
+    // all label their .profile-trigger with displayName()'s nickname-priority name) - a member
+    // known site-wide by their ksywka would open a drawer greeting them by legal name instead.
+    const shownName = displayName(profile);
     const avatarHtml = effectiveMainPhoto
       ? `<div class="person-main-photo" data-photo-index="0">
-           <img src="${escapeHtml(effectiveMainPhoto.url)}" alt="${escapeHtml(profile.fullName)}" />
+           <img src="${escapeHtml(effectiveMainPhoto.url)}" alt="${escapeHtml(shownName)}" />
          </div>`
-      : `<div class="person-main-photo profile-avatar-placeholder">${escapeHtml(initials(profile.fullName))}</div>`;
+      : `<div class="person-main-photo profile-avatar-placeholder">${escapeHtml(initials(shownName))}</div>`;
     const weaponsHtml = weaponFieldHtml(profile);
     // photos is populated for both a published public profile and a still-pending upload (see
     // GET /member-profile) - render it unconditionally rather than re-checking `published` here,
@@ -272,7 +277,7 @@
       ${avatarHtml}
       ${duesStatusHtml}
       ${galleryHtml}
-      <h3>${escapeHtml(profile.fullName)}</h3>
+      <h3>${escapeHtml(shownName)}</h3>
       <dl class="profile-fields">
         ${profile.nickname ? `<dt>Ksywka</dt><dd>${escapeHtml(profile.nickname)}</dd>` : ''}
         ${profile.sectionLabel ? `<dt>Sekcja</dt><dd><span class="section-pill" data-section="${escapeHtml(profile.sectionId ?? '')}">${escapeHtml(profile.sectionLabel)}</span></dd>` : ''}
