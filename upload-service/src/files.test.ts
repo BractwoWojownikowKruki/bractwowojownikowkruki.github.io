@@ -246,6 +246,21 @@ test('detectDocTypeAndFetchTitle refuses to follow a redirect that downgrades to
   );
 });
 
+test('detectDocTypeAndFetchTitle refuses to follow a redirect that embeds credentials', async () => {
+  await withMockedFetch(
+    url => {
+      if (url === 'https://1drv.ms/w/s!abc') {
+        return new Response(null, { status: 302, headers: { location: 'https://user:pass@office.com/w/abc' } });
+      }
+      throw new Error('must not fetch a redirect target with embedded credentials');
+    },
+    async () => {
+      const result = await detectDocTypeAndFetchTitle('https://1drv.ms/w/s!abc');
+      assert.deepEqual(result, { docType: 'office', title: null });
+    },
+  );
+});
+
 // A round-2 delegated review (finding #6) caught that the timeout path (design.md: "Timeout ok.
 // 4s") had no test - detectDocTypeAndFetchTitle now takes an optional timeoutMs so a test can
 // inject a short value instead of waiting out the real 4s. This mock fetch behaves like the real

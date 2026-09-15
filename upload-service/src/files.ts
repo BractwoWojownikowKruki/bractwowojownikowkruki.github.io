@@ -61,11 +61,14 @@ function detectDocType(url: URL): SharedFileDocType | null {
   return null;
 }
 
-/** https-only, standard-port, whitelisted-host check - applied to the original URL and, again,
- * to every redirect hop, so a whitelisted host can never hand off the fetch to somewhere else. */
+/** https-only, standard-port, no-embedded-credentials, whitelisted-host check - applied to the
+ * original URL and, again, to every redirect hop, so a whitelisted host can never hand off the
+ * fetch to somewhere else, and a redirect can never smuggle credentials into the next request
+ * (mirrors the same check parseAllowedUrl makes on the original URL; final review finding #5). */
 function isFetchableWhitelistedUrl(url: URL): boolean {
   if (url.protocol !== 'https:') return false;
   if (url.port !== '') return false;
+  if (url.username || url.password) return false;
   return detectDocType(url) !== null;
 }
 

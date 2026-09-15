@@ -414,7 +414,8 @@
    * Mounts the shared audit view into `container`. `options`:
    * - `apiBase` ('/admin/audyt' or '/audyt', required)
    * - `scope` ('admin' or 'member', required)
-   * - `initialFilters` (optional) - `{ resourceKey }` today, used by every Historia deep link
+   * - `initialFilters` (optional) - `{ resourceKey }` used by every Historia deep link, or
+   *   `{ category }` used by category-scoped deep links such as `/pliki`
    * - `showReauth`/`hideReauth` (optional, default no-ops - most Lista Wyjazdowa pages have no
    *   reauth banner of their own either, see wyjazd.js/skladki.js)
    */

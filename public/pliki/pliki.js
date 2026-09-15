@@ -91,7 +91,7 @@ function wireAddForm() {
     const url = document.getElementById('pliki-add-url').value.trim();
     const description = document.getElementById('pliki-add-description').value.trim();
     try {
-      await MutationFeedback.confirmed({
+      await window.MutationFeedback.confirmed({
         execute: () => apiFetch('/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, description }) }),
         apply: async () => {
           form.reset();
@@ -99,7 +99,9 @@ function wireAddForm() {
           await loadFiles();
         },
         refreshFragment: () => loadFiles(),
-        control: submitButton,
+        // Anchor on the always-visible header toggle, not submitButton: apply() hides #pliki-add-form
+        // (and submitButton with it), which would bury the checkmark in a hidden subtree.
+        control: document.getElementById('pliki-add-toggle'),
         viewRoot: document.getElementById('pliki-list'),
       });
     } catch (err) {
@@ -115,15 +117,21 @@ function wireDeleteButtons() {
     if (!button) return;
     if (!window.confirm('Czy na pewno chcesz usunąć ten plik?')) return;
     try {
-      await MutationFeedback.confirmed({
+      await window.MutationFeedback.confirmed({
         execute: () => apiFetch(`/files?id=${encodeURIComponent(button.dataset.deleteId)}`, { method: 'DELETE' }),
         apply: async () => { await loadFiles(); },
         refreshFragment: () => loadFiles(),
-        control: button,
+        // Anchor on the always-visible header toggle, not the clicked button: apply() calls
+        // loadFiles(), which replaces #pliki-list's innerHTML and detaches the clicked button,
+        // which made MutationFeedback throw "anchor is no longer connected" on every successful delete.
+        control: document.getElementById('pliki-add-toggle'),
         viewRoot: document.getElementById('pliki-list'),
       });
     } catch (err) {
       window.alert(`Nie udało się usunąć pliku: ${err.message}`);
+      // Refresh the list even on failure: if the delete failed because someone else already
+      // removed the file (404), the stale tile would otherwise linger with a dead delete button.
+      await loadFiles();
     }
   });
 }
@@ -135,7 +143,11 @@ initGoogleSignIn({
     showOnly(null);
     wireAddForm();
     wireDeleteButtons();
-    await loadFiles();
+    try {
+      await loadFiles();
+    } catch (err) {
+      document.getElementById('pliki-list').innerHTML = '<p class="pliki-empty">Nie udało się wczytać plików.</p>';
+    }
   },
   onSignedOut: () => showOnly(panels.signedOut),
   onForbidden: () => showOnly(panels.forbidden),
