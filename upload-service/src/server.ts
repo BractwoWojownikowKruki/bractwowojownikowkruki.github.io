@@ -70,7 +70,7 @@ import {
 } from './signups.ts';
 import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
 import { listDuesForYear, saveDues, listDuesAuditLog, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, getDues, normalizeDuesStatus, effectiveDuesStatus } from './dues.ts';
-import { buildSharedFileDoc, saveFileInTransaction, deleteFileInTransaction, getFile, listFiles, InvalidFileUrlError, type SharedFileDoc } from './files.ts';
+import { buildSharedFileDoc, saveFileInTransaction, deleteFileInTransaction, getFileInTransaction, listFiles, InvalidFileUrlError, type SharedFileDoc } from './files.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -703,27 +703,43 @@ async function handleAddFile(req: IncomingMessage, res: ServerResponse, deps: Se
   sendJson(res, 200, { file: result });
 }
 
+// KRKG-0076 P2 fix (external delegated review, Codex gpt-5.6-terra): the file read and the
+// owner-vs-moderator decision run INSIDE the same transaction that writes the audit event (via
+// executeDeclaredAuditedMutation's CanonicalAuditEventInputFactory form), not before it. Two
+// concurrent deletes of the same file could otherwise both pass a pre-transaction read/auth check
+// and both commit a full file.deleted audit event, even though the race loser's actual deleteDoc
+// was a no-op against an already-gone document - a false audit record. Reading tx.getDoc inside
+// the transaction means the loser's read returns null and the whole transaction aborts with 404
+// before any write happens. Role eligibility (getGrantedRoles/satisfiesRole) stays a
+// pre-transaction read on purpose - roles aren't part of this race, see design.md's "Odwrócone po
+// recenzji Batchy 1-2" section for the full reasoning behind this reversal.
 async function handleDeleteFile(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
   const id = url.searchParams.get('id');
   if (!id) throw new AuthError('Brak id.', 400);
-  const file = await getFile(deps.firestore, id);
-  if (!file) throw new AuthError('Plik nie istnieje.', 404);
-  const isOwner = identity.email.toLowerCase() === file.addedByEmail;
-  if (!isOwner) await requireRole(deps.firestore, identity.email, 'moderator');
+  const grantedRoles = await getGrantedRoles(deps.firestore, identity.email);
+  const canDeleteAny = satisfiesRole(grantedRoles, 'moderator');
+  const email = identity.email.toLowerCase();
   await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.filesDelete,
     'file.deleted',
-    {
-      actor: { email: identity.email },
-      resource: { kind: 'file', key: `file:${id}`, display: file.name },
-      changes: [
-        { field: 'name', before: file.name },
-        { field: 'url', before: file.url },
-        { field: 'description', before: file.description },
-        { field: 'docType', before: file.docType },
-      ],
+    async tx => {
+      const file = await getFileInTransaction(tx, id);
+      if (!file) throw new AuthError('Plik nie istnieje.', 404);
+      if (file.addedByEmail !== email && !canDeleteAny) {
+        throw new AuthError('Brak uprawnień do tej operacji.', 403);
+      }
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'file', key: `file:${id}`, display: file.name },
+        changes: [
+          { field: 'name', before: file.name },
+          { field: 'url', before: file.url },
+          { field: 'description', before: file.description },
+          { field: 'docType', before: file.docType },
+        ],
+      };
     },
     async tx => deleteFileInTransaction(tx, id),
   );

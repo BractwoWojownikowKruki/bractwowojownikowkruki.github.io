@@ -212,6 +212,14 @@ export async function deleteFileInTransaction(tx: FirestoreTransaction, id: stri
   await tx.deleteDoc(COLLECTION, id);
 }
 
+/** Transactional read counterpart to getFile - lets a caller read-then-decide inside the same
+ * transaction that later writes (e.g. a CanonicalAuditEventInputFactory that must see the same
+ * document version the mutation itself acts on, so a concurrent delete is caught before any
+ * write rather than racing a pre-transaction read, KRKG-0076 P2). */
+export async function getFileInTransaction(tx: FirestoreTransaction, id: string): Promise<SharedFileDoc | null> {
+  return tx.getDoc<SharedFileDoc>(COLLECTION, id);
+}
+
 export async function getFile(client: FirestoreLikeClient, id: string): Promise<SharedFileDoc | null> {
   return client.getDoc<SharedFileDoc>(COLLECTION, id);
 }

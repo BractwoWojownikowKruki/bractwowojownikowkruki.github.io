@@ -3807,21 +3807,29 @@ test('DELETE /files returns 404 for an unknown id', async () => {
   });
 });
 
-// A round-2 delegated review (reviews/KRKG-0076-plan-review-round2-opencode.md, finding #1) caught
-// two real problems with an earlier version of this test: (a) a bare Promise.all of two fetch()
-// calls against this same in-process node:http server does not actually force concurrent handler
-// execution - it serializes, the same reason server.test.ts's own '/upload does not tell a
-// concurrent duplicate request "skipped"...' test (server.test.ts:4054) needs an explicit
-// setTimeout+gate to force interleaving, not a bare Promise.all; and (b) even under genuine
-// concurrency, this route's actual implementation does NOT guarantee a 404 for the loser -
-// getFile() runs outside the transaction and tx.deleteDoc is a no-op on an already-missing
-// document, so two truly concurrent DELETEs that both pass the ownership check before either
-// commits both return 200. design.md's "Poprawki po recenzji" section explains why this plan
-// keeps the read-before-transaction pattern (matching handleListaWyjazdowaDeleteProfilePhoto)
-// instead of adopting the round-1 review's tx-read suggestion - so this test must honestly assert
-// what that choice actually produces (idempotent double-200, not a race-losing 404), with real
-// gating so it is a genuine concurrency test rather than an accidentally-sequential one.
-test('two genuinely concurrent DELETEs of the same file both succeed (idempotent, not a false 404)', async () => {
+// KRKG-0076 P2 (external delegated review, Codex gpt-5.6-terra): an earlier version of this test
+// asserted the old handler's actual behavior - two truly concurrent DELETEs of the same file both
+// returning 200 - because the file read and owner/moderator decision ran BEFORE the transaction,
+// so the race loser's tx.deleteDoc was an indistinguishable no-op that still got a full,
+// unconditional file.deleted audit event committed alongside it: a false audit record for a
+// deletion that never actually happened on that request. That review flagged this as a real
+// audit-integrity bug, not an acceptable idempotency trade-off - see design.md's "Odwrócone po
+// recenzji Batchy 1-2" section for the full reasoning. The fix moved the read inside the same
+// transaction that writes the audit event (via tx.getDoc), so this test now asserts the corrected,
+// race-safe contract instead: exactly one request's transaction commits (200), the other's
+// transactional read finds the document already gone and the whole transaction aborts before any
+// write (404) - and exactly one file.deleted audit event exists, never two.
+//
+// A round-2 delegated review (reviews/KRKG-0076-plan-review-round2-opencode.md, finding #1) noted
+// that a bare Promise.all of two fetch() calls against this same in-process node:http server does
+// not reliably force concurrent handler execution, so this still fires the two DELETEs with a
+// small stagger to make sure both are genuinely in flight rather than accidentally sequential. No
+// explicit read-gating wrapper is needed any more (unlike the old pre-transaction-read version):
+// the in-memory Firestore test double fully serializes `runTransaction` calls through one queue
+// (see firestore.ts), mirroring real Firestore's per-document contention/retry semantics, so
+// whichever DELETE's transaction is queued second deterministically sees the already-deleted
+// document via tx.getDoc and 404s - no artificial synchronization required to observe that.
+test('exactly one of two genuinely concurrent DELETEs of the same file succeeds; the loser gets 404 and no audit event', async () => {
   const firestore = createInMemoryFirestoreClient();
   let fileId = '';
   await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }), async baseUrl => {
@@ -3833,45 +3841,18 @@ test('two genuinely concurrent DELETEs of the same file both succeed (idempotent
     fileId = ((await postRes.json()) as { file: { id: string } }).file.id;
   });
 
-  let getFileCalls = 0;
-  let releaseBothGetFileReads: (() => void) | undefined;
-  const bothGetFileReadsGate = new Promise<void>(resolve => {
-    releaseBothGetFileReads = resolve;
-  });
-  // Wraps the real firestore client's getDoc so BOTH DELETEs' ownership-check reads park until
-  // both have actually arrived at this wrapper, then releases them together - the same "hold the
-  // first request open until the second has definitely started" technique server.test.ts's
-  // /upload test uses, applied here via a dependency wrapper instead of a fake-drive hook since
-  // there is no equivalent seam on FirestoreLikeClient itself. (Gating only the first call and
-  // releasing it as soon as the second fetch() is issued - rather than once the second call has
-  // actually reached this wrapper - lets the first call's real read, resume, and full
-  // read-then-transaction sequence complete as a same-tick microtask chain before the second
-  // request's network round trip ever reaches its own getDoc call, collapsing the test back into
-  // an effectively-sequential run that deterministically produces a false 404 for the second
-  // request instead of exercising genuine concurrency. Gating both calls until both have arrived
-  // is what actually forces the overlap the test's name promises.)
-  const gatingFirestore: typeof firestore = {
-    ...firestore,
-    async getDoc(collection, id) {
-      if (collection === 'sharedFiles') {
-        getFileCalls++;
-        if (getFileCalls <= 2) await bothGetFileReadsGate;
-      }
-      return firestore.getDoc(collection, id);
-    },
-  };
-  await withServer(makeDeps({ firestore: gatingFirestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }), async baseUrl => {
+  await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }), async baseUrl => {
     const firstRequest = fetch(`${baseUrl}/files?id=${fileId}`, { method: 'DELETE' });
     await new Promise(resolve => setTimeout(resolve, 20));
     const secondRequest = fetch(`${baseUrl}/files?id=${fileId}`, { method: 'DELETE' });
-    while (getFileCalls < 2) {
-      await new Promise(resolve => setTimeout(resolve, 1));
-    }
-    releaseBothGetFileReads?.();
     const [first, second] = await Promise.all([firstRequest, secondRequest]);
-    assert.deepEqual([first.status, second.status], [200, 200]);
+    assert.deepEqual([first.status, second.status].sort(), [200, 404]);
   });
   assert.equal(await getFile(firestore, fileId), null);
+
+  const events = await firestore.listDocs<{ action: string }>('auditEvents');
+  const deleteEvents = events.map(e => e.data).filter(e => e.action === 'file.deleted');
+  assert.equal(deleteEvents.length, 1);
 });
 
 test('/delete-drive-gallery rejects an unauthenticated caller before touching Drive', async () => {

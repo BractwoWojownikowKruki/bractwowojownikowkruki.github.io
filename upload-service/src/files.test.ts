@@ -7,6 +7,7 @@ import {
   saveFileInTransaction,
   deleteFileInTransaction,
   getFile,
+  getFileInTransaction,
   listFiles,
   InvalidFileUrlError,
 } from './files.ts';
@@ -297,6 +298,16 @@ test('saveFileInTransaction + getFile + listFiles + deleteFileInTransaction roun
   await client.runTransaction(tx => deleteFileInTransaction(tx, doc.id));
   assert.equal(await getFile(client, doc.id), null);
   assert.deepEqual(await listFiles(client), []);
+});
+
+test('getFileInTransaction reads a document inside a transaction, and null for a missing one', async () => {
+  const client = createInMemoryFirestoreClient();
+  const doc = await buildSharedFileDoc({ url: 'https://example.com/x', description: 'Plik' }, 'ala@example.test');
+  await client.runTransaction(tx => saveFileInTransaction(tx, doc));
+  await client.runTransaction(async tx => {
+    assert.deepEqual(await getFileInTransaction(tx, doc.id), doc);
+    assert.equal(await getFileInTransaction(tx, 'does-not-exist'), null);
+  });
 });
 
 test('listFiles sorts newest first and honors the limit', async () => {
