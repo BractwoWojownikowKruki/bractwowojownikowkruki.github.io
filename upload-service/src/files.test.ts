@@ -61,6 +61,41 @@ test('detectDocTypeAndFetchTitle strips Polish-locale Google product suffixes to
   );
 });
 
+// A follow-up UI-feedback report said the suffix was still showing up after the fix above landed
+// - the plain-hyphen English/Polish list itself checked out fine against a real public Google
+// Sheet (curl'd directly: "Example Spreadsheet - Arkusze Google"), but Google is known to vary the
+// separator by product/locale (a plain hyphen, an en dash, or a non-breaking space before it), so
+// these pin the variants a strict .endsWith() string list would silently miss.
+test('detectDocTypeAndFetchTitle strips the suffix when Google uses an en dash instead of a hyphen', async () => {
+  await withMockedFetch(
+    () => new Response('<html><head><title>Zapisy na turniej – Arkusze Google</title></head></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    async () => {
+      const result = await detectDocTypeAndFetchTitle('https://sheets.google.com/spreadsheets/d/abc/edit');
+      assert.deepEqual(result, { docType: 'googleSheet', title: 'Zapisy na turniej' });
+    },
+  );
+});
+
+test('detectDocTypeAndFetchTitle strips the suffix when a non-breaking space precedes the dash', async () => {
+  await withMockedFetch(
+    () => new Response('<html><head><title>Zapisy na turniej - Arkusze Google</title></head></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    async () => {
+      const result = await detectDocTypeAndFetchTitle('https://sheets.google.com/spreadsheets/d/abc/edit');
+      assert.deepEqual(result, { docType: 'googleSheet', title: 'Zapisy na turniej' });
+    },
+  );
+});
+
+test('detectDocTypeAndFetchTitle strips the suffix case-insensitively', async () => {
+  await withMockedFetch(
+    () => new Response('<html><head><title>Zapisy na turniej - arkusze google</title></head></html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    async () => {
+      const result = await detectDocTypeAndFetchTitle('https://sheets.google.com/spreadsheets/d/abc/edit');
+      assert.deepEqual(result, { docType: 'googleSheet', title: 'Zapisy na turniej' });
+    },
+  );
+});
+
 test('detectDocTypeAndFetchTitle recognizes sheets, drive, and any *.sharepoint.com subdomain', async () => {
   await withMockedFetch(
     () => new Response('<html><head><title>Arkusz</title></head></html>', { status: 200, headers: { 'content-type': 'text/html' } }),

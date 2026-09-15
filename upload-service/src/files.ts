@@ -72,27 +72,28 @@ function isFetchableWhitelistedUrl(url: URL): boolean {
   return detectDocType(url) !== null;
 }
 
-// English and Polish product-name suffixes Google/Office append to a shared doc's own <title> -
-// this club's Google Workspace is Polish-locale, so a real fetched title is typically "Nazwa -
+// English and Polish product names Google/Office append to a shared doc's own <title> - this
+// club's Google Workspace is Polish-locale, so a real fetched title is typically "Nazwa -
 // Dokumenty Google"/"Nazwa - Arkusze Google", not the English form; both are listed so the
 // stripped tile name never carries a leftover "- Arkusze Google" fragment regardless of the
 // viewing member's own locale (KRKG-0076 UI feedback: the icon alone should say what kind of
-// file it is, not repeated as text after the name).
-const TITLE_SUFFIXES = [
-  ' - Google Docs', ' - Dokumenty Google',
-  ' - Google Sheets', ' - Arkusze Google',
-  ' - Google Drive', ' - Dysk Google',
-  ' - Word', ' - Excel', ' - PowerPoint', ' - Office',
-];
+// file it is, not repeated as text after the name). A plain string-suffix version of this (an
+// earlier revision) still left the fragment on a follow-up report - matched against a real public
+// Google Sheet (`curl`'d directly: "Example Spreadsheet - Arkusze Google"), the plain-hyphen
+// English/Polish list itself was never the problem, but Google is known to render this separator
+// as a plain hyphen "-", an en dash "–", or (rarely) an em dash "—" depending on product/locale,
+// and .trim() alone doesn't collapse a non-breaking space some of those pages use before it - a
+// regex normalizes whitespace and accepts any of the three dash characters instead of hard-coding
+// one, so a locale/product variant this list hasn't seen verbatim still gets stripped.
+const TITLE_SUFFIX_PRODUCTS = ['Google Docs', 'Dokumenty Google', 'Google Sheets', 'Arkusze Google', 'Google Drive', 'Dysk Google', 'Word', 'Excel', 'PowerPoint', 'Office'];
+// The dash/space normalization happens in two steps: `\s+` in the replace below already folds a
+// non-breaking space (JS's `\s` matches U+00A0) down to a plain space before this pattern ever
+// runs, so only the dash character itself needs the [-–—] alternation here.
+const TITLE_SUFFIX_PATTERN = new RegExp(` [-\\u2013\\u2014] (${TITLE_SUFFIX_PRODUCTS.join('|')})$`, 'i');
 
 function cleanTitle(rawTitle: string): string | null {
-  let title = rawTitle.trim();
-  for (const suffix of TITLE_SUFFIXES) {
-    if (title.endsWith(suffix)) {
-      title = title.slice(0, -suffix.length).trim();
-      break;
-    }
-  }
+  const normalized = rawTitle.replace(/\s+/g, ' ').trim();
+  const title = normalized.replace(TITLE_SUFFIX_PATTERN, '').trim();
   return title || null;
 }
 

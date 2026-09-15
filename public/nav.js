@@ -92,7 +92,7 @@ const MEMBERS_ZONE_MENU = [
   { href: '/galerie/', label: 'Galerie', icon: 'image' },
   { href: '/lista-wyjazdowa/', label: 'Lista wyjazdowa', icon: 'map' },
   { href: '/lista-wyjazdowa/skladki/', label: 'Składki', icon: 'coins' },
-  { href: '/pliki/', label: 'Pliki', icon: 'paperclip' },
+  { href: '/pliki/', label: 'Pliki / Linki', icon: 'paperclip' },
   {
     label: 'Do przeczytania',
     icon: 'book',
