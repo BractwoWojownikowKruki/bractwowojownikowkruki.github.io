@@ -110,3 +110,85 @@ test('in-memory client: createDoc refuses to overwrite an immutable document', a
   );
   assert.deepEqual(await client.getDoc('auditEvents', 'audit-1'), { action: 'event.created' });
 });
+
+test('deleteDoc removes a document so getDoc returns null afterwards', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.setDoc('widgets', 'w1', { name: 'Widget' });
+  await client.deleteDoc('widgets', 'w1');
+  assert.equal(await client.getDoc('widgets', 'w1'), null);
+});
+
+test('deleteDoc inside a transaction only takes effect if the transaction commits', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.setDoc('widgets', 'w1', { name: 'Widget' });
+  await assert.rejects(
+    client.runTransaction(async tx => {
+      await tx.deleteDoc('widgets', 'w1');
+      throw new Error('boom');
+    }),
+  );
+  assert.deepEqual(await client.getDoc('widgets', 'w1'), { name: 'Widget' });
+});
+
+test('deleteDoc inside a transaction removes the document once committed', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.setDoc('widgets', 'w1', { name: 'Widget' });
+  await client.runTransaction(async tx => {
+    await tx.deleteDoc('widgets', 'w1');
+  });
+  assert.equal(await client.getDoc('widgets', 'w1'), null);
+});
+
+// A delegated review of this plan (reviews/KRKG-0076-plan-review.md, finding #8) caught that a
+// naive pendingDeletes implementation would still see the document in the store/pendingWrites at
+// createDoc's collision check and wrongly throw "already exists" - these four sequences pin the
+// intended delete-then-write and write-then-delete semantics inside one transaction.
+test('deleteDoc then createDoc in the same transaction recreates the document (no false collision)', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.setDoc('widgets', 'w1', { name: 'Old' });
+  await client.runTransaction(async tx => {
+    await tx.deleteDoc('widgets', 'w1');
+    await tx.createDoc('widgets', 'w1', { name: 'New' });
+  });
+  assert.deepEqual(await client.getDoc('widgets', 'w1'), { name: 'New' });
+});
+
+test('deleteDoc then setDoc in the same transaction recreates the document via merge', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.setDoc('widgets', 'w1', { name: 'Old', extra: 1 });
+  await client.runTransaction(async tx => {
+    await tx.deleteDoc('widgets', 'w1');
+    await tx.setDoc('widgets', 'w1', { name: 'New' });
+  });
+  // setDoc after a pending delete starts from an empty base (the delete already discarded the
+  // prior document within this transaction), not merged with the pre-delete value.
+  assert.deepEqual(await client.getDoc('widgets', 'w1'), { name: 'New' });
+});
+
+test('setDoc then deleteDoc in the same transaction deletes the document', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.runTransaction(async tx => {
+    await tx.setDoc('widgets', 'w1', { name: 'New' });
+    await tx.deleteDoc('widgets', 'w1');
+  });
+  assert.equal(await client.getDoc('widgets', 'w1'), null);
+});
+
+test('a rolled-back transaction leaves an earlier deleteDoc-then-createDoc sequence with no effect', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.setDoc('widgets', 'w1', { name: 'Old' });
+  await assert.rejects(
+    client.runTransaction(async tx => {
+      await tx.deleteDoc('widgets', 'w1');
+      await tx.createDoc('widgets', 'w1', { name: 'New' });
+      throw new Error('boom');
+    }),
+  );
+  assert.deepEqual(await client.getDoc('widgets', 'w1'), { name: 'Old' });
+});
+
+test('deleteDoc on a document that does not exist is a harmless no-op', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.deleteDoc('widgets', 'does-not-exist');
+  assert.equal(await client.getDoc('widgets', 'does-not-exist'), null);
+});

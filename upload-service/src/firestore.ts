@@ -46,6 +46,12 @@ export interface FirestoreTransaction {
   getDoc<T>(collection: string, id: string): Promise<T | null>;
   setDoc<T extends object>(collection: string, id: string, data: T): Promise<void>;
   createDoc<T extends object>(collection: string, id: string, data: T): Promise<void>;
+  /**
+   * Deletes a document within the transaction - only takes effect if the transaction commits.
+   * Added for KRKG-0076 (Pliki): the first real document delete in this codebase, everything
+   * else so far being a setDoc/merge write.
+   */
+  deleteDoc(collection: string, id: string): Promise<void>;
 }
 
 export interface FirestoreLikeClient {
@@ -64,6 +70,8 @@ export interface FirestoreLikeClient {
    * rather than merging writes so a collision or retry cannot alter prior evidence.
    */
   createDoc<T extends object>(collection: string, id: string, data: T): Promise<void>;
+  /** Deletes a document outright. See FirestoreTransaction.deleteDoc for the transactional form. */
+  deleteDoc(collection: string, id: string): Promise<void>;
   listDocs<T>(collection: string): Promise<FirestoreDoc<T>[]>;
   /**
    * Indexed, ordered, cursor-paginated query - added for KRKG-0050's audit read API, whose
@@ -97,6 +105,9 @@ export function createFirestoreClient(projectId?: string): FirestoreLikeClient {
     async createDoc<T extends object>(collection: string, id: string, data: T): Promise<void> {
       await db.collection(collection).doc(id).create(data);
     },
+    async deleteDoc(collection: string, id: string): Promise<void> {
+      await db.collection(collection).doc(id).delete();
+    },
     async listDocs<T>(collection: string): Promise<FirestoreDoc<T>[]> {
       const snap = await db.collection(collection).get();
       return snap.docs.map((d) => ({ id: d.id, data: d.data() as T }));
@@ -124,6 +135,9 @@ export function createFirestoreClient(projectId?: string): FirestoreLikeClient {
           },
           async createDoc<D extends object>(collection: string, id: string, data: D): Promise<void> {
             transaction.create(db.collection(collection).doc(id), data);
+          },
+          async deleteDoc(collection: string, id: string): Promise<void> {
+            transaction.delete(db.collection(collection).doc(id));
           },
         };
         return fn(tx);
@@ -165,6 +179,9 @@ export function createInMemoryFirestoreClient(): FirestoreLikeClient & {
       const m = collectionMap(collection);
       if (m.has(id)) throw new Error(`Document already exists: ${collection}/${id}`);
       m.set(id, { ...data });
+    },
+    async deleteDoc(collection: string, id: string): Promise<void> {
+      collectionMap(collection).delete(id);
     },
     async listDocs<T>(collection: string): Promise<FirestoreDoc<T>[]> {
       const m = collectionMap(collection);
@@ -223,6 +240,7 @@ export function createInMemoryFirestoreClient(): FirestoreLikeClient & {
     async runTransaction<T>(fn: (tx: FirestoreTransaction) => Promise<T>): Promise<T> {
       const run = async (): Promise<T> => {
         const pendingWrites = new Map<string, { collection: string; id: string; data: object }>();
+        const pendingDeletes = new Set<string>();
         const tx: FirestoreTransaction = {
           async getDoc<D>(collection: string, id: string): Promise<D | null> {
             const m = collectionMap(collection);
@@ -234,18 +252,31 @@ export function createInMemoryFirestoreClient(): FirestoreLikeClient & {
             // of this line accidentally contained a literal NUL byte, which made Git treat
             // this whole source file as binary and suppress normal diffs on it.
             const key = JSON.stringify([collection, id]);
-            const base = pendingWrites.get(key)?.data ?? (collectionMap(collection).get(id) as object | undefined);
+            const hadPendingDelete = pendingDeletes.delete(key);
+            const base = hadPendingDelete
+              ? undefined
+              : (pendingWrites.get(key)?.data ?? (collectionMap(collection).get(id) as object | undefined));
             pendingWrites.set(key, { collection, id, data: base ? { ...base, ...data } : { ...data } });
           },
           async createDoc<D extends object>(collection: string, id: string, data: D): Promise<void> {
             const key = JSON.stringify([collection, id]);
-            if (pendingWrites.has(key) || collectionMap(collection).has(id)) {
+            const hadPendingDelete = pendingDeletes.delete(key);
+            if (!hadPendingDelete && (pendingWrites.has(key) || collectionMap(collection).has(id))) {
               throw new Error(`Document already exists: ${collection}/${id}`);
             }
             pendingWrites.set(key, { collection, id, data: { ...data } });
           },
+          async deleteDoc(collection: string, id: string): Promise<void> {
+            const key = JSON.stringify([collection, id]);
+            pendingWrites.delete(key);
+            pendingDeletes.add(key);
+          },
         };
         const result = await fn(tx);
+        for (const key of pendingDeletes) {
+          const [collection, id] = JSON.parse(key) as [string, string];
+          collectionMap(collection).delete(id);
+        }
         for (const { collection, id, data } of pendingWrites.values()) {
           collectionMap(collection).set(id, data);
         }
