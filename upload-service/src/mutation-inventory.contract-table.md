@@ -14,7 +14,7 @@ table into this file in the same change. If you forget, this test will keep pass
 stale copy while the real contract document silently diverges - exactly the failure mode this
 fixture exists to prevent.
 
-Last synced with implementation-contract.md: 2026-09-15 (KRKG-0076: added POST/DELETE /files for the Pliki page's shared-file-link add/delete routes).
+Last synced with implementation-contract.md: 2026-09-16 (KRKG-0083: DELETE /lista-wyjazdowa/profile/photo now also accepts source=public for self-service deletion of an already-approved photo; added POST /lista-wyjazdowa/profile/photo/main for self-service main-photo selection).
 -->
 
 | Method and route | Classification and action | Resource and side effect | Execution |
@@ -42,7 +42,8 @@ Last synced with implementation-contract.md: 2026-09-15 (KRKG-0076: added POST/D
 | PUT `/admin/people/in-memoriam` | businessWrite — `profile.person.in_memoriam.changed` | person; Drive marker file | auditedOperationEnvelope |
 | POST `/wojownicy-upload/submit` | businessWrite — `profile.photo_submission.created` | member submission; Drive folder; provisional key then final submission folder key | auditedOperationEnvelope |
 | POST `/wojownicy-upload/photo` | businessWrite — `profile.photo_submission.photo_added` | member submission; Drive photo | auditedOperationEnvelope |
-| DELETE `/lista-wyjazdowa/profile/photo` | businessWrite — `profile.photo_submission.photo_deleted` | member submission; Drive photo deletion, scoped to caller's own stagingFolderId | auditedOperationEnvelope |
+| DELETE `/lista-wyjazdowa/profile/photo` | businessWrite — `profile.photo_submission.photo_deleted` (default/`source=staging`) or `profile.person.photo.deleted` (`source=public`) | member submission or person; Drive photo deletion, scoped to caller's own stagingFolderId or driveFolderId | auditedOperationEnvelope |
+| POST `/lista-wyjazdowa/profile/photo/main` | businessWrite — `profile.person.photo.main.changed` | person; Drive file rename, scoped to caller's own driveFolderId | auditedOperationEnvelope |
 | PUT `/lista-wyjazdowa/member` | businessWrite — `profile.member.updated` | member; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/profile` | businessWrite — `profile.member.updated` | member; Firestore | requestAwaited |
 | POST `/lista-wyjazdowa/events` | businessWrite — `event.created` | event; Firestore | requestAwaited |

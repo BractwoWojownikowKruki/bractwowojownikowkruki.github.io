@@ -128,7 +128,8 @@
 .lw-photo-thumb img {
   width: 120px;
   height: 120px;
-  object-fit: cover;
+  object-fit: contain;
+  background: var(--surface);
   border-radius: 6px;
   border: 1px solid var(--border);
   display: block;
@@ -138,6 +139,21 @@
   font-size: 11px;
   color: var(--text-muted);
   margin: 0.35rem 0;
+}
+
+/* KRKG-0083: marks whichever approved photo is currently the public "main" one, in the same slot
+   a .lw-set-main-btn takes on every other approved thumbnail - so picking a new main always looks
+   like swapping a button for a badge, never like the button silently disappearing. */
+.lw-photo-thumb .lw-main-badge {
+  width: 100%;
+  padding: 6px 0;
+  margin: 0;
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .lw-photo-thumb .lw-crop-btn {
@@ -158,13 +174,18 @@
 }
 
 /* KRKG-0070: delete button on a pending (not-yet-approved) photo thumbnail - same base look as
-   .lw-crop-btn, but its hover state reads as destructive rather than neutral. */
-.lw-photo-thumb .lw-delete-pending-btn:hover {
+   .lw-crop-btn, but its hover state reads as destructive rather than neutral.
+   KRKG-0083: same treatment for .lw-delete-public-btn, the equivalent delete button on an
+   already-approved photo. */
+.lw-photo-thumb .lw-delete-pending-btn:hover,
+.lw-photo-thumb .lw-delete-public-btn:hover {
   border-color: var(--danger, #c0392b);
   color: var(--danger, #c0392b);
 }
 
-.lw-photo-thumb .lw-delete-pending-btn:disabled {
+.lw-photo-thumb .lw-delete-pending-btn:disabled,
+.lw-photo-thumb .lw-delete-public-btn:disabled,
+.lw-photo-thumb .lw-set-main-btn:disabled {
   opacity: 0.5;
   cursor: default;
 }

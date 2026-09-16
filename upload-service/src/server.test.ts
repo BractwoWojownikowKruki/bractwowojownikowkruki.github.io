@@ -1612,15 +1612,20 @@ test('DELETE /admin/people/photo audits profile.person.photo.deleted on the pers
 });
 
 test('PUT /admin/people/photo/main prefixes the target photo and strips any previous main prefix', async () => {
-  const renamedTo: Record<string, string> = {};
+  // Stateful, not a fixed return value: auditedSetMainPhoto now re-lists after renaming to verify
+  // exactly one "!"-prefixed file resulted (KRKG-0083 design review, non-atomicity finding) - a
+  // mock that always returns the pre-rename list would make that postcondition check see two
+  // (or zero) "!" files and fail the request even though the rename itself succeeded.
+  const images = [
+    { id: 'photo-1', name: '!IMG_0001.jpg', thumbnailLink: null },
+    { id: 'photo-2', name: 'IMG_0002.jpg', thumbnailLink: null },
+  ];
   const deps = makeDeps({
     drive: makeFakeDrive({
-      listImageFiles: async () => [
-        { id: 'photo-1', name: '!IMG_0001.jpg', thumbnailLink: null },
-        { id: 'photo-2', name: 'IMG_0002.jpg', thumbnailLink: null },
-      ],
+      listImageFiles: async () => images.map(image => ({ ...image })),
       renameFolder: async (fileId, newName) => {
-        renamedTo[fileId] = newName;
+        const image = images.find(img => img.id === fileId);
+        if (image) image.name = newName;
       },
     }),
   });
@@ -1632,8 +1637,8 @@ test('PUT /admin/people/photo/main prefixes the target photo and strips any prev
     });
     assert.equal(res.status, 200);
   });
-  assert.equal(renamedTo['photo-1'], 'IMG_0001.jpg');
-  assert.equal(renamedTo['photo-2'], '!IMG_0002.jpg');
+  assert.equal(images.find(image => image.id === 'photo-1')!.name, 'IMG_0001.jpg');
+  assert.equal(images.find(image => image.id === 'photo-2')!.name, '!IMG_0002.jpg');
 });
 
 test('PUT /admin/people/photo/main is a no-op when the target is already main and nothing else has the prefix', async () => {
@@ -2091,22 +2096,26 @@ test('PUT /admin/people/photo/approve, subsequent approval: moves the file into 
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
   await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'staging-1', driveFolderId: 'existing-public-folder' }));
-  let renamedTo = '';
+  // Stateful (see the same note on the "prefixes the target photo" test above): the target
+  // folder's listing must reflect the rename auditedSetMainPhoto just performed, since it now
+  // re-lists afterward to verify exactly one "!"-prefixed file resulted.
+  const targetImages = [
+    { id: 'existing-main', name: '!existing-main.jpg', thumbnailLink: 'https://example.test/main=s220' },
+    { id: 'f2', name: '!f2.jpg', thumbnailLink: 'https://example.test/f2=s220' },
+  ];
   const deps = makeDeps({
     firestore,
     drive: makeFakeDrive({
       readTextFile: async (id, fileName) => (id === 'staging-1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
       listImageFiles: async id => {
         if (id === 'staging-1') return [{ id: 'f2', name: '!f2.jpg', thumbnailLink: 'https://example.test/f2=s220' }];
-        if (id === 'existing-public-folder') return [
-          { id: 'existing-main', name: '!existing-main.jpg', thumbnailLink: 'https://example.test/main=s220' },
-          { id: 'f2', name: '!f2.jpg', thumbnailLink: 'https://example.test/f2=s220' },
-        ];
+        if (id === 'existing-public-folder') return targetImages.map(image => ({ ...image }));
         return [];
       },
       moveFile: async () => ({ previousFolderId: 'staging-1' }),
       renameFolder: async (id, newName) => {
-        if (id === 'f2') renamedTo = newName;
+        const image = targetImages.find(img => img.id === id);
+        if (image) image.name = newName;
       },
     }),
   });
@@ -2120,7 +2129,7 @@ test('PUT /admin/people/photo/approve, subsequent approval: moves the file into 
     const body = await res.json();
     assert.equal(body.folderId, 'existing-public-folder');
   });
-  assert.equal(renamedTo, 'f2.jpg', 'the incoming ! prefix must be stripped since the target already had a main photo');
+  assert.equal(targetImages.find(image => image.id === 'f2')!.name, 'f2.jpg', 'the incoming ! prefix must be stripped since the target already had a main photo');
 });
 
 test('PUT /admin/people/photo/approve: a failure during the post-transfer !main normalization is itself audited as failed, without losing the already-succeeded transfer', async () => {
@@ -5229,6 +5238,192 @@ test('DELETE /lista-wyjazdowa/profile/photo invalidates the about-us category ca
     const second = await fetch(`${baseUrl}/admin/people?category=upload`).then(r => r.json());
     assert.equal(second.people[0].mainPhoto, null);
   });
+});
+
+// KRKG-0083: DELETE .../profile/photo?source=public extends self-service delete to an already-
+// approved photo, previously admin-only (handleAdminDeletePhoto). The folder is always resolved
+// from the member doc, never a client-supplied id - these tests mirror the staging-source ones
+// above exactly, just against driveFolderId instead of stagingFolderId.
+
+test('DELETE /lista-wyjazdowa/profile/photo?source=public returns 404 when the caller has no driveFolderId', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: null }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      deleteFolder: async () => {
+        throw new Error('should not delete anything without a public folder');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo?source=public&fileId=f1`, { method: 'DELETE' });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('DELETE /lista-wyjazdowa/profile/photo?source=public returns 404 for a fileId not listed in the caller\'s own public folder', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'pub-1' }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      listImageFiles: async () => [{ id: 'other-file', name: 'other.jpg', thumbnailLink: 'https://example.test/other=s220' }],
+      deleteFolder: async () => {
+        throw new Error('should not delete a file not in the caller\'s own public folder');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo?source=public&fileId=f1`, { method: 'DELETE' });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('DELETE /lista-wyjazdowa/profile/photo?source=public deletes a file listed in the caller\'s own public folder and audits it as profile.person.photo.deleted', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'pub-1' }));
+  let deletedId = '';
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      listImageFiles: async () => [{ id: 'f1', name: 'f1.jpg', thumbnailLink: 'https://example.test/f1=s220' }],
+      deleteFolder: async id => {
+        deletedId = id;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo?source=public&fileId=f1`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(deletedId, 'f1');
+  const events = await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents');
+  const event = events.find(e => e.data.action === 'profile.person.photo.deleted')!.data;
+  assert.equal(event.resource.key, 'person:pub-1');
+});
+
+test('DELETE /lista-wyjazdowa/profile/photo rejects an invalid source value with 400, before touching Drive', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'pub-1', stagingFolderId: 's1' }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      listImageFiles: async () => {
+        throw new Error('should not read Drive for an invalid source');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo?source=bogus&fileId=f1`, { method: 'DELETE' });
+    assert.equal(res.status, 400);
+  });
+});
+
+// KRKG-0083: POST .../profile/photo/main lets a member pick which of their own already-approved
+// photos is "main" - self-service equivalent of the admin "Ustaw główne" action
+// (handleAdminSetMainPhoto), reusing the same auditedSetMainPhoto helper and folder-membership
+// check pattern as the public-delete tests above.
+
+test('POST /lista-wyjazdowa/profile/photo/main rejects a missing fileId with 400', async () => {
+  const deps = makeDeps({
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo/main`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('POST /lista-wyjazdowa/profile/photo/main returns 404 when the caller has no driveFolderId', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: null }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      renameFolder: async () => {
+        throw new Error('should not rename anything without a public folder');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo/main`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'f1' }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('POST /lista-wyjazdowa/profile/photo/main returns 404 for a fileId not listed in the caller\'s own public folder', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'pub-1' }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      listImageFiles: async () => [{ id: 'other-file', name: 'other.jpg', thumbnailLink: null }],
+      renameFolder: async () => {
+        throw new Error('should not rename a file not in the caller\'s own public folder');
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo/main`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'f1' }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('POST /lista-wyjazdowa/profile/photo/main prefixes the target and strips the previous main, audits profile.person.photo.main.changed, and invalidates the about-us cache', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'pub-1' }));
+  // Stateful for the same reason as the admin "Ustaw główne" tests: auditedSetMainPhoto re-lists
+  // after renaming to verify the postcondition (exactly one "!"-prefixed file).
+  const images = [
+    { id: 'photo-1', name: '!IMG_0001.jpg', thumbnailLink: 'https://example.test/1=s220' },
+    { id: 'photo-2', name: 'IMG_0002.jpg', thumbnailLink: 'https://example.test/2=s220' },
+  ];
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      listImageFiles: async id => (id === 'pub-1' ? images.map(image => ({ ...image })) : []),
+      renameFolder: async (fileId, newName) => {
+        const image = images.find(img => img.id === fileId);
+        if (image) image.name = newName;
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo/main`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'photo-2' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(images.find(image => image.id === 'photo-1')!.name, 'IMG_0001.jpg');
+  assert.equal(images.find(image => image.id === 'photo-2')!.name, '!IMG_0002.jpg');
+
+  const events = await firestore.listDocs<{ action: string; resource: { key: string }; actor: { email: string } }>('auditEvents');
+  const event = events.find(e => e.data.action === 'profile.person.photo.main.changed')!.data;
+  assert.equal(event.resource.key, 'person:pub-1');
+  assert.equal(event.actor.email, 'ktos@gmail.com');
 });
 
 // Every "plain member" test below explicitly overrides authenticateAdminOrModerator to throw -

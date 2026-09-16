@@ -1449,6 +1449,18 @@ async function auditedSetMainPhoto(deps: ServerDeps, actorEmail: string, folderI
         if (isTarget && !hasMainPrefix) await deps.drive.renameFolder(image.id, `!${image.name}`);
         else if (!isTarget && hasMainPrefix) await deps.drive.renameFolder(image.id, image.name.slice(1));
       }
+      // KRKG-0083 design review: Drive has no multi-file atomic rename, so the loop above is a
+      // list-then-N-PATCHes sequence that a partial failure (or a second concurrent call) can
+      // leave in a state with zero or two "!"-prefixed files. The postcondition check has to live
+      // INSIDE this effect, not after executeAuditedExternalMutation returns - only a throw from
+      // in here is recorded as a failed audited operation (completeExternalOperation's `failed`
+      // branch); once this call has already resolved, the audit trail has permanently committed a
+      // `succeeded` event and there is no way to retract it.
+      const after = await deps.drive.listImageFiles(folderId);
+      const mainFiles = after.filter(image => image.name.startsWith('!'));
+      if (mainFiles.length !== 1 || mainFiles[0].id !== fileId) {
+        throw new Error(`Nie udało się jednoznacznie ustawić głównego zdjęcia (folder ${folderId}).`);
+      }
     },
   );
 }
@@ -2140,30 +2152,87 @@ async function handleListaWyjazdowaGetProfilePhoto(req: IncomingMessage, res: Se
 }
 
 // KRKG-0070: lets a member delete a photo from their own pending staging folder before an admin
-// approves it - self-service, scoped strictly to the caller's own stagingFolderId (never
-// driveFolderId, which stays admin-only via handleAdminDeletePhoto).
+// approves it - self-service, scoped strictly to the caller's own stagingFolderId.
+//
+// KRKG-0083: extended to also let a member delete from their own already-approved driveFolderId
+// (previously admin-only via handleAdminDeletePhoto) via `?source=public`. `source` defaults to
+// `staging` so every existing caller is unaffected. Either way the folder is resolved from the
+// member doc, never a client-supplied id - that resolution plus the listImageFiles membership
+// check below is the entire authorization boundary for this endpoint.
 async function handleListaWyjazdowaDeleteProfilePhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const fileId = url.searchParams.get('fileId');
   if (!fileId) throw new AuthError('Brak fileId.', 400);
+  const rawSource = url.searchParams.get('source') ?? 'staging';
+  if (rawSource !== 'staging' && rawSource !== 'public') throw new AuthError('Nieprawidłowa wartość source.', 400);
+  const source = rawSource as 'staging' | 'public';
+
   const member = await getMember(deps.firestore, identity.email);
-  if (!member?.stagingFolderId) { sendJson(res, 404, { error: 'Nie znaleziono folderu zgłoszeniowego.' }); return; }
-  const images = await deps.drive.listImageFiles(member.stagingFolderId);
+  const folderId = source === 'public' ? member?.driveFolderId ?? null : member?.stagingFolderId ?? null;
+  if (!folderId) {
+    sendJson(res, 404, { error: source === 'public' ? 'Nie znaleziono publicznego folderu.' : 'Nie znaleziono folderu zgłoszeniowego.' });
+    return;
+  }
+  const images = await deps.drive.listImageFiles(folderId);
   const image = images.find(img => img.id === fileId);
-  if (!image) { sendJson(res, 404, { error: 'Ten plik nie należy do Twojego folderu zgłoszeniowego.' }); return; }
-  await executeAuditedExternalMutation(
-    deps.firestore,
-    {
-      action: 'profile.photo_submission.photo_deleted',
-      actor: { email: identity.email },
-      // matches profile.photo_submission.{created,photo_added}'s own resource key
-      // (`member:{actorEmail}:submission:{folderId}`, implementation-contract.md's canonical
-      // notation) so this submission's full Historia stays reachable under one resourceKey filter.
-      resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${member.stagingFolderId}`, display: member.stagingFolderId },
-      changes: [{ field: 'fileId', after: fileId }],
-    },
-    async () => deps.drive.deleteFolder(fileId),
-  );
+  if (!image) {
+    sendJson(res, 404, { error: source === 'public' ? 'Ten plik nie należy do Twojego publicznego folderu.' : 'Ten plik nie należy do Twojego folderu zgłoszeniowego.' });
+    return;
+  }
+
+  if (source === 'public') {
+    await executeAuditedExternalMutation(
+      deps.firestore,
+      {
+        action: 'profile.person.photo.deleted',
+        actor: { email: identity.email },
+        // Same resource-key notation as handleAdminDeletePhoto's own `profile.person.photo.deleted`
+        // event (`person:{folderId}`) - this is the same effect on the same person, just
+        // self-initiated instead of admin-initiated.
+        resource: { kind: 'person', key: `person:${folderId}`, display: folderId },
+        changes: [{ field: 'fileId', after: fileId }],
+      },
+      async () => deps.drive.deleteFolder(fileId),
+    );
+  } else {
+    await executeAuditedExternalMutation(
+      deps.firestore,
+      {
+        action: 'profile.photo_submission.photo_deleted',
+        actor: { email: identity.email },
+        // matches profile.photo_submission.{created,photo_added}'s own resource key
+        // (`member:{actorEmail}:submission:{folderId}`, implementation-contract.md's canonical
+        // notation) so this submission's full Historia stays reachable under one resourceKey filter.
+        resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${folderId}`, display: folderId },
+        changes: [{ field: 'fileId', after: fileId }],
+      },
+      async () => deps.drive.deleteFolder(fileId),
+    );
+  }
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
+}
+
+// KRKG-0083: lets a member designate one of their own already-approved (public driveFolderId)
+// photos as the "main" one - same auditedSetMainPhoto helper and "!"-prefix invariant as the
+// admin "Ustaw główne" action (handleAdminSetMainPhoto), just gated by self-service auth and
+// scoped to the caller's own folder. Never accepts a client-supplied folderId - resolved from the
+// member doc, exactly like the delete handler above.
+async function handleListaWyjazdowaSetMainPhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const { fileId } = await readJsonBody<{ fileId?: string }>(req, deps.maxJsonBodyBytes);
+  if (!fileId) throw new AuthError('Brak fileId.', 400);
+
+  const member = await getMember(deps.firestore, identity.email);
+  const folderId = member?.driveFolderId ?? null;
+  if (!folderId) { sendJson(res, 404, { error: 'Nie znaleziono publicznego folderu.' }); return; }
+  const images = await deps.drive.listImageFiles(folderId);
+  if (!images.some(img => img.id === fileId)) {
+    sendJson(res, 404, { error: 'Ten plik nie należy do Twojego publicznego folderu.' });
+    return;
+  }
+
+  await auditedSetMainPhoto(deps, identity.email, folderId, fileId);
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
 }
@@ -3850,6 +3919,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaGetProfilePhoto(req, res, deps);
       } else if (req.method === 'DELETE' && url.pathname === '/lista-wyjazdowa/profile/photo') {
         await handleListaWyjazdowaDeleteProfilePhoto(req, res, url, deps);
+      } else if (req.method === 'POST' && url.pathname === '/lista-wyjazdowa/profile/photo/main') {
+        await handleListaWyjazdowaSetMainPhoto(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/lookup-lists') {
         await handleListaWyjazdowaLookupLists(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/member-profile') {

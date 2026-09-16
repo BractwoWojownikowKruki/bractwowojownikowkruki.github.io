@@ -73,17 +73,25 @@ function renderCurrentSubmission(response) {
   }
   container.hidden = false;
 
+  // KRKG-0083: approved photos are no longer read-only - a member can delete any of their own
+  // published photos and pick which one is main. "Is this the main photo" is decided by id
+  // (publicSection.mainPhoto?.id), never by array position - after a delete the concatenated
+  // list's indices shift, and mainPhoto can be null while photos still exist (about-us.ts's
+  // mapDriveImagesToPhotos drops an imageless-thumbnail main entirely).
   const publicHtml = hasPublic
     ? `
     <p class="lw-hint">Zaakceptowane - widoczne publicznie w „Wojownicy”.</p>
     ${[publicSection.mainPhoto, ...publicSection.photos]
       .filter(Boolean)
-      .map(
-        (photo, index) => `
+      .map((photo) => {
+        const isMain = photo.id === publicSection.mainPhoto?.id;
+        return `
       <div class="lw-photo-thumb">
-        <img src="${escapeAttr(photo.url)}" alt="${index === 0 ? 'Główne zdjęcie' : 'Dodatkowe zdjęcie'}" />
-      </div>`,
-      )
+        <img src="${escapeAttr(photo.url)}" alt="${isMain ? 'Główne zdjęcie' : 'Dodatkowe zdjęcie'}" />
+        ${isMain ? '<p class="lw-main-badge">Główne</p>' : `<button type="button" class="lw-crop-btn lw-set-main-btn" data-file-id="${escapeAttr(photo.id)}">Ustaw jako główne</button>`}
+        <button type="button" class="lw-crop-btn lw-delete-public-btn" data-file-id="${escapeAttr(photo.id)}">Usuń</button>
+      </div>`;
+      })
       .join('')}
   `
     : '';
@@ -126,14 +134,68 @@ async function deletePendingPhoto(control) {
   });
 }
 
-document.getElementById('lw-current-submission').addEventListener('click', (e) => {
-  const btn = e.target.closest('.lw-delete-pending-btn');
-  if (!btn) return;
-  btn.disabled = true;
-  deletePendingPhoto(btn).catch((err) => {
-    btn.disabled = false;
-    window.alert(`Nie udało się usunąć zdjęcia: ${err.message}`);
+// KRKG-0083: deletes one of the caller's own already-approved (public) photos. Unlike a pending
+// upload, this removes something already live on the public site, so it's gated behind an
+// explicit confirm - MutationFeedback.confirmed only shows a post-success checkmark, it is not
+// itself a confirmation dialog.
+async function deletePublicPhoto(control) {
+  if (!window.confirm('Usunąć to zdjęcie? Zniknie z publicznej strony „Wojownicy”.')) return;
+  const container = document.getElementById('lw-current-submission');
+  await window.MutationFeedback.confirmed({
+    control,
+    anchor: container,
+    viewRoot: document.getElementById('profile-form'),
+    refreshFragment: async () => renderCurrentSubmission(await loadCurrentSubmission()),
+    execute: () => apiFetch(
+      `/lista-wyjazdowa/profile/photo?source=public&fileId=${encodeURIComponent(control.dataset.fileId)}`,
+      { method: 'DELETE' },
+      showReauth,
+      hideReauth,
+    ),
+    apply: async () => renderCurrentSubmission(await loadCurrentSubmission()),
   });
+}
+
+// KRKG-0083: promotes one of the caller's own already-approved photos to "main" (the cover shown
+// in the public "Wojownicy" grid). Non-destructive and reversible (pick a different one any time),
+// so unlike delete this has no confirm prompt.
+async function setMainPhoto(control) {
+  const container = document.getElementById('lw-current-submission');
+  await window.MutationFeedback.confirmed({
+    control,
+    anchor: container,
+    viewRoot: document.getElementById('profile-form'),
+    refreshFragment: async () => renderCurrentSubmission(await loadCurrentSubmission()),
+    execute: () => apiFetch(
+      '/lista-wyjazdowa/profile/photo/main',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: control.dataset.fileId }) },
+      showReauth,
+      hideReauth,
+    ),
+    apply: async () => renderCurrentSubmission(await loadCurrentSubmission()),
+  });
+}
+
+document.getElementById('lw-current-submission').addEventListener('click', (e) => {
+  const deleteBtn = e.target.closest('.lw-delete-pending-btn, .lw-delete-public-btn');
+  if (deleteBtn) {
+    deleteBtn.disabled = true;
+    const action = deleteBtn.classList.contains('lw-delete-public-btn') ? deletePublicPhoto : deletePendingPhoto;
+    action(deleteBtn).catch((err) => {
+      deleteBtn.disabled = false;
+      if (err) window.alert(`Nie udało się usunąć zdjęcia: ${err.message}`);
+    });
+    return;
+  }
+
+  const mainBtn = e.target.closest('.lw-set-main-btn');
+  if (mainBtn) {
+    mainBtn.disabled = true;
+    setMainPhoto(mainBtn).catch((err) => {
+      mainBtn.disabled = false;
+      window.alert(`Nie udało się ustawić głównego zdjęcia: ${err.message}`);
+    });
+  }
 });
 
 const CURRENT_YEAR = new Date().getFullYear();
