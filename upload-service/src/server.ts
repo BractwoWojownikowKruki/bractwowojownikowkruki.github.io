@@ -2380,16 +2380,21 @@ async function handleListaWyjazdowaGetEvents(req: IncomingMessage, res: ServerRe
   const allSignups = await listAllSignups(deps.firestore);
   const attendingCountByEvent = new Map<string, number>();
   const viewerAttendingByEvent = new Set<string>();
+  const viewerSkladkaPaidByEvent = new Set<string>();
   const viewerEmail = identity.email.toLowerCase();
   for (const { data } of allSignups) {
     if (!data.attending) continue;
     attendingCountByEvent.set(data.eventId, (attendingCountByEvent.get(data.eventId) ?? 0) + 1);
-    if (data.memberEmail === viewerEmail) viewerAttendingByEvent.add(data.eventId);
+    if (data.memberEmail === viewerEmail) {
+      viewerAttendingByEvent.add(data.eventId);
+      if (data.skladkaPaid) viewerSkladkaPaidByEvent.add(data.eventId);
+    }
   }
   const withSummary = events.map((e) => ({
     ...e,
     attendingCount: attendingCountByEvent.get(e.id) ?? 0,
     viewerAttending: viewerAttendingByEvent.has(e.id),
+    viewerSkladkaPaid: viewerSkladkaPaidByEvent.has(e.id),
   }));
   sendJson(res, 200, { events: withSummary });
 }
@@ -2430,12 +2435,17 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
     await requireSkladkiAccess(req, res, deps, identity.email);
     fields.skladkaFee = body.skladkaFee === null ? null : requireTrimmedString(body.skladkaFee, LW_MAX_NAME_LENGTH, 'Opis składki jest nieprawidłowy.');
   }
+  if (body.dueDate !== undefined) {
+    await requireSkladkiAccess(req, res, deps, identity.email);
+    fields.dueDate = body.dueDate === null ? null : requireDateString(body.dueDate, 'Nieprawidłowy termin płatności (RRRR-MM-DD).');
+  }
   const eventFieldCount = Number(fields.name !== undefined) + Number(fields.startDate !== undefined) + Number(fields.status !== undefined);
-  if (eventFieldCount === 0 && fields.skladkaFee === undefined) {
+  const feeFieldCount = Number(fields.skladkaFee !== undefined) + Number(fields.dueDate !== undefined);
+  if (eventFieldCount === 0 && feeFieldCount === 0) {
     throw new AuthError('Podaj co najmniej jedno pole wyjazdu do zmiany.', 400);
   }
   const metadataAction = fields.status === 'cancelled' ? 'event.cancelled' : 'event.updated';
-  const actions = fields.skladkaFee !== undefined
+  const actions = feeFieldCount > 0
     ? eventFieldCount > 0
       ? [metadataAction, 'dues.event_fee.changed'] as const
       : ['dues.event_fee.changed'] as const
@@ -2456,14 +2466,17 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
           ...(fields.status !== undefined ? [{ field: 'status', before: existing.status, after: fields.status }] : []),
         ],
       };
-      if (fields.skladkaFee === undefined) return metadataInput;
+      if (feeFieldCount === 0) return metadataInput;
       const feeDigest = (fee: string | null): string | null => fee === null ? null : createHash('sha256').update(fee).digest('hex');
       const feeInput = {
         actor: { email: identity.email },
         resource: { kind: 'eventFee' as const, key: `eventFee:${eventId}`, display: fields.name ?? existing.name },
         changes: [
-          { field: 'feeDigest', before: feeDigest(existing.skladkaFee), after: feeDigest(fields.skladkaFee) },
-          { field: 'feeLength', before: existing.skladkaFee?.length ?? null, after: fields.skladkaFee?.length ?? 0 },
+          ...(fields.skladkaFee !== undefined ? [
+            { field: 'feeDigest', before: feeDigest(existing.skladkaFee), after: feeDigest(fields.skladkaFee) },
+            { field: 'feeLength', before: existing.skladkaFee?.length ?? null, after: fields.skladkaFee?.length ?? 0 },
+          ] : []),
+          ...(fields.dueDate !== undefined ? [{ field: 'dueDate', before: existing.dueDate ?? null, after: fields.dueDate }] : []),
         ],
       };
       return eventFieldCount > 0 ? [metadataInput, feeInput] : [feeInput];

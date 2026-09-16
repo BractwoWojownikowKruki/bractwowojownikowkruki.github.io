@@ -74,3 +74,11 @@ test('updateEvent applies only the given fields, preserving the rest', async () 
   const restored = await updateEvent(client, created.id, { status: 'active' });
   assert.equal(restored?.status, 'active');
 });
+
+test('updateEvent sets dueDate independently of skladkaFee', async () => {
+  const client = createInMemoryFirestoreClient();
+  const created = await createEvent(client, { name: 'Zlot', startDate: '2027-06-12' }, 'admin@example.test');
+  const updated = await updateEvent(client, created.id, { dueDate: '2027-06-01' });
+  assert.equal(updated?.dueDate, '2027-06-01');
+  assert.equal(updated?.skladkaFee, null);
+});

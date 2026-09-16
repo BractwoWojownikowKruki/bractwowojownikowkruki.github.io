@@ -6502,6 +6502,68 @@ test('PUT /lista-wyjazdowa/events with skladkaFee succeeds for accountant and is
   });
 });
 
+test('PUT /lista-wyjazdowa/events sets dueDate independently, without requiring skladkaFee', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zlot', startDate: '2027-06-12' })).json();
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { dueDate: '2027-06-01' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.event.dueDate, '2027-06-01');
+    assert.equal(body.event.skladkaFee, null);
+  });
+});
+
+test('PUT /lista-wyjazdowa/events with only dueDate requires accountant, 403 for a plain member', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  // NOTE: event creation must not go through makeDepsWithRole('accountant', firestore) here —
+  // that seeds a persistent 'userRoles' grant for wojownik@gmail.com (the fixed test identity)
+  // in the shared firestore, which would make the "plain member" PUT below pass the role check
+  // in requireSkladkiAccess before authenticateAdmin is ever consulted, defeating this test.
+  const created = await withServer(makeDeps({ firestore }), async baseUrl =>
+    (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zlot', startDate: '2027-06-12' })).json());
+  const deps = makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } });
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { dueDate: '2027-06-01' });
+    assert.equal(res.status, 403);
+  });
+});
+
+test('PUT /lista-wyjazdowa/events with only dueDate still requires at least one field overall', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zlot', startDate: '2027-06-12' })).json();
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, {});
+    assert.equal(res.status, 400);
+  });
+});
+
+test('GET /lista-wyjazdowa/events reports viewerSkladkaPaid for the caller', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
+  const created = await withServer(deps, async baseUrl => {
+    const event = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zlot', startDate: '2027-06-12' })).json();
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${event.event.id}&memberEmail=wojownik@gmail.com`, {
+      attending: true,
+      equipmentIds: [],
+      companionIds: [],
+    });
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/events`);
+    const body = await res.json();
+    assert.equal(body.events[0].viewerSkladkaPaid, false);
+    return event;
+  });
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, { paid: true });
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/events`);
+    const body = await res.json();
+    assert.equal(body.events[0].viewerSkladkaPaid, true);
+  });
+});
+
 test('PUT /lista-wyjazdowa/signups/skladka requires accountant and 404s for a member with no signup', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   await withServer(makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } }), async baseUrl => {

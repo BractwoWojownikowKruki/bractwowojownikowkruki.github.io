@@ -10,6 +10,7 @@ export interface EventDoc {
   createdBy: string;
   createdAt: string;
   skladkaFee: string | null; // free-text fee description, accountant/admin-set — see server.ts's role check
+  dueDate: string | null; // YYYY-MM-DD, accountant/admin-set payment deadline for skladkaFee (KRKG-0080)
 }
 
 export interface EventWithId extends EventDoc {
@@ -21,6 +22,7 @@ export interface EventWritableFields {
   startDate?: string;
   status?: 'active' | 'cancelled';
   skladkaFee?: string | null;
+  dueDate?: string | null;
 }
 
 const COLLECTION = 'events';
@@ -48,6 +50,7 @@ export async function createEvent(
     createdBy,
     createdAt: new Date().toISOString(),
     skladkaFee: null,
+    dueDate: null,
   };
   await client.setDoc(COLLECTION, id, doc);
   return { id, ...doc };
