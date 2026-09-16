@@ -40,6 +40,7 @@ export const PUBLIC_PWA_PATHS = new Set([
   '/wojownicy/emeryci/',
   '/wojownicy/kandydaci/',
   '/wojownicy/niewiasty/',
+  '/wojownicy/zalozyciele/',
   '/publiczne-materialy/archiwalna-wersja-strony/',
 ]);
 
