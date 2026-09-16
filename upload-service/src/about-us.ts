@@ -1,10 +1,11 @@
 import type { DriveClient, DriveImageInfo } from './drive.ts';
 import { resizeThumbnailUrl } from './drive.ts';
 
-// "Blachowi" - warriors who've earned their Kruczy Wisior badge (see kruki.org's "Po tym nas
-// poznacie" section) - was originally named "Wojownicy" before the nav was restructured to
-// put a "Wojownicy" menu item above these four categories instead.
-export const ABOUT_US_CATEGORIES = ['Blachowi', 'Niewiasty', 'Emeryci', 'Kandydaci'] as const;
+// The public "My, Wojownicy" person categories, in canonical display order. "Założyciele" (the
+// club's founders) sits first; "Blachowi" - warriors who've earned their Kruczy Wisior badge
+// (see kruki.org's "Po tym nas poznacie" section) - was originally named "Wojownicy" before the
+// nav was restructured to put a "Wojownicy" menu item above these categories instead.
+export const ABOUT_US_CATEGORIES = ['Założyciele', 'Blachowi', 'Niewiasty', 'Emeryci', 'Kandydaci'] as const;
 export type AboutUsCategory = (typeof ABOUT_US_CATEGORIES)[number];
 
 export function isAboutUsCategory(value: string): value is AboutUsCategory {
@@ -33,19 +34,19 @@ export function departmentFolderId(folders: AboutUsFolders, department: AdminDep
 // handleAdminMovePerson) - moving into "upload"/"deleted" never calls this, since order is
 // meaningless there (neither is publicly listed). Every department appends to the end (the
 // highest existing order + 1, so sortPeopleByFolderName shows the newcomer last) except
-// Emeryci, which by design prepends instead (the lowest existing order - 1, shown first) -
-// retiring warriors join at the top of that list, not the bottom.
+// Emeryci and Założyciele, which by design prepend instead (the lowest existing order - 1,
+// shown first) - retiring warriors and founders join at the top of their lists, not the bottom.
 export function computeOrderForDepartmentMove(department: AboutUsCategory, existingFolderNames: string[]): number {
   const orders = existingFolderNames
     .map(name => parsePersonFolderName(name).order)
     .filter((order): order is number => order !== null);
   if (orders.length === 0) return 1;
-  return department === 'Emeryci' ? Math.min(...orders) - 1 : Math.max(...orders) + 1;
+  return department === 'Emeryci' || department === 'Założyciele' ? Math.min(...orders) - 1 : Math.max(...orders) + 1;
 }
 
 // Allows an optional leading "-": computeOrderForDepartmentMove can legitimately produce a
-// negative order (Emeryci prepends via lowest-existing-order - 1, and repeated moves there walk
-// that value below zero) - a pattern that didn't accept "-" silently failed to parse a folder
+// negative order (Emeryci/Założyciele prepend via lowest-existing-order - 1, and repeated moves
+// there walk that value below zero) - a pattern that didn't accept "-" silently failed to parse a folder
 // like "-1. Ragnar" back out, treating the *entire* "-1. Ragnar" as an unnumbered name instead
 // (which also meant it sorted to the end of the list, alongside every other real unnumbered
 // entry, rather than at the top as intended).

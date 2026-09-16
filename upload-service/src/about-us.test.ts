@@ -7,6 +7,7 @@ import {
   computeOrderForDepartmentMove,
   bootstrapAboutUsStructure,
   resetAboutUsBootstrapForTests,
+  ABOUT_US_CATEGORIES,
 } from './about-us.ts';
 import type { DriveClient } from './drive.ts';
 
@@ -66,6 +67,23 @@ test('bootstrapAboutUsStructure creates upload/deleted under a private root, nev
   const oNasCall = ensureFolderCalls.find(c => c.name === 'O Nas');
   const privateRootCall = ensureFolderCalls.find(c => c.name !== 'O Nas' && c.parentFolderId === oNasCall!.parentFolderId && c.name !== 'Strona');
   assert.ok(privateRootCall, 'expected the private root to be created as a sibling of "O Nas"');
+});
+
+test('bootstrapAboutUsStructure creates one Drive folder per About-Us category under "O Nas"', async () => {
+  resetAboutUsBootstrapForTests();
+  const { drive, ensureFolderCalls } = makeTracingDrive();
+
+  const folders = await bootstrapAboutUsStructure(drive);
+
+  for (const category of ABOUT_US_CATEGORIES) {
+    assert.ok(
+      ensureFolderCalls.some(c => c.name === category && c.parentFolderId === folders.root),
+      `expected ensureFolder call creating "${category}" under "O Nas"`,
+    );
+    assert.equal(folders.categories[category] !== undefined, true, `expected a folder id for "${category}"`);
+  }
+  // Założyciele is the founders' category added first in ABOUT_US_CATEGORIES (KRKG-0084).
+  assert.equal(folders.categories['Założyciele'] !== undefined, true);
 });
 
 test('parsePersonFolderName extracts a leading "N. " order prefix', () => {
@@ -137,8 +155,16 @@ test('computeOrderForDepartmentMove prepends before the lowest existing order fo
   assert.equal(computeOrderForDepartmentMove('Emeryci', ['2. Jan', '5. Piotr']), 1);
 });
 
+test('computeOrderForDepartmentMove prepends before the lowest existing order for Założyciele', () => {
+  assert.equal(computeOrderForDepartmentMove('Założyciele', ['2. Jan', '5. Piotr']), 1);
+});
+
 test('computeOrderForDepartmentMove defaults to 1 for an empty normal department', () => {
   assert.equal(computeOrderForDepartmentMove('Kandydaci', []), 1);
+});
+
+test('computeOrderForDepartmentMove defaults to 1 for an empty Założyciele department', () => {
+  assert.equal(computeOrderForDepartmentMove('Założyciele', []), 1);
 });
 
 test('computeOrderForDepartmentMove defaults to 1 for an empty Emeryci department', () => {

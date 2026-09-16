@@ -1074,7 +1074,7 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
 
 // Admin panel counterpart to KRKG-0037's deferred driveFolderId gap (design.md §2/§6): lets an
 // admin link a member's account to a Drive folder that already exists under one of the public
-// About-Us categories (Blachowi/Niewiasty/Emeryci/Kandydaci), instead of a manual Firestore
+// About-Us categories (Założyciele/Blachowi/Niewiasty/Emeryci/Kandydaci), instead of a manual Firestore
 // console edit. folderId: null clears the link. Unlike the member-writable fields in
 // MemberWritableFields, driveFolderId is deliberately not member-settable - this is the one
 // admin-only write path for it (see setMemberDriveFolderId's comment).
@@ -1344,16 +1344,16 @@ async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerRes
   sendJson(res, 200, { ok: true });
 }
 
-// Moves a person's folder into a different department (any of the 4 categories, "upload", or
+// Moves a person's folder into a different department (any of the public categories, "upload", or
 // "deleted" - the admin panel's "remove from site" action, see AboutUsFolders.deletedRoot) -
 // e.g. reviewing a self-service submission and moving it out of the staging folder into
 // Niewiasty/Kandydaci/etc. Drive's own move semantics (addParents/removeParents) are handled in
 // moveFolder; this just resolves the target department name to its folder id.
 //
-// Moving into one of the 4 *public* categories also reassigns the person's display order (see
-// computeOrderForDepartmentMove): every department appends them at the end, except Emeryci,
-// which prepends instead - by design, not something the admin panel asks for explicitly.
-// "upload"/"deleted" skip this entirely since order is meaningless there.
+// Moving into one of the *public* categories also reassigns the person's display order (see
+// computeOrderForDepartmentMove): every department appends them at the end, except Emeryci and
+// Założyciele, which prepend instead - by design, not something the admin panel asks for
+// explicitly. "upload"/"deleted" skip this entirely since order is meaningless there.
 async function handleAdminMovePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, category } = await readJsonBody<{ folderId?: string; category?: string }>(req, deps.maxJsonBodyBytes);
