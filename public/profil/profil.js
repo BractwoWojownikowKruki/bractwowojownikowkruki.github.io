@@ -135,11 +135,11 @@ async function deletePendingPhoto(control) {
 }
 
 // KRKG-0083: deletes one of the caller's own already-approved (public) photos. Unlike a pending
-// upload, this removes something already live on the public site, so it's gated behind an
-// explicit confirm - MutationFeedback.confirmed only shows a post-success checkmark, it is not
-// itself a confirmation dialog.
+// upload, this removes something already live on the public site - the click handler below
+// confirms before calling this at all (MutationFeedback.confirmed only shows a post-success
+// checkmark, it is not itself a confirmation dialog), so by the time this runs the user has
+// already agreed.
 async function deletePublicPhoto(control) {
-  if (!window.confirm('Usunąć to zdjęcie? Zniknie z publicznej strony „Wojownicy”.')) return;
   const container = document.getElementById('lw-current-submission');
   await window.MutationFeedback.confirmed({
     control,
@@ -179,11 +179,16 @@ async function setMainPhoto(control) {
 document.getElementById('lw-current-submission').addEventListener('click', (e) => {
   const deleteBtn = e.target.closest('.lw-delete-pending-btn, .lw-delete-public-btn');
   if (deleteBtn) {
+    // Confirm (public delete only) BEFORE disabling the button, not inside the async action -
+    // cancelling resolves rather than rejects, so a confirm gate placed after disabling would
+    // never reach the .catch below that re-enables it, leaving the button stuck disabled forever.
+    const isPublic = deleteBtn.classList.contains('lw-delete-public-btn');
+    if (isPublic && !window.confirm('Usunąć to zdjęcie? Zniknie z publicznej strony „Wojownicy”.')) return;
     deleteBtn.disabled = true;
-    const action = deleteBtn.classList.contains('lw-delete-public-btn') ? deletePublicPhoto : deletePendingPhoto;
+    const action = isPublic ? deletePublicPhoto : deletePendingPhoto;
     action(deleteBtn).catch((err) => {
       deleteBtn.disabled = false;
-      if (err) window.alert(`Nie udało się usunąć zdjęcia: ${err.message}`);
+      window.alert(`Nie udało się usunąć zdjęcia: ${err.message}`);
     });
     return;
   }

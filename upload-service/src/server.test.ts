@@ -5388,7 +5388,7 @@ test('POST /lista-wyjazdowa/profile/photo/main returns 404 for a fileId not list
   });
 });
 
-test('POST /lista-wyjazdowa/profile/photo/main prefixes the target and strips the previous main, audits profile.person.photo.main.changed, and invalidates the about-us cache', async () => {
+test('POST /lista-wyjazdowa/profile/photo/main prefixes the target and strips the previous main, and audits profile.person.photo.main.changed', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
   await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'pub-1' }));
@@ -5424,6 +5424,45 @@ test('POST /lista-wyjazdowa/profile/photo/main prefixes the target and strips th
   const event = events.find(e => e.data.action === 'profile.person.photo.main.changed')!.data;
   assert.equal(event.resource.key, 'person:pub-1');
   assert.equal(event.actor.email, 'ktos@gmail.com');
+});
+
+test('POST /lista-wyjazdowa/profile/photo/main fails the request and records a failed audited operation when the postcondition re-list finds more than one "!"-prefixed file (KRKG-0083 design review: Drive has no multi-file atomic rename, so a concurrent set-main - or a stale read - can leave the folder inconsistent even though this call\'s own rename loop succeeded)', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'pub-1' }));
+  let listCall = 0;
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      // Calls 1-2 (the handler's own membership check, then auditedSetMainPhoto's rename-loop
+      // listing) see photo-2 as not yet main - consistent with a normal request. Call 3 (the
+      // postcondition re-list, after the rename loop's own renameFolder calls - mocked as no-ops
+      // below, since what matters here is what the NEXT list returns) sees photo-1 STILL
+      // "!"-prefixed as well, simulating another writer's rename landing in between.
+      listImageFiles: async () => {
+        listCall += 1;
+        if (listCall <= 2) return [
+          { id: 'photo-1', name: '!IMG_0001.jpg', thumbnailLink: 'https://example.test/1=s220' },
+          { id: 'photo-2', name: 'IMG_0002.jpg', thumbnailLink: 'https://example.test/2=s220' },
+        ];
+        return [
+          { id: 'photo-1', name: '!IMG_0001.jpg', thumbnailLink: 'https://example.test/1=s220' },
+          { id: 'photo-2', name: '!IMG_0002.jpg', thumbnailLink: 'https://example.test/2=s220' },
+        ];
+      },
+      renameFolder: async () => {},
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo/main`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'photo-2' }),
+    });
+    assert.equal(res.status, 500);
+  });
+  const outcomes = (await firestore.listDocs('auditOperationOutcomes')).map(doc => doc.data as { state: string });
+  assert.ok(outcomes.some(o => o.state === 'failed'), 'an inconsistent postcondition must be recorded as a failed audited operation, never silently reported as success');
 });
 
 // Every "plain member" test below explicitly overrides authenticateAdminOrModerator to throw -
