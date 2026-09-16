@@ -62,6 +62,7 @@ const mutationFeedbackWiredRoutes = new Set([
   'POST /wojownicy-upload/submit',
   'POST /wojownicy-upload/photo',
   'DELETE /lista-wyjazdowa/profile/photo',
+  'POST /lista-wyjazdowa/profile/photo/main',
   'PUT /lista-wyjazdowa/member',
   'PUT /lista-wyjazdowa/profile',
   'POST /delete-drive-gallery',
