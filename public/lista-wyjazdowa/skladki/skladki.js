@@ -136,6 +136,15 @@ function formatDate(iso) {
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
 }
 
+// Plain DD.MM.YYYY string manipulation, not a Date object - see lista-wyjazdowa.js's identical
+// formatDate() for why (avoids UTC/local skew on a bare calendar date with no time component).
+// Named formatDueDate, not formatDate, because this file's existing formatDate is Date-based and
+// used for timestamp fields (e.g. member.approvedAt) - do not touch or reuse that one here.
+function formatDueDate(isoDate) {
+  const [y, m, d] = isoDate.split('-');
+  return `${d}.${m}.${y}`;
+}
+
 const panels = {
   checking: document.getElementById('lw-checking'),
   signedOut: document.getElementById('signed-out-panel'),
@@ -595,9 +604,14 @@ function renderYearFee(yearFee) {
   const editPanel = document.getElementById('skladki-year-fee-edit');
   const historyLink = document.getElementById('skladki-year-fee-history-link');
   const note = yearFee?.note ?? null;
+  const dueDate = yearFee?.dueDate ?? null;
   display.textContent = note ? `Składka ${selectedYear}: ${note}` : `Składka ${selectedYear}: nie ustalono`;
+  if (dueDate) display.textContent += ` (termin: ${formatDueDate(dueDate)})`;
   editPanel.hidden = !canManageSkladki;
-  if (canManageSkladki) document.getElementById('skladki-year-fee-input').value = note ?? '';
+  if (canManageSkladki) {
+    document.getElementById('skladki-year-fee-input').value = note ?? '';
+    document.getElementById('skladki-year-fee-duedate-input').value = dueDate ?? '';
+  }
   historyLink.hidden = !canManageSkladki;
   historyLink.href = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:year:${selectedYear}`)}`;
 }
@@ -606,13 +620,16 @@ async function saveYearFee() {
   clearError();
   try {
     const value = document.getElementById('skladki-year-fee-input').value.trim();
+    const dueDateValue = document.getElementById('skladki-year-fee-duedate-input').value || null;
     await confirmedDuesMutation(document.getElementById('skladki-year-fee-save'), () => apiFetch(
       `/lista-wyjazdowa/dues/year-fee?year=${selectedYear}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: value || null }) },
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: value || null, dueDate: dueDateValue }) },
       showReauth,
       hideReauth,
     ), () => {
-      document.getElementById('skladki-year-fee-display').textContent = value ? `Składka ${selectedYear}: ${value}` : `Składka ${selectedYear}: nie ustalono`;
+      document.getElementById('skladki-year-fee-display').textContent = value
+        ? `Składka ${selectedYear}: ${value}${dueDateValue ? ` (termin: ${formatDueDate(dueDateValue)})` : ''}`
+        : `Składka ${selectedYear}: nie ustalono`;
     });
   } catch (err) {
     showError(`Nie udało się zapisać składki: ${err.message}`);

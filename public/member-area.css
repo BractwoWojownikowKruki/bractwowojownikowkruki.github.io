@@ -890,7 +890,9 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
    the id means sharing that box styling for free. The inputs keep separate ids/rules below since
    the year-fee note ("100 zł mężczyźni, 50 zł kobiety") runs longer than a single event's fee. */
 #skladka-fee-input,
-#skladki-year-fee-input {
+#skladki-year-fee-input,
+#skladka-fee-duedate-input,
+#skladki-year-fee-duedate-input {
   background: var(--surface-deep);
   border: 1px solid var(--border);
   border-radius: 6px;

@@ -169,21 +169,28 @@ function renderSkladkaFee(event) {
   const display = document.getElementById('skladka-fee-display');
   const editPanel = document.getElementById('skladka-fee-edit');
   display.textContent = event.skladkaFee ? `Składka: ${event.skladkaFee}` : 'Składka: nie ustalono';
+  if (event.dueDate) display.textContent += ` (termin: ${formatDate(event.dueDate)})`;
   editPanel.hidden = !canManageSkladki;
-  if (canManageSkladki) document.getElementById('skladka-fee-input').value = event.skladkaFee ?? '';
+  if (canManageSkladki) {
+    document.getElementById('skladka-fee-input').value = event.skladkaFee ?? '';
+    document.getElementById('skladka-fee-duedate-input').value = event.dueDate ?? '';
+  }
 }
 
 async function saveSkladkaFee() {
   clearError();
   try {
     const value = document.getElementById('skladka-fee-input').value.trim();
+    const dueDateValue = document.getElementById('skladka-fee-duedate-input').value || null;
     await confirmedEventMutation(document.getElementById('skladka-fee-save'), () => apiFetch(
       `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skladkaFee: value || null }) },
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skladkaFee: value || null, dueDate: dueDateValue }) },
       showReauth,
       hideReauth,
     ), () => {
-      document.getElementById('skladka-fee-display').textContent = value ? `Składka: ${value}` : 'Składka: nie ustalono';
+      document.getElementById('skladka-fee-display').textContent = value
+        ? `Składka: ${value}${dueDateValue ? ` (termin: ${formatDate(dueDateValue)})` : ''}`
+        : 'Składka: nie ustalono';
     });
   } catch (err) {
     showError(`Nie udało się zapisać składki: ${err.message}`);
