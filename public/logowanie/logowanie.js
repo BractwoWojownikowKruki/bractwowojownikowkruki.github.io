@@ -4,12 +4,17 @@
  * as signed in or offer the Google button. This avoids a misleading sign-in flash for a returning
  * member while keeping registration available to everyone not currently authorized.
  */
+// Mirrors showForbidden below: a brief confirmation, then hand off to /app/ - this page previously
+// left a signed-in member stuck on a static "Zalogowano jako ..." message with nothing to click.
+const SIGNED_IN_REDIRECT_DELAY_MS = 1000;
+
 function showSignedIn(identity) {
   document.getElementById('login-checking').hidden = true;
   document.getElementById('login-signin').hidden = true;
   document.getElementById('login-signed-in-email').textContent = identity.email;
   document.getElementById('login-signed-in').hidden = false;
   document.getElementById('register-section').hidden = true;
+  setTimeout(redirectToApp, SIGNED_IN_REDIRECT_DELAY_MS);
 }
 
 function showSignIn() {

@@ -34,10 +34,11 @@ try {
 // See the top-of-file comment. Read synchronously (and inline, before this script even loads) by
 // index.html's own head script to skip straight to /app/ for a returning member instead of
 // flashing the homepage - that inline copy duplicates the key/max-age since it must run before
-// this file is fetched. Set on every server-confirmed member whoami (index-redirect.js, and
-// app.js's member gate, which also renews it - a "sliding" hint mirroring the session cookie's own
-// sliding lifetime), cleared on logout or on a confirmed signed-out/forbidden result from either
-// of those same two call sites.
+// this file is fetched. Set on every server-confirmed member whoami that redirects to /app/
+// (index-redirect.js and logowanie.js, both via redirectToApp() below; app.js's own member gate
+// also renews it on a direct /app/ visit - a "sliding" hint mirroring the session cookie's own
+// sliding lifetime), cleared on logout or on a confirmed signed-out/forbidden result from any of
+// those pages, or nav.js's own member check on any other page.
 const MEMBER_REDIRECT_HINT_KEY = 'kruki_last_member_hint';
 const MEMBER_REDIRECT_HINT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -56,6 +57,22 @@ function clearMemberRedirectHint() {
   } catch {
     // Same as above.
   }
+}
+
+// Shared by every page that sends a freshly server-confirmed member to /app/ (index-redirect.js
+// on /, logowanie.js after a successful sign-in) so the two-hint write - the long-lived one above
+// plus the one-shot sessionStorage hint app.js reads to skip repainting its own "checking" loader
+// - can't drift between call sites. app.js still re-verifies via its own whoami call regardless
+// and corrects course if that comes back signed-out/forbidden.
+function redirectToApp() {
+  setMemberRedirectHint();
+  try {
+    sessionStorage.setItem('kruki_app_redirect_hint', String(Date.now()));
+  } catch {
+    // sessionStorage can throw in some privacy modes - the redirect still works, /app/ just
+    // shows its normal checking loader in that case.
+  }
+  window.location.replace('/app/');
 }
 
 let pendingReauth = null;
