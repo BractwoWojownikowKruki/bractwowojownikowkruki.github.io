@@ -49,12 +49,12 @@ async function uploadPhotos(folderId, fileList, onProgress) {
 
 document.getElementById('manage-category').addEventListener('change', loadManageList);
 
-// Valid "transfer this photo to" targets: existing people in the 3 categories a photo could
+// Valid "transfer this photo to" targets: existing people in the categories a photo could
 // reasonably belong to (Emeryci excluded per spec - retired warriors aren't where a fresh
 // upload-staging photo should ever land; upload/deleted excluded since those aren't existing
 // published profiles). Fetched fresh on every loadManageList() call rather than cached across
 // them, so a person added/moved/renamed a moment ago always shows up correctly.
-const TRANSFER_TARGET_CATEGORIES = ['Blachowi', 'Niewiasty', 'Kandydaci'];
+const TRANSFER_TARGET_CATEGORIES = ['Założyciele', 'Blachowi', 'Niewiasty', 'Kandydaci'];
 let transferTargetsCache = [];
 
 async function loadTransferTargets() {
@@ -94,6 +94,7 @@ async function loadManageList() {
 }
 
 const DEPARTMENT_OPTIONS = [
+  ['Założyciele', 'Założyciele'],
   ['Blachowi', 'Blachowi'],
   ['Niewiasty', 'Niewiasty'],
   ['Emeryci', 'Emeryci'],
@@ -115,12 +116,13 @@ function transferTargetOptionsHtml(transferTargets, excludeFolderId) {
     .join('');
 }
 
-// Apply Review (KRKG-0070, gpt-5 v5.0 round): all 4 public categories are valid approve targets
+// Apply Review (KRKG-0070, gpt-5 v5.0 round): every public category is a valid approve target
 // (unlike TRANSFER_TARGET_CATEGORIES above, which deliberately excludes Emeryci for a different
 // reason - transferring into an existing retired-warrior profile isn't where a *fresh* upload
 // should default). Approving into Emeryci as someone's first-ever public profile is a normal,
-// legitimate admin choice the UI must not block.
-const APPROVE_TARGET_CATEGORIES = ['Blachowi', 'Niewiasty', 'Emeryci', 'Kandydaci'];
+// legitimate admin choice the UI must not block. Blachowi stays first because this array's first
+// element is the dropdown's default - a fresh photo should not default to Założyciele.
+const APPROVE_TARGET_CATEGORIES = ['Blachowi', 'Założyciele', 'Niewiasty', 'Emeryci', 'Kandydaci'];
 
 function approveTargetCategoryOptionsHtml() {
   return APPROVE_TARGET_CATEGORIES.map(category => `<option value="${category}">${category}</option>`).join('');

@@ -128,11 +128,11 @@ const MEMBERSHIP_ACTIONS_BY_STATUS = {
   rejected: [],
 };
 
-// The 4 public About-Us categories (about-us.ts's ABOUT_US_CATEGORIES) - deliberately all 4,
+// Every public About-Us category (about-us.ts's ABOUT_US_CATEGORIES) - deliberately all of them,
 // unlike TRANSFER_TARGET_CATEGORIES on the Publiczne wizytówki page (which excludes Emeryci for
 // the unrelated photo-transfer feature): a retired member can still be a logged-in Firestore
 // member whose account needs linking to their Emeryci folder.
-const DRIVE_FOLDER_LINK_CATEGORIES = ['Blachowi', 'Niewiasty', 'Emeryci', 'Kandydaci'];
+const DRIVE_FOLDER_LINK_CATEGORIES = ['Założyciele', 'Blachowi', 'Niewiasty', 'Emeryci', 'Kandydaci'];
 
 // Cached across loadMembershipMembers calls (status-filter changes, "usuń" actions) so switching
 // the status filter repeatedly doesn't re-fetch all 4 categories' folder lists every time - the
