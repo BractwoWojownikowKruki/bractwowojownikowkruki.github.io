@@ -199,16 +199,22 @@ async function buildDuesOwedItems(events) {
 // file can tell whether it's safe to render (review finding: a confirmed admin who isn't in the
 // live Google Group would otherwise get onSignedIn firing on /admin/whoami while the member gate
 // hides #app-panel - and #app-admin-panel-slot lives inside #app-panel, so the rendered admin
-// panel would be invisible). Only ever moves away from 'pending' once the member gate definitively
-// resolves; the admin callback treats 'pending' as "proceed as normal" since resolution order
-// between the two independent initGoogleSignIn calls isn't guaranteed.
+// panel would be invisible). memberGateStatePromise is what makes this deterministic regardless of
+// which whoami round-trip lands first: the admin callback AWAITS it before deciding whether to
+// fetch, rather than reading memberGateState as a snapshot that might still be 'pending' if
+// /admin/whoami's response happens to arrive before the member gate's own response does (a real
+// race a prior version of this fix only handled for one arrival order - see the final whole-branch
+// review). memberGateState itself is kept only for readability/debugging.
 let memberGateState = 'pending';
+let resolveMemberGateState;
+const memberGateStatePromise = new Promise(resolve => { resolveMemberGateState = resolve; });
 
 initGoogleSignIn({
   buttonIds: [],
   whoamiPath: '/wojownicy-upload/whoami',
   onSignedIn: async () => {
     memberGateState = 'panel';
+    resolveMemberGateState('panel');
     showOnly(panels.panel);
     const widgetSlot = document.getElementById('app-widget-grid-slot');
     const duesSlot = document.getElementById('app-dues-panel-slot');
@@ -254,10 +260,12 @@ initGoogleSignIn({
   },
   onSignedOut: () => {
     memberGateState = 'signedOut';
+    resolveMemberGateState('signedOut');
     showOnly(panels.signedOut);
   },
   onForbidden: () => {
     memberGateState = 'forbidden';
+    resolveMemberGateState('forbidden');
     showOnly(panels.forbidden);
   },
 });
@@ -315,13 +323,13 @@ initGoogleSignIn({
   buttonIds: [],
   whoamiPath: '/admin/whoami',
   onSignedIn: async () => {
-    // If the member gate above has already and definitively resolved to forbidden/signed-out,
-    // #app-panel (and this panel's slot inside it) is hidden and will stay hidden - skip
-    // rendering and the two admin fetches entirely. If the member gate hasn't resolved yet,
-    // proceed as normal (the common case of an admin who's also a group member keeps working
-    // exactly as today; the slot mechanism means the admin panel just becomes visible once
-    // showOnly(panels.panel) eventually runs).
-    if (memberGateState === 'forbidden' || memberGateState === 'signedOut') return;
+    // Wait for the member gate to definitively resolve before deciding whether to fetch - this is
+    // what makes the guard deterministic regardless of which of the two independent whoami
+    // round-trips lands first (see memberGateStatePromise's comment above). In the common case
+    // (an admin who is also a group member) the member gate resolves to 'panel' at roughly the
+    // same time as this callback fires, so this adds no perceptible delay.
+    const resolvedMemberGateState = await memberGateStatePromise;
+    if (resolvedMemberGateState === 'forbidden' || resolvedMemberGateState === 'signedOut') return;
     try {
       const [{ members }, { people }] = await Promise.all([
         apiFetch('/admin/members?status=pending', { method: 'GET' }, showReauth, hideReauth),

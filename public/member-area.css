@@ -1335,6 +1335,15 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   text-align: center;
   overflow: hidden;
 }
+/* Without this, app.js's cover-image <img> renders at its full intrinsic size inside the 4.5rem
+   box (only clipped by overflow:hidden), not scaled - an uncontrolled crop, not a thumbnail. Same
+   width/height/object-fit pattern as style.css's .thumb img. */
+.dashboard-gallery-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 
 /* Dues panel — itemized list of UNPAID items only. No total: skladkaFee/DuesYearFee.note are
    free text (rates vary by category, e.g. "100 zł mężczyźni, 50 zł kobiety"), so there is no
