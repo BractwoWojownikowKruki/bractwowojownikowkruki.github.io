@@ -239,3 +239,71 @@ initGoogleSignIn({
   onSignedOut: () => showOnly(panels.signedOut),
   onForbidden: () => showOnly(panels.forbidden),
 });
+
+function hasUploadPhotos(person) {
+  return !!person.mainPhoto || person.photos.length > 0;
+}
+
+function renderAdminPanel(pendingCount, uploadPendingCount) {
+  const panel = document.createElement('section');
+  panel.className = 'dashboard-admin-panel';
+  const rows = [];
+  if (pendingCount > 0) {
+    rows.push(`
+      <a href="/admin/zgloszenia/" class="dashboard-action-item">
+        <span class="dashboard-action-item-label">
+          <span class="dashboard-action-count">${pendingCount}</span>
+          Zgłoszenia członkowskie oczekujące na akceptację
+        </span>
+        <span class="dashboard-action-chevron">→</span>
+      </a>
+    `);
+  }
+  if (uploadPendingCount > 0) {
+    rows.push(`
+      <a href="/admin/publiczne-wizytowki/" class="dashboard-action-item">
+        <span class="dashboard-action-item-label">
+          <span class="dashboard-action-count">${uploadPendingCount}</span>
+          Zdjęcia do zatwierdzenia w Publicznych wizytówkach
+        </span>
+        <span class="dashboard-action-chevron">→</span>
+      </a>
+    `);
+  }
+  if (rows.length === 0) return null;
+  panel.innerHTML = `
+    <h2><span aria-hidden="true">🛠</span> Wymaga Twojej uwagi (Zarządzanie)</h2>
+    <div class="dashboard-action-list">${rows.join('')}</div>
+  `;
+  return panel;
+}
+
+// Independent, admin-only gate - see design.md §4. Renders into its own fixed slot
+// (#app-admin-panel-slot, Task 5) rather than panels.panel.prepend(...) - this callback and the
+// member-gating one above it resolve at unrelated times (two separate whoami round-trips), so
+// only a fixed-position slot - not prepend-call order - can guarantee design.md §3's required
+// "admin panel first" placement. No DOM element or network request for this panel exists
+// unless/until this call's own onSignedIn fires; a plain member never triggers either.
+// Deliberately isAdmin-only (not isAdminOrModerator) - both queues below are isAdmin-only in
+// nav.js's own ADMIN_ZONE_MENU (design.md §4, round-2 advisory #7). Note: nav.js itself (loaded
+// by every page, including this one) always makes its own separate /admin/whoami call regardless
+// of what this file does - a plain member on /app/ will see that one 403 in the Network tab; it
+// is not this call and not something this task controls.
+initGoogleSignIn({
+  buttonIds: [],
+  whoamiPath: '/admin/whoami',
+  onSignedIn: async () => {
+    try {
+      const [{ members }, { people }] = await Promise.all([
+        apiFetch('/admin/members?status=pending', { method: 'GET' }, showReauth, hideReauth),
+        apiFetch('/admin/people?category=upload', { method: 'GET' }, showReauth, hideReauth),
+      ]);
+      const uploadPendingCount = people.filter(hasUploadPhotos).length;
+      const adminPanel = renderAdminPanel(members.length, uploadPendingCount);
+      if (adminPanel) document.getElementById('app-admin-panel-slot').replaceChildren(adminPanel);
+    } catch (err) {
+      // Admin panel is a bonus for an admin who's already looking at their own dashboard - a
+      // failed fetch here must not disturb the member-facing content above/below it.
+    }
+  },
+});
