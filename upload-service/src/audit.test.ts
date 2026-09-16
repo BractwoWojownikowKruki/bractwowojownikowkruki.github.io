@@ -480,6 +480,36 @@ test('queryAuditEvents: category, category+action, actor, and resourceKey select
   assert.deepEqual(resourcePage2.rows.map(r => r.id), ['evt-created']);
 });
 
+test('dues.year_fee.changed accepts a dueDate field alongside note', () => {
+  const event = createCanonicalAuditEvent(
+    {
+      action: 'dues.year_fee.changed',
+      actor: { email: 'skarbnik@example.test' },
+      resource: { kind: 'due', key: 'due:year:2027', display: '2027' },
+      changes: [
+        { field: 'note', after: '100 zł' },
+        { field: 'dueDate', before: null, after: '2027-03-31' },
+      ],
+    },
+    { createId: () => 'due-year-1', now: () => new Date('2027-01-01T00:00:00.000Z') },
+  );
+  assert.equal(event.changes[1].field, 'dueDate');
+  assert.equal(event.changes[1].visibility, 'roleRestricted');
+});
+
+test('dues.event_fee.changed accepts a dueDate field', () => {
+  const event = createCanonicalAuditEvent(
+    {
+      action: 'dues.event_fee.changed',
+      actor: { email: 'skarbnik@example.test' },
+      resource: { kind: 'eventFee', key: 'eventFee:evt-1', display: 'Zlot' },
+      changes: [{ field: 'dueDate', before: null, after: '2027-06-01' }],
+    },
+    { createId: () => 'event-fee-1', now: () => new Date('2027-01-01T00:00:00.000Z') },
+  );
+  assert.equal(event.changes[0].field, 'dueDate');
+});
+
 test('projectAuditEvent: admin-scope moderator sees actor and every field; member never sees actor', () => {
   const duesEvent = createCanonicalAuditEvent(
     {

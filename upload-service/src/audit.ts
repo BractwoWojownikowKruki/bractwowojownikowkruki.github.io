@@ -72,6 +72,10 @@ const duesFields = {
   note: 'roleRestricted',
   feeDigest: 'roleRestricted',
   feeLength: 'roleRestricted',
+  // KRKG-0080: optional deadline for dues.year_fee.changed and dues.event_fee.changed - a plain
+  // date, not sensitive like a fee amount, so it's logged as a direct before/after value (no
+  // digest needed, unlike feeDigest/feeLength above for the free-text fee description).
+  dueDate: 'roleRestricted',
 } as const;
 const profileFields = {
   memberEmail: 'roleRestricted',

@@ -69,7 +69,7 @@ import {
   type SignupWritableFields,
 } from './signups.ts';
 import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
-import { listDuesForYear, saveDues, listDuesAuditLog, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, getDues, normalizeDuesStatus, effectiveDuesStatus } from './dues.ts';
+import { listDuesForYear, saveDues, listDuesAuditLog, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, type DuesYearFeeWritableFields, getDues, normalizeDuesStatus, effectiveDuesStatus } from './dues.ts';
 import { buildSharedFileDoc, saveFileInTransaction, deleteFileInTransaction, getFileInTransaction, listFiles, InvalidFileUrlError, type SharedFileDoc } from './files.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
@@ -2827,7 +2827,12 @@ async function handleListaWyjazdowaPutDuesYearFee(req: IncomingMessage, res: Ser
   await requireSkladkiAccess(req, res, deps, identity.email);
   const year = requireYear(url.searchParams.get('year'), 'Nieprawidłowy rok.');
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
-  const note = optionalTrimmedString(body.note, LW_MAX_NAME_LENGTH, 'Opis składki jest nieprawidłowy.');
+  const fields: DuesYearFeeWritableFields = {};
+  if (body.note !== undefined) fields.note = optionalTrimmedString(body.note, LW_MAX_NAME_LENGTH, 'Opis składki jest nieprawidłowy.');
+  if (body.dueDate !== undefined) fields.dueDate = body.dueDate === null ? null : requireDateString(body.dueDate, 'Nieprawidłowy termin płatności (RRRR-MM-DD).');
+  if (fields.note === undefined && fields.dueDate === undefined) {
+    throw new AuthError('Podaj co najmniej jedno pole składki do zmiany.', 400);
+  }
   const { result: yearFee } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.yearFee,
@@ -2837,10 +2842,13 @@ async function handleListaWyjazdowaPutDuesYearFee(req: IncomingMessage, res: Ser
       return {
         actor: { email: identity.email },
         resource: { kind: 'due', key: `due:year:${year}`, display: String(year) },
-        changes: [{ field: 'note', ...(existing ? { before: existing.note } : {}), after: note }],
+        changes: [
+          ...(fields.note !== undefined ? [{ field: 'note', ...(existing ? { before: existing.note } : {}), after: fields.note }] : []),
+          ...(fields.dueDate !== undefined ? [{ field: 'dueDate', ...(existing ? { before: existing.dueDate ?? null } : {}), after: fields.dueDate }] : []),
+        ],
       };
     },
-    tx => saveDuesYearFee(tx, year, note, identity.email),
+    tx => saveDuesYearFee(tx, year, fields, identity.email),
   );
   sendJson(res, 200, { yearFee });
 }

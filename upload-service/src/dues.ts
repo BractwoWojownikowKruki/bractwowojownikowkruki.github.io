@@ -49,12 +49,23 @@ export function effectiveDuesStatus(dues: DuesDoc | null, categoryId: string | n
 // The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety"), set once by an
 // accountant/admin instead of per member - replaces the old per-member DuesDoc.amount field,
 // which forced the same free-text rate to be retyped once per row for what is, in practice, one
-// club-wide decision per year.
+// club-wide decision per year. dueDate (KRKG-0080) is a separate, optional deadline for the same
+// year - null means "no deadline set", same convention as note: null.
 export interface DuesYearFeeDoc {
   year: number;
   note: string | null;
+  dueDate: string | null; // YYYY-MM-DD, like EventDoc.startDate
   updatedBy: string;
   updatedAt: string;
+}
+
+// Independently optional, preserve-on-omit - same convention as DuesWritableFields.status above
+// (a caller sends only the field it wants to change; saveDuesYearFee below leaves the other one
+// exactly as it already was). Required for the existing note-only PUT /dues/year-fee call path to
+// keep producing a note-only audit `changes` entry (server.test.ts:6690) once dueDate exists.
+export interface DuesYearFeeWritableFields {
+  note?: string | null;
+  dueDate?: string | null;
 }
 
 // A separate, member/event-scoped-but-not-event-owned log for the three money writes that don't
@@ -126,10 +137,17 @@ export async function getDuesYearFee(client: FirestoreLikeClient, year: number):
 export async function saveDuesYearFee(
   client: FirestoreWriteContext,
   year: number,
-  note: string | null,
+  fields: DuesYearFeeWritableFields,
   updatedBy: string,
 ): Promise<DuesYearFeeDoc> {
-  const doc: DuesYearFeeDoc = { year, note, updatedBy, updatedAt: new Date().toISOString() };
+  const existing = await client.getDoc<DuesYearFeeDoc>(YEAR_FEE_COLLECTION, String(year));
+  const doc: DuesYearFeeDoc = {
+    year,
+    note: fields.note !== undefined ? fields.note : (existing?.note ?? null),
+    dueDate: fields.dueDate !== undefined ? fields.dueDate : (existing?.dueDate ?? null),
+    updatedBy,
+    updatedAt: new Date().toISOString(),
+  };
   await client.setDoc(YEAR_FEE_COLLECTION, String(year), doc);
   return doc;
 }

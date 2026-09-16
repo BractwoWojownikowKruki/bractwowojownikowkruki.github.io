@@ -6717,6 +6717,37 @@ test('PUT /lista-wyjazdowa/dues/year-fee requires accountant and sets a shared p
   });
 });
 
+test('PUT /lista-wyjazdowa/dues/year-fee accepts and round-trips dueDate independently of note', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/year-fee?year=2027', { note: '100 zł', dueDate: '2027-03-31' });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).yearFee.dueDate, '2027-03-31');
+
+    // Sending note alone must leave the previously-set dueDate untouched (preserve-on-omit).
+    const noteOnly = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/year-fee?year=2027', { note: '120 zł' });
+    const noteOnlyBody = await noteOnly.json();
+    assert.equal(noteOnlyBody.yearFee.note, '120 zł');
+    assert.equal(noteOnlyBody.yearFee.dueDate, '2027-03-31');
+  });
+});
+
+test('PUT /lista-wyjazdowa/dues/year-fee rejects a malformed dueDate with 400', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/year-fee?year=2027', { dueDate: '31-03-2027' });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /lista-wyjazdowa/dues/year-fee with neither note nor dueDate returns 400, not 500', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/year-fee?year=2027', {});
+    assert.equal(res.status, 400);
+  });
+});
+
 test('GET /lista-wyjazdowa/dues/mine returns only the caller\'s own dues for the requested year', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   await withServer(makeDeps({ firestore }), async baseUrl => {
