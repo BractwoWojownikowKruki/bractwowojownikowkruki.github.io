@@ -196,11 +196,13 @@ initGoogleSignIn({
     showOnly(panels.panel);
     const widgetSlot = document.getElementById('app-widget-grid-slot');
     const duesSlot = document.getElementById('app-dues-panel-slot');
+    let events;
     try {
-      const [{ events }, galleriesWidget] = await Promise.all([
+      const [eventsResult, galleriesWidget] = await Promise.all([
         apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
         renderNewGalleriesWidget(),
       ]);
+      events = eventsResult.events;
       const widgetGrid = document.createElement('div');
       widgetGrid.className = 'dashboard-widget-grid';
       const nearestWidget = renderNearestEventWidget(events);
@@ -211,9 +213,6 @@ initGoogleSignIn({
       // two independent initGoogleSignIn callbacks (this one and Task 8's admin-only one) happens
       // to resolve first.
       widgetSlot.replaceChildren(widgetGrid);
-
-      const owedItems = await buildDuesOwedItems(events);
-      duesSlot.replaceChildren(renderDuesPanel(owedItems));
     } catch (err) {
       // A failed widget fetch degrades only the widgets, not the whole dashboard (design.md
       // §5a's error-isolation note) - the tile grid below still works regardless.
@@ -221,6 +220,20 @@ initGoogleSignIn({
       errorEl.className = 'add-album-error';
       errorEl.textContent = `Nie udało się wczytać podsumowania: ${err.message}`;
       widgetSlot.replaceChildren(errorEl);
+    }
+
+    // Independent error boundary from the widget fetch above: a failure here (or events being
+    // unavailable because the widget fetch above failed) must only blank duesSlot, never touch
+    // widgetSlot's already-rendered content (review finding on task 7).
+    try {
+      if (!events) throw new Error('brak danych o wyjazdach');
+      const owedItems = await buildDuesOwedItems(events);
+      duesSlot.replaceChildren(renderDuesPanel(owedItems));
+    } catch (err) {
+      const errorEl = document.createElement('p');
+      errorEl.className = 'add-album-error';
+      errorEl.textContent = `Nie udało się wczytać podsumowania: ${err.message}`;
+      duesSlot.replaceChildren(errorEl);
     }
   },
   onSignedOut: () => showOnly(panels.signedOut),
