@@ -121,12 +121,81 @@ async function renderNewGalleriesWidget() {
   return widget;
 }
 
+function effectiveDuesStatus(dues, categoryId) {
+  if (dues) return dues.status;
+  return categoryId === 'emeryt' ? 'not_applicable' : 'unpaid';
+}
+
+function renderDuesPanel(owedItems) {
+  const panel = document.createElement('section');
+  if (owedItems.length === 0) {
+    panel.className = 'dashboard-dues-panel dashboard-dues-panel--settled';
+    panel.innerHTML = `<span aria-hidden="true">✓</span> Składki opłacone — nie masz żadnych zaległości.`;
+    return panel;
+  }
+  panel.className = 'dashboard-dues-panel';
+  const rows = owedItems.map(() => `
+    <div class="dashboard-dues-row">
+      <span class="dashboard-dues-row-label">
+        <span class="dashboard-dues-row-name"></span>
+        <span class="dashboard-dues-row-detail"></span>
+      </span>
+      <span class="dashboard-dues-row-duedate"></span>
+    </div>
+  `).join('');
+  panel.innerHTML = `<h3>Składki — do zapłaty</h3><div class="dashboard-dues-list">${rows}</div>`;
+  const rowEls = panel.querySelectorAll('.dashboard-dues-row');
+  owedItems.forEach((item, i) => {
+    rowEls[i].querySelector('.dashboard-dues-row-name').textContent = item.name;
+    if (item.detail) rowEls[i].querySelector('.dashboard-dues-row-detail').textContent = item.detail;
+    if (item.dueDate) rowEls[i].querySelector('.dashboard-dues-row-duedate').textContent = `termin: ${formatDate(item.dueDate)}`;
+  });
+  return panel;
+}
+
+async function buildDuesOwedItems(events) {
+  const year = new Date().getFullYear();
+  const [duesResult, memberResult, profileResult] = await Promise.all([
+    apiFetch(`/lista-wyjazdowa/dues?year=${year}`, { method: 'GET' }, showReauth, hideReauth),
+    apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
+    apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
+  ]);
+  const owed = [];
+
+  // Roczna - GET /lista-wyjazdowa/dues?year= returns the whole club's dues array; this dashboard
+  // deliberately discards it and only reads yearFee.note/dueDate (design.md §2a's documented
+  // data-minimization trade-off - no self-scoped GET /dues/year-fee endpoint exists).
+  const categoryId = memberResult.member?.categoryId ?? null;
+  const myDuesResponse = await apiFetch(`/lista-wyjazdowa/dues/mine?year=${year}`, { method: 'GET' }, showReauth, hideReauth);
+  const rocznaStatus = effectiveDuesStatus(myDuesResponse.dues, categoryId);
+  if (rocznaStatus === 'unpaid') {
+    owed.push({ name: `Roczna składka ${year}`, detail: duesResult.yearFee?.note ?? null, dueDate: duesResult.yearFee?.dueDate ?? null });
+  }
+
+  // Wpisowe - profile may be null if the member never saved a Lista Wyjazdowa profile; treat that
+  // identically to wpisowePaid === false (design.md §2a, round-2 advisory #3).
+  const wpisowePaid = profileResult.profile?.wpisowePaid === true;
+  if (!wpisowePaid) {
+    owed.push({ name: 'Wpisowe', detail: null, dueDate: null });
+  }
+
+  // Per-event składka - only events the viewer actually attends and hasn't paid for.
+  for (const event of events) {
+    if (event.viewerAttending && !event.viewerSkladkaPaid) {
+      owed.push({ name: `Składka — ${event.name}`, detail: event.skladkaFee ?? null, dueDate: event.dueDate ?? null });
+    }
+  }
+
+  return owed;
+}
+
 initGoogleSignIn({
   buttonIds: [],
   whoamiPath: '/wojownicy-upload/whoami',
   onSignedIn: async () => {
     showOnly(panels.panel);
     const widgetSlot = document.getElementById('app-widget-grid-slot');
+    const duesSlot = document.getElementById('app-dues-panel-slot');
     try {
       const [{ events }, galleriesWidget] = await Promise.all([
         apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
@@ -142,6 +211,9 @@ initGoogleSignIn({
       // two independent initGoogleSignIn callbacks (this one and Task 8's admin-only one) happens
       // to resolve first.
       widgetSlot.replaceChildren(widgetGrid);
+
+      const owedItems = await buildDuesOwedItems(events);
+      duesSlot.replaceChildren(renderDuesPanel(owedItems));
     } catch (err) {
       // A failed widget fetch degrades only the widgets, not the whole dashboard (design.md
       // §5a's error-isolation note) - the tile grid below still works regardless.
