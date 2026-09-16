@@ -744,8 +744,8 @@ button.lw-skladka-icon:disabled {
   opacity: 0.45;
 }
 
-/* Sort/filter controls above the event page's roster (wyjazd.js's rosterFilter) - an inline select
-   rather than a form, since choosing it re-renders the list immediately. */
+/* Filter control above the event page's roster. Its button state is represented both visually and
+   semantically by aria-pressed, matching the event attendance toggle. */
 .lw-roster-controls {
   display: flex;
   flex-wrap: wrap;
@@ -755,13 +755,59 @@ button.lw-skladka-icon:disabled {
   color: var(--text-muted);
 }
 
-.lw-roster-controls select {
-  margin-left: 0.4rem;
+.lw-roster-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.lw-roster-filter-toggle-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 2.5rem;
+  height: 1.4rem;
   background: var(--surface-deep);
-  color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.lw-roster-filter-toggle-track::before {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 1.1rem;
+  height: 1.1rem;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: transform 0.15s ease, background-color 0.15s;
+}
+
+.lw-roster-filter-toggle[aria-pressed="true"] {
+  color: var(--gold);
+}
+
+.lw-roster-filter-toggle[aria-pressed="true"] .lw-roster-filter-toggle-track {
+  background: color-mix(in srgb, var(--gold) 25%, var(--surface-deep));
+  border-color: var(--gold);
+}
+
+.lw-roster-filter-toggle[aria-pressed="true"] .lw-roster-filter-toggle-track::before {
+  background: var(--gold);
+  transform: translateX(1.1rem);
+}
+
+.lw-roster-filter-toggle:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
 }
 
 /* Roster's name column (KRKG-0059/KRKG-0062) - just the computed display name in its pill, a

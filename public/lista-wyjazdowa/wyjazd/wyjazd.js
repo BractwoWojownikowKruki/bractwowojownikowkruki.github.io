@@ -161,6 +161,7 @@ function confirmedEventMutation(control, execute, apply, anchor = control) {
 // read-only text - the server re-checks the role on every mutation regardless, this only
 // controls what the UI offers.
 let canManageSkladki = false;
+let cachedEvent = null;
 
 // Tracks the dueDate last loaded/rendered into the edit input, so saveSkladkaFee can tell whether
 // the organizer actually changed the date (vs. only the fee text) and skip sending dueDate in the
@@ -169,39 +170,50 @@ let canManageSkladki = false;
 // no-op dueDate change). Same pattern as skladki.js's lastLoadedYearFeeDueDate.
 let lastLoadedSkladkaDueDate = null;
 
+function normalizeSkladkaFee(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeSkladkaDueDate(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 // event.skladkaFee is a free-text field (e.g. "50 zł / 25 zł dzieci"); textContent is used below
 // so no HTML-escaping is needed for the display span, same reasoning as event-title/event-meta
 // above it in loadAll().
 function renderSkladkaFee(event) {
   const display = document.getElementById('skladka-fee-display');
   const editPanel = document.getElementById('skladka-fee-edit');
-  display.textContent = event.skladkaFee ? `Składka: ${event.skladkaFee}` : 'Składka: nie ustalono';
-  if (event.dueDate) display.textContent += ` (termin: ${formatDate(event.dueDate)})`;
+  const fee = normalizeSkladkaFee(event.skladkaFee);
+  const dueDate = normalizeSkladkaDueDate(event.dueDate);
+  display.textContent = fee ? `Składka: ${fee}` : 'Składka: nie ustalono';
+  if (dueDate) display.textContent += ` (termin: ${formatDate(dueDate)})`;
   editPanel.hidden = !canManageSkladki;
   if (canManageSkladki) {
-    document.getElementById('skladka-fee-input').value = event.skladkaFee ?? '';
-    document.getElementById('skladka-fee-duedate-input').value = event.dueDate ?? '';
-    lastLoadedSkladkaDueDate = event.dueDate ?? null;
+    document.getElementById('skladka-fee-input').value = fee;
+    document.getElementById('skladka-fee-duedate-input').value = dueDate ?? '';
+    lastLoadedSkladkaDueDate = dueDate;
   }
 }
 
 async function saveSkladkaFee() {
   clearError();
   try {
-    const value = document.getElementById('skladka-fee-input').value.trim();
-    const dueDateValue = document.getElementById('skladka-fee-duedate-input').value || null;
-    const body = { skladkaFee: value || null };
+    const value = normalizeSkladkaFee(document.getElementById('skladka-fee-input').value);
+    const dueDateValue = normalizeSkladkaDueDate(document.getElementById('skladka-fee-duedate-input').value);
+    const body = {};
+    if (value !== normalizeSkladkaFee(cachedEvent?.skladkaFee)) body.skladkaFee = value || null;
     if (dueDateValue !== lastLoadedSkladkaDueDate) body.dueDate = dueDateValue;
+    if (Object.keys(body).length === 0) return;
     await confirmedEventMutation(document.getElementById('skladka-fee-save'), () => apiFetch(
       `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
       showReauth,
       hideReauth,
-    ), () => {
-      lastLoadedSkladkaDueDate = dueDateValue;
-      document.getElementById('skladka-fee-display').textContent = value
-        ? `Składka: ${value}${dueDateValue ? ` (termin: ${formatDate(dueDateValue)})` : ''}`
-        : 'Składka: nie ustalono';
+    ), (result) => {
+      cachedEvent = result.event;
+      renderSkladkaFee(cachedEvent);
+      renderRoster(cachedRoster, cachedSignups);
     });
   } catch (err) {
     showError(`Nie udało się zapisać składki: ${err.message}`);
@@ -320,7 +332,7 @@ function renderSummary(roster, signups) {
 // member's first weaponIds entry (a member can carry several, but the roster only ever has one row
 // per member, so grouping uses just the first one rather than duplicating the row into every
 // weapon's group). rosterFilter is a separate concern (which members are shown at all, not what
-// order) and keeps its own dropdown: 'attending' (the default) hides every member who hasn't signed
+// order) and keeps its own toggle: 'attending' (the default) hides every member who hasn't signed
 // up for this event yet, keeping the list short; 'all' reveals the full club allowlist so someone
 // who hasn't been asked yet can be ticked as attending for the first time. Re-applied locally from
 // the roster/signups already fetched by loadAll() - no network round-trip needed.
@@ -475,7 +487,7 @@ function renderRoster(roster, signups) {
           <span class="lw-attend-toggle-track" aria-hidden="true"></span>
           ${attending ? 'Jadę' : 'Nie jadę'}
         </button>
-        ${attending ? renderSkladkaIcon(emailAttr, signup?.skladkaPaid ?? false) : ''}
+        ${attending && normalizeSkladkaFee(cachedEvent?.skladkaFee) ? renderSkladkaIcon(emailAttr, signup?.skladkaPaid ?? false) : ''}
       </td>
       <td class="${member.weaponIds.length ? '' : 'czl-empty'}">${member.weaponIds.length ? weaponHtml : EMPTY}</td>
       <td class="lw-status-changed-cell">${escapeHtml(formatStatusChangedAt(signup?.statusChangedAt))}</td>
@@ -536,8 +548,12 @@ async function toggleAttending(email, nextAttending, control) {
   }
 }
 
-document.getElementById('roster-filter-select').addEventListener('change', (e) => {
-  rosterFilter = e.target.value;
+document.getElementById('roster-filter-toggle').addEventListener('click', () => {
+  rosterFilter = rosterFilter === 'attending' ? 'all' : 'attending';
+  const toggle = document.getElementById('roster-filter-toggle');
+  const showingAll = rosterFilter === 'all';
+  toggle.setAttribute('aria-pressed', String(showingAll));
+  document.getElementById('roster-filter-label').textContent = showingAll ? 'Wszyscy' : 'Tylko zgłoszeni + ja';
   renderRoster(cachedRoster, cachedSignups);
 });
 
@@ -581,6 +597,7 @@ async function loadAll() {
     document.getElementById('event-title').textContent = 'Nie znaleziono wyjazdu.';
     return;
   }
+  cachedEvent = event;
   document.getElementById('event-title').textContent = event.name;
   document.getElementById('event-meta').textContent = `${formatDate(event.startDate)}${event.status === 'cancelled' ? ' — odwołany' : ''}`;
   document.getElementById('cancel-event-btn').hidden = event.status === 'cancelled';

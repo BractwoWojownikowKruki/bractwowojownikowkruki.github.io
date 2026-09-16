@@ -86,12 +86,10 @@
           <section id="roster-panel">
             <h2>Lista</h2>
             <div class="lw-roster-controls">
-              <label>Pokaż:
-                <select id="roster-filter-select">
-                  <option value="attending">Tylko zgłoszeni</option>
-                  <option value="all">Wszyscy</option>
-                </select>
-              </label>
+              <button id="roster-filter-toggle" class="lw-roster-filter-toggle" type="button" aria-pressed="false">
+                <span class="lw-roster-filter-toggle-track" aria-hidden="true"></span>
+                <span id="roster-filter-label">Tylko zgłoszeni + ja</span>
+              </button>
             </div>
             <div class="czl-table-wrap">
               <table class="czl-table" id="roster-table">

@@ -39,3 +39,17 @@ test('date comparator keeps missing timestamps last in both directions', () => {
   assert.ok(compareDateValues('2026-01-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z', 'asc') < 0);
   assert.ok(compareDateValues('2026-01-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z', 'desc') > 0);
 });
+
+test('event roster filter is an initially inactive accessible toggle instead of a select', () => {
+  assert.doesNotMatch(page, /<select\s+id="roster-filter-select"/);
+  assert.match(page, /<button\s+id="roster-filter-toggle"\s+class="lw-roster-filter-toggle"\s+type="button"\s+aria-pressed="false">/);
+  assert.match(page, /<span\s+class="lw-roster-filter-toggle-track"\s+aria-hidden="true"><\/span>/);
+  assert.match(page, /<button[^>]*id="roster-filter-toggle"[\s\S]*?Tylko zgłoszeni \+ ja[\s\S]*?<\/button>/);
+});
+
+test('event roster filter toggle exposes active switch and keyboard-focus states', () => {
+  assert.match(css, /\.lw-roster-filter-toggle\s*\{[^}]*cursor:\s*pointer/);
+  assert.match(css, /\.lw-roster-filter-toggle\[aria-pressed="true"\]\s*\.lw-roster-filter-toggle-track\s*\{[^}]*border-color:\s*var\(--gold\)/);
+  assert.match(css, /\.lw-roster-filter-toggle\[aria-pressed="true"\]\s*\.lw-roster-filter-toggle-track::before\s*\{[^}]*transform:\s*translateX\(1\.1rem\)/);
+  assert.match(css, /\.lw-roster-filter-toggle:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--gold\)/);
+});
