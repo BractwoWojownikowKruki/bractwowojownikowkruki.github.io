@@ -155,20 +155,22 @@ function renderDuesPanel(owedItems) {
 
 async function buildDuesOwedItems(events) {
   const year = new Date().getFullYear();
-  const [duesResult, memberResult, profileResult] = await Promise.all([
-    apiFetch(`/lista-wyjazdowa/dues?year=${year}`, { method: 'GET' }, showReauth, hideReauth),
+  const [myDuesResponse, memberResult, profileResult] = await Promise.all([
+    apiFetch(`/lista-wyjazdowa/dues/mine?year=${year}`, { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
   ]);
   const owed = [];
 
-  // Roczna - GET /lista-wyjazdowa/dues?year= returns the whole club's dues array; this dashboard
-  // deliberately discards it and only reads yearFee.note/dueDate (design.md §2a's documented
-  // data-minimization trade-off - no self-scoped GET /dues/year-fee endpoint exists).
+  // Roczna - GET /lista-wyjazdowa/dues?year= returns the whole club's dues array (every member's
+  // payment status); this dashboard only needs yearFee.note/dueDate, and only when the viewer's
+  // own roczna status is actually unpaid, so it's fetched here rather than eagerly for everyone
+  // (design.md §2a's documented data-minimization trade-off - no self-scoped GET /dues/year-fee
+  // endpoint exists).
   const categoryId = memberResult.member?.categoryId ?? null;
-  const myDuesResponse = await apiFetch(`/lista-wyjazdowa/dues/mine?year=${year}`, { method: 'GET' }, showReauth, hideReauth);
   const rocznaStatus = effectiveDuesStatus(myDuesResponse.dues, categoryId);
   if (rocznaStatus === 'unpaid') {
+    const duesResult = await apiFetch(`/lista-wyjazdowa/dues?year=${year}`, { method: 'GET' }, showReauth, hideReauth);
     owed.push({ name: `Roczna składka ${year}`, detail: duesResult.yearFee?.note ?? null, dueDate: duesResult.yearFee?.dueDate ?? null });
   }
 
@@ -179,9 +181,13 @@ async function buildDuesOwedItems(events) {
     owed.push({ name: 'Wpisowe', detail: null, dueDate: null });
   }
 
-  // Per-event składka - only events the viewer actually attends and hasn't paid for.
+  // Per-event składka - only active events the viewer actually attends and hasn't paid for.
+  // GET /lista-wyjazdowa/events returns cancelled events too, and cancelling an event doesn't
+  // clear signup docs, so without the status check a cancelled trip would become a permanent
+  // phantom debt. No date filter here (unlike renderNearestEventWidget/renderMySignupsWidget
+  // above): a past-but-still-unpaid active event should legitimately keep showing as owed.
   for (const event of events) {
-    if (event.viewerAttending && !event.viewerSkladkaPaid) {
+    if (event.status === 'active' && event.viewerAttending && !event.viewerSkladkaPaid) {
       owed.push({ name: `Składka — ${event.name}`, detail: event.skladkaFee ?? null, dueDate: event.dueDate ?? null });
     }
   }
@@ -189,10 +195,20 @@ async function buildDuesOwedItems(events) {
   return owed;
 }
 
+// Tracks how the member gate below resolved, so the independent admin gate at the end of this
+// file can tell whether it's safe to render (review finding: a confirmed admin who isn't in the
+// live Google Group would otherwise get onSignedIn firing on /admin/whoami while the member gate
+// hides #app-panel - and #app-admin-panel-slot lives inside #app-panel, so the rendered admin
+// panel would be invisible). Only ever moves away from 'pending' once the member gate definitively
+// resolves; the admin callback treats 'pending' as "proceed as normal" since resolution order
+// between the two independent initGoogleSignIn calls isn't guaranteed.
+let memberGateState = 'pending';
+
 initGoogleSignIn({
   buttonIds: [],
   whoamiPath: '/wojownicy-upload/whoami',
   onSignedIn: async () => {
+    memberGateState = 'panel';
     showOnly(panels.panel);
     const widgetSlot = document.getElementById('app-widget-grid-slot');
     const duesSlot = document.getElementById('app-dues-panel-slot');
@@ -236,8 +252,14 @@ initGoogleSignIn({
       duesSlot.replaceChildren(errorEl);
     }
   },
-  onSignedOut: () => showOnly(panels.signedOut),
-  onForbidden: () => showOnly(panels.forbidden),
+  onSignedOut: () => {
+    memberGateState = 'signedOut';
+    showOnly(panels.signedOut);
+  },
+  onForbidden: () => {
+    memberGateState = 'forbidden';
+    showOnly(panels.forbidden);
+  },
 });
 
 function hasUploadPhotos(person) {
@@ -293,6 +315,13 @@ initGoogleSignIn({
   buttonIds: [],
   whoamiPath: '/admin/whoami',
   onSignedIn: async () => {
+    // If the member gate above has already and definitively resolved to forbidden/signed-out,
+    // #app-panel (and this panel's slot inside it) is hidden and will stay hidden - skip
+    // rendering and the two admin fetches entirely. If the member gate hasn't resolved yet,
+    // proceed as normal (the common case of an admin who's also a group member keeps working
+    // exactly as today; the slot mechanism means the admin panel just becomes visible once
+    // showOnly(panels.panel) eventually runs).
+    if (memberGateState === 'forbidden' || memberGateState === 'signedOut') return;
     try {
       const [{ members }, { people }] = await Promise.all([
         apiFetch('/admin/members?status=pending', { method: 'GET' }, showReauth, hideReauth),

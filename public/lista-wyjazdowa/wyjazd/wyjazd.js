@@ -162,6 +162,13 @@ function confirmedEventMutation(control, execute, apply, anchor = control) {
 // controls what the UI offers.
 let canManageSkladki = false;
 
+// Tracks the dueDate last loaded/rendered into the edit input, so saveSkladkaFee can tell whether
+// the organizer actually changed the date (vs. only the fee text) and skip sending dueDate in the
+// PUT body when it's unchanged - the backend logs an audit row for any dueDate present in the
+// body, `before === after` included (review finding: every fee-only edit was also logging a
+// no-op dueDate change). Same pattern as skladki.js's lastLoadedYearFeeDueDate.
+let lastLoadedSkladkaDueDate = null;
+
 // event.skladkaFee is a free-text field (e.g. "50 zł / 25 zł dzieci"); textContent is used below
 // so no HTML-escaping is needed for the display span, same reasoning as event-title/event-meta
 // above it in loadAll().
@@ -174,6 +181,7 @@ function renderSkladkaFee(event) {
   if (canManageSkladki) {
     document.getElementById('skladka-fee-input').value = event.skladkaFee ?? '';
     document.getElementById('skladka-fee-duedate-input').value = event.dueDate ?? '';
+    lastLoadedSkladkaDueDate = event.dueDate ?? null;
   }
 }
 
@@ -182,12 +190,15 @@ async function saveSkladkaFee() {
   try {
     const value = document.getElementById('skladka-fee-input').value.trim();
     const dueDateValue = document.getElementById('skladka-fee-duedate-input').value || null;
+    const body = { skladkaFee: value || null };
+    if (dueDateValue !== lastLoadedSkladkaDueDate) body.dueDate = dueDateValue;
     await confirmedEventMutation(document.getElementById('skladka-fee-save'), () => apiFetch(
       `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skladkaFee: value || null, dueDate: dueDateValue }) },
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
       showReauth,
       hideReauth,
     ), () => {
+      lastLoadedSkladkaDueDate = dueDateValue;
       document.getElementById('skladka-fee-display').textContent = value
         ? `Składka: ${value}${dueDateValue ? ` (termin: ${formatDate(dueDateValue)})` : ''}`
         : 'Składka: nie ustalono';

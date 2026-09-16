@@ -592,6 +592,13 @@ function renderWpisoweList(roster) {
   skladkiSortState.refresh();
 }
 
+// Tracks the dueDate last loaded/rendered into the edit input, so saveYearFee can tell whether the
+// accountant actually changed the date (vs. only the note text) and skip sending dueDate in the PUT
+// body when it's unchanged - the backend logs an audit row for any dueDate present in the body,
+// `before === after` included (review finding: every note-only edit was also logging a no-op
+// dueDate change).
+let lastLoadedYearFeeDueDate = null;
+
 // The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety") - same
 // display/edit-panel pattern as wyjazd.js's renderSkladkaFee/saveSkladkaFee for its per-event fee.
 function renderYearFee(yearFee) {
@@ -611,6 +618,7 @@ function renderYearFee(yearFee) {
   if (canManageSkladki) {
     document.getElementById('skladki-year-fee-input').value = note ?? '';
     document.getElementById('skladki-year-fee-duedate-input').value = dueDate ?? '';
+    lastLoadedYearFeeDueDate = dueDate ?? null;
   }
   historyLink.hidden = !canManageSkladki;
   historyLink.href = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:year:${selectedYear}`)}`;
@@ -621,12 +629,15 @@ async function saveYearFee() {
   try {
     const value = document.getElementById('skladki-year-fee-input').value.trim();
     const dueDateValue = document.getElementById('skladki-year-fee-duedate-input').value || null;
+    const body = { note: value || null };
+    if (dueDateValue !== lastLoadedYearFeeDueDate) body.dueDate = dueDateValue;
     await confirmedDuesMutation(document.getElementById('skladki-year-fee-save'), () => apiFetch(
       `/lista-wyjazdowa/dues/year-fee?year=${selectedYear}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: value || null, dueDate: dueDateValue }) },
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
       showReauth,
       hideReauth,
     ), () => {
+      lastLoadedYearFeeDueDate = dueDateValue;
       document.getElementById('skladki-year-fee-display').textContent = value
         ? `Składka ${selectedYear}: ${value}${dueDateValue ? ` (termin: ${formatDueDate(dueDateValue)})` : ''}`
         : `Składka ${selectedYear}: nie ustalono`;
