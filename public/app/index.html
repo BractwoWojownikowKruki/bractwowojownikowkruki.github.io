@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel — Bractwo Wojowników Kruki</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../member-area.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <!-- PARTIAL:nav -->
+
+  <main class="main-content" style="display:block;">
+    <p class="auth-checking busy-sticker-loader--feature" id="app-checking" role="status"><span class="busy-sticker-aura busy-sticker-aura--feature" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--feature" alt=""></span><span class="busy-sticker-label">PLEASE HOLD THE LINE...</span></p>
+    <div class="upload-signin" id="app-signed-out-panel" hidden>
+      <p>Zaloguj się kontem Google, aby zobaczyć swój panel.</p>
+      <a href="/logowanie/" class="btn-cancel">Przejdź do logowania</a>
+    </div>
+    <p class="upload-forbidden" id="app-forbidden-panel" hidden>
+      Brak uprawnień. Ta sekcja jest dostępna tylko dla członków Bractwa.
+    </p>
+
+    <div class="dashboard-main" id="app-panel" hidden>
+      <!-- Fixed-position slots for Tasks 6-8's data-driven content, in design.md §3's required
+           vertical order (admin, dues, widgets, tiles). Each task renders into its OWN slot by id
+           - never by prepending to #app-panel - because two independent, concurrently-running
+           initGoogleSignIn callbacks (the member gate driving dues/widgets, and the separate admin
+           gate driving the admin panel) resolve at unpredictable relative times; relying on
+           prepend-call order to produce the right final DOM order would race and could put the
+           admin panel anywhere. A slot stays empty (and collapses visually - see the empty
+           :empty CSS rule moved into member-area.css alongside the other .dashboard-* rules) if
+           its task never has anything to show for this viewer (e.g. a plain member's
+           #app-admin-panel-slot stays permanently empty since Task 8's callback never even
+           fires the fetch, let alone touches this slot). -->
+      <div id="app-admin-panel-slot"></div>
+      <div id="app-dues-panel-slot"></div>
+      <div id="app-widget-grid-slot"></div>
+
+      <!-- Primary launcher tiles -->
+      <div class="dashboard-tile-grid">
+        <a href="/lista-wyjazdowa/" class="dashboard-tile dashboard-tile--featured">
+          <span class="dashboard-tile-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg></span>
+          <span class="dashboard-tile-label">Lista wyjazdowa</span>
+          <span class="dashboard-tile-hint">Zapisy na najbliższe wyjazdy</span>
+        </a>
+        <a href="/galerie/" class="dashboard-tile">
+          <span class="dashboard-tile-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></span>
+          <span class="dashboard-tile-label">Galerie</span>
+          <span class="dashboard-tile-hint">Zdjęcia z wydarzeń</span>
+        </a>
+        <a href="/profil/" class="dashboard-tile">
+          <span class="dashboard-tile-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>
+          <span class="dashboard-tile-label">Mój profil</span>
+          <span class="dashboard-tile-hint">Dane, broń, zdjęcie</span>
+        </a>
+        <a href="/pliki/" class="dashboard-tile">
+          <span class="dashboard-tile-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg></span>
+          <span class="dashboard-tile-label">Pliki / Linki</span>
+          <span class="dashboard-tile-hint">Materiały Bractwa</span>
+        </a>
+      </div>
+
+      <!-- Secondary links — the rest of Strefa Członków's menu, lower visual weight -->
+      <nav class="dashboard-secondary-links" aria-label="Pozostałe materiały">
+        <p class="dashboard-secondary-links-label">Więcej dla Członków</p>
+        <a href="/czlonkowie/" class="dashboard-secondary-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          Spis Ludności
+        </a>
+        <a href="/zasady-bractwa/" class="dashboard-secondary-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+          Zasady Bractwa
+        </a>
+        <a href="/poradnik-walki/" class="dashboard-secondary-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5 3 6V3h3l11.5 11.5"></path><path d="M9.5 6.5 13 3h3v3l-3.5 3.5"></path><path d="M3 21l6.5-6.5"></path><path d="M21 21l-6.5-6.5"></path></svg>
+          Poradnik walki w linii
+        </a>
+        <a href="/discord" target="_blank" rel="noopener noreferrer" class="dashboard-secondary-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+          Forum/Discord
+        </a>
+      </nav>
+    </div>
+  </main>
+
+  <!-- PARTIAL:footer -->
+
+  <script src="../auth.js"></script>
+  <script src="../nav.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1149,3 +1149,276 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
 .pliki-empty {
   color: var(--text-muted);
 }
+
+/* ── /app/ dashboard (KRKG-0080) ── */
+
+/* ── MOCKUP-ONLY styles for review. If approved, these move into member-area.css
+   under the same naming/token conventions already used by lw-*/pliki-* classes. ── */
+
+.dashboard-main { max-width: 920px; margin: 0 auto; }
+
+.dashboard-greeting {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+.dashboard-greeting h1 { margin: 0; }
+.dashboard-greeting .subtitle { color: var(--text-muted); font-size: 0.95rem; }
+
+/* Admin action panel — topmost, only rendered (DOM presence, not CSS hidden) when this
+   page's own /admin/whoami call (design.md §3a/§4) resolves isAdmin === true — a page-local
+   initGoogleSignIn call, not nav.js's private zoneState. Gold border marks it as needing
+   attention, distinct from the neutral card styling everything else below uses. */
+.dashboard-admin-panel {
+  border: 1px solid var(--gold);
+  border-radius: 0.6rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.75rem;
+  background: color-mix(in srgb, var(--gold) 6%, var(--surface));
+}
+.dashboard-admin-panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.dashboard-action-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.dashboard-action-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--text);
+  text-decoration: none;
+}
+.dashboard-action-item:hover { border-color: var(--gold); }
+.dashboard-action-item-label { display: flex; align-items: center; gap: 0.6rem; }
+.dashboard-action-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--gold);
+  color: #1a1410;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.dashboard-action-chevron { color: var(--text-muted); }
+
+/* Primary launcher tiles — reuses .pliki-tile-grid's responsive auto-fill grid, but these
+   tiles are bigger/icon-forward since they're the dashboard's main navigation, not a file
+   listing. The Lista Wydarzeń tile gets --dashboard-tile-featured to read as "the" primary
+   destination per the brief, without a visually separate treatment that would break the
+   grid's consistency. */
+.dashboard-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+.dashboard-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 1.1rem 1.1rem 1.3rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--surface);
+  transition: border-color 0.15s, transform 0.15s;
+}
+.dashboard-tile:hover { border-color: var(--gold); transform: translateY(-2px); }
+.dashboard-tile--featured {
+  grid-column: span 2;
+  background: color-mix(in srgb, var(--gold) 9%, var(--surface));
+  border-color: color-mix(in srgb, var(--gold) 45%, var(--border));
+}
+.dashboard-tile-icon {
+  width: 2.1rem;
+  height: 2.1rem;
+  color: var(--gold);
+}
+.dashboard-tile-icon svg { width: 100%; height: 100%; }
+.dashboard-tile-label { font-weight: 700; font-size: 1.02rem; }
+.dashboard-tile-hint { color: var(--text-muted); font-size: 0.85rem; }
+
+/* Insight widgets — three cards, reusing .card/.card-body from lista-wyjazdowa's own
+   card styling for visual family resemblance, laid out as a responsive row. */
+.dashboard-widget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+.dashboard-widget {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 1rem 1.1rem;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.15s;
+}
+a.dashboard-widget:hover { border-color: var(--gold); }
+.dashboard-widget h3 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.dashboard-widget-empty { color: var(--text-faint); font-size: 0.9rem; }
+
+.dashboard-event-name { font-weight: 700; margin: 0 0 0.15rem; }
+.dashboard-event-date {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  color: var(--gold);
+  font-size: 0.9rem;
+  margin: 0 0 0.5rem;
+}
+/* Signed-up indicator — same green as .dashboard-dues-panel--settled/lw-summary-badge--ok,
+   but as its own pill (not inline text) so it reads as status, not prose. */
+.dashboard-event-signedup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(67, 160, 71, 0.2);
+  color: #6fcf73;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.dashboard-event-countdown { color: var(--text-muted); font-size: 0.85rem; }
+
+.dashboard-mini-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.dashboard-mini-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+.dashboard-mini-item-name { color: var(--text); }
+.dashboard-mini-item-meta { color: var(--text-muted); font-size: 0.8rem; white-space: nowrap; }
+
+.dashboard-gallery-thumbs { display: flex; gap: 0.5rem; }
+.dashboard-gallery-thumb {
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 0.4rem;
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  text-align: center;
+  overflow: hidden;
+}
+
+/* Dues panel — itemized list of UNPAID items only. No total: skladkaFee/DuesYearFee.note are
+   free text (rates vary by category, e.g. "100 zł mężczyźni, 50 zł kobiety"), so there is no
+   number to sum — see design.md §2a. Fully-paid state (.dashboard-dues-panel--settled)
+   collapses to a single compact row instead. */
+.dashboard-dues-panel {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.75rem;
+}
+.dashboard-dues-panel h3 {
+  margin: 0 0 0.85rem;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.dashboard-dues-list { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 0.85rem; }
+.dashboard-dues-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface-deep);
+  border-radius: 0.4rem;
+  font-size: 0.9rem;
+}
+.dashboard-dues-row-label { display: flex; flex-direction: column; gap: 0.15rem; }
+.dashboard-dues-row-detail { color: var(--text-muted); font-size: 0.82rem; }
+.dashboard-dues-row-duedate {
+  flex-shrink: 0;
+  color: var(--gold);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+/* Settled state: no h3/list/total — just one compact confirmation row, same panel padding. */
+.dashboard-dues-panel--settled {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1.25rem;
+  color: #6fcf73;
+  font-weight: 700;
+}
+
+/* Secondary link row — lower-weight than the launcher tiles above, for the rest of Strefa
+   Członków's menu (Spis Ludności, "Do przeczytania", Discord) so they're one click from the
+   dashboard without competing visually with the primary 4 destinations. */
+.dashboard-secondary-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding-top: 1.25rem;
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.dashboard-secondary-links-label {
+  width: 100%;
+  margin: 0 0 0.15rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.dashboard-secondary-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.dashboard-secondary-link:hover { border-color: var(--gold); }
+.dashboard-secondary-link svg { width: 1.15rem; height: 1.15rem; color: var(--gold); }
+
+#app-admin-panel-slot:empty,
+#app-dues-panel-slot:empty,
+#app-widget-grid-slot:empty {
+  display: none;
+}
