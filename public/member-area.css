@@ -1321,6 +1321,13 @@ a.dashboard-widget:hover { border-color: var(--gold); }
 .dashboard-mini-item-meta { color: var(--text-muted); font-size: 0.8rem; white-space: nowrap; }
 
 .dashboard-gallery-thumbs { display: flex; gap: 0.5rem; }
+.dashboard-gallery-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  width: 4.5rem;
+}
 .dashboard-gallery-thumb {
   width: 4.5rem;
   height: 4.5rem;
@@ -1334,6 +1341,15 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   font-size: 0.7rem;
   text-align: center;
   overflow: hidden;
+}
+.dashboard-gallery-thumb-caption {
+  width: 100%;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* Without this, app.js's cover-image <img> renders at its full intrinsic size inside the 4.5rem
    box (only clipped by overflow:hidden), not scaled - an uncontrolled crop, not a thumbnail. Same

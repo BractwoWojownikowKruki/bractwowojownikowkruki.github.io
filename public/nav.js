@@ -481,11 +481,18 @@ document.addEventListener('DOMContentLoaded', () => {
       zoneState.isMember = false;
       renderAvatar(null);
       reconcileAllMounts();
+      // nav.js runs this same member whoami on every page, so it's the earliest place to catch a
+      // session going invalid away from / and /app/ (e.g. while browsing /galerie/) - clearing
+      // here shrinks the window where a stale kruki_last_member_hint would otherwise bounce the
+      // next homepage visit to /app/'s dead-end panel instead of clearing on that visit itself
+      // (see auth.js's MEMBER_REDIRECT_HINT_KEY comment).
+      clearMemberRedirectHint();
     }),
     onForbidden: generation => ifCurrentRound(generation, () => {
       zoneState.isMember = false;
       renderAvatar(null);
       reconcileAllMounts();
+      clearMemberRedirectHint();
     }),
   });
 

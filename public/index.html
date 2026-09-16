@@ -2,6 +2,26 @@
 <html lang="pl">
 <head>
   <meta charset="UTF-8" />
+  <!-- Blocking, inline, and first: must run before this page paints anything, so it can send a
+       returning member straight to /app/ before "Aktualności" ever flashes on screen. Duplicates
+       auth.js's MEMBER_REDIRECT_HINT_KEY/MAX_AGE_MS constants because it must run before auth.js
+       is even fetched (see auth.js's own comment on that constant for the full rationale - this
+       hint is a plain timestamp, not a credential, and grants nothing by itself). index-redirect.js
+       further down is the authoritative, server-verified fallback for when this finds no/a stale
+       hint (first-ever visit on this browser, or one older than MAX_AGE_MS). -->
+  <script>
+    (function () {
+      try {
+        var hint = localStorage.getItem('kruki_last_member_hint');
+        if (hint && Date.now() - Number(hint) >= 0 && Date.now() - Number(hint) < 14 * 24 * 60 * 60 * 1000) {
+          window.location.replace('/app/');
+        }
+      } catch (e) {
+        // localStorage can throw in some privacy modes - falls through to the normal,
+        // network-verified redirect in index-redirect.js further down the page.
+      }
+    })();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bractwo Wojowników Kruki – odtwórstwo historyczne, Wikingowie, Słowianie. Miecze i siniaki.</title>
   <meta name="description" content="Bractwo Wojowników Kruki — klub odtwórstwa historycznego i sportu walki inspirowany kulturą Wikingów i Słowian. Treningi walki mieczem, toporem i szablą (HEMA, DESW), turnieje, rekonstrukcja wczesnego średniowiecza. Dołącz do naboru!" />

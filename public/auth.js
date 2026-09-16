@@ -6,12 +6,18 @@
 //
 // KRKG-0036: session state now lives entirely in a first-party, HttpOnly __Host-session cookie
 // on api.kruki.org - the browser sends/receives it automatically on every fetch below via
-// credentials: "include". There is nothing here for this script to read, store, or restore:
-// no localStorage token, no client-side expiry tracking. That's deliberate - it's exactly what
-// closes the localStorage-token-is-XSS-extractable risk this story exists to fix. The one
-// consequence worth naming: since this module can no longer answer "am I signed in?" locally,
-// every page asks the server once on load (see initGoogleSignIn below) rather than painting an
-// instant guess from a decoded token.
+// credentials: "include". There is nothing here for this script to read, store, or restore as a
+// credential: no localStorage token, no client-side expiry tracking. That's deliberate - it's
+// exactly what closes the localStorage-token-is-XSS-extractable risk this story exists to fix.
+// The one consequence worth naming: since this module can no longer answer "am I signed in?"
+// locally, every page asks the server once on load (see initGoogleSignIn below) rather than
+// painting an instant guess from a decoded token.
+//
+// The one narrow exception is MEMBER_REDIRECT_HINT_KEY below - a plain timestamp, not a
+// credential or identity of any kind. It cannot grant access to anything by itself; it only ever
+// decides which page paints first (see index.html's inline redirect script). Every actual
+// authorization decision still goes through the live, server-verified whoami check this file
+// makes on every page load, same as before KRKG-0036.
 const UPLOAD_SERVICE_URL = 'https://api.kruki.org';
 const GOOGLE_OAUTH_CLIENT_ID = '895090213384-cqac9v2tvmjhkkertjjj5q4h8qf41g3d.apps.googleusercontent.com';
 const MINIMUM_SESSION_CHECKING_MS = 1000;
@@ -23,6 +29,33 @@ try {
   localStorage.removeItem('kruki_wojownicy_member');
 } catch {
   // localStorage can throw in some privacy modes - nothing to clean up in that case either.
+}
+
+// See the top-of-file comment. Read synchronously (and inline, before this script even loads) by
+// index.html's own head script to skip straight to /app/ for a returning member instead of
+// flashing the homepage - that inline copy duplicates the key/max-age since it must run before
+// this file is fetched. Set on every server-confirmed member whoami (index-redirect.js, and
+// app.js's member gate, which also renews it - a "sliding" hint mirroring the session cookie's own
+// sliding lifetime), cleared on logout or on a confirmed signed-out/forbidden result from either
+// of those same two call sites.
+const MEMBER_REDIRECT_HINT_KEY = 'kruki_last_member_hint';
+const MEMBER_REDIRECT_HINT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+
+function setMemberRedirectHint() {
+  try {
+    localStorage.setItem(MEMBER_REDIRECT_HINT_KEY, String(Date.now()));
+  } catch {
+    // localStorage can throw in some privacy modes - nothing to persist in that case; the
+    // homepage just falls back to its normal network-verified redirect.
+  }
+}
+
+function clearMemberRedirectHint() {
+  try {
+    localStorage.removeItem(MEMBER_REDIRECT_HINT_KEY);
+  } catch {
+    // Same as above.
+  }
 }
 
 let pendingReauth = null;
@@ -120,6 +153,7 @@ function notifyAuthFailure(listener, err, generation) {
 // page-specific panels - resets through its own normal signed-out path instead of each needing
 // a bespoke logout handler.
 async function logout() {
+  clearMemberRedirectHint();
   try {
     await fetch(`${UPLOAD_SERVICE_URL}/session/logout`, { method: 'POST', credentials: 'include' });
   } finally {

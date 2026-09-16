@@ -16,7 +16,32 @@ function showOnly(panel) {
   for (const p of Object.values(panels)) p.hidden = p !== panel;
 }
 
-showOnly(panels.checking);
+// One-shot: index-redirect.js sets this immediately before redirecting a confirmed signed-in
+// member here, so this page's own whoami round-trip below (the same whoamiPath) is almost always
+// going to confirm what / just verified. Consuming it lets the app shell (static tile grid,
+// secondary links, and the now-empty admin/dues/widget slots - see the #app-panel comment below)
+// paint immediately instead of behind the "checking" loader, with the slots filling in
+// individually as their own fetches resolve, rather than one big loader-then-everything swap. Not
+// a restored-session cache (see auth.js's KRKG-0036 comment) - it's read once, deleted
+// immediately, only trusted for a few seconds, and the real whoami call still runs regardless; if
+// it turns out signed-out/forbidden, onSignedOut/onForbidden below hide this shell again same as
+// always.
+const REDIRECT_HINT_KEY = 'kruki_app_redirect_hint';
+const REDIRECT_HINT_MAX_AGE_MS = 5000;
+
+function consumeFreshRedirectHint() {
+  let hintTime = null;
+  try {
+    hintTime = sessionStorage.getItem(REDIRECT_HINT_KEY);
+    sessionStorage.removeItem(REDIRECT_HINT_KEY);
+  } catch {
+    return false;
+  }
+  const ageMs = Date.now() - Number(hintTime);
+  return hintTime !== null && ageMs >= 0 && ageMs < REDIRECT_HINT_MAX_AGE_MS;
+}
+
+showOnly(consumeFreshRedirectHint() ? panels.panel : panels.checking);
 
 function showReauth() {}
 function hideReauth() {}
@@ -109,11 +134,18 @@ async function renderNewGalleriesWidget() {
       thumbsEl.outerHTML = '<p class="dashboard-widget-empty">Brak galerii.</p>';
       return widget;
     }
-    thumbsEl.innerHTML = recent.map(() => '<span class="dashboard-gallery-thumb"><img alt="" /></span>').join('');
-    const thumbEls = thumbsEl.querySelectorAll('.dashboard-gallery-thumb img');
+    thumbsEl.innerHTML = recent.map(() => `
+      <span class="dashboard-gallery-item">
+        <span class="dashboard-gallery-thumb"><img alt="" /></span>
+        <span class="dashboard-gallery-thumb-caption"></span>
+      </span>
+    `).join('');
+    const itemEls = thumbsEl.querySelectorAll('.dashboard-gallery-item');
     recent.forEach((album, i) => {
-      thumbEls[i].src = `/galerie/${album.cover}`;
-      thumbEls[i].alt = album.title;
+      // alt="" - the caption below is the visible label now; a non-empty alt would make screen
+      // readers announce the same title twice for this link.
+      itemEls[i].querySelector('.dashboard-gallery-thumb img').src = `/galerie/${album.cover}`;
+      itemEls[i].querySelector('.dashboard-gallery-thumb-caption').textContent = album.title;
     });
   } catch (err) {
     widget.querySelector('.dashboard-gallery-thumbs').outerHTML = '<p class="dashboard-widget-empty">Nie udało się wczytać galerii.</p>';
@@ -186,9 +218,11 @@ async function buildDuesOwedItems(events) {
   // clear signup docs, so without the status check a cancelled trip would become a permanent
   // phantom debt. No date filter here (unlike renderNearestEventWidget/renderMySignupsWidget
   // above): a past-but-still-unpaid active event should legitimately keep showing as owed.
+  // skladkaFee is required too - until the accountant/admin sets it (design.md's "nie ustalono"
+  // state, skladkaFee === null), there's no amount to owe yet, so it must not appear as a debt.
   for (const event of events) {
-    if (event.status === 'active' && event.viewerAttending && !event.viewerSkladkaPaid) {
-      owed.push({ name: `Składka — ${event.name}`, detail: event.skladkaFee ?? null, dueDate: event.dueDate ?? null });
+    if (event.status === 'active' && event.viewerAttending && !event.viewerSkladkaPaid && event.skladkaFee) {
+      owed.push({ name: `Składka — ${event.name}`, detail: event.skladkaFee, dueDate: event.dueDate ?? null });
     }
   }
 
@@ -216,6 +250,10 @@ initGoogleSignIn({
     memberGateState = 'panel';
     resolveMemberGateState('panel');
     showOnly(panels.panel);
+    // Renews the homepage's fast-path hint (see auth.js's MEMBER_REDIRECT_HINT_KEY comment) on
+    // every real visit here, including a direct/bookmarked /app/ visit that never went through
+    // index.html at all - not just the redirect-from-/ path.
+    setMemberRedirectHint();
     const widgetSlot = document.getElementById('app-widget-grid-slot');
     const duesSlot = document.getElementById('app-dues-panel-slot');
     let events;
@@ -261,11 +299,13 @@ initGoogleSignIn({
   onSignedOut: () => {
     memberGateState = 'signedOut';
     resolveMemberGateState('signedOut');
+    clearMemberRedirectHint();
     showOnly(panels.signedOut);
   },
   onForbidden: () => {
     memberGateState = 'forbidden';
     resolveMemberGateState('forbidden');
+    clearMemberRedirectHint();
     showOnly(panels.forbidden);
   },
 });
