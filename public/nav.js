@@ -77,6 +77,8 @@ const MZ_ICON_PATHS = {
   history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path>',
   chevron: '<polyline points="9 6 15 12 9 18"></polyline>',
   paperclip: '<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>',
+  // KRKG-0080: dashboard/tiles glyph for the "Panel" link back to /app/ - same Feather icon set.
+  grid: '<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>',
 };
 
 /**
@@ -87,6 +89,10 @@ const MZ_ICON_PATHS = {
  * "Do przeczytania" is a non-clickable group heading with nested links, same order everywhere.
  */
 const MEMBERS_ZONE_MENU = [
+  // KRKG-0080: first item, mirroring /app/'s own position as the default landing view for a
+  // signed-in member - this is the only way back to it once you've navigated away (design.md
+  // §3a's redirect only fires from `/`, not from every other member page).
+  { href: '/app/', label: 'Panel', icon: 'grid' },
   { href: '/profil/', label: 'Mój profil', icon: 'user' },
   { href: '/czlonkowie/', label: 'Spis Ludności', icon: 'users' },
   { href: '/galerie/', label: 'Galerie', icon: 'image' },

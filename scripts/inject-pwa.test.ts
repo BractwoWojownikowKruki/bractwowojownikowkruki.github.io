@@ -18,6 +18,8 @@ test('adds PWA markup once to an eligible HTML document', () => {
 test('classifies every built HTML route or rejects it', () => {
   assert.equal(classifyPwaPage('/'), 'eligible');
   assert.equal(classifyPwaPage('/admin/'), 'excluded');
+  assert.equal(classifyPwaPage('/app/'), 'excluded');
+  assert.equal(classifyPwaPage('/aktualnosci/'), 'excluded');
   assert.equal(classifyPwaPage('/404.html'), 'non-entry');
   assert.throws(() => classifyPwaPage('/future-page/'));
 });

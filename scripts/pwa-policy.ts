@@ -68,6 +68,15 @@ export const GATED_PATH_PREFIXES = [
   // KRKG-0076: the Pliki page (public/pliki/) lists member-added file links and who added
   // them - same personal-data/member-only sensitivity class as /profil//czlonkowie//audyt/ above.
   '/pliki/',
+  // KRKG-0080: the member dashboard (public/app/) surfaces personal data (dues status, admin
+  // action queues) - same sensitivity class as /profil//czlonkowie/ above.
+  '/app/',
+  // KRKG-0080: NOT personal-data-sensitive (identical public content to '/') - excluded instead
+  // so the PWA keeps exactly one canonical installable entry point ('/'), rather than two pages
+  // racing for manifest/offline-fallback treatment. See design.md's routing section: this page
+  // exists only as where nav's "Aktualności" link goes, deliberately noindex, never the PWA
+  // start_url.
+  '/aktualnosci/',
 ] as const;
 
 /** Returns whether a pathname belongs to the intentionally public PWA entry-point set. */
