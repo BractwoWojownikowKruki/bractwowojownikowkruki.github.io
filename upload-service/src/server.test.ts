@@ -6918,6 +6918,82 @@ test('POST /lista-wyjazdowa/signups/quick-add validates mode and event', async (
   });
 });
 
+test('POST /lista-wyjazdowa/signups/quick-add returns 400/404 for the remaining validation paths', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  seedEvent(firestore, 'event-1');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const post = (body: unknown) => jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', body);
+    assert.equal((await post({ eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'new', categoryId: 'thing' })).status, 400, 'ksywka is required');
+    assert.equal((await post({ eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'new', ksywka: 'Wilk' })).status, 400, 'category is required');
+    assert.equal((await post({ eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'existing', personId: 'nie-ma' })).status, 404, 'unknown person');
+  });
+});
+
+test('POST /lista-wyjazdowa/signups/quick-add rejects an owner that is not an account, and an owner without a section', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  firestore.seed('members', 'bezsekcji@gmail.com', { fullName: 'B', nickname: null, sectionId: '', categoryId: null });
+  seedEvent(firestore, 'event-1');
+  seedPerson(firestore, 'p1', null);
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com', 'bezsekcji@gmail.com'] });
+  await withServer(deps, async baseUrl => {
+    const post = (body: unknown) => jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', body);
+    assert.equal(
+      (await post({ eventId: 'event-1', ownerPersonId: 'p1', mode: 'new', ksywka: 'Wilk', categoryId: 'thing' })).status,
+      400,
+      'an accountless person cannot own anyone',
+    );
+    assert.equal(
+      (await post({ eventId: 'event-1', ownerPersonId: 'bezsekcji@gmail.com', mode: 'new', ksywka: 'Wilk', categoryId: 'thing' })).status,
+      400,
+      'the new person needs a section to inherit',
+    );
+  });
+});
+
+test('POST /lista-wyjazdowa/signups/quick-add lets staff quick-add for someone else', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'ktos@gmail.com');
+  seedEvent(firestore, 'event-1');
+  firestore.seed('userRoles', 'ksiegowa@example.com', { roles: ['accountant'] });
+  const request = { eventId: 'event-1', ownerPersonId: 'ktos@gmail.com', mode: 'new', ksywka: 'Wilk', categoryId: 'thing' };
+  const run = (deps: ServerDeps) => withServer(deps, async baseUrl => {
+    assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', request)).status, 201);
+  });
+
+  await run(makeDeps({
+    firestore,
+    listMemberEmails: async () => ['ktos@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+  }));
+  await run(makeDeps({
+    firestore,
+    listMemberEmails: async () => ['ktos@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'k1', email: 'ksiegowa@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  }));
+  await run(makeDeps({ firestore, listMemberEmails: async () => ['ktos@gmail.com'] }));
+});
+
+test('POST /lista-wyjazdowa/signups/quick-add mode=existing audits signup.created then signup.updated', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  seedEvent(firestore, 'event-1');
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const body = { eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'existing', personId: 'p1' };
+    await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', body);
+    await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', body);
+    const actions = (await firestore.listDocs<{ action?: string }>('auditEvents')).map((d) => d.data.action);
+    assert.equal(actions.filter((a) => a === 'signup.created').length, 1, 'the first call creates');
+    assert.equal(actions.filter((a) => a === 'signup.updated').length, 1, 'the repeat updates rather than creating again');
+  });
+});
+
 // KRKG-0074: the event page's roster badge needs the current year's składka roczna status per
 // member - stored record wins, an Emeryt without one defaults to not_applicable, everyone else
 // without one defaults to unpaid (same effectiveDuesStatus contract as GET /member-profile).
