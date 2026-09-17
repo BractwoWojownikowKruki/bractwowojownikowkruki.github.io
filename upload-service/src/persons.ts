@@ -149,15 +149,20 @@ export async function resolvePersonId(client: FirestoreLikeClient, value: string
   return { kind: 'account', personId: value.toLowerCase() };
 }
 
+/**
+ * Creates an accountless person. `personId` is normally generated here, but a caller that must
+ * know the id before the write - e.g. to name the audit resource key in the same transaction -
+ * may pass one in.
+ */
 export async function createPerson(
   client: FirestoreWriteContext,
   fields: PersonWritableFields,
   ownerPersonId: string | null,
   createdBy: string,
+  personId: string = randomUUID(),
 ): Promise<PersonDoc> {
   validatePersonFields(fields);
   const now = new Date().toISOString();
-  const personId = randomUUID();
   const normalized = applyWeaponCategoryRule(fields);
   const doc: PersonDoc = {
     personId,

@@ -96,8 +96,25 @@ const profileFields = {
   companionCount: 'roleRestricted',
   hidden: 'roleRestricted',
 } as const;
-const sessionFields = { status: 'roleRestricted' } as const;
-const applicationFields = { appId: 'roleRestricted' } as const;
+// KRKG-0087: fields for the accountless-person record actions (`person.*`). Distinct from
+// profileFields above, which belongs to the public "Wojownicy" profile person (Drive folder). These
+// describe a person record in the persons collection - its identity, attachment and, on a merge,
+// what moved onto the account.
+const personFields = {
+  personId: 'roleRestricted',
+  ownerPersonId: 'roleRestricted',
+  nickname: 'roleRestricted',
+  categoryId: 'roleRestricted',
+  sectionId: 'roleRestricted',
+  weaponCount: 'roleRestricted',
+  accountEmail: 'roleRestricted',
+  mergedInto: 'roleRestricted',
+  movedSignups: 'roleRestricted',
+  movedDues: 'roleRestricted',
+  profileMerged: 'roleRestricted',
+  deleted: 'roleRestricted',
+} as const;
+const sessionFields = { status: 'roleRestricted' } as const;const applicationFields = { appId: 'roleRestricted' } as const;
 const galleryFields = {
   name: 'memberVisible',
   date: 'memberVisible',
@@ -171,6 +188,14 @@ export const ACTION_REGISTRY = {
   'profile.photo_submission.created': action('profile', 'adminOrModerator', ['memberSubmission'], profileFields),
   'profile.photo_submission.photo_added': action('profile', 'adminOrModerator', ['memberSubmission'], profileFields),
   'profile.photo_submission.photo_deleted': action('profile', 'adminOrModerator', ['memberSubmission'], profileFields),
+  // KRKG-0087: accountless-person record actions. Created/updated/deleted/detached are staff
+  // (admin/moderator) visible like the other profile-category actions; the account merge is an
+  // administrator-only operation (design "Uprawnienia": "Scalanie konta — wyłącznie administrator").
+  'person.created': action('profile', 'adminOrModerator', ['person'], personFields),
+  'person.updated': action('profile', 'adminOrModerator', ['person'], personFields),
+  'person.deleted': action('profile', 'adminOrModerator', ['person'], personFields),
+  'person.detached': action('profile', 'adminOrModerator', ['person'], personFields),
+  'person.merged': action('profile', 'admin', ['person'], personFields),
   'session.login.succeeded': action('session', 'admin', ['session'], sessionFields),
   'application.pwa.installation_reported': action('application', 'admin', ['application'], applicationFields),
   'gallery.created': action('gallery', 'members', ['gallery'], galleryFields),

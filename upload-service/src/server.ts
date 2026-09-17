@@ -58,7 +58,19 @@ import { createDisabledSheetsClient, createSheetsClient, type SheetsClient } fro
 import { getProfile, listAllProfiles, saveProfile, setProfileWeaponIds, setWpisowePaid, type ListaWyjazdowaProfileDoc, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 // KRKG-0087: people without an account are real people on the roster, not entries inside a
 // member's profile - the roster below unions the two sources.
-import { listPersons, personDisplayName } from './persons.ts';
+import {
+  applyPersonMerge,
+  createPerson,
+  detachPerson,
+  getPerson,
+  listPersons,
+  personDisplayName,
+  planPersonMerge,
+  softDeletePerson,
+  updatePerson,
+  type PersonDoc,
+  type PersonWritableFields,
+} from './persons.ts';
 import { getAllLookupLists, getLookupList } from './lookup-lists.ts';
 import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWritableFields } from './events.ts';
 import {
@@ -212,6 +224,12 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   eventCreate: auditedRoute('POST', '/lista-wyjazdowa/events', ['event.created']),
   eventUpdate: auditedRoute('PUT', '/lista-wyjazdowa/events', ['event.updated', 'event.cancelled', 'dues.event_fee.changed']),
   signup: auditedRoute('PUT', '/lista-wyjazdowa/signups', ['signup.created', 'signup.updated']),
+  // KRKG-0087: the accountless-person record routes.
+  personCreate: auditedRoute('POST', '/lista-wyjazdowa/persons', ['person.created']),
+  personUpdate: auditedRoute('PUT', '/lista-wyjazdowa/persons', ['person.updated']),
+  personDelete: auditedRoute('DELETE', '/lista-wyjazdowa/persons', ['person.deleted']),
+  personOwner: auditedRoute('PUT', '/lista-wyjazdowa/persons/owner', ['person.detached']),
+  personAccount: auditedRoute('PUT', '/lista-wyjazdowa/persons/account', ['person.merged']),
   signupFee: auditedRoute('PUT', '/lista-wyjazdowa/signups/skladka', ['dues.event_fee.changed']),
   entryFee: auditedRoute('PUT', '/lista-wyjazdowa/wpisowe', ['dues.entry_fee.changed']),
   annualDues: auditedRoute('PUT', '/lista-wyjazdowa/dues', ['dues.annual.changed']),
@@ -2939,6 +2957,214 @@ async function handleListaWyjazdowaPutDuesYearFee(req: IncomingMessage, res: Ser
   sendJson(res, 200, { yearFee });
 }
 
+// ---------------------------------------------------------------------------------------------
+// KRKG-0087: accountless-person record routes. Staff (admin, moderator, accountant) may manage any
+// person; a plain member may only create/update/delete/detach a person attached to them - their own
+// "osoba towarzysząca". Merging a person with a real account is administrator-only.
+// ---------------------------------------------------------------------------------------------
+
+/** Staff = admin or accountant (requireSkladkiAccess) or admin or moderator (authenticateAdminOrModerator). */
+async function isPersonStaff(req: IncomingMessage, res: ServerResponse, deps: ServerDeps, email: string): Promise<boolean> {
+  try {
+    await requireSkladkiAccess(req, res, deps, email);
+    return true;
+  } catch (err) {
+    if (!(err instanceof AuthError)) throw err;
+  }
+  try {
+    await deps.authenticateAdminOrModerator(req, res);
+    return true;
+  } catch (err) {
+    if (!(err instanceof AuthError)) throw err;
+    return false;
+  }
+}
+
+/** A member may act on a person only when that person is attached to them (their own personId is their e-mail). */
+function requireOwnedOrStaff(identity: { email: string }, person: PersonDoc, staff: boolean): void {
+  if (staff) return;
+  const owner = person.ownerPersonId?.toLowerCase() ?? null;
+  if (owner && owner === identity.email.toLowerCase()) return;
+  throw new AuthError('Brak uprawnień do tej osoby.', 403);
+}
+
+/** Reads and validates the person fields shared by POST and PUT /lista-wyjazdowa/persons. */
+function readPersonWritableFields(body: Record<string, unknown>): PersonWritableFields {
+  const weaponIds = body.weaponIds === undefined
+    ? []
+    : requireArray(body.weaponIds, 'Lista broni ma nieprawidłowy format.').map((id) =>
+        requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista broni ma nieprawidłowy format.'));
+  return {
+    ksywka: optionalTrimmedString(body.ksywka, LW_MAX_NAME_LENGTH, 'Ksywka jest nieprawidłowa.') ?? '',
+    firstName: optionalTrimmedString(body.firstName, LW_MAX_NAME_LENGTH, 'Imię jest nieprawidłowe.') ?? '',
+    lastName: optionalTrimmedString(body.lastName, LW_MAX_NAME_LENGTH, 'Nazwisko jest nieprawidłowe.') ?? '',
+    categoryId: requireTrimmedString(body.categoryId, LW_MAX_NAME_LENGTH, 'Kategoria osoby jest wymagana.'),
+    sectionId: requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja osoby jest wymagana.'),
+    weaponIds,
+  };
+}
+
+function readOwnerPersonId(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || !value.trim()) throw new AuthError('Pole ownerPersonId jest nieprawidłowe.', 400);
+  return value.trim();
+}
+
+function personMergeError(reason: 'person_not_found' | 'person_already_merged' | 'account_not_found'): AuthError {
+  if (reason === 'person_already_merged') return new AuthError('Ta osoba jest już scalona z kontem.', 409);
+  return new AuthError('Nie znaleziono osoby lub konta.', 404);
+}
+
+async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const fields = readPersonWritableFields(body);
+  const ownerPersonId = readOwnerPersonId(body.ownerPersonId);
+  const staff = await isPersonStaff(req, res, deps, identity.email);
+  if (!staff && (!ownerPersonId || ownerPersonId.toLowerCase() !== identity.email.toLowerCase())) {
+    throw new AuthError('Brak uprawnień do utworzenia takiej osoby.', 403);
+  }
+  const personId = randomUUID();
+  const { result: person } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.personCreate,
+    'person.created',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'person', key: `person:${personId}`, display: fields.ksywka || personId },
+      changes: [
+        { field: 'nickname', after: fields.ksywka },
+        { field: 'categoryId', after: fields.categoryId },
+        { field: 'sectionId', after: fields.sectionId },
+        { field: 'weaponCount', after: fields.weaponIds.length },
+        { field: 'ownerPersonId', after: ownerPersonId },
+      ],
+    },
+    tx => createPerson(tx, fields, ownerPersonId, identity.email, personId),
+  );
+  sendJson(res, 201, { person });
+}
+
+async function handleListaWyjazdowaPutPerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
+  const existing = await getPerson(deps.firestore, personId);
+  if (!existing) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+  requireOwnedOrStaff(identity, existing, await isPersonStaff(req, res, deps, identity.email));
+  const fields = readPersonWritableFields(body);
+  const { result: person } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.personUpdate,
+    'person.updated',
+    async tx => {
+      const before = await tx.getDoc<PersonDoc>('persons', existing.personId);
+      if (!before) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'person' as const, key: `person:${before.personId}`, display: before.ksywka || before.personId },
+        changes: [
+          { field: 'nickname', before: before.ksywka, after: fields.ksywka },
+          { field: 'categoryId', before: before.categoryId, after: fields.categoryId },
+          { field: 'sectionId', before: before.sectionId, after: fields.sectionId },
+          { field: 'weaponCount', before: before.weaponIds.length, after: fields.weaponIds.length },
+        ],
+      };
+    },
+    async tx => {
+      const updated = await updatePerson(tx, existing.personId, fields, identity.email);
+      if (!updated) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+      return updated;
+    },
+  );
+  sendJson(res, 200, { person });
+}
+
+async function handleListaWyjazdowaDeletePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
+  const existing = await getPerson(deps.firestore, personId);
+  if (!existing) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+  requireOwnedOrStaff(identity, existing, await isPersonStaff(req, res, deps, identity.email));
+  const { result: person } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.personDelete,
+    'person.deleted',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'person', key: `person:${existing.personId}`, display: existing.ksywka || existing.personId },
+      changes: [{ field: 'deleted', before: false, after: true }],
+    },
+    async tx => {
+      const deleted = await softDeletePerson(tx, existing.personId, identity.email);
+      if (!deleted) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+      return deleted;
+    },
+  );
+  sendJson(res, 200, { person });
+}
+
+async function handleListaWyjazdowaPutPersonOwner(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
+  // This route is "Odepnij" only - attaching is done at creation (POST /persons).
+  if (body.ownerPersonId !== null) throw new AuthError('Odpięcie wymaga ownerPersonId = null.', 400);
+  const existing = await getPerson(deps.firestore, personId);
+  if (!existing) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+  requireOwnedOrStaff(identity, existing, await isPersonStaff(req, res, deps, identity.email));
+  const { result: person } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.personOwner,
+    'person.detached',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'person', key: `person:${existing.personId}`, display: existing.ksywka || existing.personId },
+      changes: [{ field: 'ownerPersonId', before: existing.ownerPersonId, after: null }],
+    },
+    async tx => {
+      const detached = await detachPerson(tx, existing.personId, identity.email);
+      if (!detached) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+      return detached;
+    },
+  );
+  sendJson(res, 200, { person });
+}
+
+async function handleListaWyjazdowaPutPersonAccount(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
+  const accountEmail = requireTrimmedString(body.accountEmail, LW_MAX_NAME_LENGTH, 'Brak adresu e-mail konta.');
+  const planned = await planPersonMerge(deps.firestore, personId, accountEmail);
+  if (!planned.ok) throw personMergeError(planned.reason);
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.personAccount,
+    'person.merged',
+    async tx => {
+      const before = await tx.getDoc<PersonDoc>('persons', planned.plan.personId);
+      if (!before) throw personMergeError('person_not_found');
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'person' as const, key: `person:${before.personId}`, display: before.ksywka || before.personId },
+        changes: [
+          { field: 'accountEmail', after: planned.plan.accountEmail },
+          { field: 'mergedInto', after: planned.plan.accountEmail },
+          { field: 'ownerPersonId', before: before.ownerPersonId, after: null },
+        ],
+      };
+    },
+    async tx => {
+      const merged = await applyPersonMerge(tx, planned.plan, identity.email);
+      if (!merged.ok) throw personMergeError(merged.reason);
+      return merged;
+    },
+  );
+  sendJson(res, 200, { person: result.person });
+}
+
 // Structured console log for every destructive gallery action (KRKG-0027's audit requirement) -
 // actor, target, outcome, and a correlation id tying a single request's attempt/result together
 // in Cloud Run's log output. No dedicated logging store exists in this project; console.log is
@@ -3933,6 +4159,16 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaPutSignup(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/roster') {
         await handleListaWyjazdowaGetRoster(req, res, url, deps);
+      } else if (req.method === 'POST' && url.pathname === '/lista-wyjazdowa/persons') {
+        await handleListaWyjazdowaPostPerson(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/persons') {
+        await handleListaWyjazdowaPutPerson(req, res, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/lista-wyjazdowa/persons') {
+        await handleListaWyjazdowaDeletePerson(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/persons/owner') {
+        await handleListaWyjazdowaPutPersonOwner(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/persons/account') {
+        await handleListaWyjazdowaPutPersonAccount(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/members/directory') {
         await handleMembersDirectory(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/my-role') {

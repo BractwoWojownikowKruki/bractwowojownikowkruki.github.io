@@ -1948,7 +1948,7 @@ test('PUT /admin/people/photo/approve, first approval: creates the public folder
   // Review-round-2 blocker #1: the admin-owned driveFolderId link must be its own audited
   // Firestore mutation (profile.drive_folder.changed, the same action/route
   // handleAdminSetMemberDriveFolder already uses for this exact field), not a bare setDoc.
-  const events = (await firestore.listDocs('auditEvents')).map(doc => doc.data as { action: string; changes: Array<{ field: string; before?: unknown; after?: unknown }> });
+  const events = (await firestore.listDocs<{ action?: string }>('auditEvents')).map(doc => doc.data as { action: string; changes: Array<{ field: string; before?: unknown; after?: unknown }> });
   const driveFolderEvent = events.find(e => e.action === 'profile.drive_folder.changed');
   assert.ok(driveFolderEvent, 'expected a profile.drive_folder.changed audit event');
   const folderIdChange = driveFolderEvent!.changes.find(c => c.field === 'folderId');
@@ -2168,7 +2168,7 @@ test('PUT /admin/people/photo/approve: a failure during the post-transfer !main 
     });
     assert.equal(res.status, 500);
   });
-  const events = (await firestore.listDocs('auditEvents')).map(doc => doc.data as { action: string });
+  const events = (await firestore.listDocs<{ action?: string }>('auditEvents')).map(doc => doc.data as { action: string });
   assert.ok(events.some(e => e.action === 'profile.person.photo.transferred'), 'the transfer itself must still be recorded as succeeded - it completed before the rename ran');
   const outcomes = (await firestore.listDocs('auditOperationOutcomes')).map(doc => doc.data as { state: string });
   assert.ok(outcomes.some(o => o.state === 'failed'), 'the normalization attempt must be recorded as failed, never silently dropped or fabricated as succeeded');
@@ -4164,7 +4164,7 @@ test('C1: POST /upload does not audit anything on the duplicate-skip fast path (
     const body = await res.json();
     assert.deepEqual(body, { ok: true, skipped: true });
   });
-  const events = await firestore.listDocs('auditEvents');
+  const events = await firestore.listDocs<{ action?: string }>('auditEvents');
   assert.equal(events.length, 0, 'a skip changes no state, so it must not be audited');
 });
 
@@ -4977,7 +4977,7 @@ test('/wojownicy-upload/submit reuses the member\'s existing stagingFolderId whi
     assert.equal(body.folderId, 'existing-folder');
   });
   assert.equal(createAlbumFolderCalled, false);
-  const events = await firestore.listDocs('auditEvents');
+  const events = await firestore.listDocs<{ action?: string }>('auditEvents');
   assert.equal(events.length, 0);
 });
 
@@ -6650,6 +6650,154 @@ test('GET /lista-wyjazdowa/roster?eventId= still omits a tombstoned person with 
   });
 });
 
+// KRKG-0087: the accountless-person record routes. Staff (admin/moderator/accountant) manage any
+// person; a plain member only their own attached person; merging with an account is admin-only.
+const personBody = {
+  ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski',
+  categoryId: 'thing', sectionId: 'krakow', weaponIds: ['tarczownik'],
+};
+
+function jsonRequest(baseUrl: string, method: string, path: string, body: unknown): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+/** A plain member (no staff role): both staff authorizers reject. */
+function memberDeps(firestore: ReturnType<typeof makeListaWyjazdowaFirestore>, email: string): ServerDeps {
+  return makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'w1', email }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+}
+
+function seedPerson(
+  firestore: ReturnType<typeof makeListaWyjazdowaFirestore>,
+  personId: string,
+  ownerPersonId: string | null,
+): void {
+  firestore.seed('persons', personId, {
+    personId, ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski',
+    categoryId: 'thing', sectionId: 'krakow', weaponIds: ['tarczownik'],
+    ownerPersonId, email: null, deletedAt: null, createdAt: 'x', createdBy: 'x',
+  });
+}
+
+test('POST /lista-wyjazdowa/persons lets a moderator create a person for anyone and audits it', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'wojownik@gmail.com' });
+    assert.equal(res.status, 201);
+    const { person } = await res.json();
+    assert.equal(person.ownerPersonId, 'wojownik@gmail.com');
+    assert.equal(person.categoryId, 'thing');
+    assert.ok((await firestore.listDocs<{ action?: string }>('auditEvents')).some((d) => d.data.action === 'person.created'));
+  });
+});
+
+test('POST /lista-wyjazdowa/persons lets a member create their own person but not an unowned or foreign one', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = memberDeps(firestore, 'wojownik@gmail.com');
+  await withServer(deps, async baseUrl => {
+    const own = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'Wojownik@Gmail.com' });
+    assert.equal(own.status, 201, 'the owner may attach a person to themselves (case-insensitive)');
+
+    assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', personBody)).status, 403, 'a member may not create an unowned person');
+    assert.equal(
+      (await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'ktos@gmail.com' })).status,
+      403,
+      'a member may not attach a person to someone else',
+    );
+    assert.equal((await firestore.listDocs('persons')).length, 1, 'the denied requests must not have created anything');
+  });
+});
+
+test('PUT /lista-wyjazdowa/persons lets the owner edit their own person, clears weapons for Niewiasta, and rejects a stranger', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const res = await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', {
+      personId: 'p1', ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski',
+      categoryId: 'niewiasta', sectionId: 'krakow', weaponIds: ['tarczownik'],
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).person.weaponIds, [], 'switching to Niewiasta must clear the weapon');
+    assert.ok((await firestore.listDocs<{ action?: string }>('auditEvents')).some((d) => d.data.action === 'person.updated'));
+  });
+  await withServer(memberDeps(firestore, 'ktos@gmail.com'), async baseUrl => {
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', { personId: 'p1', ...personBody })).status, 403);
+  });
+});
+
+test('DELETE /lista-wyjazdowa/persons tombstones the owner\'s person and audits it', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const res = await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons', { personId: 'p1' });
+    assert.equal(res.status, 200);
+    assert.ok((await res.json()).person.deletedAt, 'delete must tombstone, not remove');
+    assert.ok((await firestore.listDocs<{ action?: string }>('auditEvents')).some((d) => d.data.action === 'person.deleted'));
+  });
+});
+
+test('PUT /lista-wyjazdowa/persons/owner detaches and requires ownerPersonId null', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/owner', { personId: 'p1', ownerPersonId: 'ktos' })).status, 400);
+    const res = await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/owner', { personId: 'p1', ownerPersonId: null });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).person.ownerPersonId, null);
+    assert.ok((await firestore.listDocs<{ action?: string }>('auditEvents')).some((d) => d.data.action === 'person.detached'));
+  });
+});
+
+test('PUT /lista-wyjazdowa/persons/account merges for an admin, rejects a moderator, and refuses a second merge', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  seedMember(firestore, 'nowak@gmail.com');
+
+  const moderator = makeDeps({ firestore, authenticateAdminWithStepUp: async () => { throw new AuthError('Brak uprawnień.', 403); } });
+  await withServer(moderator, async baseUrl => {
+    assert.equal(
+      (await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/account', { personId: 'p1', accountEmail: 'nowak@gmail.com' })).status,
+      403,
+      'only an administrator may merge',
+    );
+  });
+
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const res = await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/account', { personId: 'p1', accountEmail: 'Nowak@Gmail.com' });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).person.mergedInto, 'nowak@gmail.com');
+    assert.ok((await firestore.listDocs<{ action?: string }>('auditEvents')).some((d) => d.data.action === 'person.merged'));
+    assert.equal(
+      (await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/account', { personId: 'p1', accountEmail: 'nowak@gmail.com' })).status,
+      409,
+      'a second merge must be refused',
+    );
+  });
+});
+
+test('person routes return 404 for an unknown person', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', { personId: 'nie-ma', ...personBody })).status, 404);
+    assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons', { personId: 'nie-ma' })).status, 404);
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/account', { personId: 'nie-ma', accountEmail: 'a@b.test' })).status, 404);
+  });
+});
+
 // KRKG-0074: the event page's roster badge needs the current year's składka roczna status per
 // member - stored record wins, an Emeryt without one defaults to not_applicable, everyone else
 // without one defaults to unpaid (same effectiveDuesStatus contract as GET /member-profile).
@@ -7201,7 +7349,7 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
     });
     assert.equal(annualDue.status, 200);
 
-    const auditEvents = (await firestore.listDocs('auditEvents')).map(doc => doc.data as {
+    const auditEvents = (await firestore.listDocs<{ action?: string }>('auditEvents')).map(doc => doc.data as {
       actor: { email: string };
       category: string;
       action: string;
@@ -7382,7 +7530,7 @@ test('PUT /lista-wyjazdowa/events preserves combined metadata and fee edits as t
     assert.equal(res.status, 200);
     assert.equal((await res.json()).event.name, 'Zjazd zimowy');
 
-    const events = (await firestore.listDocs('auditEvents')).map(doc => doc.data as { action: string; changes: Array<{ field: string }> });
+    const events = (await firestore.listDocs<{ action?: string }>('auditEvents')).map(doc => doc.data as { action: string; changes: Array<{ field: string }> });
     const updateEvents = events.filter(event => event.action !== 'event.created');
     assert.deepEqual(updateEvents.map(event => event.action).sort(), ['dues.event_fee.changed', 'event.updated']);
     assert.deepEqual(updateEvents.find(event => event.action === 'event.updated')?.changes, [{ field: 'name', before: 'Zjazd', after: 'Zjazd zimowy', visibility: 'memberVisible' }]);

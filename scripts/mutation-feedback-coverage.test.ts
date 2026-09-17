@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   deriveMutationFeedbackCoverageRegistry,
   mutationFeedbackCoverageOverrides,
+  mutationFeedbackPendingRoutes,
   parseMutationInventoryRoutes,
 } from './mutation-feedback-coverage.registry.ts';
 
@@ -162,7 +163,12 @@ test('all canonical write routes are wired by batch five', async () => {
   for (const route of expectedWiredRoutes) {
     assert.equal(registry.find(entry => entry.route === route)?.wiring, 'wired', `${route} must be wired`);
   }
-  assert.equal(registry.filter(entry => entry.wiring === 'planned').length, 0, 'all planned routes are completed by batch five');
+  const planned = registry.filter(entry => entry.wiring === 'planned').map(entry => entry.route).sort();
+  assert.deepEqual(
+    planned,
+    [...mutationFeedbackPendingRoutes].sort(),
+    'after batch five, only a route whose frontend wiring is explicitly declared in flight may still be planned',
+  );
 });
 
 test('batch two admin mutations use confirmed local feedback without full-list success reloads', async () => {

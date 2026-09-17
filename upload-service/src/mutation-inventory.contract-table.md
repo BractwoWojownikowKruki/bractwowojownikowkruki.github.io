@@ -14,7 +14,7 @@ table into this file in the same change. If you forget, this test will keep pass
 stale copy while the real contract document silently diverges - exactly the failure mode this
 fixture exists to prevent.
 
-Last synced with implementation-contract.md: 2026-09-16 (KRKG-0083: DELETE /lista-wyjazdowa/profile/photo now also accepts source=public for self-service deletion of an already-approved photo; added POST /lista-wyjazdowa/profile/photo/main for self-service main-photo selection).
+Last synced with implementation-contract.md: 2026-09-17 (KRKG-0087: added the accountless-person record routes POST/PUT/DELETE /lista-wyjazdowa/persons, PUT /lista-wyjazdowa/persons/owner and PUT /lista-wyjazdowa/persons/account, actions person.created/updated/deleted/detached/merged).
 -->
 
 | Method and route | Classification and action | Resource and side effect | Execution |
@@ -53,6 +53,11 @@ Last synced with implementation-contract.md: 2026-09-16 (KRKG-0083: DELETE /list
 | PUT `/lista-wyjazdowa/wpisowe` | businessWrite — `dues.entry_fee.changed` | due; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/dues` | businessWrite — `dues.annual.changed` | due; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/dues/year-fee` | businessWrite — `dues.year_fee.changed` | due; Firestore | requestAwaited |
+| POST `/lista-wyjazdowa/persons` | businessWrite — `person.created` | person; Firestore | requestAwaited |
+| PUT `/lista-wyjazdowa/persons` | businessWrite — `person.updated` | person; Firestore | requestAwaited |
+| DELETE `/lista-wyjazdowa/persons` | businessWrite — `person.deleted` | person; Firestore | requestAwaited |
+| PUT `/lista-wyjazdowa/persons/owner` | businessWrite — `person.detached` | person; Firestore | requestAwaited |
+| PUT `/lista-wyjazdowa/persons/account` | businessWrite — `person.merged` | person and member; Firestore | requestAwaited |
 | POST `/admin/settings` | businessWrite — `site.settings.updated` | settings; Drive text/config file | auditedOperationEnvelope |
 | POST `/delete-drive-gallery` | businessWrite — `gallery.deleted` | gallery; Drive | auditedOperationEnvelope |
 | POST `/start` | businessWrite — `gallery.created` | gallery; Drive folder/public share; provisional key then final gallery folder key | auditedOperationEnvelope |
