@@ -2604,6 +2604,12 @@ async function resolvePersonWriteTarget(
   deps: ServerDeps,
   raw: string,
 ): Promise<{ personId: string; display: string; accountless: boolean }> {
+  // A tombstoned person (deleted or merged) is not a writable target. This must be checked on the
+  // source document before resolvePersonId: for a merged person that resolver deliberately maps the
+  // retired UUID to its live account e-mail (for history and audit), which would otherwise make the
+  // old UUID a valid mutation alias for the account.
+  const source = await getPerson(deps.firestore, raw);
+  if (source?.deletedAt) throw new AuthError('Nie znaleziono takiej osoby.', 404);
   const resolved = await resolvePersonId(deps.firestore, raw);
   if (resolved.kind === 'person') {
     if (resolved.person.deletedAt) throw new AuthError('Nie znaleziono takiej osoby.', 404);

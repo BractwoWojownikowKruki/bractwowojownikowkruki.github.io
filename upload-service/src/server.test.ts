@@ -7026,6 +7026,30 @@ test('existing write routes accept an accountless personId and reject a tombston
   });
 });
 
+test('existing write routes reject a merged person\'s retired UUID', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  seedMember(firestore, 'nowak@gmail.com');
+  seedEvent(firestore, 'event-1');
+  firestore.seed('persons', 'p-merged', {
+    personId: 'p-merged', ksywka: 'Jan', firstName: 'Jan', lastName: 'Kowalski', categoryId: 'thing', sectionId: 'krakow',
+    weaponIds: [], ownerPersonId: null, email: 'nowak@gmail.com', deletedAt: '2027-01-01T00:00:00.000Z',
+    mergedInto: 'nowak@gmail.com', createdAt: 'x', createdBy: 'x',
+  });
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com', 'nowak@gmail.com'] });
+  await withServer(deps, async baseUrl => {
+    assert.equal(
+      (await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/signups?eventId=event-1&personId=p-merged', { attending: true, equipmentIds: [] })).status,
+      404,
+    );
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/signups/skladka?eventId=event-1&personId=p-merged', { paid: true })).status, 404);
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=p-merged', { paid: true })).status, 404);
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=p-merged&year=2027', { status: 'paid' })).status, 404);
+    assert.deepEqual(await firestore.listDocs('signups'), [], 'no signup may be written for a retired UUID');
+    assert.deepEqual(await firestore.listDocs('duesAnnual'), [], 'no dues may be written for a retired UUID');
+  });
+});
+
 // KRKG-0074: the event page's roster badge needs the current year's składka roczna status per
 // member - stored record wins, an Emeryt without one defaults to not_applicable, everyone else
 // without one defaults to unpaid (same effectiveDuesStatus contract as GET /member-profile).
