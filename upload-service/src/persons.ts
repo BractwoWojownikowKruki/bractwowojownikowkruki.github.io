@@ -251,18 +251,19 @@ export interface PersonMergeDocMove {
   data: Record<string, unknown>;
 }
 
+/** The member identity fields a merge may fill from the person; a value the account already has wins. */
+export type MemberIdentityFills = Partial<Pick<MemberDoc, 'fullName' | 'nickname' | 'sectionId' | 'categoryId'>>;
+
 export interface PersonMergePlan {
   personId: string;
   accountEmail: string;
-  person: PersonDoc;
-  member: MemberDoc;
+  /**
+   * Documents to move, computed from a collection scan (which a transaction cannot do). Everything
+   * else - which identity fields are still blank and what the merged profile should contain - is
+   * deliberately NOT baked in here: `applyPersonMerge` recomputes it inside the transaction, so a
+   * retry or a concurrent account edit can never let the person overwrite a newer account value.
+   */
   moves: PersonMergeDocMove[];
-  /** Identity fields the account is missing, filled from the person (a present account value wins). */
-  memberFills: Partial<Pick<MemberDoc, 'fullName' | 'nickname' | 'sectionId' | 'categoryId'>>;
-  /** The profile to write at the account key, or null when neither side has one. */
-  mergedProfile: PersonMergeProfile | null;
-  /** Whether a profile document exists at the person key and must be removed on apply. */
-  personHadProfile: boolean;
 }
 
 export type PersonMergeReason = 'person_not_found' | 'person_already_merged' | 'account_not_found';
@@ -292,8 +293,10 @@ function isBlank(value: string | null | undefined): boolean {
 }
 
 /**
- * Reads the current state and works out what a merge would do. Errors are values, not exceptions,
- * so a caller can turn `person_not_found` into its own 404 without catching.
+ * Reads the current state and works out which documents a merge would move. It only plans the
+ * collection scan (signups, annual dues), which a transaction cannot do; the identity/profile
+ * decisions are made by `applyPersonMerge` against the state at commit time. Errors are values, not
+ * exceptions, so a caller can turn `person_not_found` into its own 404 without catching.
  */
 export async function planPersonMerge(
   client: FirestoreLikeClient,
@@ -309,11 +312,9 @@ export async function planPersonMerge(
   if (!member) return { ok: false, reason: 'account_not_found' };
 
   const personKey = person.personId.toLowerCase();
-  const [signups, dues, personProfile, accountProfile] = await Promise.all([
+  const [signups, dues] = await Promise.all([
     client.listDocs<Record<string, unknown>>(SIGNUPS_COLLECTION),
     client.listDocs<Record<string, unknown>>(DUES_COLLECTION),
-    client.getDoc<PersonMergeProfile>(PROFILES_COLLECTION, personKey),
-    client.getDoc<PersonMergeProfile>(PROFILES_COLLECTION, email),
   ]);
 
   const moves: PersonMergeDocMove[] = [];
@@ -328,43 +329,16 @@ export async function planPersonMerge(
     moves.push({ collection: DUES_COLLECTION, fromId: doc.id, toId: `${email}_${year}`, keyField: 'email', data: doc.data });
   }
 
-  const memberFills: PersonMergePlan['memberFills'] = {};
-  const personName = personDisplayName(person);
-  if (isBlank(member.fullName) && personName) memberFills.fullName = personName;
-  if (isBlank(member.nickname) && person.ksywka?.trim()) memberFills.nickname = person.ksywka;
-  if (isBlank(member.sectionId) && person.sectionId?.trim()) memberFills.sectionId = person.sectionId;
-  if (member.categoryId == null && person.categoryId) memberFills.categoryId = person.categoryId;
-
-  let mergedProfile: PersonMergeProfile | null = null;
-  if (accountProfile || personProfile) {
-    // The account wins wherever it has a value; the person only supplies what the account lacks.
-    mergedProfile = {
-      weaponIds: accountProfile?.weaponIds?.length ? accountProfile.weaponIds : (person.weaponIds ?? []),
-      equipment: accountProfile?.equipment?.length ? accountProfile.equipment : (personProfile?.equipment ?? []),
-      wpisowePaid: accountProfile ? accountProfile.wpisowePaid : (personProfile?.wpisowePaid ?? false),
-    };
-  }
-
-  return {
-    ok: true,
-    plan: {
-      personId: person.personId,
-      accountEmail: email,
-      person,
-      member,
-      moves,
-      memberFills,
-      mergedProfile,
-      personHadProfile: personProfile !== null,
-    },
-  };
+  return { ok: true, plan: { personId: person.personId, accountEmail: email, moves } };
 }
 
 /**
- * Performs a planned merge inside the given transaction. Re-reads the person and the account so a
- * concurrent merge cannot double-apply: the loser sees `mergedInto` already set and is rejected.
- * Every conflict is resolved in the account's favour - a document that already exists at the
- * account key wins, and the person's copy is deleted rather than overwriting it.
+ * Performs a planned merge inside the given transaction. Re-reads the person, the account and both
+ * profiles so every decision is made against the state at commit time - a concurrent merge cannot
+ * double-apply (the loser sees `mergedInto` already set and is rejected), and a retry or a
+ * concurrent account edit cannot be overwritten by the person. Every conflict is resolved in the
+ * account's favour: a document that already exists at the account key wins and the person's copy is
+ * deleted, and the account's own identity/profile values are never replaced by the person's.
  */
 export async function applyPersonMerge(
   tx: FirestoreTransaction,
@@ -401,17 +375,40 @@ export async function applyPersonMerge(
     (move.collection === SIGNUPS_COLLECTION ? outcome.movedSignups : outcome.movedDues).push(move.toId);
   }
 
-  if (plan.mergedProfile) {
-    await tx.setDoc(PROFILES_COLLECTION, plan.accountEmail, { ...plan.mergedProfile, updatedBy: mergedBy, updatedAt: now });
+  // Identity and profile decisions are recomputed here, inside the transaction, from the documents
+  // as they are right now - never from the pre-transaction plan. A retry (Firestore may re-run the
+  // callback after contention) or a concurrent account edit must never let the person overwrite a
+  // newer account value, so "the account wins" has to be decided against the current state.
+  const memberFills: MemberIdentityFills = {};
+  const personName = personDisplayName(person);
+  if (isBlank(member.fullName) && personName) memberFills.fullName = personName;
+  if (isBlank(member.nickname) && person.ksywka?.trim()) memberFills.nickname = person.ksywka;
+  if (isBlank(member.sectionId) && person.sectionId?.trim()) memberFills.sectionId = person.sectionId;
+  if (member.categoryId == null && person.categoryId) memberFills.categoryId = person.categoryId;
+
+  const personProfileKey = plan.personId.toLowerCase();
+  const personProfile = await tx.getDoc<PersonMergeProfile>(PROFILES_COLLECTION, personProfileKey);
+  const accountProfile = await tx.getDoc<PersonMergeProfile>(PROFILES_COLLECTION, plan.accountEmail);
+  let mergedProfile: PersonMergeProfile | null = null;
+  if (accountProfile || personProfile) {
+    // The account wins wherever it has a value; the person only supplies what the account lacks.
+    mergedProfile = {
+      weaponIds: accountProfile?.weaponIds?.length ? accountProfile.weaponIds : (person.weaponIds ?? []),
+      equipment: accountProfile?.equipment?.length ? accountProfile.equipment : (personProfile?.equipment ?? []),
+      wpisowePaid: accountProfile ? accountProfile.wpisowePaid : (personProfile?.wpisowePaid ?? false),
+    };
+  }
+  if (mergedProfile) {
+    await tx.setDoc(PROFILES_COLLECTION, plan.accountEmail, { ...mergedProfile, updatedBy: mergedBy, updatedAt: now });
     outcome.profileWritten = true;
   }
-  if (plan.personHadProfile) {
-    await tx.deleteDoc(PROFILES_COLLECTION, plan.personId.toLowerCase());
+  if (personProfile) {
+    await tx.deleteDoc(PROFILES_COLLECTION, personProfileKey);
   }
 
-  if (Object.keys(plan.memberFills).length > 0) {
-    await tx.setDoc(MEMBERS_COLLECTION, plan.accountEmail, { ...plan.memberFills, updatedBy: mergedBy, updatedAt: now });
-    outcome.memberFilled = Object.keys(plan.memberFills);
+  if (Object.keys(memberFills).length > 0) {
+    await tx.setDoc(MEMBERS_COLLECTION, plan.accountEmail, { ...memberFills, updatedBy: mergedBy, updatedAt: now });
+    outcome.memberFilled = Object.keys(memberFills);
   }
 
   const writable = {

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
 import {
+  applyPersonMerge,
   applyWeaponCategoryRule,
   createPerson,
   detachPerson,
@@ -245,6 +246,34 @@ test('merge: the account wins every conflict and only has blanks filled', async 
   assert.deepEqual(profile?.weaponIds, ['miecz'], 'the account weapons win over the person weapons');
   assert.equal(profile?.wpisowePaid, true);
   assert.equal(await client.getDoc('listaWyjazdowaProfile', person.personId), null);
+});
+
+test('merge recomputes blanks and the profile at apply time, so a newer account value is never overwritten', async () => {
+  const client = createInMemoryFirestoreClient();
+  seedAccount(client, { fullName: '', nickname: null, sectionId: '', categoryId: null });
+  const person = await createPerson(client, baseFields, 'opiekun@example.test', 'admin@example.test');
+  client.seed('listaWyjazdowaProfile', person.personId, { weaponIds: ['tarcza'], equipment: [], wpisowePaid: false });
+
+  const planned = await planPersonMerge(client, person.personId, accountEmail);
+  assert.equal(planned.ok, true);
+  if (!planned.ok) return;
+
+  // The account fills its own identity and weapons after planning, but before the merge is applied
+  // (the same window a transaction retry opens up). Those newer values must survive.
+  await client.setDoc('members', accountEmail, { fullName: 'Kasia Nowak', nickname: 'Kasia', sectionId: 'warszawa', categoryId: 'thing' });
+  await client.setDoc('listaWyjazdowaProfile', accountEmail, { weaponIds: ['miecz'], equipment: [], wpisowePaid: false });
+
+  const applied = await client.runTransaction((tx) => applyPersonMerge(tx, planned.plan, 'admin@example.test'));
+  assert.equal(applied.ok, true);
+  if (!applied.ok) return;
+  assert.deepEqual(applied.outcome.memberFilled, [], 'a now-populated account has no blanks left to fill');
+
+  const member = await client.getDoc<Record<string, unknown>>('members', accountEmail);
+  assert.equal(member?.fullName, 'Kasia Nowak', 'the newer account name must survive');
+  assert.equal(member?.sectionId, 'warszawa');
+
+  const profile = await client.getDoc<{ weaponIds: string[] }>('listaWyjazdowaProfile', accountEmail);
+  assert.deepEqual(profile?.weaponIds, ['miecz'], 'the newer account weapons must survive');
 });
 
 test('merge refuses an unknown person or account, and a second merge of the same person', async () => {
