@@ -48,6 +48,8 @@ import {
   type AuditOperationIntent,
   type ExternalOperationProbe,
   type CanonicalAuditEventInput,
+  type CanonicalAuditEventInputAfterResult,
+  type CanonicalAuditEventInputFactory,
 } from './audit.ts';
 import { verifyReconcilerOidcToken } from './auth.ts';
 import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberStagingFolderId, setMemberCategoryId, setMemberHidden, recordLastLogin, type MemberDoc, type MemberWritableFields } from './members.ts';
@@ -69,6 +71,7 @@ import {
   softDeletePerson,
   updatePerson,
   type PersonDoc,
+  type PersonMergeApplyResult,
   type PersonWritableFields,
 } from './persons.ts';
 import { getAllLookupLists, getLookupList } from './lookup-lists.ts';
@@ -245,32 +248,50 @@ export function findAuditedMemberMutationRoute(method: string, path: string): Au
   return AUDITED_MEMBER_MUTATION_ROUTE_DESCRIPTORS.find(route => route.method === method && route.path === path);
 }
 
+/** The audit input forms a declared route accepts; `afterResult` covers a diff known only after the write. */
+type DeclaredAuditInput<T> =
+  | Omit<CanonicalAuditEventInput, 'action'>
+  | readonly Omit<CanonicalAuditEventInput, 'action'>[]
+  | ((tx: FirestoreTransaction) => Promise<Omit<CanonicalAuditEventInput, 'action'> | readonly Omit<CanonicalAuditEventInput, 'action'>[]>)
+  | {
+      afterResult: (
+        tx: FirestoreTransaction,
+        result: T,
+      ) => Promise<Omit<CanonicalAuditEventInput, 'action'> | readonly Omit<CanonicalAuditEventInput, 'action'>[]>;
+    };
+
+function isDeclaredAuditInputAfterResult<T>(
+  input: DeclaredAuditInput<T>,
+): input is Extract<DeclaredAuditInput<T>, { afterResult: unknown }> {
+  return typeof input === 'object' && input !== null && !Array.isArray(input) && 'afterResult' in input;
+}
+
 async function executeDeclaredAuditedMutation<T, Actions extends readonly AuditAction[]>(
   deps: ServerDeps,
   descriptor: AuditedMutationRouteDescriptor<Actions>,
   action: Actions[number] | readonly Actions[number][],
-  input:
-    | Omit<CanonicalAuditEventInput, 'action'>
-    | readonly Omit<CanonicalAuditEventInput, 'action'>[]
-    | ((tx: FirestoreTransaction) => Promise<Omit<CanonicalAuditEventInput, 'action'> | readonly Omit<CanonicalAuditEventInput, 'action'>[]>),
+  input: DeclaredAuditInput<T>,
   mutation: (tx: FirestoreTransaction) => Promise<T>,
 ): ReturnType<typeof executeAuditedFirestoreMutation<T>> {
   const actions = Array.isArray(action) ? action : [action];
   if (actions.some(candidate => !(descriptor.actions as readonly AuditAction[]).includes(candidate))) {
     throw new Error(`Undeclared audit action for ${descriptor.method} ${descriptor.path}.`);
   }
-  const withAction = typeof input === 'function'
-    ? async (tx: FirestoreTransaction) => {
-        const resolvedInput = await input(tx);
-        const inputs = Array.isArray(resolvedInput) ? resolvedInput : [resolvedInput];
-        if (inputs.length !== actions.length) throw new Error(`Audit input count does not match actions for ${descriptor.method} ${descriptor.path}.`);
-        return inputs.map((auditInput, index) => ({ action: actions[index], ...auditInput }));
-      }
-    : (() => {
-        const inputs = Array.isArray(input) ? input : [input];
-        if (inputs.length !== actions.length) throw new Error(`Audit input count does not match actions for ${descriptor.method} ${descriptor.path}.`);
-        return inputs.map((auditInput, index) => ({ action: actions[index], ...auditInput }));
-      })();
+  const addActions = (
+    resolved: Omit<CanonicalAuditEventInput, 'action'> | readonly Omit<CanonicalAuditEventInput, 'action'>[],
+  ) => {
+    const inputs = Array.isArray(resolved) ? resolved : [resolved];
+    if (inputs.length !== actions.length) throw new Error(`Audit input count does not match actions for ${descriptor.method} ${descriptor.path}.`);
+    return inputs.map((auditInput, index) => ({ action: actions[index], ...auditInput }));
+  };
+  let withAction: CanonicalAuditEventInput | readonly CanonicalAuditEventInput[] | CanonicalAuditEventInputFactory | CanonicalAuditEventInputAfterResult<T>;
+  if (typeof input === 'function') {
+    withAction = async (tx: FirestoreTransaction) => addActions(await input(tx));
+  } else if (isDeclaredAuditInputAfterResult(input)) {
+    withAction = { afterResult: async (tx, result) => addActions(await input.afterResult(tx, result)) };
+  } else {
+    withAction = addActions(input);
+  }
   return executeAuditedFirestoreMutation(deps.firestore, withAction, mutation);
 }
 
@@ -3143,18 +3164,24 @@ async function handleListaWyjazdowaPutPersonAccount(req: IncomingMessage, res: S
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.personAccount,
     'person.merged',
-    async tx => {
-      const before = await tx.getDoc<PersonDoc>('persons', planned.plan.personId);
-      if (!before) throw personMergeError('person_not_found');
-      return {
+    {
+      // Which documents actually moved is only known after the merge runs, so the audit input is
+      // derived from its result - still inside the same transaction, so the event commits with the
+      // business write (plan: "audyt before/after obejmujący przeniesione dokumenty i zmianę opiekuna").
+      afterResult: async (_tx, merged: Extract<PersonMergeApplyResult, { ok: true }>) => ({
         actor: { email: identity.email },
-        resource: { kind: 'person' as const, key: `person:${before.personId}`, display: before.ksywka || before.personId },
+        resource: { kind: 'person' as const, key: `person:${planned.plan.personId}`, display: merged.outcome.personDisplay },
         changes: [
           { field: 'accountEmail', after: planned.plan.accountEmail },
           { field: 'mergedInto', after: planned.plan.accountEmail },
-          { field: 'ownerPersonId', before: before.ownerPersonId, after: null },
+          { field: 'ownerPersonId', before: merged.outcome.previousOwnerPersonId, after: null },
+          { field: 'movedSignups', after: merged.outcome.movedSignups.length },
+          { field: 'movedDues', after: merged.outcome.movedDues.length },
+          { field: 'droppedSignups', after: merged.outcome.droppedSignups.length },
+          { field: 'droppedDues', after: merged.outcome.droppedDues.length },
+          { field: 'profileMerged', after: merged.outcome.profileWritten },
         ],
-      };
+      }),
     },
     async tx => {
       const merged = await applyPersonMerge(tx, planned.plan, identity.email);

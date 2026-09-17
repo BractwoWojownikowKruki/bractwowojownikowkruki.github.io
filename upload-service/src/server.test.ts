@@ -6766,6 +6766,7 @@ test('PUT /lista-wyjazdowa/persons/account merges for an admin, rejects a modera
   const firestore = makeListaWyjazdowaFirestore();
   seedPerson(firestore, 'p1', 'wojownik@gmail.com');
   seedMember(firestore, 'nowak@gmail.com');
+  firestore.seed('signups', 'event-1_p1', { eventId: 'event-1', memberEmail: 'p1', attending: true, equipmentIds: [], skladkaPaid: false });
 
   const moderator = makeDeps({ firestore, authenticateAdminWithStepUp: async () => { throw new AuthError('Brak uprawnień.', 403); } });
   await withServer(moderator, async baseUrl => {
@@ -6780,12 +6781,45 @@ test('PUT /lista-wyjazdowa/persons/account merges for an admin, rejects a modera
     const res = await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/account', { personId: 'p1', accountEmail: 'Nowak@Gmail.com' });
     assert.equal(res.status, 200);
     assert.equal((await res.json()).person.mergedInto, 'nowak@gmail.com');
-    assert.ok((await firestore.listDocs<{ action?: string }>('auditEvents')).some((d) => d.data.action === 'person.merged'));
+
+    const events = await firestore.listDocs<{ action?: string; changes?: Array<{ field: string; after?: unknown }> }>('auditEvents');
+    const merged = events.find((d) => d.data.action === 'person.merged');
+    assert.ok(merged, 'the merge must be audited');
+    assert.equal(merged?.data.changes?.find((c) => c.field === 'movedSignups')?.after, 1, 'the audit must record the documents it moved');
+    assert.equal(merged?.data.changes?.find((c) => c.field === 'ownerPersonId')?.after, null);
+
     assert.equal(
       (await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/account', { personId: 'p1', accountEmail: 'nowak@gmail.com' })).status,
       409,
       'a second merge must be refused',
     );
+  });
+});
+
+test('an accountant is staff on the person routes', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('userRoles', 'ksiegowa@example.com', { roles: ['accountant'] });
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'k1', email: 'ksiegowa@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'wojownik@gmail.com' });
+    assert.equal(res.status, 201, 'an accountant may create a person for anyone');
+  });
+});
+
+test('DELETE /persons and PUT /persons/owner reject a non-owner non-staff caller without mutating', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  await withServer(memberDeps(firestore, 'ktos@gmail.com'), async baseUrl => {
+    assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons', { personId: 'p1' })).status, 403);
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/owner', { personId: 'p1', ownerPersonId: null })).status, 403);
+    const stored = await firestore.getDoc<{ deletedAt?: string | null; ownerPersonId?: string | null }>('persons', 'p1');
+    assert.equal(stored?.deletedAt ?? null, null, 'a denied delete must not tombstone');
+    assert.equal(stored?.ownerPersonId, 'wojownik@gmail.com', 'a denied detach must not change the owner');
   });
 });
 

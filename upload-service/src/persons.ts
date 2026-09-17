@@ -278,6 +278,10 @@ export type PersonMergePlanResult = { ok: true; plan: PersonMergePlan } | { ok: 
 export interface PersonMergeOutcome {
   personId: string;
   accountEmail: string;
+  /** The person's display label at merge time, for the audit resource (ksywka, else the personId). */
+  personDisplay: string;
+  /** The person's owner before the merge, so the audit can record the change (it becomes null). */
+  previousOwnerPersonId: string | null;
   /** Document ids written at the account key. */
   movedSignups: string[];
   movedDues: string[];
@@ -360,6 +364,8 @@ export async function applyPersonMerge(
   const outcome: PersonMergeOutcome = {
     personId: plan.personId,
     accountEmail: plan.accountEmail,
+    personDisplay: person.ksywka || person.personId,
+    previousOwnerPersonId: person.ownerPersonId ?? null,
     movedSignups: [],
     movedDues: [],
     droppedSignups: [],

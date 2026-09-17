@@ -111,10 +111,13 @@ const personFields = {
   mergedInto: 'roleRestricted',
   movedSignups: 'roleRestricted',
   movedDues: 'roleRestricted',
+  droppedSignups: 'roleRestricted',
+  droppedDues: 'roleRestricted',
   profileMerged: 'roleRestricted',
   deleted: 'roleRestricted',
 } as const;
-const sessionFields = { status: 'roleRestricted' } as const;const applicationFields = { appId: 'roleRestricted' } as const;
+const sessionFields = { status: 'roleRestricted' } as const;
+const applicationFields = { appId: 'roleRestricted' } as const;
 const galleryFields = {
   name: 'memberVisible',
   date: 'memberVisible',
@@ -401,6 +404,29 @@ export interface AuditedExternalMutationDependencies<T> extends AuditOperationSt
 export type CanonicalAuditEventInputFactory = (
   tx: FirestoreTransaction,
 ) => Promise<CanonicalAuditEventInput | readonly CanonicalAuditEventInput[]>;
+
+/**
+ * Builds audit inputs from the mutation's own result, for the rare mutation whose diff cannot be
+ * known before it runs - KRKG-0087's person merge must report which signup/dues documents it
+ * actually moved. It runs inside the same transaction, after the mutation and before the event is
+ * written, so the evidence still commits atomically with the business write.
+ *
+ * The factory must not read from Firestore: every read in a transaction has to precede every write,
+ * and the mutation has already written by the time this runs.
+ */
+export interface CanonicalAuditEventInputAfterResult<T> {
+  afterResult: (
+    tx: FirestoreTransaction,
+    result: T,
+  ) => Promise<CanonicalAuditEventInput | readonly CanonicalAuditEventInput[]>;
+}
+
+/** Narrows the `input` union to the post-mutation factory form. */
+export function isCanonicalAuditEventInputAfterResult<T>(
+  input: unknown,
+): input is CanonicalAuditEventInputAfterResult<T> {
+  return typeof input === 'object' && input !== null && !Array.isArray(input) && 'afterResult' in input;
+}
 
 const defaultDependencies: AuditEventDependencies = { createId: randomUUID, now: () => new Date() };
 
@@ -800,12 +826,28 @@ export async function listOpenOperationCorrelationIds(firestore: FirestoreLikeCl
 /** Commits a Firestore mutation and its immutable canonical audit event in the same transaction. */
 export async function executeAuditedFirestoreMutation<T>(
   firestore: FirestoreLikeClient,
-  input: CanonicalAuditEventInput | readonly CanonicalAuditEventInput[] | CanonicalAuditEventInputFactory,
+  input:
+    | CanonicalAuditEventInput
+    | readonly CanonicalAuditEventInput[]
+    | CanonicalAuditEventInputFactory
+    | CanonicalAuditEventInputAfterResult<T>,
   mutation: (tx: FirestoreTransaction) => Promise<T>,
   dependencies: AuditEventDependencies = defaultDependencies,
 ): Promise<{ result: T; auditEvent: CanonicalAuditEvent; auditEvents: readonly CanonicalAuditEvent[] }> {
   let auditEvents: readonly CanonicalAuditEvent[] | undefined;
   const result = await firestore.runTransaction(async tx => {
+    if (isCanonicalAuditEventInputAfterResult<T>(input)) {
+      // Business write first, then the diff derived from its result - one transaction either way.
+      const mutationResult = await mutation(tx);
+      const resolved = await input.afterResult(tx, mutationResult);
+      const inputs = Array.isArray(resolved) ? resolved : [resolved];
+      if (inputs.length === 0) throw new AuditInputError('Audited mutation requires at least one audit event.');
+      auditEvents = inputs.map(auditInput => createCanonicalAuditEvent(auditInput, dependencies));
+      for (const auditEvent of auditEvents) {
+        await tx.createDoc('auditEvents', auditEvent.id, auditEvent);
+      }
+      return mutationResult;
+    }
     const resolvedInput = typeof input === 'function' ? await input(tx) : input;
     const inputs = Array.isArray(resolvedInput) ? resolvedInput : [resolvedInput];
     if (inputs.length === 0) throw new AuditInputError('Audited mutation requires at least one audit event.');
