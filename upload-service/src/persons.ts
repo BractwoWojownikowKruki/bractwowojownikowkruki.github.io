@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { AuthError } from './auth.ts';
 import type { FirestoreDoc, FirestoreLikeClient } from './firestore.ts';
-import { getMember } from './members.ts';
+import { getMember, type MemberDoc } from './members.ts';
 
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
 
@@ -44,16 +45,30 @@ export interface PersonWritableFields {
 }
 
 const PERSONS_COLLECTION = 'persons';
+const MEMBERS_COLLECTION = 'members';
 
 /**
  * Niewiasta and Bobo never carry a weapon (KRKG-0087 design, section A) - enforced here so every
- * caller (server routes, quick-add, migration of legacy data) gets the same rule instead of
- * repeating it. Changing a person's category to one of these clears their weapon list.
+ * caller (server routes, quick-add) gets the same rule instead of repeating it. Changing a
+ * person's category to one of these clears their weapon list.
  */
 const NO_WEAPON_CATEGORY_IDS = ['niewiasta', 'bobo'];
 
 export function weaponAllowedForCategory(categoryId: string): boolean {
   return !NO_WEAPON_CATEGORY_IDS.includes(categoryId);
+}
+
+/**
+ * Runtime validation of the fields the model requires (KRKG-0087 plan, batch 1 step 1): a person
+ * always has a category and a section. TypeScript's required properties do not stop a request body
+ * from carrying empty strings, so this is checked at runtime, not just in the type.
+ *
+ * Whether a name is required, and in which combination (ksywka alone vs first+last), is still an
+ * open question in the design, so names are deliberately not validated here.
+ */
+export function validatePersonFields(fields: PersonWritableFields): void {
+  if (!fields.categoryId?.trim()) throw new AuthError('Kategoria osoby jest wymagana.', 400);
+  if (!fields.sectionId?.trim()) throw new AuthError('Sekcja osoby jest wymagana.', 400);
 }
 
 /** Applies the category/weapon rule to a writable field set. */
@@ -78,12 +93,20 @@ export async function listPersons(
   return options.includeDeleted ? docs : docs.filter((d) => !d.data.deletedAt);
 }
 
-export interface ResolvedPerson {
-  personId: string;
-  /** True when the incoming value named an account (e-mail key), false for an accountless person. */
-  isAccount: boolean;
-  person: PersonDoc | null;
-}
+/**
+ * The result of keying an incoming value. Deliberately a discriminated union so a caller cannot
+ * accidentally treat an account as an accountless person or the other way round.
+ *
+ * The `account` branch is **not** an existence check: a valid club member may have no
+ * `members/{email}` document at all (anyone who never opened "Mój profil"), so treating a missing
+ * member document as "not found" would reject real members. Existence for this branch is the
+ * caller's live member-allowlist check (the same one the signup route already performs), and that
+ * check is what produces a 404 for an unknown value - including an unknown UUID, which lands here
+ * because it is not an existing `persons/{value}` document.
+ */
+export type ResolvedPerson =
+  | { kind: 'person'; personId: string; person: PersonDoc }
+  | { kind: 'account'; personId: string; linkedPersonId: string | null };
 
 /**
  * The single place that decides what a `personId` is (KRKG-0087 plan, "Kontrakt tożsamości").
@@ -91,15 +114,14 @@ export interface ResolvedPerson {
  * Deliberately **no format heuristics**: we never inspect the value for an "@". Resolution is a
  * document lookup - an existing `persons/{value}` is an accountless person; anything else is
  * treated as an account key and mapped through `members/{email}.linkedPersonId`, so an e-mail of
- * a linked account still lands on that person's UUID. A member who never saved a profile has no
- * `members/{email}` document, so the e-mail itself is the fallback key.
+ * a linked account still lands on that person's UUID.
  */
 export async function resolvePersonId(client: FirestoreLikeClient, value: string): Promise<ResolvedPerson> {
   const person = await getPerson(client, value);
-  if (person) return { personId: person.personId, isAccount: false, person };
+  if (person) return { kind: 'person', personId: person.personId, person };
   const email = value.toLowerCase();
   const member = await getMember(client, email);
-  return { personId: member?.linkedPersonId ?? email, isAccount: true, person: null };
+  return { kind: 'account', personId: member?.linkedPersonId ?? email, linkedPersonId: member?.linkedPersonId ?? null };
 }
 
 export async function createPerson(
@@ -108,6 +130,7 @@ export async function createPerson(
   ownerPersonId: string | null,
   createdBy: string,
 ): Promise<PersonDoc> {
+  validatePersonFields(fields);
   const now = new Date().toISOString();
   const personId = randomUUID();
   const normalized = applyWeaponCategoryRule(fields);
@@ -130,6 +153,7 @@ export async function updatePerson(
   fields: PersonWritableFields,
   updatedBy: string,
 ): Promise<PersonDoc | null> {
+  validatePersonFields(fields);
   const existing = await client.getDoc<PersonDoc>(PERSONS_COLLECTION, personId);
   if (!existing) return null;
   const normalized = applyWeaponCategoryRule(fields);
@@ -160,33 +184,6 @@ export async function detachPerson(
   const existing = await client.getDoc<PersonDoc>(PERSONS_COLLECTION, personId);
   if (!existing) return null;
   const writable = { ownerPersonId: null, updatedBy, updatedAt: new Date().toISOString() };
-  await client.setDoc(PERSONS_COLLECTION, personId, writable);
-  return { ...existing, ...writable };
-}
-
-/**
- * Gives an accountless person an account (KRKG-0087 design, section D). Callers must run this
- * inside a transaction together with the audit entry: the guard fields are read here so a second,
- * concurrent admin sees the already-set value and is rejected instead of double-linking.
- *
- * Attaching an account also clears `ownerPersonId` - a person with an account is never "attached"
- * to an owner (the attachment is what makes someone an osoba towarzysząca).
- */
-export async function linkAccount(
-  client: FirestoreWriteContext,
-  personId: string,
-  accountEmail: string,
-  linkedBy: string,
-): Promise<PersonDoc | null> {
-  const existing = await client.getDoc<PersonDoc>(PERSONS_COLLECTION, personId);
-  if (!existing) return null;
-  if (existing.email) return null;
-  const writable = {
-    email: accountEmail.toLowerCase(),
-    ownerPersonId: null,
-    updatedBy: linkedBy,
-    updatedAt: new Date().toISOString(),
-  };
   await client.setDoc(PERSONS_COLLECTION, personId, writable);
   return { ...existing, ...writable };
 }
@@ -233,4 +230,48 @@ export async function probeAccountDomainData(
     hasSignups: signups.some((d) => d.id.toLowerCase().endsWith(`_${key}`)),
     hasAnnualDues: dues.some((d) => d.id.toLowerCase().startsWith(`${key}_`)),
   };
+}
+
+export type LinkAccountResult =
+  | { ok: true; person: PersonDoc }
+  | { ok: false; reason: 'person_not_found' | 'already_linked' | 'account_not_found' | 'account_has_data' };
+
+/**
+ * Gives an accountless person an account (KRKG-0087 design, section D). This is the only linking
+ * entry point, and it enforces every documented guard itself so no caller can skip one:
+ *
+ * - the account must have **no domain data** (checked before the transaction - the probe needs a
+ *   collection scan, which a Firestore transaction cannot do),
+ * - the person's `email` must still be empty (re-read inside the transaction, which is what makes
+ *   two concurrent admins safe: the loser sees the value already set and is rejected),
+ * - the account's `members/{email}` document must exist, because the reverse mapping has to be
+ *   written for the resolver to find the person from the e-mail.
+ *
+ * Both sides are written in one transaction - `persons/{personId}.email` plus
+ * `members/{email}.linkedPersonId` - and attaching an account also clears `ownerPersonId`, since
+ * the attachment is exactly what makes someone an "osoba towarzysząca" (a person with an account
+ * is never attached). The audit entry is the caller's job, in the same transaction.
+ */
+export async function linkAccount(
+  client: FirestoreLikeClient,
+  personId: string,
+  accountEmail: string,
+  linkedBy: string,
+): Promise<LinkAccountResult> {
+  const email = accountEmail.toLowerCase();
+  if (hasDomainData(await probeAccountDomainData(client, email))) {
+    return { ok: false, reason: 'account_has_data' };
+  }
+  return client.runTransaction(async (tx) => {
+    const person = await tx.getDoc<PersonDoc>(PERSONS_COLLECTION, personId);
+    if (!person) return { ok: false, reason: 'person_not_found' };
+    if (person.email) return { ok: false, reason: 'already_linked' };
+    const member = await tx.getDoc<MemberDoc>(MEMBERS_COLLECTION, email);
+    if (!member) return { ok: false, reason: 'account_not_found' };
+    const now = new Date().toISOString();
+    const writable = { email, ownerPersonId: null, updatedBy: linkedBy, updatedAt: now };
+    await tx.setDoc(PERSONS_COLLECTION, personId, writable);
+    await tx.setDoc(MEMBERS_COLLECTION, email, { linkedPersonId: personId, updatedBy: linkedBy, updatedAt: now });
+    return { ok: true, person: { ...person, ...writable } };
+  });
 }
