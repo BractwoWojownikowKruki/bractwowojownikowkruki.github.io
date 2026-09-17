@@ -89,9 +89,8 @@ function sectionAbbr(sectionId) {
 // own column or a second pill next to the name (KRKG-0057) - same never-a-color-value-in-JS
 // convention as member-area.css's [data-section="..."] rules for Sekcja. This page never lets
 // anyone edit Typ, so it's always read-only here - no sync-on-change counterpart needed.
-function categoryNamePillAttrs(categoryId, label) {
-  return `class="category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak statusu')}"`;
-}
+// KRKG-0087: the pill (and the "osoba bez konta" marker) is rendered by shared/person-pill.js's
+// personPillHtml instead of an inline attrs helper.
 
 // displayName(member) itself now lives in shared/display-name.js (included via index.html) - see
 // its own comment for the priority order and the email-typed-into-a-name-field edge case.
@@ -255,16 +254,16 @@ async function removeSkladkaFee() {
 
 document.getElementById('skladka-fee-remove').addEventListener('click', removeSkladkaFee);
 
-async function toggleSkladkaPaid(email, nextPaid, control) {
+async function toggleSkladkaPaid(personId, nextPaid, control) {
   clearError();
   try {
     await confirmedEventMutation(control, () => apiFetch(
-      `/lista-wyjazdowa/signups/skladka?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(email)}`,
+      `/lista-wyjazdowa/signups/skladka?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(personId)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: nextPaid }) },
       showReauth,
       hideReauth,
     ), () => {
-      const signup = cachedSignups.find(item => item.memberEmail === email);
+      const signup = cachedSignups.find(item => item.memberEmail === personId);
       if (signup) signup.skladkaPaid = nextPaid;
       renderRoster(cachedRoster, cachedSignups);
     }, document.getElementById('roster-panel'));
@@ -283,14 +282,16 @@ async function toggleSkladkaPaid(email, nextPaid, control) {
 // here, not folded into either single-weapon group.
 function renderSummary(roster, signups) {
   const attending = signups.filter((s) => s.attending);
-  const rosterByEmail = new Map(roster.map((r) => [r.email, r]));
+  // KRKG-0087: the canonical row key is personId (a member's e-mail, an accountless person's UUID),
+  // not e-mail - a signup's stored memberEmail is that same personId.
+  const rosterByPersonId = new Map(roster.map((r) => [r.personId, r]));
 
   const bySection = new Map();
   const byWeaponGroup = new Map(); // weaponGroupKey -> { label, count }
   const byCategory = new Map();
   const equipmentBearers = [];
   for (const s of attending) {
-    const member = rosterByEmail.get(s.memberEmail);
+    const member = rosterByPersonId.get(s.memberEmail);
     if (!member) continue;
     bySection.set(member.sectionId, (bySection.get(member.sectionId) ?? 0) + 1);
     const weaponKey = weaponGroupKey(member.weaponIds);
@@ -330,8 +331,9 @@ function renderSummary(roster, signups) {
     .map((categoryId) => {
       const label = categoryLabelFor(categoryId);
       const badge = `<span class="lw-summary-badge">${byCategory.get(categoryId)}</span>`;
-      // Not categoryNamePillAttrs() here - it bakes in its own class="category-name-pill", and
-      // appending lw-summary-chip as a second class attribute would just be dropped as a duplicate.
+      // A category chip, not a person pill - no "osoba bez konta" marker here (the marker is for
+      // person pills only). Built inline rather than via personPillHtml because that escapes its
+      // whole content, which would drop this count badge.
       return categoryId === null
         ? `<span class="lw-summary-chip">${escapeHtml(label)}${badge}</span>`
         : `<span class="category-name-pill lw-summary-chip" data-category="${escapeAttr(categoryId)}" title="${escapeAttr(label)}">${escapeHtml(label)}${badge}</span>`;
@@ -369,7 +371,7 @@ let cachedSignups = [];
 // Set from initGoogleSignIn's onSignedIn identity (KRKG-0058) - the viewer's own row stays
 // visible under the "Zgłoszeni + ja" filter even before they've signed up for this event, so they
 // can always find themselves to toggle Jadę/Nie jadę rather than disappearing from their own view.
-let viewerEmail = null;
+let viewerPersonId = null;
 
 // Sections/categories/weapons don't change within one open page load - fetched once in loadAll()
 // alongside everything else (see the lookupLists destructure there) and read from here. Same
@@ -448,10 +450,10 @@ const rosterSortState = initSortableTable(document.getElementById('roster-table'
 });
 
 function renderRoster(roster, signups) {
-  const signupByEmail = new Map(signups.map((s) => [s.memberEmail, s]));
+  const signupByPersonId = new Map(signups.map((s) => [s.memberEmail, s]));
   const visible = roster.filter((m) => {
-    const attending = signupByEmail.get(m.email)?.attending ?? false;
-    if (attending || m.email === viewerEmail) return showSignedUpAndMe;
+    const attending = signupByPersonId.get(m.personId)?.attending ?? false;
+    if (attending || m.personId === viewerPersonId) return showSignedUpAndMe;
     return showNotSignedUp;
   });
 
@@ -465,8 +467,8 @@ function renderRoster(roster, signups) {
     switch (rosterSortState.key) {
       case 'weapon': return weaponSortLabel(member);
       case 'name': return displayName(member);
-      case 'status': return signupByEmail.get(member.email)?.attending ?? false;
-      case 'statusChangedAt': return signupByEmail.get(member.email)?.statusChangedAt ?? '';
+      case 'status': return signupByPersonId.get(member.personId)?.attending ?? false;
+      case 'statusChangedAt': return signupByPersonId.get(member.personId)?.statusChangedAt ?? '';
       default: return sectionSortLabel(member);
     }
   };
@@ -483,9 +485,9 @@ function renderRoster(roster, signups) {
 
   tbody.innerHTML = sorted
     .map((member) => {
-      const signup = signupByEmail.get(member.email);
+      const signup = signupByPersonId.get(member.personId);
       const attending = signup?.attending ?? false;
-      const emailAttr = escapeAttr(member.email);
+      const personIdAttr = escapeAttr(member.personId);
       const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
       const weaponHtml = member.weaponIds.length
         ? weaponIconsOnlyHtml(member.weaponIds, weaponGroupLabel(member.weaponIds))
@@ -499,24 +501,31 @@ function renderRoster(roster, signups) {
       const duesBadgesHtml = member.duesStatus === 'unpaid' || !member.wpisowePaid
         ? `<span class="lw-dues-badges">${!member.wpisowePaid ? '<span class="lw-dues-badge lw-dues-badge--wpisowe" title="Wpisowe nieopłacone">💰<span>wpisowe</span></span>' : ''}${member.duesStatus === 'unpaid' ? '<span class="lw-dues-badge lw-dues-badge--roczna" title="Składka roczna nieopłacona">💰<span>roczna</span></span>' : ''}</span>`
         : '';
+      // KRKG-0087: one shared pill renderer, with the "osoba bez konta" marker for an accountless
+      // person. A member's name opens the shared profile drawer; the read-only drawer for a person
+      // is a later batch, so their name is plain text for now (the pill still carries the marker).
+      const namePill = personPillHtml({ name: displayName(member), categoryId: member.categoryId, categoryLabel, accountless: member.accountless === true });
+      const nameCellHtml = member.accountless
+        ? namePill
+        : `<button type="button" class="profile-trigger" data-profile-trigger data-email="${personIdAttr}">
+          ${namePill}
+        </button>
+        <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${personIdAttr}" aria-label="Pokaż profil" title="Pokaż profil">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+        </button>`;
       return `
-    <tr data-email="${emailAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
+    <tr data-person-id="${personIdAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
       <td class="czl-section-cell" title="${escapeAttr(sectionSortLabel(member) || 'Brak sekcji')}">${member.sectionId ? escapeHtml(sectionAbbr(member.sectionId)) : EMPTY}</td>
       <td class="lw-roster-name-cell">
-        <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
-          <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
-        </button>
-        <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-        </button>
+        ${nameCellHtml}
         ${duesBadgesHtml}
       </td>
       <td>
-        <button type="button" class="lw-attend-toggle" data-email="${emailAttr}" data-attending="${attending}" aria-pressed="${attending}">
+        <button type="button" class="lw-attend-toggle" data-person-id="${personIdAttr}" data-attending="${attending}" aria-pressed="${attending}">
           <span class="lw-attend-toggle-track" aria-hidden="true"></span>
           ${attending ? 'Jadę' : 'Nie jadę'}
         </button>
-        ${attending && normalizeSkladkaFee(cachedEvent?.skladkaFee) ? renderSkladkaIcon(emailAttr, signup?.skladkaPaid ?? false) : ''}
+        ${attending && normalizeSkladkaFee(cachedEvent?.skladkaFee) ? renderSkladkaIcon(personIdAttr, signup?.skladkaPaid ?? false) : ''}
       </td>
       <td class="${member.weaponIds.length ? '' : 'czl-empty'}">${member.weaponIds.length ? weaponHtml : EMPTY}</td>
       <td class="lw-status-changed-cell">${escapeHtml(formatStatusChangedAt(signup?.statusChangedAt))}</td>
@@ -527,12 +536,12 @@ function renderRoster(roster, signups) {
 
 // A plain, uneditable coin for a member who can't manage składki - reading the row shouldn't
 // suggest a button that would just 403; only canManageSkladki gets the clickable <button> below.
-function renderSkladkaIcon(emailAttr, paid) {
+function renderSkladkaIcon(personIdAttr, paid) {
   const label = paid ? 'Składka opłacona' : 'Składka nieopłacona';
   if (!canManageSkladki) {
     return `<span class="lw-skladka-icon" data-paid="${paid}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">💰</span>`;
   }
-  return `<button type="button" class="lw-skladka-icon" data-email="${emailAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
+  return `<button type="button" class="lw-skladka-icon" data-person-id="${personIdAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
 }
 
 // The quick toggle has no equipment/companion picker of its own (dropped from this row - see
@@ -546,13 +555,13 @@ function stillValidIds(ids, items) {
   return (ids ?? []).filter((id) => valid.has(id));
 }
 
-async function toggleAttending(email, nextAttending, control) {
+async function toggleAttending(personId, nextAttending, control) {
   clearError();
-  const member = cachedRoster.find((m) => m.email === email);
-  const existing = cachedSignups.find((s) => s.memberEmail === email);
+  const member = cachedRoster.find((m) => m.personId === personId);
+  const existing = cachedSignups.find((s) => s.memberEmail === personId);
   try {
     await confirmedEventMutation(control, () => apiFetch(
-      `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(email)}`,
+      `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(personId)}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -565,7 +574,7 @@ async function toggleAttending(email, nextAttending, control) {
       hideReauth,
     ), (result) => {
       const savedSignup = result.signup;
-      const signup = cachedSignups.find(item => item.memberEmail === email);
+      const signup = cachedSignups.find(item => item.memberEmail === personId);
       if (signup) Object.assign(signup, savedSignup);
       else cachedSignups.push(savedSignup);
       renderSummary(cachedRoster, cachedSignups);
@@ -602,20 +611,20 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
   if (attendBtn) {
     const nextAttending = attendBtn.dataset.attending !== 'true';
     attendBtn.disabled = true;
-    toggleAttending(attendBtn.dataset.email, nextAttending, attendBtn).finally(() => { attendBtn.disabled = false; });
+    toggleAttending(attendBtn.dataset.personId, nextAttending, attendBtn).finally(() => { attendBtn.disabled = false; });
     return;
   }
   const skladkaBtn = e.target.closest('.lw-skladka-icon');
-  if (skladkaBtn && skladkaBtn.dataset.email) {
+  if (skladkaBtn && skladkaBtn.dataset.personId) {
     skladkaBtn.disabled = true;
-    toggleSkladkaPaid(skladkaBtn.dataset.email, skladkaBtn.dataset.paid !== 'true', skladkaBtn).finally(() => { skladkaBtn.disabled = false; });
+    toggleSkladkaPaid(skladkaBtn.dataset.personId, skladkaBtn.dataset.paid !== 'true', skladkaBtn).finally(() => { skladkaBtn.disabled = false; });
   }
 });
 
 async function loadAll() {
   const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue }, lookupLists] = await Promise.all([
     apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
-    apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
+    apiFetch(`/lista-wyjazdowa/roster?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
@@ -690,7 +699,8 @@ initGoogleSignIn({
   // showOnly(null) first because #lw-error lives inside #main-content, which is hidden until then.
   onSignedIn: async (identity) => {
     try {
-      viewerEmail = identity.email;
+      // The viewer's own personId is their lowercased e-mail (a member's canonical key).
+      viewerPersonId = identity.email?.toLowerCase() ?? null;
       await loadAll();
       showOnly(null);
     } catch (err) {

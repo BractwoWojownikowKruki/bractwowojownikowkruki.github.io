@@ -19,7 +19,7 @@ test('event roster keeps Zmiana as the final sortable column', () => {
 
 test('event roster renders statusChangedAt and applies the successful signup response locally', () => {
   assert.match(script, /function formatStatusChangedAt\(iso\)/);
-  assert.match(script, /case 'statusChangedAt': return signupByEmail\.get\(member\.email\)\?\.statusChangedAt \?\? '';/);
+  assert.match(script, /case 'statusChangedAt': return signupByPersonId\.get\(member\.personId\)\?\.statusChangedAt \?\? '';/);
   assert.match(script, /<td class="lw-status-changed-cell">\$\{escapeHtml\(formatStatusChangedAt\(signup\?\.statusChangedAt\)\)\}<\/td>/);
   assert.match(script, /apply: \(result\) =>|\(result\) => \{/);
   assert.match(script, /Object\.assign\(signup, savedSignup\)/);

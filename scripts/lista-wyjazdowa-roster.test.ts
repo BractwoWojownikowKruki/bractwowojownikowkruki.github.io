@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8');
+const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 
 class Element {
   id: string;
@@ -55,9 +56,9 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   let mutationError: Error | null = null;
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
   const roster = [
-    { email: 'signed@example.com', fullName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
-    { email: 'viewer@example.com', fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
-    { email: 'other@example.com', fullName: 'Other', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, fullName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'other@example.com', email: 'other@example.com', accountless: false, fullName: 'Other', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
   ];
   const signups = [{ memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [] }];
   const context: Record<string, unknown> = {
@@ -101,13 +102,14 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
         return mutationResult;
       }
       if (url === '/lista-wyjazdowa/events') return { events: [event] };
-      if (url === '/lista-wyjazdowa/roster') return { roster };
+      if (url.startsWith('/lista-wyjazdowa/roster')) return { roster };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups };
       if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [], weapons: [] };
       throw new Error(`unexpected request: ${url}`);
     },
   };
+  vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   return {
     elements,
