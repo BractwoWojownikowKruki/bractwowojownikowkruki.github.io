@@ -6569,6 +6569,49 @@ test('GET /lista-wyjazdowa/roster omits tombstoned people', async () => {
   });
 });
 
+// KRKG-0087: the event-scoped read is the historical one. A person who has left the club must still
+// appear on a trip they were signed up for, or that past trip's summary and audit would change.
+test('GET /lista-wyjazdowa/roster?eventId= keeps a tombstoned person who signed up for that trip', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('persons', 'person-uuid-3', {
+    personId: 'person-uuid-3', ksywka: 'Cień', firstName: 'Jan', lastName: 'Kowalski',
+    categoryId: 'thing', sectionId: 'krakow', weaponIds: [],
+    ownerPersonId: null, email: null, deletedAt: '2027-01-01T00:00:00.000Z',
+    createdAt: 'x', createdBy: 'x',
+  });
+  firestore.seed('signups', 'event-1_person-uuid-3', {
+    eventId: 'event-1', memberEmail: 'person-uuid-3', attending: true, equipmentIds: [], skladkaPaid: false,
+  });
+
+  const deps = makeDeps({ firestore, listMemberEmails: async () => [] });
+  await withServer(deps, async baseUrl => {
+    const historical = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster?eventId=event-1`)).json();
+    assert.equal(historical.roster.length, 1, 'the removed person must still count on the trip they attended');
+    assert.equal(historical.roster[0].personId, 'person-uuid-3');
+    assert.equal(historical.roster[0].accountless, true);
+    assert.equal(historical.roster[0].fullName, 'Jan Kowalski');
+  });
+});
+
+test('GET /lista-wyjazdowa/roster?eventId= still omits a tombstoned person with no signup on that trip', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('persons', 'person-uuid-4', {
+    personId: 'person-uuid-4', ksywka: 'Cień', firstName: '', lastName: '',
+    categoryId: 'thing', sectionId: 'krakow', weaponIds: [],
+    ownerPersonId: null, email: null, deletedAt: '2027-01-01T00:00:00.000Z',
+    createdAt: 'x', createdBy: 'x',
+  });
+  firestore.seed('signups', 'event-2_person-uuid-4', {
+    eventId: 'event-2', memberEmail: 'person-uuid-4', attending: true, equipmentIds: [], skladkaPaid: false,
+  });
+
+  const deps = makeDeps({ firestore, listMemberEmails: async () => [] });
+  await withServer(deps, async baseUrl => {
+    const historical = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster?eventId=event-1`)).json();
+    assert.deepEqual(historical.roster, [], 'a tombstoned person belongs only to the trips they attended');
+  });
+});
+
 // KRKG-0074: the event page's roster badge needs the current year's składka roczna status per
 // member - stored record wins, an Emeryt without one defaults to not_applicable, everyone else
 // without one defaults to unpaid (same effectiveDuesStatus contract as GET /member-profile).

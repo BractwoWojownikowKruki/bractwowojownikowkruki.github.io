@@ -2621,10 +2621,16 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
 // fullName/nickname/sectionId/categoryId are null for such a member; the event page's "Wszyscy"
 // filter is what surfaces them (see wyjazd.js's renderRoster), hidden by default behind "tylko
 // zgłoszeni" so a long allowlist doesn't bury the people who already signed up.
-async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   await deps.authenticateWojownicyUpload(req, res);
+  // KRKG-0087: the event-scoped read is the historical one. For one specific trip the roster must
+  // still resolve people who have since been removed (tombstoned), as long as they were signed up
+  // for that trip - otherwise a past trip's counts and summary would change when someone leaves the
+  // club, and the audit entries about them would lose their subject. The current read (no eventId)
+  // leaves every tombstoned person out.
+  const eventId = url.searchParams.get('eventId');
   const duesYear = new Date().getFullYear();
-  const [emails, members, profiles, dues, persons] = await Promise.all([
+  const [emails, members, profiles, dues, persons, eventSignups] = await Promise.all([
     deps.listMemberEmails(),
     listAllMembers(deps.firestore),
     listAllProfiles(deps.firestore),
@@ -2634,10 +2640,13 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
     // Emeryt with no stored record reads as not_applicable, anything else unpaid).
     listDuesForYear(deps.firestore, duesYear),
     // KRKG-0087: people without an account are a second source of roster rows, keyed by their own
-    // personId. Tombstoned people (deleted or merged into an account) are excluded by listPersons'
-    // default, so a person who left the club - or became a normal member - leaves this current list.
-    listPersons(deps.firestore),
+    // personId. On the current read tombstoned people are excluded by listPersons' default; on the
+    // historical read they are fetched too and filtered below to those signed up for this trip.
+    listPersons(deps.firestore, { includeDeleted: Boolean(eventId) }),
+    eventId ? listSignupsForEvent(deps.firestore, eventId) : Promise.resolve([]),
   ]);
+  const signupPersonIds = new Set(eventSignups.map((s) => s.memberEmail.toLowerCase()));
+
   const memberByEmail = new Map(members.map((m) => [m.email, m]));
   const profileByEmail = new Map(profiles.map((p) => [p.email, p]));
   const duesByEmail = new Map(dues.map((d) => [d.email, d]));
@@ -2676,7 +2685,11 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
   });
   // KRKG-0087: people without an account, as rows of their own. Their profile and dues live under
   // their own personId, exactly like a member's live under their e-mail, so the same lookups work.
-  const personRoster = persons.map(({ data: person }) => {
+  // On the historical read a tombstoned person is kept only when they were signed up for this trip;
+  // on the current read every tombstoned person was already filtered out by listPersons.
+  const personRoster = persons
+    .filter(({ data: person }) => !person.deletedAt || signupPersonIds.has(person.personId.toLowerCase()))
+    .map(({ data: person }) => {
     const profile = profileByEmail.get(person.personId);
     return {
       personId: person.personId,
@@ -3919,7 +3932,7 @@ export function createRequestListener(deps: ServerDeps) {
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/signups') {
         await handleListaWyjazdowaPutSignup(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/roster') {
-        await handleListaWyjazdowaGetRoster(req, res, deps);
+        await handleListaWyjazdowaGetRoster(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/members/directory') {
         await handleMembersDirectory(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/my-role') {
