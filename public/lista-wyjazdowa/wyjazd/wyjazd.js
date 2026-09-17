@@ -289,7 +289,6 @@ function renderSummary(roster, signups) {
   const byWeaponGroup = new Map(); // weaponGroupKey -> { label, count }
   const byCategory = new Map();
   const equipmentBearers = [];
-  const companionBearers = [];
   for (const s of attending) {
     const member = rosterByEmail.get(s.memberEmail);
     if (!member) continue;
@@ -302,10 +301,6 @@ function renderSummary(roster, signups) {
     for (const eqId of s.equipmentIds) {
       const item = member.equipment.find((e) => e.id === eqId);
       if (item) equipmentBearers.push(`${escapeHtml(item.name)} — ${escapeHtml(displayName(member))}`);
-    }
-    for (const compId of s.companionIds) {
-      const companion = member.companions.find((c) => c.id === compId);
-      if (companion) companionBearers.push(`${escapeHtml(companion.name)} (z: ${escapeHtml(displayName(member))})`);
     }
   }
 
@@ -355,8 +350,6 @@ function renderSummary(roster, signups) {
   document.getElementById('equipment-companions-content').innerHTML = `
     <h3>Sprzęt</h3>
     <ul>${equipmentBearers.map((l) => `<li>${l}</li>`).join('') || '<li>brak</li>'}</ul>
-    <h3>Osoby towarzyszące</h3>
-    <ul>${companionBearers.map((l) => `<li>${l}</li>`).join('') || '<li>brak</li>'}</ul>
   `;
 }
 
@@ -566,7 +559,6 @@ async function toggleAttending(email, nextAttending, control) {
         body: JSON.stringify({
           attending: nextAttending,
           equipmentIds: stillValidIds(existing?.equipmentIds, member?.equipment),
-          companionIds: stillValidIds(existing?.companionIds, member?.companions),
         }),
       },
       showReauth,

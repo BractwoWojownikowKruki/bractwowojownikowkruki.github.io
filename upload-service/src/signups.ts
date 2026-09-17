@@ -5,13 +5,16 @@ type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
 /**
  * A member's status and selections for one event, including separate timestamps for general
  * document edits and actual attending-status changes so the roster can show the latter reliably.
+ *
+ * The legacy `companionIds` field lived here until KRKG-0087 - companions are now real person
+ * records with their own signups (`persons.ts`), so an event signup no longer references anybody
+ * else's companion list.
  */
 export interface SignupDoc {
   eventId: string;
   memberEmail: string;
   attending: boolean;
   equipmentIds: string[];
-  companionIds: string[];
   skladkaPaid: boolean;
   lastChangedBy: string;
   lastChangedAt: string;
@@ -22,7 +25,6 @@ export interface SignupDoc {
 export interface SignupWritableFields {
   attending: boolean;
   equipmentIds: string[];
-  companionIds: string[];
 }
 
 export interface AuditLogEntry {
@@ -68,7 +70,6 @@ export async function saveSignup(
     memberEmail: email.toLowerCase(),
     attending: fields.attending,
     equipmentIds: fields.equipmentIds,
-    companionIds: fields.companionIds,
     lastChangedBy: changedBy,
     lastChangedAt: now,
     ...(statusChanged ? { statusChangedAt: now } : {}),

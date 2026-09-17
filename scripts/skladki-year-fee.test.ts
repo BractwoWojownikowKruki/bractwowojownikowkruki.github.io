@@ -55,7 +55,7 @@ function createHarness(yearFee: Record<string, unknown> | null) {
   let mutationError: Error | null = null;
   let signIn: (() => Promise<void>) | undefined;
   const roster = [
-    { email: 'member@example.com', fullName: 'Member', sectionId: null, categoryId: null, weaponIds: [], equipment: [], companions: [], duesStatus: 'paid', wpisowePaid: true },
+    { email: 'member@example.com', fullName: 'Member', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
   ];
   const context: Record<string, unknown> = {
     URLSearchParams,

@@ -302,19 +302,7 @@ function addEquipmentRow(container, item = { id: '', name: '', description: '' }
   container.appendChild(row);
 }
 
-function addCompanionRow(container, companion = { id: '', name: '' }) {
-  const row = document.createElement('div');
-  row.className = 'companion-row';
-  row.innerHTML = `
-    <input type="hidden" class="companion-id" value="${escapeAttr(companion.id)}" />
-    <input type="text" class="companion-name" placeholder="Imię" value="${escapeAttr(companion.name)}" />
-    <button type="button" class="remove-row">Usuń</button>
-  `;
-  row.querySelector('.remove-row').addEventListener('click', () => row.remove());
-  container.appendChild(row);
-}
-
-// Rows left completely blank (added with "Dodaj sprzęt"/"Dodaj osobę" and then abandoned) are
+// Rows left completely blank (added with "Dodaj sprzęt" and then abandoned) are
 // dropped rather than submitted: the server rejects a nameless entry with a 400, and failing the
 // whole save over an empty leftover row would be a poor trade for a form this long.
 function readEquipmentRows(container) {
@@ -325,15 +313,6 @@ function readEquipmentRows(container) {
       description: row.querySelector('.equipment-description').value,
     }))
     .filter((item) => item.name.trim());
-}
-
-function readCompanionRows(container) {
-  return Array.from(container.querySelectorAll('.companion-row'))
-    .map((row) => ({
-      id: row.querySelector('.companion-id').value,
-      name: row.querySelector('.companion-name').value,
-    }))
-    .filter((companion) => companion.name.trim());
 }
 
 // ── Photo selection + crop modal (ported from wojownicy/wrzuc/wrzuc.js) ─────────────────────
@@ -494,9 +473,7 @@ function fillRows(container, items, addRow) {
 async function initForm(lookupLists) {
   const form = document.getElementById('profile-form');
   const equipmentContainer = document.getElementById('equipment-rows');
-  const companionContainer = document.getElementById('companion-rows');
   document.getElementById('add-equipment-row').addEventListener('click', () => addEquipmentRow(equipmentContainer));
-  document.getElementById('add-companion-row').addEventListener('click', () => addCompanionRow(companionContainer));
 
   // Submit handling is wired unconditionally, before the member/profile prefetch below - so a
   // transient failure fetching existing data (network blip, cold Cloud Run instance) leaves a
@@ -515,10 +492,9 @@ async function initForm(lookupLists) {
 
     const applySavedProfile = ({ savedMember, savedProfile }) => {
       // Re-seed the rows from the server's response so the ids it just generated for brand-new
-      // equipment/companions are carried by the form: without this, editing and re-saving would
+      // equipment items are carried by the form: without this, editing and re-saving would
       // send blank ids again and mint a duplicate id for the same item on every save.
       fillRows(equipmentContainer, savedProfile.equipment, addEquipmentRow);
-      fillRows(companionContainer, savedProfile.companions, addCompanionRow);
       // Reflect the server's fullName back into the field it may have just backfilled, so a
       // member who only typed Ksywa sees where their name came from, not a blank field.
       form.fullName.value = savedMember.fullName;
@@ -573,7 +549,6 @@ async function initForm(lookupLists) {
           body: JSON.stringify({
             weaponIds,
             equipment: readEquipmentRows(equipmentContainer),
-            companions: readCompanionRows(companionContainer),
           }),
         },
         showReauth,
@@ -676,7 +651,6 @@ async function initForm(lookupLists) {
       cb.checked = profile.weaponIds.includes(cb.value);
     }
     fillRows(equipmentContainer, profile.equipment, addEquipmentRow);
-    fillRows(companionContainer, profile.companions, addCompanionRow);
   }
   if (!loadError) {
     renderDuesStatus(profile?.wpisowePaid ?? false, dues?.paid ?? false);

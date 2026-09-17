@@ -129,7 +129,6 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
         body: JSON.stringify({
           attending: nextAttending,
           equipmentIds: stillValidIds(mine?.equipmentIds, profile?.equipment),
-          companionIds: stillValidIds(mine?.companionIds, profile?.companions),
         }),
       },
       showReauth,

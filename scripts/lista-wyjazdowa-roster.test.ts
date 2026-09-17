@@ -55,11 +55,11 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   let mutationError: Error | null = null;
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
   const roster = [
-    { email: 'signed@example.com', fullName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], equipment: [], companions: [], duesStatus: 'paid', wpisowePaid: true },
-    { email: 'viewer@example.com', fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], equipment: [], companions: [], duesStatus: 'paid', wpisowePaid: true },
-    { email: 'other@example.com', fullName: 'Other', sectionId: null, categoryId: null, weaponIds: [], equipment: [], companions: [], duesStatus: 'paid', wpisowePaid: true },
+    { email: 'signed@example.com', fullName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
+    { email: 'viewer@example.com', fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
+    { email: 'other@example.com', fullName: 'Other', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
   ];
-  const signups = [{ memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [], companionIds: [] }];
+  const signups = [{ memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [] }];
   const context: Record<string, unknown> = {
     URLSearchParams,
     Map,

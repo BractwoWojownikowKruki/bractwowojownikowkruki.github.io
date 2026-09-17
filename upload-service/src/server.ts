@@ -2379,22 +2379,6 @@ async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerR
           ) ?? '',
       };
     }),
-    companions: requireArray(body.companions, 'Lista osób towarzyszących ma nieprawidłowy format.').map((raw) => {
-      const companion = requireObject(raw, 'Lista osób towarzyszących ma nieprawidłowy format.');
-      return {
-        id:
-          optionalTrimmedString(
-            companion.id,
-            LW_MAX_NAME_LENGTH,
-            'Lista osób towarzyszących ma nieprawidłowy format.',
-          ) ?? '',
-        name: requireTrimmedString(
-          companion.name,
-          LW_MAX_NAME_LENGTH,
-          `Imię osoby towarzyszącej jest wymagane (maks. ${LW_MAX_NAME_LENGTH} znaków).`,
-        ),
-      };
-    }),
   };
   const lookupLists = await getAllLookupLists(deps.firestore);
   for (const weaponId of fields.weaponIds) {
@@ -2412,7 +2396,6 @@ async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerR
         changes: [
           { field: 'weaponCount', ...(existing ? { before: existing.weaponIds.length } : {}), after: fields.weaponIds.length },
           { field: 'equipmentCount', ...(existing ? { before: existing.equipment.length } : {}), after: fields.equipment.length },
-          { field: 'companionCount', ...(existing ? { before: existing.companions.length } : {}), after: fields.companions.length },
         ],
       };
     },
@@ -2600,20 +2583,12 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
   const equipmentIds = requireArray(body.equipmentIds, 'Lista sprzętu ma nieprawidłowy format.').map((id) =>
     requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista sprzętu ma nieprawidłowy format.'),
   );
-  const companionIds = requireArray(body.companionIds, 'Lista osób towarzyszących ma nieprawidłowy format.').map((id) =>
-    requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista osób towarzyszących ma nieprawidłowy format.'),
-  );
-
   const validEquipmentIds = new Set(targetProfile?.equipment.map((e) => e.id) ?? []);
   for (const id of equipmentIds) {
     if (!validEquipmentIds.has(id)) throw new AuthError('Wybrany sprzęt nie należy do tego członka.', 400);
   }
-  const validCompanionIds = new Set(targetProfile?.companions.map((c) => c.id) ?? []);
-  for (const id of companionIds) {
-    if (!validCompanionIds.has(id)) throw new AuthError('Wybrana osoba towarzysząca nie należy do tego członka.', 400);
-  }
 
-  const fields: SignupWritableFields = { attending: body.attending, equipmentIds, companionIds };
+  const fields: SignupWritableFields = { attending: body.attending, equipmentIds };
   const normalizedMemberEmail = memberEmail.toLowerCase();
   const existingSignup = await getSignup(deps.firestore, eventId, normalizedMemberEmail);
   const action = existingSignup ? 'signup.updated' : 'signup.created';
@@ -2629,7 +2604,6 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
         changes: [
           { field: 'attending', ...(existing ? { before: existing.attending } : {}), after: fields.attending },
           { field: 'equipmentCount', ...(existing ? { before: existing.equipmentIds.length } : {}), after: equipmentIds.length },
-          { field: 'companionCount', ...(existing ? { before: existing.companionIds.length } : {}), after: companionIds.length },
         ],
       };
     },
@@ -2673,10 +2647,9 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       categoryId: member?.categoryId ?? null,
       weaponIds: profile?.weaponIds ?? [],
       equipment: profile?.equipment ?? [],
-      companions: profile?.companions ?? [],
       // wpisowePaid is independent of whether the member has ever filled in "Mój profil" -
       // setWpisowePaid (lista-wyjazdowa-profile.ts) creates a profile document with empty
-      // weaponIds/equipment/companions on first use if none exists yet, so there is no "no
+      // weaponIds/equipment on first use if none exists yet, so there is no "no
       // profile to record this on" case left to distinguish here.
       wpisowePaid: profile?.wpisowePaid ?? false,
       // Current-year składka roczna status (KRKG-0074, see the listDuesForYear fetch above) -

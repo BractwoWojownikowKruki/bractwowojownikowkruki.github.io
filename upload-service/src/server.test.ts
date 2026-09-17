@@ -6255,12 +6255,10 @@ test('PUT /lista-wyjazdowa/profile ignores wpisowePaid sent in the body', async 
 });
 
 for (const [label, body] of [
-  ['a non-array equipment', { weaponIds: [], equipment: 'x', companions: [] }],
-  ['a non-array companions', { weaponIds: [], equipment: [], companions: { name: 'Jaś' } }],
-  ['a non-array weaponIds', { weaponIds: 'tarczownik', equipment: [], companions: [] }],
-  ['a non-object equipment entry', { weaponIds: [], equipment: [null], companions: [] }],
-  ['a nameless equipment entry', { weaponIds: [], equipment: [{ id: '', name: '  ', description: '' }], companions: [] }],
-  ['a nameless companion entry', { weaponIds: [], equipment: [], companions: [{ id: '', name: '' }] }],
+  ['a non-array equipment', { weaponIds: [], equipment: 'x' }],
+  ['a non-array weaponIds', { weaponIds: 'tarczownik', equipment: [] }],
+  ['a non-object equipment entry', { weaponIds: [], equipment: [null] }],
+  ['a nameless equipment entry', { weaponIds: [], equipment: [{ id: '', name: '  ', description: '' }] }],
 ] as const) {
   test(`PUT /lista-wyjazdowa/profile rejects ${label} with 400 rather than crashing`, async () => {
     const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
@@ -6395,14 +6393,13 @@ test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and r
   });
 });
 
-// The open-edit test above only exercises an empty equipmentIds/companionIds against a
-// profile-less target, so it can't catch a handler bug that looks up the *caller's* profile
-// instead of the *target's* (e.g. an accidental memberEmail -> identity.email swap in the
-// getProfile call) - that bug would still pass every existing test since neither identity has a
-// profile there. This test gives both a real, distinct target profile and a real, distinct
-// caller profile with different equipment/companion ids, so the referential check is actually
-// exercised against genuine data on both sides.
-test("PUT /lista-wyjazdowa/signups validates equipment/companion ids against the target member's own profile, not the caller's", async () => {
+// The open-edit test above only exercises an empty equipmentIds against a profile-less target, so
+// it can't catch a handler bug that looks up the *caller's* profile instead of the *target's*
+// (e.g. an accidental memberEmail -> identity.email swap in the getProfile call) - that bug would
+// still pass every existing test since neither identity has a profile there. This test gives both
+// a real, distinct target profile and a real, distinct caller profile with different equipment
+// ids, so the referential check is actually exercised against genuine data on both sides.
+test("PUT /lista-wyjazdowa/signups validates equipment ids against the target member's own profile, not the caller's", async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const targetEmail = 'inny@example.test';
   seedMember(firestore, targetEmail);
@@ -6413,18 +6410,15 @@ test("PUT /lista-wyjazdowa/signups validates equipment/companion ids against the
   // test identity. Shares the same firestore instance across withServer calls so the write
   // persists into the next session.
   let targetEquipmentId = '';
-  let targetCompanionId = '';
   await withServer(
     makeDeps({ firestore, authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'target-1', email: targetEmail }) }),
     async baseUrl => {
       const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
         weaponIds: [],
         equipment: [{ id: '', name: 'Namiot', description: '' }],
-        companions: [{ id: '', name: 'Jan (syn)' }],
       });
       const body = await res.json();
       targetEquipmentId = body.profile.equipment[0].id;
-      targetCompanionId = body.profile.companions[0].id;
     },
   );
 
@@ -6437,7 +6431,6 @@ test("PUT /lista-wyjazdowa/signups validates equipment/companion ids against the
     const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
       weaponIds: [],
       equipment: [{ id: '', name: 'Plecak', description: '' }],
-      companions: [],
     });
     callerEquipmentId = (await res.json()).profile.equipment[0].id;
   });
@@ -6446,20 +6439,20 @@ test("PUT /lista-wyjazdowa/signups validates equipment/companion ids against the
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
 
-    // Positive case: the target's own real equipment/companion ids are accepted.
+    // Positive case: the target's own real equipment id is accepted.
     const ok = await putListaWyjazdowa(
       baseUrl,
       `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=${targetEmail}`,
-      { attending: true, equipmentIds: [targetEquipmentId], companionIds: [targetCompanionId] },
+      { attending: true, equipmentIds: [targetEquipmentId] },
     );
-    assert.equal(ok.status, 200, "the target member's own equipment/companion ids must be accepted");
+    assert.equal(ok.status, 200, "the target member's own equipment id must be accepted");
 
     // Negative case: the caller's own equipment id (not the target's) is rejected against that
     // same target - the case that would catch a memberEmail-for-identity.email swap regression.
     const rejected = await putListaWyjazdowa(
       baseUrl,
       `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=${targetEmail}`,
-      { attending: true, equipmentIds: [callerEquipmentId], companionIds: [] },
+      { attending: true, equipmentIds: [callerEquipmentId] },
     );
     assert.equal(rejected.status, 400, "the caller's own equipment id must not validate against a different target member");
   });
@@ -7114,7 +7107,6 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
     assert.deepEqual(byAction.get('signup.created')?.changes, [
       { field: 'attending', after: true, visibility: 'memberVisible' },
       { field: 'equipmentCount', after: 0, visibility: 'memberVisible' },
-      { field: 'companionCount', after: 0, visibility: 'memberVisible' },
     ]);
     assert.equal(byAction.get('dues.event_fee.changed')?.audience, 'adminOrAccountant');
     assert.equal(byAction.get('dues.entry_fee.changed')?.changes[0]?.field, 'paid');
