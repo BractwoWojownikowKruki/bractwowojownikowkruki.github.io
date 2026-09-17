@@ -642,13 +642,15 @@ async function loadAll() {
   document.getElementById('event-meta').textContent = `${formatDate(event.startDate)}${event.status === 'cancelled' ? ' — odwołany' : ''}`;
   document.getElementById('cancel-event-btn').hidden = event.status === 'cancelled';
   document.getElementById('restore-event-btn').hidden = event.status !== 'cancelled';
-  // Historia deep links (KRKG-0050 batch 5/6) - resourceKey formats from implementation-contract.md's
-  // "Action registry" intro: event:{eventId} for the Wyjazd itself (event.* is members-audience,
-  // so the member-zone /audyt/ can show it), eventFee:{eventId} for its free-text skladkaFee (a
-  // separate resource/action - dues.event_fee.changed, adminOrAccountant-audience only - so this
-  // one must go to /admin/audyt/ instead, and stays hidden for anyone without canManageSkladki,
-  // same as the edit controls). Never an inline expansion/modal, always this same shared page.
-  document.getElementById('event-history-link').href = `/audyt/?resourceKey=${encodeURIComponent(`event:${eventId}`)}`;
+  // Historia deep links (KRKG-0050 batch 5/6, event-wide in KRKG-0086). The top clock opens the
+  // whole trip history via the `eventId` selector - event metadata, the event fee, every member's
+  // signup and per-member skladka payment all carry that eventId. Privileged viewers (admin/
+  // accountant, i.e. canManageSkladki) go to /admin/audyt/ so the role-restricted dues rows are
+  // visible too; a plain member stays on the member-zone /audyt/, which shows events + signups
+  // without amounts. The fee clock stays a narrower view of just the eventFee resource. Never an
+  // inline expansion/modal, always this same shared page.
+  const auditBase = canManageSkladki ? '/admin/audyt/' : '/audyt/';
+  document.getElementById('event-history-link').href = `${auditBase}?eventId=${encodeURIComponent(eventId)}`;
   const skladkaFeeHistoryLink = document.getElementById('skladka-fee-history-link');
   skladkaFeeHistoryLink.href = `/admin/audyt/?resourceKey=${encodeURIComponent(`eventFee:${eventId}`)}`;
   skladkaFeeHistoryLink.hidden = !canManageSkladki;

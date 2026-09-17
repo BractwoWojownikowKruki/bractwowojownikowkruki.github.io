@@ -25,8 +25,9 @@ initGoogleSignIn({
     showOnly(null);
     const params = new URLSearchParams(window.location.search);
     const resourceKey = params.get('resourceKey') || undefined;
+    const eventId = params.get('eventId') || undefined;
     const category = params.get('category') || undefined;
-    const initialFilters = resourceKey ? { resourceKey } : category ? { category } : undefined;
+    const initialFilters = resourceKey ? { resourceKey } : eventId ? { eventId } : category ? { category } : undefined;
     AuditView.mount(document.getElementById('audyt-container'), {
       apiBase: '/audyt',
       scope: 'member',

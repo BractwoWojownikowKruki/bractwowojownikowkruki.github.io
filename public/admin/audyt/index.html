@@ -154,10 +154,11 @@
         document.getElementById('admin-email').textContent = payload.email;
         document.getElementById('admin-panel').hidden = false;
         const resourceKey = new URLSearchParams(window.location.search).get('resourceKey') || undefined;
+        const eventId = new URLSearchParams(window.location.search).get('eventId') || undefined;
         AuditView.mount(document.getElementById('audyt-container'), {
           apiBase: '/admin/audyt',
           scope: 'admin',
-          initialFilters: resourceKey ? { resourceKey } : undefined,
+          initialFilters: resourceKey ? { resourceKey } : eventId ? { eventId } : undefined,
           showReauth,
           hideReauth,
         });
