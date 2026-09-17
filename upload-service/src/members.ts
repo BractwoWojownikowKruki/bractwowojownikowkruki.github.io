@@ -33,6 +33,11 @@ export interface MemberDoc {
   // Lista Wyjazdowa roster) excludes them entirely, rather than showing them greyed out or with a
   // separate visibility flag - a member marked hidden should read as absent everywhere but there.
   hidden: boolean;
+  // KRKG-0087: set only by account linking (persons.ts's linkAccount) when this account was
+  // attached to an already-existing person without an account. From then on the canonical
+  // personId for this account is this UUID, not the e-mail (see persons.ts's resolvePersonId) -
+  // the e-mail stays the login identifier only. null for every account that was never linked.
+  linkedPersonId?: string | null;
 }
 
 export interface MemberWritableFields {
