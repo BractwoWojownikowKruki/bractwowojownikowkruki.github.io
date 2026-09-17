@@ -6593,6 +6593,44 @@ test('GET /lista-wyjazdowa/roster?eventId= keeps a tombstoned person who signed 
   });
 });
 
+test('GET /lista-wyjazdowa/roster?eventId= returns the live roster plus the eligible tombstone with its dues', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const duesYear = new Date().getFullYear();
+  firestore.seed('persons', 'person-live', {
+    personId: 'person-live', ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski',
+    categoryId: 'thing', sectionId: 'krakow', weaponIds: ['tarczownik'],
+    ownerPersonId: null, email: null, deletedAt: null, createdAt: 'x', createdBy: 'x',
+  });
+  firestore.seed('persons', 'person-gone', {
+    personId: 'person-gone', ksywka: 'Cień', firstName: 'Anna', lastName: 'Nowak',
+    categoryId: 'emeryt', sectionId: 'warszawa', weaponIds: [],
+    ownerPersonId: null, email: null, deletedAt: '2027-01-01T00:00:00.000Z', createdAt: 'x', createdBy: 'x',
+  });
+  firestore.seed('signups', 'event-1_person-gone', {
+    eventId: 'event-1', memberEmail: 'person-gone', attending: true, equipmentIds: [], skladkaPaid: false,
+  });
+  firestore.seed('duesAnnual', `person-gone_${duesYear}`, { email: 'person-gone', year: duesYear, status: 'paid' });
+
+  const deps = makeDeps({ firestore, listMemberEmails: async () => [] });
+  await withServer(deps, async baseUrl => {
+    const historical = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster?eventId=event-1`)).json();
+    assert.equal(historical.roster.length, 2, 'the historical roster is the live roster plus the eligible tombstone');
+
+    const live = historical.roster.find((r: { personId: string }) => r.personId === 'person-live');
+    assert.ok(live, 'a live accountless person must stay on the event roster');
+    assert.equal(live.accountless, true);
+    assert.deepEqual(live.weaponIds, ['tarczownik']);
+
+    const gone = historical.roster.find((r: { personId: string }) => r.personId === 'person-gone');
+    assert.ok(gone, 'the tombstoned person signed up for this trip must be kept');
+    assert.equal(gone.fullName, 'Anna Nowak');
+    assert.equal(gone.nickname, 'Cień');
+    assert.equal(gone.sectionId, 'warszawa');
+    assert.equal(gone.categoryId, 'emeryt');
+    assert.equal(gone.duesStatus, 'paid', 'the tombstone keeps its stored due state');
+  });
+});
+
 test('GET /lista-wyjazdowa/roster?eventId= still omits a tombstoned person with no signup on that trip', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   firestore.seed('persons', 'person-uuid-4', {
