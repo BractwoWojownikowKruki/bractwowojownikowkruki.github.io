@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createInMemoryFirestoreClient } from './firestore.ts';
-import { migratedEventId, migrateAuditLogs, preflightAuditMigration } from './audit-migration.ts';
+import { migratedEventId, migrateAuditLogs, preflightAuditMigration, backfillAuditEventIds } from './audit-migration.ts';
 import type { CanonicalAuditEvent } from './audit.ts';
 
 test('migratedEventId is deterministic from (collection, documentId) alone', () => {
@@ -324,4 +324,37 @@ test('I2: an unrecognized signupAuditLog changeSummary (neither paid/unpaid nor 
   const report = await preflightAuditMigration(firestore);
   assert.equal(report.canProceed, false);
   assert.equal(report.rows[0].parseStatus, 'unparseable');
+});
+
+test('backfillAuditEventIds sets derived eventId only on rows missing it and is idempotent', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  firestore.seed('auditEvents', 'evt-1', { id: 'evt-1', resource: { kind: 'event', key: 'event:trip-a', display: 'Trip A' } });
+  firestore.seed('auditEvents', 'fee-1', { id: 'fee-1', resource: { kind: 'eventFee', key: 'eventFee:trip-a', display: 'Trip A' } });
+  firestore.seed('auditEvents', 'signup-1', { id: 'signup-1', resource: { kind: 'signup', key: 'signup:trip-a:ula@example.test', display: 'ula@example.test' } });
+  firestore.seed('auditEvents', 'due-1', { id: 'due-1', resource: { kind: 'due', key: 'due:ula@example.test:2026', display: 'Ula 2026' } });
+  firestore.seed('auditEvents', 'set-1', { id: 'set-1', eventId: 'trip-b', resource: { kind: 'event', key: 'event:trip-b', display: 'Trip B' } });
+
+  const dry = await backfillAuditEventIds(firestore, { dryRun: true });
+  assert.equal(dry.totalDocuments, 5);
+  assert.equal(dry.updatedCount, 0);
+  assert.equal(dry.pendingCount, 3);
+  assert.equal(dry.alreadySetCount, 1);
+  assert.equal(dry.noEventIdCount, 1);
+  assert.equal(dry.rows.filter(r => r.action === 'would_update').length, 3);
+  assert.equal((await firestore.getDoc<{ eventId?: string }>('auditEvents', 'evt-1'))?.eventId, undefined);
+
+  const run = await backfillAuditEventIds(firestore, { dryRun: false });
+  assert.equal(run.updatedCount, 3);
+  assert.equal(run.pendingCount, 3);
+  assert.equal(run.alreadySetCount, 1);
+  assert.equal(run.noEventIdCount, 1);
+  assert.equal((await firestore.getDoc<{ eventId?: string }>('auditEvents', 'evt-1'))?.eventId, 'trip-a');
+  assert.equal((await firestore.getDoc<{ eventId?: string }>('auditEvents', 'fee-1'))?.eventId, 'trip-a');
+  assert.equal((await firestore.getDoc<{ eventId?: string }>('auditEvents', 'signup-1'))?.eventId, 'trip-a');
+  assert.equal((await firestore.getDoc<{ eventId?: string }>('auditEvents', 'due-1'))?.eventId, undefined);
+  assert.equal((await firestore.getDoc<{ eventId?: string }>('auditEvents', 'set-1'))?.eventId, 'trip-b');
+
+  const again = await backfillAuditEventIds(firestore, { dryRun: false });
+  assert.equal(again.updatedCount, 0);
+  assert.equal(again.alreadySetCount, 4);
 });
