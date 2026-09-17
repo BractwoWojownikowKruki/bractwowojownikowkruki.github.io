@@ -145,12 +145,13 @@ function clearError() {
   document.getElementById('lw-error').hidden = true;
 }
 
-function confirmedEventMutation(control, execute, apply, anchor = control) {
+function confirmedEventMutation(control, execute, apply, anchor = control, rollback) {
   return window.MutationFeedback.confirmed({
     control,
     anchor,
     execute,
     apply,
+    rollback,
     viewRoot: document.getElementById('main-content'),
     refreshFragment: loadAll,
   });
@@ -212,7 +213,7 @@ function updateSkladkaFeeFormState() {
 
 document.getElementById('skladka-fee-input').addEventListener('input', updateSkladkaFeeFormState);
 
-async function saveSkladkaFee(control = document.getElementById('skladka-fee-save')) {
+async function saveSkladkaFee(control = document.getElementById('skladka-fee-save'), rollback) {
   clearError();
   try {
     const value = normalizeSkladkaFee(document.getElementById('skladka-fee-input').value);
@@ -232,7 +233,7 @@ async function saveSkladkaFee(control = document.getElementById('skladka-fee-sav
       cachedEvent = result.event;
       renderSkladkaFee(cachedEvent);
       renderRoster(cachedRoster, cachedSignups);
-    });
+    }, control, rollback);
   } catch (err) {
     showError(`Nie udało się zapisać składki: ${err.message}`);
   }
@@ -242,12 +243,14 @@ document.getElementById('skladka-fee-save').addEventListener('click', () => save
 
 // Removes the whole fee (amount and due date) by clearing both fields and reusing the differential
 // save above, so the event ends up with no fee in one confirmed mutation - the same path that
-// already hides the payment icons when the fee is empty.
+// already hides the payment icons when the fee is empty. Clearing happens before the request, so a
+// failed save restores the form from the last confirmed event (rollback) rather than leaving the
+// fields blank while the summary still shows the old fee.
 async function removeSkladkaFee() {
   document.getElementById('skladka-fee-input').value = '';
   document.getElementById('skladka-fee-duedate-input').value = '';
   updateSkladkaFeeFormState();
-  await saveSkladkaFee(document.getElementById('skladka-fee-remove'));
+  await saveSkladkaFee(document.getElementById('skladka-fee-remove'), () => renderSkladkaFee(cachedEvent));
 }
 
 document.getElementById('skladka-fee-remove').addEventListener('click', removeSkladkaFee);

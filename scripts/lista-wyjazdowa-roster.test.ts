@@ -72,9 +72,14 @@ function createHarness(event: Record<string, unknown>) {
       location: { search: '?eventId=e1' },
       confirm: () => true,
       MutationFeedback: {
-        confirmed: async ({ execute, apply }: { execute: () => Promise<unknown>; apply: (result: unknown) => void }) => {
-          if (mutationError) throw mutationError;
-          const result = await execute();
+        confirmed: async ({ execute, apply, rollback }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown }) => {
+          let result: unknown;
+          try {
+            result = await execute();
+          } catch (error) {
+            if (rollback) await rollback(error);
+            throw error;
+          }
           apply(result);
         },
       },
@@ -90,7 +95,10 @@ function createHarness(event: Record<string, unknown>) {
     initGoogleSignIn: (config: { onSignedIn: (identity: { email: string }) => Promise<void> }) => { signIn = config.onSignedIn; },
     apiFetch: async (url: string, options: Record<string, unknown>) => {
       apiCalls.push({ url, options });
-      if (options.method === 'PUT') return mutationResult;
+      if (options.method === 'PUT') {
+        if (mutationError) throw mutationError;
+        return mutationResult;
+      }
       if (url === '/lista-wyjazdowa/events') return { events: [event] };
       if (url === '/lista-wyjazdowa/roster') return { roster };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups };
@@ -246,4 +254,15 @@ test('an empty fee disables and clears the due-date field and never sends a date
   const putsBefore = harness.apiCalls.filter((call) => call.options.method === 'PUT').length;
   await harness.elements.get('skladka-fee-save')!.click();
   assert.equal(harness.apiCalls.filter((call) => call.options.method === 'PUT').length, putsBefore);
+});
+
+test('a failed fee removal restores the form from the last loaded event', async () => {
+  const harness = createHarness(event('50 zł', '2026-10-20'));
+  await harness.signIn();
+  harness.setMutationError(new Error('network'));
+  await harness.elements.get('skladka-fee-remove')!.click();
+  assert.equal(harness.elements.get('skladka-fee-input')!.value, '50 zł');
+  assert.equal(harness.elements.get('skladka-fee-duedate-input')!.value, '2026-10-20');
+  assert.equal(harness.elements.get('skladka-fee-duedate-input')!.disabled, false);
+  assert.equal(harness.elements.get('skladka-fee-remove')!.disabled, false);
 });

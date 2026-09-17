@@ -181,12 +181,13 @@ function clearError() {
 // still-connected anchor instead - MutationFeedback requires its feedback anchor to stay
 // isConnected after apply(), same reasoning as zarzadzanie-ludzmi.js's postMembershipTransition
 // anchoring to the table when apply() removes a row.
-function confirmedDuesMutation(control, execute, apply, anchor = control) {
+function confirmedDuesMutation(control, execute, apply, anchor = control, rollback) {
   return window.MutationFeedback.confirmed({
     control,
     anchor,
     execute,
     apply,
+    rollback,
     viewRoot: document.getElementById('skladki-content'),
     refreshFragment: loadAndRender,
   });
@@ -598,6 +599,9 @@ function renderWpisoweList(roster) {
 // `before === after` included (review finding: every note-only edit was also logging a no-op
 // dueDate change).
 let lastLoadedYearFeeDueDate = null;
+// The last rendered year fee, normalized - the rollback target when a removal fails after the
+// form has already been cleared (see removeYearFee).
+let lastLoadedYearFee = { note: null, dueDate: null };
 
 // The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety") - same
 // display/edit-panel pattern as wyjazd.js's renderSkladkaFee/saveSkladkaFee for its per-event fee.
@@ -616,6 +620,7 @@ function renderYearFee(yearFee) {
   // A due date only ever exists alongside a note (see updateYearFeeFormState), so it is never
   // shown on its own even for legacy data that still carries an orphaned date.
   if (note && dueDate) display.textContent += ` (termin: ${formatDueDate(dueDate)})`;
+  lastLoadedYearFee = { note, dueDate };
   editPanel.hidden = !canManageSkladki;
   if (canManageSkladki) {
     document.getElementById('skladki-year-fee-input').value = note ?? '';
@@ -640,7 +645,7 @@ function updateYearFeeFormState() {
 
 document.getElementById('skladki-year-fee-input').addEventListener('input', updateYearFeeFormState);
 
-async function saveYearFee(control = document.getElementById('skladki-year-fee-save')) {
+async function saveYearFee(control = document.getElementById('skladki-year-fee-save'), rollback) {
   clearError();
   try {
     const value = document.getElementById('skladki-year-fee-input').value.trim();
@@ -656,11 +661,12 @@ async function saveYearFee(control = document.getElementById('skladki-year-fee-s
       hideReauth,
     ), () => {
       lastLoadedYearFeeDueDate = dueDateValue;
+      lastLoadedYearFee = { note: value || null, dueDate: dueDateValue };
       document.getElementById('skladki-year-fee-display').textContent = value
         ? `Składka ${selectedYear}: ${value}${dueDateValue ? ` (termin: ${formatDueDate(dueDateValue)})` : ''}`
         : `Składka ${selectedYear}: nie ustalono`;
       updateYearFeeFormState();
-    });
+    }, control, rollback);
   } catch (err) {
     showError(`Nie udało się zapisać składki: ${err.message}`);
   }
@@ -669,12 +675,13 @@ async function saveYearFee(control = document.getElementById('skladki-year-fee-s
 document.getElementById('skladki-year-fee-save').addEventListener('click', () => saveYearFee());
 
 // Removes the whole per-year rate note (amount and due date) by clearing both fields and reusing
-// the save above, so the year ends up with no rate in one confirmed mutation.
+// the save above, so the year ends up with no rate in one confirmed mutation. Clearing happens
+// before the request, so a failed save restores the form from the last confirmed fee (rollback).
 async function removeYearFee() {
   document.getElementById('skladki-year-fee-input').value = '';
   document.getElementById('skladki-year-fee-duedate-input').value = '';
   updateYearFeeFormState();
-  await saveYearFee(document.getElementById('skladki-year-fee-remove'));
+  await saveYearFee(document.getElementById('skladki-year-fee-remove'), () => renderYearFee(lastLoadedYearFee));
 }
 
 document.getElementById('skladki-year-fee-remove').addEventListener('click', removeYearFee);
