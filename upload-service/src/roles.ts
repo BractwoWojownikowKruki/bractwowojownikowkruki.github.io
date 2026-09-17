@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { FirestoreLikeClient } from './firestore.ts';
 import { AuthError } from './auth.ts';
 import type { Authorizer } from './server.ts';
@@ -17,10 +16,9 @@ interface UserRolesDoc {
   roles: string[];
 }
 
-// KRKG-0049: role grants are the most privilege-sensitive write in the admin panel, so every
-// change is logged - mirrors dues.ts's DuesAuditEntry/appendDuesAuditEntry/listDuesAuditLog
-// (this codebase's existing pattern: a small collection dedicated to one sensitive write path,
-// rather than one generic action log for everything).
+// KRKG-0086: legacy shape, kept only so audit-migration.ts can replay pre-KRKG-0050
+// `rolesAuditLog` documents into canonical auditEvents. Live role changes emit canonical
+// `role.*` events directly, and the legacy collection and its read endpoint were removed.
 export interface RoleAuditEntry {
   targetEmail: string;
   previousRoles: string[];
@@ -28,19 +26,6 @@ export interface RoleAuditEntry {
   changedBy: string;
   changedAt: string;
   changeSummary: string;
-}
-
-const ROLE_AUDIT_COLLECTION = 'rolesAuditLog';
-
-export async function appendRoleAuditEntry(client: FirestoreLikeClient, entry: Omit<RoleAuditEntry, 'changedAt'>): Promise<void> {
-  const id = randomUUID();
-  const full: RoleAuditEntry = { ...entry, changedAt: new Date().toISOString() };
-  await client.setDoc(ROLE_AUDIT_COLLECTION, id, full);
-}
-
-export async function listRoleAuditLog(client: FirestoreLikeClient): Promise<RoleAuditEntry[]> {
-  const all = await client.listDocs<RoleAuditEntry>(ROLE_AUDIT_COLLECTION);
-  return all.map((d) => d.data).sort((a, b) => a.changedAt.localeCompare(b.changedAt));
 }
 
 export async function getGrantedRoles(client: FirestoreLikeClient, email: string): Promise<string[]> {
