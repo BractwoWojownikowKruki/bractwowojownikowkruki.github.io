@@ -259,7 +259,7 @@ async function toggleSkladkaPaid(email, nextPaid, control) {
   clearError();
   try {
     await confirmedEventMutation(control, () => apiFetch(
-      `/lista-wyjazdowa/signups/skladka?eventId=${encodeURIComponent(eventId)}&memberEmail=${encodeURIComponent(email)}`,
+      `/lista-wyjazdowa/signups/skladka?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(email)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: nextPaid }) },
       showReauth,
       hideReauth,
@@ -552,7 +552,7 @@ async function toggleAttending(email, nextAttending, control) {
   const existing = cachedSignups.find((s) => s.memberEmail === email);
   try {
     await confirmedEventMutation(control, () => apiFetch(
-      `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&memberEmail=${encodeURIComponent(email)}`,
+      `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(email)}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

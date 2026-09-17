@@ -2595,32 +2595,49 @@ async function handleListaWyjazdowaGetMySignup(req: IncomingMessage, res: Server
   sendJson(res, 200, { signup });
 }
 
+// KRKG-0087: resolves a write target from either a member e-mail or an accountless person's UUID
+// (the roster's personId). For a member the personId is the lowercased e-mail, so nothing changes;
+// an accountless person must exist and not be tombstoned. No allowlist check here: the open-edit
+// signup route adds one for member targets itself, while the staff-only money routes operate on
+// targets the Składki page already lists.
+async function resolvePersonWriteTarget(
+  deps: ServerDeps,
+  raw: string,
+): Promise<{ personId: string; display: string; accountless: boolean }> {
+  const resolved = await resolvePersonId(deps.firestore, raw);
+  if (resolved.kind === 'person') {
+    if (resolved.person.deletedAt) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+    return { personId: resolved.personId, display: personDisplayName(resolved.person) ?? resolved.personId, accountless: true };
+  }
+  return { personId: resolved.personId, display: resolved.personId, accountless: false };
+}
+
 async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const eventId = url.searchParams.get('eventId');
-  const memberEmail = url.searchParams.get('memberEmail');
+  const personIdParam = url.searchParams.get('personId');
   if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
-  if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
+  if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
 
   const event = await getEvent(deps.firestore, eventId);
   if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
 
-  // memberEmail is open-edit (any member may sign anyone up), but it still has to name a real
-  // club member - checked against the live Google Group allowlist (the same one GET
-  // /lista-wyjazdowa/roster now enumerates), not the members/{email} collection. A member who has
-  // never opened "Mój profil" has no members/{email} document yet but is still a real member and
-  // must be signable up; a typo'd or invented address isn't on the allowlist either way, so this
-  // still rejects it before it can create an orphan signup doc that inflates attendingCount (the
-  // events list's "N os.") while never showing up on the roster or the event page's breakdown.
-  const allowedEmails = await deps.listMemberEmails();
-  if (!allowedEmails.includes(memberEmail.toLowerCase())) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  // This route is open-edit (any member may sign anyone up), but the target still has to name a
+  // real club member or an existing accountless person - checked by resolvePersonWriteTarget before
+  // it can create an orphan signup doc that inflates attendingCount (the events list's "N os.")
+  // while never showing up on the roster or the event page's breakdown. A member target is checked
+  // against the live Google Group allowlist; a person is a real record and is not in that group.
+  const target = await resolvePersonWriteTarget(deps, personIdParam);
+  if (!target.accountless) {
+    const allowedEmails = await deps.listMemberEmails();
+    if (!allowedEmails.includes(target.personId)) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  }
 
-  // The target member need not have a Lista Wyjazdowa profile yet - "I'm coming, no gear/
-  // companions listed yet" is a legitimate signup. A missing profile just means its
-  // equipment/companion sets are empty for the referential check below, so any *non-empty*
-  // equipmentIds/companionIds on a profile-less member are rejected the same way an id that's
-  // simply not theirs would be - not via a separate "no profile" 400.
-  const targetProfile = await getProfile(deps.firestore, memberEmail);
+  // The target need not have a Lista Wyjazdowa profile yet - "I'm coming, no gear listed yet" is a
+  // legitimate signup. A missing profile just means its equipment set is empty for the referential
+  // check below, so any *non-empty* equipmentIds on a profile-less target are rejected the same way
+  // an id that's simply not theirs would be - not via a separate "no profile" 400.
+  const targetProfile = await getProfile(deps.firestore, target.personId);
 
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.attending !== 'boolean') throw new AuthError('Pole attending jest wymagane (true/false).', 400);
@@ -2629,29 +2646,28 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
   );
   const validEquipmentIds = new Set(targetProfile?.equipment.map((e) => e.id) ?? []);
   for (const id of equipmentIds) {
-    if (!validEquipmentIds.has(id)) throw new AuthError('Wybrany sprzęt nie należy do tego członka.', 400);
+    if (!validEquipmentIds.has(id)) throw new AuthError('Wybrany sprzęt nie należy do tej osoby.', 400);
   }
 
   const fields: SignupWritableFields = { attending: body.attending, equipmentIds };
-  const normalizedMemberEmail = memberEmail.toLowerCase();
-  const existingSignup = await getSignup(deps.firestore, eventId, normalizedMemberEmail);
+  const existingSignup = await getSignup(deps.firestore, eventId, target.personId);
   const action = existingSignup ? 'signup.updated' : 'signup.created';
   const { result: signup } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.signup,
     action,
     async tx => {
-      const existing = await tx.getDoc<SignupDoc>('signups', `${eventId}_${normalizedMemberEmail}`);
+      const existing = await tx.getDoc<SignupDoc>('signups', `${eventId}_${target.personId}`);
       return {
         actor: { email: identity.email },
-        resource: { kind: 'signup', key: `signup:${eventId}:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        resource: { kind: 'signup', key: `signup:${eventId}:${target.personId}`, display: target.display },
         changes: [
           { field: 'attending', ...(existing ? { before: existing.attending } : {}), after: fields.attending },
           { field: 'equipmentCount', ...(existing ? { before: existing.equipmentIds.length } : {}), after: equipmentIds.length },
         ],
       };
     },
-    tx => saveSignup(tx, eventId, normalizedMemberEmail, fields, identity.email),
+    tx => saveSignup(tx, eventId, target.personId, fields, identity.email),
   );
   sendJson(res, 200, { signup });
 }
@@ -2819,32 +2835,32 @@ async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: Ser
   const identity = await deps.authenticateWojownicyUpload(req, res);
   await requireSkladkiAccess(req, res, deps, identity.email);
   const eventId = url.searchParams.get('eventId');
-  const memberEmail = url.searchParams.get('memberEmail');
+  const personIdParam = url.searchParams.get('personId');
   if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
-  if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
+  if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
+  const target = await resolvePersonWriteTarget(deps, personIdParam);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
   const paid = body.paid;
-  const normalizedMemberEmail = memberEmail.toLowerCase();
   const { result: signup } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.signupFee,
     'dues.event_fee.changed',
     async tx => {
-      const existing = await tx.getDoc<SignupDoc>('signups', `${eventId}_${normalizedMemberEmail}`);
-      if (!existing) throw new AuthError('Ten członek nie jest zapisany na ten wyjazd.', 404);
+      const existing = await tx.getDoc<SignupDoc>('signups', `${eventId}_${target.personId}`);
+      if (!existing) throw new AuthError('Ta osoba nie jest zapisana na ten wyjazd.', 404);
       return {
         actor: { email: identity.email },
-        resource: { kind: 'signup', key: `signup:${eventId}:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        resource: { kind: 'signup', key: `signup:${eventId}:${target.personId}`, display: target.display },
         changes: [
-          { field: 'memberEmail', after: normalizedMemberEmail },
+          { field: 'memberEmail', after: target.personId },
           { field: 'paid', before: existing.skladkaPaid, after: paid },
         ],
       };
     },
     async tx => {
-      const updated = await setSkladkaPaid(tx, eventId, normalizedMemberEmail, paid, identity.email);
-      if (!updated) throw new AuthError('Ten członek nie jest zapisany na ten wyjazd.', 404);
+      const updated = await setSkladkaPaid(tx, eventId, target.personId, paid, identity.email);
+      if (!updated) throw new AuthError('Ta osoba nie jest zapisana na ten wyjazd.', 404);
       return updated;
     },
   );
@@ -2854,32 +2870,32 @@ async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: Ser
 async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   await requireSkladkiAccess(req, res, deps, identity.email);
-  const memberEmail = url.searchParams.get('memberEmail');
-  if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
+  const personIdParam = url.searchParams.get('personId');
+  if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
+  const target = await resolvePersonWriteTarget(deps, personIdParam);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
   const paid = body.paid;
-  const normalizedMemberEmail = memberEmail.toLowerCase();
-  // Wpisowe is a club due, not a Lista Wyjazdowa feature - whether this member has ever filled in
+  // Wpisowe is a club due, not a Lista Wyjazdowa feature - whether this person has ever filled in
   // "Mój profil" must not gate whether they can be marked as having paid it (setWpisowePaid
-  // upserts a profile with empty weaponIds/equipment/companions if none exists yet).
+  // upserts a profile with empty weaponIds/equipment if none exists yet).
   const { result: profile } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.entryFee,
     'dues.entry_fee.changed',
     async tx => {
-      const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', normalizedMemberEmail);
+      const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', target.personId);
       return {
         actor: { email: identity.email },
-        // Same resource key as składka roczna below (due:{email}, no :entry_fee/:{year} suffix) -
-        // one member's wpisowe and every year's roczna share one Historia timeline, per the
-        // Składki page's single combined history button. The action field (dues.entry_fee.changed
-        // vs dues.annual.changed) already tells the two apart in that timeline.
-        resource: { kind: 'due', key: `due:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        // Same resource key as składka roczna below (due:{personId}, no :entry_fee/:{year} suffix) -
+        // one person's wpisowe and every year's roczna share one Historia timeline, per the Składki
+        // page's single combined history button. The action field (dues.entry_fee.changed vs
+        // dues.annual.changed) already tells the two apart in that timeline.
+        resource: { kind: 'due', key: `due:${target.personId}`, display: target.display },
         changes: [{ field: 'paid', ...(existing ? { before: existing.wpisowePaid } : {}), after: paid }],
       };
     },
-    tx => setWpisowePaid(tx, normalizedMemberEmail, paid, identity.email),
+    tx => setWpisowePaid(tx, target.personId, paid, identity.email),
   );
   sendJson(res, 200, { profile });
 }
@@ -2913,36 +2929,39 @@ async function handleListaWyjazdowaGetMyDues(req: IncomingMessage, res: ServerRe
 async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   await requireSkladkiAccess(req, res, deps, identity.email);
-  const memberEmail = url.searchParams.get('memberEmail');
+  const personIdParam = url.searchParams.get('personId');
   const year = requireYear(url.searchParams.get('year'), 'Nieprawidłowy rok.');
-  if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
-  const member = await getMember(deps.firestore, memberEmail);
-  if (!member) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
+  const target = await resolvePersonWriteTarget(deps, personIdParam);
+  // A member target still needs a members/{email} document, as before; an accountless person is
+  // validated by resolvePersonWriteTarget itself.
+  if (!target.accountless && !(await getMember(deps.firestore, target.personId))) {
+    throw new AuthError('Nie znaleziono takiego członka.', 404);
+  }
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (body.status !== 'unpaid' && body.status !== 'paid' && body.status !== 'not_applicable') {
     throw new AuthError('Pole status musi być jednym z: unpaid, paid, not_applicable.', 400);
   }
   const status = body.status;
-  const normalizedMemberEmail = memberEmail.toLowerCase();
   const { result: dues } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.annualDues,
     'dues.annual.changed',
     async tx => {
-      const existing = await tx.getDoc<{ status?: unknown; paid?: unknown }>('duesAnnual', `${normalizedMemberEmail}_${year}`);
+      const existing = await tx.getDoc<{ status?: unknown; paid?: unknown }>('duesAnnual', `${target.personId}_${year}`);
       return {
         actor: { email: identity.email },
-        // Same resource key as wpisowe above (due:{email}) - the year no longer lives in the key,
+        // Same resource key as wpisowe above (due:{personId}) - the year no longer lives in the key,
         // so it must be carried as its own change field instead for the combined history to still
         // say which year a given roczna entry was about.
-        resource: { kind: 'due', key: `due:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        resource: { kind: 'due', key: `due:${target.personId}`, display: target.display },
         changes: [
           { field: 'status', ...(existing ? { before: normalizeDuesStatus(existing) } : {}), after: status },
           { field: 'year', after: year },
         ],
       };
     },
-    tx => saveDues(tx, normalizedMemberEmail, year, { status }, identity.email),
+    tx => saveDues(tx, target.personId, year, { status }, identity.email),
   );
   sendJson(res, 200, { dues });
 }

@@ -589,7 +589,7 @@ async function saveMemberWpisowe(email, nextPaid, control) {
     await window.MutationFeedback.confirmed({
       control,
       execute: () => apiFetch(
-        `/lista-wyjazdowa/wpisowe?memberEmail=${encodeURIComponent(email)}`,
+        `/lista-wyjazdowa/wpisowe?personId=${encodeURIComponent(email)}`,
         { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: nextPaid }) },
         showReauth,
         hideReauth,

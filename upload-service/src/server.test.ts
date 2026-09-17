@@ -6319,7 +6319,7 @@ test('GET /lista-wyjazdowa/events includes attendingCount and the caller\'s own 
   const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
-    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=wojownik@gmail.com`, {
       attending: true,
       equipmentIds: [],
       companionIds: [],
@@ -6361,7 +6361,7 @@ test('PUT /lista-wyjazdowa/signups rejects an equipmentId that does not belong t
     // wojownik@gmail.com has no listaWyjazdowaProfile yet in this fixture, so any equipmentId is "not theirs".
     const res = await putListaWyjazdowa(
       baseUrl,
-      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=wojownik@gmail.com`,
       { attending: true, equipmentIds: ['not-mine'], companionIds: [] },
     );
     assert.equal(res.status, 400);
@@ -6376,7 +6376,7 @@ test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and r
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     const res = await putListaWyjazdowa(
       baseUrl,
-      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=inny@example.test`,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=inny@example.test`,
       { attending: true, equipmentIds: [], companionIds: [] },
     );
     assert.equal(res.status, 200);
@@ -6442,7 +6442,7 @@ test("PUT /lista-wyjazdowa/signups validates equipment ids against the target me
     // Positive case: the target's own real equipment id is accepted.
     const ok = await putListaWyjazdowa(
       baseUrl,
-      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=${targetEmail}`,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=${targetEmail}`,
       { attending: true, equipmentIds: [targetEquipmentId] },
     );
     assert.equal(ok.status, 200, "the target member's own equipment id must be accepted");
@@ -6451,7 +6451,7 @@ test("PUT /lista-wyjazdowa/signups validates equipment ids against the target me
     // same target - the case that would catch a memberEmail-for-identity.email swap regression.
     const rejected = await putListaWyjazdowa(
       baseUrl,
-      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=${targetEmail}`,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=${targetEmail}`,
       { attending: true, equipmentIds: [callerEquipmentId] },
     );
     assert.equal(rejected.status, 400, "the caller's own equipment id must not validate against a different target member");
@@ -6468,7 +6468,7 @@ test('PUT /lista-wyjazdowa/signups returns 404 for a memberEmail not on the allo
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     const res = await putListaWyjazdowa(
       baseUrl,
-      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=nikt@example.test`,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=nikt@example.test`,
       { attending: true, equipmentIds: [], companionIds: [] },
     );
     assert.equal(res.status, 404);
@@ -6493,7 +6493,7 @@ test('PUT /lista-wyjazdowa/signups succeeds for an allowlisted member with no me
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     const res = await putListaWyjazdowa(
       baseUrl,
-      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=bezdokumentu@example.test`,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=bezdokumentu@example.test`,
       { attending: true, equipmentIds: [], companionIds: [] },
     );
     assert.equal(res.status, 200);
@@ -6994,6 +6994,38 @@ test('POST /lista-wyjazdowa/signups/quick-add mode=existing audits signup.create
   });
 });
 
+// KRKG-0087: the existing write routes now take a personId, which for a member is their e-mail and
+// for an accountless person is their UUID. A tombstoned person is not a writable target.
+test('existing write routes accept an accountless personId and reject a tombstoned one', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  seedEvent(firestore, 'event-1');
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  firestore.seed('persons', 'p2', {
+    personId: 'p2', ksywka: 'Cień', firstName: '', lastName: '', categoryId: 'thing', sectionId: 'krakow',
+    weaponIds: [], ownerPersonId: null, email: null, deletedAt: '2027-01-01T00:00:00.000Z', createdAt: 'x', createdBy: 'x',
+  });
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
+  await withServer(deps, async baseUrl => {
+    const signup = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/signups?eventId=event-1&personId=p1', { attending: true, equipmentIds: [] });
+    assert.equal(signup.status, 200);
+    assert.equal((await signup.json()).signup.memberEmail, 'p1', 'a person signup is keyed by their personId');
+
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=p1', { paid: true })).status, 200);
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=p1&year=2027', { status: 'paid' })).status, 200);
+
+    assert.equal(
+      (await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/signups?eventId=event-1&personId=p2', { attending: true, equipmentIds: [] })).status,
+      404,
+      'a tombstoned person is not a writable target',
+    );
+
+    const events = await firestore.listDocs<{ resource?: { key?: string } }>('auditEvents');
+    assert.ok(events.some((d) => d.data.resource?.key === 'signup:event-1:p1'));
+    assert.ok(events.some((d) => d.data.resource?.key === 'due:p1'));
+  });
+});
+
 // KRKG-0074: the event page's roster badge needs the current year's składka roczna status per
 // member - stored record wins, an Emeryt without one defaults to not_applicable, everyone else
 // without one defaults to unpaid (same effectiveDuesStatus contract as GET /member-profile).
@@ -7071,7 +7103,7 @@ test('GET /lista-wyjazdowa/signups returns the full raw roster of signups for an
   const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
-    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=wojownik@gmail.com`, {
       attending: true,
       equipmentIds: [],
       companionIds: [],
@@ -7100,7 +7132,7 @@ test('GET /lista-wyjazdowa/signups/mine returns the caller\'s own signup after s
   const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
-    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=wojownik@gmail.com`, {
       attending: true,
       equipmentIds: [],
       companionIds: [],
@@ -7217,7 +7249,7 @@ test('GET /lista-wyjazdowa/events reports viewerSkladkaPaid for the caller', asy
   const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
   const created = await withServer(deps, async baseUrl => {
     const event = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zlot', startDate: '2027-06-12' })).json();
-    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${event.event.id}&memberEmail=wojownik@gmail.com`, {
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${event.event.id}&personId=wojownik@gmail.com`, {
       attending: true,
       equipmentIds: [],
       companionIds: [],
@@ -7228,7 +7260,7 @@ test('GET /lista-wyjazdowa/events reports viewerSkladkaPaid for the caller', asy
     return event;
   });
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
-    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, { paid: true });
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&personId=wojownik@gmail.com`, { paid: true });
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/events`);
@@ -7241,12 +7273,12 @@ test('PUT /lista-wyjazdowa/signups/skladka requires accountant and 404s for a me
   const firestore = makeListaWyjazdowaFirestore();
   await withServer(makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } }), async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
-    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, { paid: true });
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&personId=wojownik@gmail.com`, { paid: true });
     assert.equal(res.status, 403);
   });
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
-    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, { paid: true });
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&personId=wojownik@gmail.com`, { paid: true });
     assert.equal(res.status, 404);
   });
 });
@@ -7260,10 +7292,10 @@ test('PUT /lista-wyjazdowa/signups/skladka succeeds for accountant against an ex
   const deps = makeDepsWithRole('accountant', firestore, { listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
-    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, {
+    await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=wojownik@gmail.com`, {
       attending: true, equipmentIds: [], companionIds: [],
     });
-    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&memberEmail=wojownik@gmail.com`, { paid: true });
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&personId=wojownik@gmail.com`, { paid: true });
     assert.equal(res.status, 200);
     assert.equal((await res.json()).signup.skladkaPaid, true);
   });
@@ -7272,7 +7304,7 @@ test('PUT /lista-wyjazdowa/signups/skladka succeeds for accountant against an ex
 test('PUT /lista-wyjazdowa/wpisowe requires accountant', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   await withServer(makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } }), async baseUrl => {
-    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=wojownik@gmail.com', { paid: true });
     assert.equal(res.status, 403);
   });
 });
@@ -7286,7 +7318,7 @@ test('PUT /lista-wyjazdowa/wpisowe succeeds and creates a profile for a member w
     listMemberEmails: async () => ['wojownik@gmail.com', 'bezprofilu@example.test'],
   });
   await withServer(deps, async baseUrl => {
-    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=bezprofilu@example.test', { paid: true });
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=bezprofilu@example.test', { paid: true });
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.profile.wpisowePaid, true);
@@ -7306,7 +7338,7 @@ test('PUT /lista-wyjazdowa/wpisowe succeeds for accountant against an existing p
     // create its own listaWyjazdowaProfile via the self-service PUT before targeting that same
     // email with the accountant-only wpisowe toggle.
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
-    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=wojownik@gmail.com', { paid: true });
     assert.equal(res.status, 200);
     assert.equal((await res.json()).profile.wpisowePaid, true);
   });
@@ -7315,15 +7347,15 @@ test('PUT /lista-wyjazdowa/wpisowe succeeds for accountant against an existing p
 test('PUT /lista-wyjazdowa/dues requires accountant, validates member exists, and GET reflects it for the right year', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   await withServer(makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } }), async baseUrl => {
-    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { status: 'paid' });
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=wojownik@gmail.com&year=2027', { status: 'paid' });
     assert.equal(res.status, 403);
   });
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
-    const unknown = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=nikt@example.test&year=2027', { status: 'paid' });
+    const unknown = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=nikt@example.test&year=2027', { status: 'paid' });
     assert.equal(unknown.status, 404);
 
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
-    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { status: 'paid' });
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=wojownik@gmail.com&year=2027', { status: 'paid' });
     assert.equal(res.status, 200);
 
     const getRes = await fetch(`${baseUrl}/lista-wyjazdowa/dues?year=2027`);
@@ -7342,12 +7374,12 @@ test('PUT /lista-wyjazdowa/dues rejects a status outside unpaid/paid/not_applica
   await withServer(deps, async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
 
-    const invalid = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { status: 'yes' });
+    const invalid = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=wojownik@gmail.com&year=2027', { status: 'yes' });
     assert.equal(invalid.status, 400);
-    const legacyBoolean = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { paid: true });
+    const legacyBoolean = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=wojownik@gmail.com&year=2027', { paid: true });
     assert.equal(legacyBoolean.status, 400);
 
-    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { status: 'not_applicable' });
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=wojownik@gmail.com&year=2027', { status: 'not_applicable' });
     assert.equal(res.status, 200);
     assert.equal((await res.json()).dues.status, 'not_applicable');
 
@@ -7362,8 +7394,8 @@ test('new dues writes are canonical audit events (legacy dues audit-log endpoint
   await withServer(deps, async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { status: 'paid' });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=wojownik@gmail.com', { paid: true });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=wojownik@gmail.com&year=2027', { status: 'paid' });
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { skladkaFee: '50 zł' });
 
@@ -7456,7 +7488,7 @@ test('GET /lista-wyjazdowa/dues/mine returns only the caller\'s own dues for the
 
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', { status: 'paid' });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=wojownik@gmail.com&year=2027', { status: 'paid' });
     // A different member's 2027 dues must not leak into this caller's own /mine read. Seeded with
     // the legacy paid-only shape on purpose - also covers normalizeDuesStatus reading a
     // pre-existing record through this same endpoint, not just dues.test.ts's direct unit tests.
@@ -7523,24 +7555,24 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
 
     const signup = await putListaWyjazdowa(
       baseUrl,
-      `/lista-wyjazdowa/signups?eventId=${event.id}&memberEmail=wojownik@gmail.com`,
+      `/lista-wyjazdowa/signups?eventId=${event.id}&personId=wojownik@gmail.com`,
       { attending: true, equipmentIds: [], companionIds: [] },
     );
     assert.equal(signup.status, 200);
 
     const paid = await putListaWyjazdowa(
       baseUrl,
-      `/lista-wyjazdowa/signups/skladka?eventId=${event.id}&memberEmail=wojownik@gmail.com`,
+      `/lista-wyjazdowa/signups/skladka?eventId=${event.id}&personId=wojownik@gmail.com`,
       { paid: true },
     );
     assert.equal(paid.status, 200);
 
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
-    const entryFee = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=wojownik@gmail.com', { paid: true });
+    const entryFee = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=wojownik@gmail.com', { paid: true });
     assert.equal(entryFee.status, 200);
 
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
-    const annualDue = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?memberEmail=wojownik@gmail.com&year=2027', {
+    const annualDue = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=wojownik@gmail.com&year=2027', {
       status: 'paid',
     });
     assert.equal(annualDue.status, 200);
@@ -7701,10 +7733,10 @@ test('PUT /lista-wyjazdowa/signups still works for a member with no listaWyjazdo
   const deps = makeDepsWithRole('accountant', firestore, { listMemberEmails: async () => ['bezprofilu@example.test'] });
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?memberEmail=bezprofilu@example.test', { paid: true });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=bezprofilu@example.test', { paid: true });
     const res = await putListaWyjazdowa(
       baseUrl,
-      `/lista-wyjazdowa/signups?eventId=${created.event.id}&memberEmail=bezprofilu@example.test`,
+      `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=bezprofilu@example.test`,
       { attending: true, equipmentIds: [], companionIds: [] },
     );
     assert.equal(res.status, 200);

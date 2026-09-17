@@ -4,7 +4,7 @@
  * of the list - signing up needs equipment/companion choices that come from that profile
  * (design.md §8).
  *
- * The caller's own email (needed for the PUT /lista-wyjazdowa/signups?memberEmail= query param
+ * The caller's own email (needed for the PUT /lista-wyjazdowa/signups?personId= query param
  * below) comes from the `identity` argument auth.js's initGoogleSignIn already passes into
  * onSignedIn - the parsed JSON body of whoamiPath (/wojownicy-upload/whoami), which always
  * includes `email` (see identityResponseBody in upload-service/src/server.ts). No extra fetch is
@@ -122,7 +122,7 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
       apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
     ]);
     await apiFetch(
-      `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&memberEmail=${encodeURIComponent(viewerEmail)}`,
+      `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(viewerEmail)}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

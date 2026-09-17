@@ -719,7 +719,7 @@ async function markWpisowePaid(email, control, toRemove) {
   clearError();
   try {
     await confirmedDuesMutation(control, () => apiFetch(
-      `/lista-wyjazdowa/wpisowe?memberEmail=${encodeURIComponent(email)}`,
+      `/lista-wyjazdowa/wpisowe?personId=${encodeURIComponent(email)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: true }) },
       showReauth,
       hideReauth,
@@ -737,7 +737,7 @@ async function toggleRoczna(email, nextStatus, control) {
   clearError();
   try {
     await confirmedDuesMutation(control, () => apiFetch(
-      `/lista-wyjazdowa/dues?memberEmail=${encodeURIComponent(email)}&year=${selectedYear}`,
+      `/lista-wyjazdowa/dues?personId=${encodeURIComponent(email)}&year=${selectedYear}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: nextStatus }) },
       showReauth,
       hideReauth,
