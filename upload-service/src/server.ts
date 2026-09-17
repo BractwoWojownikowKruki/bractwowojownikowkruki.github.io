@@ -56,6 +56,9 @@ import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
 import { createDisabledSheetsClient, createSheetsClient, type SheetsClient } from './sheets.ts';
 import { getProfile, listAllProfiles, saveProfile, setProfileWeaponIds, setWpisowePaid, type ListaWyjazdowaProfileDoc, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
+// KRKG-0087: people without an account are real people on the roster, not entries inside a
+// member's profile - the roster below unions the two sources.
+import { listPersons } from './persons.ts';
 import { getAllLookupLists, getLookupList } from './lookup-lists.ts';
 import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWritableFields } from './events.ts';
 import {
@@ -2621,7 +2624,7 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
 async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   await deps.authenticateWojownicyUpload(req, res);
   const duesYear = new Date().getFullYear();
-  const [emails, members, profiles, dues] = await Promise.all([
+  const [emails, members, profiles, dues, persons] = await Promise.all([
     deps.listMemberEmails(),
     listAllMembers(deps.firestore),
     listAllProfiles(deps.firestore),
@@ -2630,6 +2633,10 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
     // effective dues status - same effectiveDuesStatus defaulting as handleMemberProfile (an
     // Emeryt with no stored record reads as not_applicable, anything else unpaid).
     listDuesForYear(deps.firestore, duesYear),
+    // KRKG-0087: people without an account are a second source of roster rows, keyed by their own
+    // personId. Tombstoned people are excluded (listPersons' default) so a removed person leaves
+    // every current list, while the event-scoped read below still resolves them for history.
+    listPersons(deps.firestore),
   ]);
   const memberByEmail = new Map(members.map((m) => [m.email, m]));
   const profileByEmail = new Map(profiles.map((p) => [p.email, p]));
@@ -2640,6 +2647,11 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
     const member = memberByEmail.get(email);
     const profile = profileByEmail.get(email);
     return {
+      // KRKG-0087: the canonical person key. For a member it equals the e-mail, which is why
+      // nothing below changes for them; `accountless` tells the client which kind of row this is.
+      personId: email,
+      accountless: false,
+      ownerPersonId: null,
       email,
       fullName: member?.fullName ?? null,
       nickname: member?.nickname ?? null,
@@ -2662,7 +2674,27 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       approvedAt: member?.approvedAt ?? null,
     };
   });
-  sendJson(res, 200, { roster });
+  // KRKG-0087: people without an account, as rows of their own. Their profile and dues live under
+  // their own personId, exactly like a member's live under their e-mail, so the same lookups work.
+  const personRoster = persons.map(({ data: person }) => {
+    const profile = profileByEmail.get(person.personId);
+    return {
+      personId: person.personId,
+      accountless: true,
+      ownerPersonId: person.ownerPersonId,
+      email: null,
+      fullName: [person.firstName, person.lastName].filter((part) => part.trim()).join(' ') || null,
+      nickname: person.ksywka || null,
+      sectionId: person.sectionId,
+      categoryId: person.categoryId,
+      weaponIds: person.weaponIds,
+      equipment: profile?.equipment ?? [],
+      wpisowePaid: profile?.wpisowePaid ?? false,
+      duesStatus: effectiveDuesStatus(duesByEmail.get(person.personId) ?? null, person.categoryId),
+      approvedAt: null,
+    };
+  });
+  sendJson(res, 200, { roster: [...roster, ...personRoster] });
 }
 
 // GET /members/directory (KRKG-0045): the club-wide "Lista Członków" page. Same allowlist

@@ -6507,13 +6507,65 @@ test('GET /lista-wyjazdowa/roster joins members with their listaWyjazdowaProfile
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore(), listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Ala Kowalska', sectionId: 'krakow' });
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: ['tarczownik'], equipment: [], companions: [] });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: ['tarczownik'], equipment: [] });
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/roster`);
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.roster.length, 1);
     assert.equal(body.roster[0].fullName, 'Ala Kowalska');
     assert.deepEqual(body.roster[0].weaponIds, ['tarczownik']);
+  });
+});
+
+// KRKG-0087: a person without an account is a roster row of its own, keyed by personId and with no
+// e-mail - the event page needs them next to members so their own "jadę / nie jadę" and składka
+// are visible, and so the summary can count them by section, weapon and category.
+test('GET /lista-wyjazdowa/roster unions members with people who have no account', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  firestore.seed('persons', 'person-uuid-1', {
+    personId: 'person-uuid-1', ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski',
+    categoryId: 'thing', sectionId: 'krakow', weaponIds: ['tarczownik'],
+    ownerPersonId: 'wojownik@gmail.com', email: null, deletedAt: null,
+    createdAt: 'x', createdBy: 'x',
+  });
+
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/roster`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.roster.length, 2);
+
+    const member = body.roster.find((r: { personId: string }) => r.personId === 'wojownik@gmail.com');
+    assert.equal(member.accountless, false);
+    assert.equal(member.email, 'wojownik@gmail.com');
+
+    const person = body.roster.find((r: { personId: string }) => r.personId === 'person-uuid-1');
+    assert.equal(person.accountless, true, 'a person without an account must be flagged');
+    assert.equal(person.email, null, 'a person without an account has no e-mail');
+    assert.equal(person.fullName, 'Jan Kowalski');
+    assert.equal(person.nickname, 'Wilk');
+    assert.equal(person.ownerPersonId, 'wojownik@gmail.com');
+    assert.deepEqual(person.weaponIds, ['tarczownik']);
+    assert.equal(person.categoryId, 'thing');
+    assert.equal(person.sectionId, 'krakow');
+  });
+});
+
+test('GET /lista-wyjazdowa/roster omits tombstoned people', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('persons', 'person-uuid-2', {
+    personId: 'person-uuid-2', ksywka: 'Cień', firstName: '', lastName: '',
+    categoryId: 'thing', sectionId: 'krakow', weaponIds: [],
+    ownerPersonId: null, email: null, deletedAt: '2027-01-01T00:00:00.000Z',
+    createdAt: 'x', createdBy: 'x',
+  });
+
+  const deps = makeDeps({ firestore, listMemberEmails: async () => [] });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
+    assert.deepEqual(body.roster, [], 'a tombstoned person must not appear on the current roster');
   });
 });
 
