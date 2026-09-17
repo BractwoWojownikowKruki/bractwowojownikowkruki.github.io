@@ -58,13 +58,24 @@
                #skladka-fee-panel (display span + always-visible input+Zapisz for canManageSkladki,
                plain text otherwise). Replaces the old per-member "Kwota" text field. -->
           <div id="skladka-fee-panel">
-            <span id="skladki-year-fee-display"></span>
-            <a id="skladki-year-fee-history-link" class="audyt-history-btn" href="/admin/audyt/" title="Historia" aria-label="Historia składki rocznej" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
-            <span id="skladki-year-fee-edit" hidden>
-              <input type="text" id="skladki-year-fee-input" placeholder="np. 100 zł mężczyźni, 50 zł kobiety" />
-              <input type="date" id="skladki-year-fee-duedate-input" aria-label="Termin płatności" />
-              <button type="button" id="skladki-year-fee-save" class="btn-cancel">Zapisz składkę</button>
-            </span>
+            <div class="lw-fee-summary">
+              <span id="skladki-year-fee-display"></span>
+              <a id="skladki-year-fee-history-link" class="audyt-history-btn" href="/admin/audyt/" title="Historia" aria-label="Historia składki rocznej" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
+            </div>
+            <div id="skladki-year-fee-edit" class="lw-fee-edit" hidden>
+              <div class="field">
+                <label for="skladki-year-fee-input">Kwota / opis składki rocznej</label>
+                <input type="text" id="skladki-year-fee-input" placeholder="np. 100 zł mężczyźni, 50 zł kobiety" />
+              </div>
+              <div class="field">
+                <label for="skladki-year-fee-duedate-input">Termin płatności</label>
+                <input type="date" id="skladki-year-fee-duedate-input" />
+              </div>
+              <div class="lw-fee-actions">
+                <button type="button" id="skladki-year-fee-save" class="add-album-submit">Zapisz składkę</button>
+                <button type="button" id="skladki-year-fee-remove" class="btn-cancel">Usuń składkę</button>
+              </div>
+            </div>
           </div>
 
           <!-- Ile osób jeszcze nie ma opłaconej składki rocznej za wybrany rok, wg sekcji i wg

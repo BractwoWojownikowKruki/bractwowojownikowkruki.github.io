@@ -63,13 +63,24 @@
                only (ACTION_REGISTRY), so a plain member has no page that could show them this
                history anyway. -->
           <div id="skladka-fee-panel">
-            <span id="skladka-fee-display"></span>
-            <a id="skladka-fee-history-link" class="audyt-history-btn" href="/admin/audyt/" title="Historia" aria-label="Historia składki" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
-            <span id="skladka-fee-edit" hidden>
-              <input type="text" id="skladka-fee-input" placeholder="np. 50 zł / 25 zł dzieci" />
-              <input type="date" id="skladka-fee-duedate-input" aria-label="Termin płatności" />
-              <button type="button" id="skladka-fee-save" class="btn-cancel">Zapisz składkę</button>
-            </span>
+            <div class="lw-fee-summary">
+              <span id="skladka-fee-display"></span>
+              <a id="skladka-fee-history-link" class="audyt-history-btn" href="/admin/audyt/" title="Historia" aria-label="Historia składki" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
+            </div>
+            <div id="skladka-fee-edit" class="lw-fee-edit" hidden>
+              <div class="field">
+                <label for="skladka-fee-input">Kwota / opis składki</label>
+                <input type="text" id="skladka-fee-input" placeholder="np. 50 zł / 25 zł dzieci" />
+              </div>
+              <div class="field">
+                <label for="skladka-fee-duedate-input">Termin płatności</label>
+                <input type="date" id="skladka-fee-duedate-input" />
+              </div>
+              <div class="lw-fee-actions">
+                <button type="button" id="skladka-fee-save" class="add-album-submit">Zapisz składkę</button>
+                <button type="button" id="skladka-fee-remove" class="btn-cancel">Usuń składkę</button>
+              </div>
+            </div>
           </div>
 
           <!-- Every failed mutation on this page (signup save, cancel/restore, initial load)

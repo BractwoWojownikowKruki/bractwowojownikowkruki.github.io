@@ -187,25 +187,43 @@ function renderSkladkaFee(event) {
   const fee = normalizeSkladkaFee(event.skladkaFee);
   const dueDate = normalizeSkladkaDueDate(event.dueDate);
   display.textContent = fee ? `Składka: ${fee}` : 'Składka: nie ustalono';
-  if (dueDate) display.textContent += ` (termin: ${formatDate(dueDate)})`;
+  // A due date only ever exists alongside a fee (see updateSkladkaFeeFormState), so it is never
+  // shown on its own even for legacy data that still carries an orphaned date.
+  if (fee && dueDate) display.textContent += ` (termin: ${formatDate(dueDate)})`;
   editPanel.hidden = !canManageSkladki;
   if (canManageSkladki) {
     document.getElementById('skladka-fee-input').value = fee;
     document.getElementById('skladka-fee-duedate-input').value = dueDate ?? '';
     lastLoadedSkladkaDueDate = dueDate;
+    updateSkladkaFeeFormState();
   }
 }
 
-async function saveSkladkaFee() {
+// The due-date field follows the fee field: it is only meaningful with a fee, so an empty fee
+// clears and disables it, and "Usuń składkę" is only offered while there is a fee to remove.
+// Reads the DOM directly, so it is correct both on render and on every keystroke.
+function updateSkladkaFeeFormState() {
+  const fee = normalizeSkladkaFee(document.getElementById('skladka-fee-input').value);
+  const dueDateInput = document.getElementById('skladka-fee-duedate-input');
+  if (!fee) dueDateInput.value = '';
+  dueDateInput.disabled = !fee;
+  document.getElementById('skladka-fee-remove').disabled = !fee;
+}
+
+document.getElementById('skladka-fee-input').addEventListener('input', updateSkladkaFeeFormState);
+
+async function saveSkladkaFee(control = document.getElementById('skladka-fee-save')) {
   clearError();
   try {
     const value = normalizeSkladkaFee(document.getElementById('skladka-fee-input').value);
-    const dueDateValue = normalizeSkladkaDueDate(document.getElementById('skladka-fee-duedate-input').value);
+    // Guarded, not just disabled: a fee-less event can never carry a date, even if the input was
+    // somehow populated (legacy render, scripted DOM).
+    const dueDateValue = value ? normalizeSkladkaDueDate(document.getElementById('skladka-fee-duedate-input').value) : null;
     const body = {};
     if (value !== normalizeSkladkaFee(cachedEvent?.skladkaFee)) body.skladkaFee = value || null;
     if (dueDateValue !== lastLoadedSkladkaDueDate) body.dueDate = dueDateValue;
     if (Object.keys(body).length === 0) return;
-    await confirmedEventMutation(document.getElementById('skladka-fee-save'), () => apiFetch(
+    await confirmedEventMutation(control, () => apiFetch(
       `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
       showReauth,
@@ -220,7 +238,19 @@ async function saveSkladkaFee() {
   }
 }
 
-document.getElementById('skladka-fee-save').addEventListener('click', saveSkladkaFee);
+document.getElementById('skladka-fee-save').addEventListener('click', () => saveSkladkaFee());
+
+// Removes the whole fee (amount and due date) by clearing both fields and reusing the differential
+// save above, so the event ends up with no fee in one confirmed mutation - the same path that
+// already hides the payment icons when the fee is empty.
+async function removeSkladkaFee() {
+  document.getElementById('skladka-fee-input').value = '';
+  document.getElementById('skladka-fee-duedate-input').value = '';
+  updateSkladkaFeeFormState();
+  await saveSkladkaFee(document.getElementById('skladka-fee-remove'));
+}
+
+document.getElementById('skladka-fee-remove').addEventListener('click', removeSkladkaFee);
 
 async function toggleSkladkaPaid(email, nextPaid, control) {
   clearError();

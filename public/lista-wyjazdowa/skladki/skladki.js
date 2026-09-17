@@ -613,25 +613,43 @@ function renderYearFee(yearFee) {
   const note = yearFee?.note ?? null;
   const dueDate = yearFee?.dueDate ?? null;
   display.textContent = note ? `Składka ${selectedYear}: ${note}` : `Składka ${selectedYear}: nie ustalono`;
-  if (dueDate) display.textContent += ` (termin: ${formatDueDate(dueDate)})`;
+  // A due date only ever exists alongside a note (see updateYearFeeFormState), so it is never
+  // shown on its own even for legacy data that still carries an orphaned date.
+  if (note && dueDate) display.textContent += ` (termin: ${formatDueDate(dueDate)})`;
   editPanel.hidden = !canManageSkladki;
   if (canManageSkladki) {
     document.getElementById('skladki-year-fee-input').value = note ?? '';
     document.getElementById('skladki-year-fee-duedate-input').value = dueDate ?? '';
     lastLoadedYearFeeDueDate = dueDate ?? null;
+    updateYearFeeFormState();
   }
   historyLink.hidden = !canManageSkladki;
   historyLink.href = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:year:${selectedYear}`)}`;
 }
 
-async function saveYearFee() {
+// Same invariant as wyjazd.js's updateSkladkaFeeFormState, for the per-year rate note: the due-date
+// field is only meaningful with a note, so an empty note clears and disables it and "Usuń składkę"
+// is only offered while there is something to remove.
+function updateYearFeeFormState() {
+  const note = document.getElementById('skladki-year-fee-input').value.trim();
+  const dueDateInput = document.getElementById('skladki-year-fee-duedate-input');
+  if (!note) dueDateInput.value = '';
+  dueDateInput.disabled = !note;
+  document.getElementById('skladki-year-fee-remove').disabled = !note;
+}
+
+document.getElementById('skladki-year-fee-input').addEventListener('input', updateYearFeeFormState);
+
+async function saveYearFee(control = document.getElementById('skladki-year-fee-save')) {
   clearError();
   try {
     const value = document.getElementById('skladki-year-fee-input').value.trim();
-    const dueDateValue = document.getElementById('skladki-year-fee-duedate-input').value || null;
+    // Guarded, not just disabled: a note-less year can never carry a date, even if the input was
+    // somehow populated (legacy render, scripted DOM).
+    const dueDateValue = value ? (document.getElementById('skladki-year-fee-duedate-input').value || null) : null;
     const body = { note: value || null };
     if (dueDateValue !== lastLoadedYearFeeDueDate) body.dueDate = dueDateValue;
-    await confirmedDuesMutation(document.getElementById('skladki-year-fee-save'), () => apiFetch(
+    await confirmedDuesMutation(control, () => apiFetch(
       `/lista-wyjazdowa/dues/year-fee?year=${selectedYear}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
       showReauth,
@@ -641,13 +659,25 @@ async function saveYearFee() {
       document.getElementById('skladki-year-fee-display').textContent = value
         ? `Składka ${selectedYear}: ${value}${dueDateValue ? ` (termin: ${formatDueDate(dueDateValue)})` : ''}`
         : `Składka ${selectedYear}: nie ustalono`;
+      updateYearFeeFormState();
     });
   } catch (err) {
     showError(`Nie udało się zapisać składki: ${err.message}`);
   }
 }
 
-document.getElementById('skladki-year-fee-save').addEventListener('click', saveYearFee);
+document.getElementById('skladki-year-fee-save').addEventListener('click', () => saveYearFee());
+
+// Removes the whole per-year rate note (amount and due date) by clearing both fields and reusing
+// the save above, so the year ends up with no rate in one confirmed mutation.
+async function removeYearFee() {
+  document.getElementById('skladki-year-fee-input').value = '';
+  document.getElementById('skladki-year-fee-duedate-input').value = '';
+  updateYearFeeFormState();
+  await saveYearFee(document.getElementById('skladki-year-fee-remove'));
+}
+
+document.getElementById('skladki-year-fee-remove').addEventListener('click', removeYearFee);
 
 async function loadAndRender() {
   populateYearSelect();

@@ -907,23 +907,55 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
 
 /* #skladka-fee-panel is reused verbatim by both the wyjazd page's per-event fee (wyjazd.js) and
    the Składki page's per-year rate note (skladki.js) - the two never render together, and sharing
-   the id means sharing that box styling for free. The inputs keep separate ids/rules below since
-   the year-fee note ("100 zł mężczyźni, 50 zł kobiety") runs longer than a single event's fee. */
-#skladka-fee-input,
-#skladki-year-fee-input,
-#skladka-fee-duedate-input,
-#skladki-year-fee-duedate-input {
-  background: var(--surface-deep);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  padding: 0.5rem 0.75rem;
-  margin-right: 0.5rem;
+   the id means sharing that box styling for free. The edit form itself uses the shared .field
+   pattern (style.css), so both pages get the same labelled, spaced layout. */
+
+/* Display line + history link above the edit form. */
+.lw-fee-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-#skladki-year-fee-input {
-  width: 20rem;
-  max-width: 100%;
+.lw-fee-edit {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.85rem;
+}
+
+.lw-fee-edit .field {
+  margin-bottom: 0.75rem;
+}
+
+/* The panel's own background is --surface, so the shared .field input (also --surface) would
+   blend in - the deeper tone keeps the fields visibly distinct here. */
+.lw-fee-edit .field input {
+  background: var(--surface-deep);
+}
+
+/* The due-date field follows the fee field: while there is no fee it is cleared and disabled, so
+   it must also look inactive. */
+.lw-fee-edit .field input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lw-fee-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* The shared primary button is full-width; in this row it shares the line with "Usuń składkę". */
+.lw-fee-actions .add-album-submit {
+  width: auto;
+  flex: 1 1 auto;
+  padding: 10px 1.25rem;
+}
+
+.lw-fee-actions .btn-cancel {
+  flex: 0 0 auto;
 }
 
 /* Year <select> above the Składki table (skladki.js's populateYearSelect, KRKG-0047) - same

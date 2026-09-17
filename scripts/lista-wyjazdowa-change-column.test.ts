@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 
 const page = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/index.html', import.meta.url), 'utf8');
+const skladkiPage = readFileSync(new URL('../public/lista-wyjazdowa/skladki/index.html', import.meta.url), 'utf8');
 const script = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8');
 const sortable = readFileSync(new URL('../public/shared/sortable-table.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/member-area.css', import.meta.url), 'utf8');
@@ -53,4 +54,20 @@ test('event roster filter checkboxes use the page accent and label layout', () =
   assert.match(css, /\.lw-filter-check\s*\{[^}]*cursor:\s*pointer/);
   assert.match(css, /\.lw-filter-check input\[type="checkbox"\]\s*\{[^}]*accent-color:\s*var\(--gold\)/);
   assert.doesNotMatch(css, /\.lw-roster-filter-toggle/);
+});
+
+test('fee panels expose labelled fields and a remove button on both pages', () => {
+  assert.match(page, /<label\s+for="skladka-fee-input">Kwota \/ opis składki<\/label>/);
+  assert.match(page, /<label\s+for="skladka-fee-duedate-input">Termin płatności<\/label>/);
+  assert.match(page, /id="skladka-fee-remove"/);
+  assert.match(page, /id="skladka-fee-save"[^>]*class="add-album-submit"|class="add-album-submit"[^>]*id="skladka-fee-save"/);
+  assert.match(skladkiPage, /<label\s+for="skladki-year-fee-input">Kwota \/ opis składki rocznej<\/label>/);
+  assert.match(skladkiPage, /<label\s+for="skladki-year-fee-duedate-input">Termin płatności<\/label>/);
+  assert.match(skladkiPage, /id="skladki-year-fee-remove"/);
+  assert.match(skladkiPage, /id="skladki-year-fee-save"[^>]*class="add-album-submit"|class="add-album-submit"[^>]*id="skladki-year-fee-save"/);
+});
+
+test('fee edit panels share the ordered layout styles', () => {
+  assert.match(css, /\.lw-fee-edit\s*\{[^}]*flex-direction:\s*column/);
+  assert.match(css, /\.lw-fee-actions\s*\{[^}]*display:\s*flex/);
 });

@@ -28,6 +28,9 @@ class Element {
   async change() {
     await Promise.all((this.listeners.get('change') ?? []).map((listener) => listener({ target: this })));
   }
+  async input() {
+    await Promise.all((this.listeners.get('input') ?? []).map((listener) => listener({ target: this })));
+  }
   setAttribute(name: string, value: string) { this.attributes.set(name, value); }
   getAttribute(name: string) { return this.attributes.get(name) ?? null; }
   scrollIntoView() {}
@@ -36,7 +39,7 @@ class Element {
 const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'main-content', 'lw-error',
   'skladka-fee-display', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
-  'skladka-fee-save', 'roster-panel', 'summary-content', 'equipment-companions-content',
+  'skladka-fee-save', 'skladka-fee-remove', 'roster-panel', 'summary-content', 'equipment-companions-content',
   'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni',
   'event-title', 'event-meta',
   'cancel-event-btn', 'restore-event-btn', 'event-history-link', 'skladka-fee-history-link',
@@ -199,4 +202,48 @@ test('fee save sends only normalized field changes and leaves state intact after
   harness.setMutationError(new Error('network'));
   await save.click();
   assert.equal(roster.innerHTML, rosterAfterSuccess);
+});
+
+test('removing the fee clears both fields, sends nulls and hides payment icons', async () => {
+  const harness = createHarness(event('50 zł', '2026-10-20'));
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  assert.match(roster.innerHTML, /lw-skladka-icon/);
+  assert.equal(harness.elements.get('skladka-fee-duedate-input')!.disabled, false);
+  assert.equal(harness.elements.get('skladka-fee-remove')!.disabled, false);
+
+  harness.setMutationResult({ event: event(null, null) });
+  await harness.elements.get('skladka-fee-remove')!.click();
+
+  const put = harness.apiCalls.filter((call) => call.options.method === 'PUT').at(-1);
+  assert.deepEqual(JSON.parse(String(put?.options.body)), { skladkaFee: null, dueDate: null });
+  assert.equal(harness.elements.get('skladka-fee-input')!.value, '');
+  assert.equal(harness.elements.get('skladka-fee-duedate-input')!.value, '');
+  assert.equal(harness.elements.get('skladka-fee-duedate-input')!.disabled, true);
+  assert.equal(harness.elements.get('skladka-fee-remove')!.disabled, true);
+  assert.doesNotMatch(roster.innerHTML, /lw-skladka-icon/);
+});
+
+test('an empty fee disables and clears the due-date field and never sends a date', async () => {
+  const harness = createHarness(event(null));
+  await harness.signIn();
+  const feeInput = harness.elements.get('skladka-fee-input')!;
+  const dueDateInput = harness.elements.get('skladka-fee-duedate-input')!;
+  assert.equal(dueDateInput.disabled, true);
+
+  feeInput.value = '50 zł';
+  await feeInput.input();
+  assert.equal(dueDateInput.disabled, false);
+
+  dueDateInput.value = '2026-10-20';
+  feeInput.value = '';
+  await feeInput.input();
+  assert.equal(dueDateInput.value, '');
+  assert.equal(dueDateInput.disabled, true);
+
+  // Even if a date were forced into the now-disabled field, the save guard drops it.
+  dueDateInput.value = '2026-10-20';
+  const putsBefore = harness.apiCalls.filter((call) => call.options.method === 'PUT').length;
+  await harness.elements.get('skladka-fee-save')!.click();
+  assert.equal(harness.apiCalls.filter((call) => call.options.method === 'PUT').length, putsBefore);
 });
