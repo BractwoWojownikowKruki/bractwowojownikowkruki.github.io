@@ -6669,10 +6669,15 @@ function jsonRequest(baseUrl: string, method: string, path: string, body: unknow
 function memberDeps(firestore: ReturnType<typeof makeListaWyjazdowaFirestore>, email: string): ServerDeps {
   return makeDeps({
     firestore,
+    listMemberEmails: async () => [email.toLowerCase()],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'w1', email }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
     authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
   });
+}
+
+function seedEvent(firestore: ReturnType<typeof makeListaWyjazdowaFirestore>, eventId: string): void {
+  firestore.seed('events', eventId, { name: 'Wolin', startDate: '2026-01-01', status: 'active' });
 }
 
 function seedPerson(
@@ -6829,6 +6834,87 @@ test('person routes return 404 for an unknown person', async () => {
     assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', { personId: 'nie-ma', ...personBody })).status, 404);
     assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons', { personId: 'nie-ma' })).status, 404);
     assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/account', { personId: 'nie-ma', accountEmail: 'a@b.test' })).status, 404);
+  });
+});
+
+test('POST /lista-wyjazdowa/signups/quick-add mode=new creates an attached person and signs them up in one transaction', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  seedEvent(firestore, 'event-1');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', {
+      eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'new', ksywka: 'Wilk', categoryId: 'thing',
+    });
+    assert.equal(res.status, 201);
+    const body = await res.json();
+    assert.equal(body.person.ownerPersonId, 'wojownik@gmail.com');
+    assert.equal(body.person.sectionId, 'krakow', 'the new person inherits the owner section');
+    assert.equal(body.person.email, null, 'a quick-added person has no account');
+    assert.equal(body.signup.attending, true, 'quick-add signs the person up right away');
+
+    const events = await firestore.listDocs<{ action?: string }>('auditEvents');
+    assert.ok(events.some((d) => d.data.action === 'person.created'));
+    assert.ok(events.some((d) => d.data.action === 'signup.created'));
+  });
+});
+
+test('POST /lista-wyjazdowa/signups/quick-add mode=existing signs up an attached person and is idempotent', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  seedEvent(firestore, 'event-1');
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const body = { eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'existing', personId: 'p1' };
+    const first = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', body);
+    assert.equal(first.status, 200);
+    assert.equal((await first.json()).signup.attending, true);
+
+    const second = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', body);
+    assert.equal(second.status, 200, 'a repeat call must not fail');
+    assert.equal((await firestore.listDocs('signups')).length, 1, 'a repeat call must not duplicate the signup');
+  });
+});
+
+test('POST /lista-wyjazdowa/signups/quick-add enforces the owner and attachment rules', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  seedMember(firestore, 'ktos@gmail.com');
+  seedEvent(firestore, 'event-1');
+  seedPerson(firestore, 'p1', 'ktos@gmail.com');
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['wojownik@gmail.com', 'ktos@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'w1', email: 'wojownik@gmail.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+  await withServer(deps, async baseUrl => {
+    assert.equal(
+      (await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', { eventId: 'event-1', ownerPersonId: 'ktos@gmail.com', mode: 'new', ksywka: 'X', categoryId: 'thing' })).status,
+      403,
+      'a member may not quick-add for someone else',
+    );
+    assert.equal(
+      (await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', { eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'existing', personId: 'p1' })).status,
+      403,
+      'the existing person must be attached to the given owner',
+    );
+    assert.equal((await firestore.listDocs('signups')).length, 0, 'denied calls must not sign anyone up');
+  });
+});
+
+test('POST /lista-wyjazdowa/signups/quick-add validates mode and event', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    assert.equal(
+      (await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', { eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'bogus' })).status,
+      400,
+    );
+    assert.equal(
+      (await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', { eventId: 'nie-ma', ownerPersonId: 'wojownik@gmail.com', mode: 'new', ksywka: 'X', categoryId: 'thing' })).status,
+      404,
+    );
   });
 });
 

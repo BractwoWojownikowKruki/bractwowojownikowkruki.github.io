@@ -96,6 +96,7 @@ export const mutationFeedbackPendingRoutes = new Set([
   'DELETE /lista-wyjazdowa/persons',
   'PUT /lista-wyjazdowa/persons/owner',
   'PUT /lista-wyjazdowa/persons/account',
+  'POST /lista-wyjazdowa/signups/quick-add',
 ]);
 
 /** Parses and expands method-and-route rows from the checked-in canonical Mutation inventory table. */

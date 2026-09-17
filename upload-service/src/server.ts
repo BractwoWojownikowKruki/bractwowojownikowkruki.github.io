@@ -68,6 +68,7 @@ import {
   listPersons,
   personDisplayName,
   planPersonMerge,
+  resolvePersonId,
   softDeletePerson,
   updatePerson,
   type PersonDoc,
@@ -233,6 +234,7 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   personDelete: auditedRoute('DELETE', '/lista-wyjazdowa/persons', ['person.deleted']),
   personOwner: auditedRoute('PUT', '/lista-wyjazdowa/persons/owner', ['person.detached']),
   personAccount: auditedRoute('PUT', '/lista-wyjazdowa/persons/account', ['person.merged']),
+  quickAdd: auditedRoute('POST', '/lista-wyjazdowa/signups/quick-add', ['person.created', 'signup.created', 'signup.updated']),
   signupFee: auditedRoute('PUT', '/lista-wyjazdowa/signups/skladka', ['dues.event_fee.changed']),
   entryFee: auditedRoute('PUT', '/lista-wyjazdowa/wpisowe', ['dues.entry_fee.changed']),
   annualDues: auditedRoute('PUT', '/lista-wyjazdowa/dues', ['dues.annual.changed']),
@@ -3192,6 +3194,101 @@ async function handleListaWyjazdowaPutPersonAccount(req: IncomingMessage, res: S
   sendJson(res, 200, { person: result.person });
 }
 
+// KRKG-0087: adding a person to a trip straight from the event page. `mode='existing'` signs up an
+// already-attached accountless person; `mode='new'` creates the person (section inherited from the
+// owner, no account) and signs them up in one transaction, so a failed signup write cannot leave an
+// orphan person. The owner must be the caller unless the caller is staff, and an existing target
+// must be an accountless person attached to that owner.
+async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const eventId = requireTrimmedString(body.eventId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora wyjazdu.');
+  const ownerPersonId = requireTrimmedString(body.ownerPersonId, LW_MAX_NAME_LENGTH, 'Brak opiekuna.');
+  if (body.mode !== 'existing' && body.mode !== 'new') throw new AuthError('Pole mode musi być jednym z: existing, new.', 400);
+  const mode = body.mode;
+
+  const event = await getEvent(deps.firestore, eventId);
+  if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+
+  const staff = await isPersonStaff(req, res, deps, identity.email);
+  const caller = await resolvePersonId(deps.firestore, identity.email);
+  if (!staff && ownerPersonId.toLowerCase() !== caller.personId.toLowerCase()) {
+    throw new AuthError('Brak uprawnień do tego opiekuna.', 403);
+  }
+  // The owner is a person with an account - an accountless person cannot own anyone.
+  const owner = await resolvePersonId(deps.firestore, ownerPersonId);
+  if (owner.kind !== 'account') throw new AuthError('Opiekun musi być osobą z kontem.', 400);
+  const ownerKey = owner.personId;
+  const allowedEmails = await deps.listMemberEmails();
+  if (!allowedEmails.includes(ownerKey)) throw new AuthError('Nie znaleziono takiego członka.', 404);
+
+  if (mode === 'existing') {
+    const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
+    const person = await getPerson(deps.firestore, personId);
+    if (!person || person.deletedAt) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+    if (person.ownerPersonId?.toLowerCase() !== ownerKey.toLowerCase()) {
+      throw new AuthError('Ta osoba nie jest przywiązana do tego opiekuna.', 403);
+    }
+    const existing = await getSignup(deps.firestore, eventId, person.personId);
+    const { result: signup } = await executeDeclaredAuditedMutation(
+      deps,
+      AUDITED_MEMBER_MUTATION_ROUTES.quickAdd,
+      existing ? 'signup.updated' : 'signup.created',
+      async tx => {
+        const before = await tx.getDoc<SignupDoc>('signups', `${eventId}_${person.personId}`);
+        return {
+          actor: { email: identity.email },
+          resource: { kind: 'signup' as const, key: `signup:${eventId}:${person.personId}`, display: person.ksywka || person.personId },
+          changes: [
+            { field: 'attending', ...(before ? { before: before.attending } : {}), after: true },
+            { field: 'equipmentCount', ...(before ? { before: before.equipmentIds.length } : {}), after: 0 },
+          ],
+        };
+      },
+      tx => saveSignup(tx, eventId, person.personId, { attending: true, equipmentIds: [] }, identity.email),
+    );
+    sendJson(res, 200, { person, signup });
+    return;
+  }
+
+  const ksywka = requireTrimmedString(body.ksywka, LW_MAX_NAME_LENGTH, 'Ksywka jest wymagana.');
+  const categoryId = requireTrimmedString(body.categoryId, LW_MAX_NAME_LENGTH, 'Kategoria jest wymagana.');
+  const ownerMember = await getMember(deps.firestore, ownerKey);
+  const sectionId = ownerMember?.sectionId?.trim();
+  if (!sectionId) throw new AuthError('Opiekun nie ma ustawionej sekcji.', 400);
+  const fields: PersonWritableFields = { ksywka, firstName: '', lastName: '', categoryId, sectionId, weaponIds: [] };
+  const personId = randomUUID();
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.quickAdd,
+    ['person.created', 'signup.created'],
+    [
+      {
+        actor: { email: identity.email },
+        resource: { kind: 'person' as const, key: `person:${personId}`, display: ksywka },
+        changes: [
+          { field: 'nickname', after: ksywka },
+          { field: 'categoryId', after: categoryId },
+          { field: 'sectionId', after: sectionId },
+          { field: 'weaponCount', after: 0 },
+          { field: 'ownerPersonId', after: ownerKey },
+        ],
+      },
+      {
+        actor: { email: identity.email },
+        resource: { kind: 'signup' as const, key: `signup:${eventId}:${personId}`, display: ksywka },
+        changes: [{ field: 'attending', after: true }, { field: 'equipmentCount', after: 0 }],
+      },
+    ],
+    async tx => {
+      const person = await createPerson(tx, fields, ownerKey, identity.email, personId);
+      const signup = await saveSignup(tx, eventId, personId, { attending: true, equipmentIds: [] }, identity.email);
+      return { person, signup };
+    },
+  );
+  sendJson(res, 201, { person: result.person, signup: result.signup });
+}
+
 // Structured console log for every destructive gallery action (KRKG-0027's audit requirement) -
 // actor, target, outcome, and a correlation id tying a single request's attempt/result together
 // in Cloud Run's log output. No dedicated logging store exists in this project; console.log is
@@ -4196,6 +4293,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaPutPersonOwner(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/persons/account') {
         await handleListaWyjazdowaPutPersonAccount(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/lista-wyjazdowa/signups/quick-add') {
+        await handleListaWyjazdowaPostQuickAdd(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/members/directory') {
         await handleMembersDirectory(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/my-role') {

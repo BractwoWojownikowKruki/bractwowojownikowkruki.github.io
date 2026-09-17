@@ -14,7 +14,7 @@ table into this file in the same change. If you forget, this test will keep pass
 stale copy while the real contract document silently diverges - exactly the failure mode this
 fixture exists to prevent.
 
-Last synced with implementation-contract.md: 2026-09-17 (KRKG-0087: added the accountless-person record routes POST/PUT/DELETE /lista-wyjazdowa/persons, PUT /lista-wyjazdowa/persons/owner and PUT /lista-wyjazdowa/persons/account, actions person.created/updated/deleted/detached/merged).
+Last synced with implementation-contract.md: 2026-09-17 (KRKG-0087: added the accountless-person record routes POST/PUT/DELETE /lista-wyjazdowa/persons, PUT /lista-wyjazdowa/persons/owner, PUT /lista-wyjazdowa/persons/account and POST /lista-wyjazdowa/signups/quick-add, actions person.created/updated/deleted/detached/merged).
 -->
 
 | Method and route | Classification and action | Resource and side effect | Execution |
@@ -58,6 +58,7 @@ Last synced with implementation-contract.md: 2026-09-17 (KRKG-0087: added the ac
 | DELETE `/lista-wyjazdowa/persons` | businessWrite — `person.deleted` | person; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/persons/owner` | businessWrite — `person.detached` | person; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/persons/account` | businessWrite — `person.merged` | person and member; Firestore | requestAwaited |
+| POST `/lista-wyjazdowa/signups/quick-add` | businessWrite — `person.created` + `signup.created` for `mode=new`; `signup.created` / `signup.updated` for `mode=existing` | person and signup; Firestore; one transaction | requestAwaited |
 | POST `/admin/settings` | businessWrite — `site.settings.updated` | settings; Drive text/config file | auditedOperationEnvelope |
 | POST `/delete-drive-gallery` | businessWrite — `gallery.deleted` | gallery; Drive | auditedOperationEnvelope |
 | POST `/start` | businessWrite — `gallery.created` | gallery; Drive folder/public share; provisional key then final gallery folder key | auditedOperationEnvelope |
