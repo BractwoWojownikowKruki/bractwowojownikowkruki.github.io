@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { FirestoreLikeClient } from './firestore.ts';
-import { createCanonicalAuditEvent, type CanonicalAuditEvent, type CanonicalAuditEventInput } from './audit.ts';
+import { createCanonicalAuditEvent, eventIdFromResource, type CanonicalAuditEvent, type CanonicalAuditEventInput } from './audit.ts';
 import type { RoleAuditEntry } from './roles.ts';
 import type { DuesAuditEntry } from './dues.ts';
 import type { AuditLogEntry as SignupAuditLogEntry } from './signups.ts';
@@ -404,4 +404,65 @@ export async function migrateAuditLogs(firestore: FirestoreLikeClient, options: 
     }
   }
   return { dryRun: options.dryRun, rows, createdCount, alreadyMigratedCount };
+}
+
+/**
+ * KRKG-0086: one-off enrichment of pre-existing canonical audit events written before `eventId`
+ * existed. The event-wide Historia query (`{ kind: 'event', eventId }`) only sees rows that carry
+ * this field, so without this pass every trip created before the field existed would still show
+ * empty history. `eventIdFromResource` is the exact same derivation the live write path uses, so
+ * the backfill cannot invent an id a new event wouldn't get. Merge-writes only the one field and
+ * never touches evidence (changes/actor/timestamp), so it is safe to re-run: rows that already
+ * have an `eventId` are left alone. `dryRun` reports the plan without writing anything.
+ */
+export interface BackfillEventIdRow {
+  id: string;
+  eventId?: string;
+  action: 'already_set' | 'would_update' | 'updated' | 'no_event_id';
+}
+
+export interface BackfillEventIdReport {
+  dryRun: boolean;
+  totalDocuments: number;
+  /** Rows actually written (0 on a dry run). */
+  updatedCount: number;
+  /** Rows that lack `eventId` but have a derivable one - the work a dry run is planning. */
+  pendingCount: number;
+  alreadySetCount: number;
+  noEventIdCount: number;
+  rows: BackfillEventIdRow[];
+}
+
+export async function backfillAuditEventIds(
+  firestore: FirestoreLikeClient,
+  options: { dryRun: boolean } = { dryRun: true },
+): Promise<BackfillEventIdReport> {
+  const docs = await firestore.listDocs<CanonicalAuditEvent>('auditEvents');
+  const rows: BackfillEventIdRow[] = [];
+  let updatedCount = 0;
+  let pendingCount = 0;
+  let alreadySetCount = 0;
+  let noEventIdCount = 0;
+  for (const { id, data } of docs) {
+    if (data.eventId) {
+      alreadySetCount += 1;
+      rows.push({ id, eventId: data.eventId, action: 'already_set' });
+      continue;
+    }
+    const eventId = eventIdFromResource(data.resource);
+    if (!eventId) {
+      noEventIdCount += 1;
+      rows.push({ id, action: 'no_event_id' });
+      continue;
+    }
+    pendingCount += 1;
+    if (options.dryRun) {
+      rows.push({ id, eventId, action: 'would_update' });
+      continue;
+    }
+    await firestore.setDoc('auditEvents', id, { eventId });
+    updatedCount += 1;
+    rows.push({ id, eventId, action: 'updated' });
+  }
+  return { dryRun: options.dryRun, totalDocuments: docs.length, updatedCount, pendingCount, alreadySetCount, noEventIdCount, rows };
 }

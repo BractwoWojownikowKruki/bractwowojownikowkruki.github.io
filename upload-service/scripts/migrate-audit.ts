@@ -13,13 +13,31 @@
 //   FIRESTORE_PROJECT_ID=... npx tsx scripts/migrate-audit.ts --preflight
 //   FIRESTORE_PROJECT_ID=... npx tsx scripts/migrate-audit.ts               # dry run - logs the plan only
 //   FIRESTORE_PROJECT_ID=... npx tsx scripts/migrate-audit.ts --execute
-import { migrateAuditLogs, preflightAuditMigration } from '../src/audit-migration.ts';
+//
+// KRKG-0086 adds a second, independent mode that enriches already-migrated canonical events with
+// their derived `eventId` (the event-wide Historia selector needs it). It shares the same
+// dry-run-first convention:
+//   FIRESTORE_PROJECT_ID=... npx tsx scripts/migrate-audit.ts --backfill-event-ids            # dry run
+//   FIRESTORE_PROJECT_ID=... npx tsx scripts/migrate-audit.ts --backfill-event-ids --execute
+import { backfillAuditEventIds, migrateAuditLogs, preflightAuditMigration } from '../src/audit-migration.ts';
 
 async function main(): Promise<void> {
   const mode = process.argv.includes('--preflight') ? 'preflight' : process.argv.includes('--execute') ? 'execute' : 'dry-run';
 
   const { createFirestoreClient } = await import('../src/firestore.ts');
   const client = createFirestoreClient(process.env.FIRESTORE_PROJECT_ID);
+
+  if (process.argv.includes('--backfill-event-ids')) {
+    const dryRun = !process.argv.includes('--execute');
+    const report = await backfillAuditEventIds(client, { dryRun });
+    console.log(
+      `${dryRun ? '[DRY RUN] ' : ''}Zdarzenia: ${report.totalDocuments}, do uzupełnienia: ${report.pendingCount}, uzupełnione: ${report.updatedCount}, już miały eventId: ${report.alreadySetCount}, bez wyprowadzalnego eventId: ${report.noEventIdCount}.`,
+    );
+    if (dryRun) {
+      console.log('To był przebieg próbny - nic nie zostało zapisane. Uruchom z --execute, aby faktycznie uzupełnić eventId.');
+    }
+    return;
+  }
 
   if (mode === 'preflight') {
     const report = await preflightAuditMigration(client);

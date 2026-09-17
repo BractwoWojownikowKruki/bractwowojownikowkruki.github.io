@@ -45,7 +45,8 @@ const elementIds = [
   'cancel-event-btn', 'restore-event-btn', 'event-history-link', 'skladka-fee-history-link',
 ];
 
-function createHarness(event: Record<string, unknown>) {
+function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean } = {}) {
+  const canManageSkladki = options.canManageSkladki ?? true;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
   // Mirrors index.html's default: "Zgłoszeni + ja" starts checked, "Niezgłoszeni" unchecked.
   elements.get('roster-filter-zgloszeni')!.checked = true;
@@ -102,7 +103,7 @@ function createHarness(event: Record<string, unknown>) {
       if (url === '/lista-wyjazdowa/events') return { events: [event] };
       if (url === '/lista-wyjazdowa/roster') return { roster };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups };
-      if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: true };
+      if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [], weapons: [] };
       throw new Error(`unexpected request: ${url}`);
     },
@@ -119,6 +120,19 @@ function createHarness(event: Record<string, unknown>) {
 
 const event = (skladkaFee: unknown, dueDate: unknown = undefined) => ({
   id: 'e1', name: 'Wyjazd', startDate: '2026-10-10', status: 'active', skladkaFee, dueDate,
+});
+
+test('the top clock links to the event-wide audit, scoping dues to /admin/audyt/ only when the viewer can manage składki', async () => {
+  const privileged = createHarness(event('50 zł'));
+  await privileged.signIn();
+  assert.equal(privileged.elements.get('event-history-link')!.href, '/admin/audyt/?eventId=e1');
+  assert.equal(privileged.elements.get('skladka-fee-history-link')!.href, '/admin/audyt/?resourceKey=eventFee%3Ae1');
+  assert.equal(privileged.elements.get('skladka-fee-history-link')!.hidden, false);
+
+  const member = createHarness(event('50 zł'), { canManageSkladki: false });
+  await member.signIn();
+  assert.equal(member.elements.get('event-history-link')!.href, '/audyt/?eventId=e1');
+  assert.equal(member.elements.get('skladka-fee-history-link')!.hidden, true);
 });
 
 test('roster checkboxes filter locally and preserve the signed-in viewer', async () => {

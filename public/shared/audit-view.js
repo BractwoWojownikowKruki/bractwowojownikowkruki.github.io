@@ -223,6 +223,9 @@
     if (initialFilters && initialFilters.resourceKey) {
       return { selector: { kind: 'resourceKey', key: initialFilters.resourceKey }, fromDate: '', toDate: '' };
     }
+    if (initialFilters && initialFilters.eventId) {
+      return { selector: { kind: 'event', eventId: initialFilters.eventId }, fromDate: '', toDate: '' };
+    }
     if (initialFilters && initialFilters.category) {
       return { selector: { kind: 'categoryAction', category: initialFilters.category }, fromDate: '', toDate: '' };
     }
@@ -241,8 +244,8 @@
 
   /**
    * Builds the URLSearchParams for GET {apiBase}/events from one filter-state object:
-   * `{ selector: { kind, category?, action?, email?, key?, term? }, from?, to?, cursor?, limit? }`.
-   * `selector.kind` is one of 'none' | 'categoryAction' | 'actorEmail' | 'resourceKey' | 'search' -
+   * `{ selector: { kind, category?, action?, email?, key?, eventId?, term? }, from?, to?, cursor?, limit? }`.
+   * `selector.kind` is one of 'none' | 'categoryAction' | 'actorEmail' | 'resourceKey' | 'event' | 'search' -
    * exactly the "zero-or-one primary selector" contract (implementation-contract.md), mirrored
    * from `AuditPrimarySelector` in upload-service/src/audit.ts. The UI never constructs more than
    * one selector at once (buildFilterControlsHtml renders a single <select> that picks which one
@@ -269,6 +272,10 @@
       case 'resourceKey':
         if (!selector.key) throw new AuditFilterError('Podaj identyfikator zasobu.');
         params.set('resourceKey', selector.key);
+        break;
+      case 'event':
+        if (!selector.eventId) throw new AuditFilterError('Podaj identyfikator wydarzenia.');
+        params.set('eventId', selector.eventId);
         break;
       case 'search':
         if (!selector.term) throw new AuditFilterError('Podaj szukane słowo.');
@@ -347,6 +354,7 @@
             <option value="categoryAction">Kategoria / rodzaj zdarzenia</option>
             ${scope === 'admin' ? '<option value="actorEmail">Użytkownik</option>' : ''}
             <option value="resourceKey">Zasób</option>
+            <option value="event">Wydarzenie</option>
             <option value="search">Szukaj od początku słowa</option>
           </select>
         </label>
@@ -370,6 +378,11 @@
         <span class="audyt-selector-value" data-kind="resourceKey" hidden>
           <label class="audyt-filter-field">Zasób
             <input type="text" class="audyt-resource-input" placeholder="np. event:abc123" autocomplete="off" />
+          </label>
+        </span>
+        <span class="audyt-selector-value" data-kind="event" hidden>
+          <label class="audyt-filter-field">Wydarzenie
+            <input type="text" class="audyt-event-input" placeholder="np. 34a4a7d8-458e-43ff-8a36-8dd144ff007f" autocomplete="off" />
           </label>
         </span>
         <span class="audyt-selector-value" data-kind="search" hidden>
@@ -437,6 +450,7 @@
       actionSelect: container.querySelector('.audyt-action-select'),
       actorInput: container.querySelector('.audyt-actor-input'),
       resourceInput: container.querySelector('.audyt-resource-input'),
+      eventInput: container.querySelector('.audyt-event-input'),
       searchInput: container.querySelector('.audyt-search-input'),
       fromInput: container.querySelector('.audyt-from-input'),
       toInput: container.querySelector('.audyt-to-input'),
@@ -471,6 +485,7 @@
       if (kind === 'categoryAction') return { kind, category: els.categorySelect.value || undefined, action: els.actionSelect.value || undefined };
       if (kind === 'actorEmail') return { kind, email: els.actorInput ? els.actorInput.value.trim() : '' };
       if (kind === 'resourceKey') return { kind, key: els.resourceInput.value.trim() };
+      if (kind === 'event') return { kind, eventId: els.eventInput.value.trim() };
       if (kind === 'search') return { kind, term: els.searchInput.value.trim() };
       return { kind: 'none' };
     }
@@ -573,6 +588,10 @@
       els.selectorKind.value = 'resourceKey';
       showSelectorValue('resourceKey');
       els.resourceInput.value = initialState.selector.key;
+    } else if (initialState.selector.kind === 'event') {
+      els.selectorKind.value = 'event';
+      showSelectorValue('event');
+      els.eventInput.value = initialState.selector.eventId;
     } else if (initialState.selector.kind === 'categoryAction') {
       els.selectorKind.value = 'categoryAction';
       showSelectorValue('categoryAction');

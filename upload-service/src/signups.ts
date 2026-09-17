@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { FirestoreDoc, FirestoreLikeClient } from './firestore.ts';
 
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
@@ -35,7 +34,6 @@ export interface AuditLogEntry {
 }
 
 const SIGNUPS_COLLECTION = 'signups';
-const AUDIT_COLLECTION = 'signupAuditLog';
 
 function signupId(eventId: string, email: string): string {
   return `${eventId}_${email.toLowerCase()}`;
@@ -101,18 +99,4 @@ export async function setSkladkaPaid(
   const writable = { skladkaPaid: paid, lastChangedBy: changedBy, lastChangedAt: new Date().toISOString() };
   await client.setDoc(SIGNUPS_COLLECTION, id, writable);
   return { ...existing, ...writable };
-}
-
-export async function appendAuditLogEntry(client: FirestoreLikeClient, entry: Omit<AuditLogEntry, 'changedAt'>): Promise<void> {
-  const id = randomUUID();
-  const full: AuditLogEntry = { ...entry, changedAt: new Date().toISOString() };
-  await client.setDoc(AUDIT_COLLECTION, id, full);
-}
-
-export async function listAuditLogForEvent(client: FirestoreLikeClient, eventId: string): Promise<AuditLogEntry[]> {
-  const all = await client.listDocs<AuditLogEntry>(AUDIT_COLLECTION);
-  return all
-    .map((d) => d.data)
-    .filter((entry) => entry.eventId === eventId)
-    .sort((a, b) => a.changedAt.localeCompare(b.changedAt));
 }

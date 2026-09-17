@@ -64,12 +64,11 @@ import {
   getSignup,
   saveSignup,
   setSkladkaPaid,
-  listAuditLogForEvent,
   type SignupDoc,
   type SignupWritableFields,
 } from './signups.ts';
-import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
-import { listDuesForYear, saveDues, listDuesAuditLog, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, type DuesYearFeeWritableFields, getDues, normalizeDuesStatus, effectiveDuesStatus } from './dues.ts';
+import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, createRoleAuthorizer } from './roles.ts';
+import { listDuesForYear, saveDues, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, type DuesYearFeeWritableFields, getDues, normalizeDuesStatus, effectiveDuesStatus } from './dues.ts';
 import { buildSharedFileDoc, saveFileInTransaction, deleteFileInTransaction, getFileInTransaction, listFiles, InvalidFileUrlError, type SharedFileDoc } from './files.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
@@ -940,7 +939,7 @@ async function handleAdminWhoami(req: IncomingMessage, res: ServerResponse, deps
 // without the other three revealing themselves too. Drives both this page's own sign-in gate and
 // nav.js's narrower visibility toggle for that one nav entry. Also reports isAdmin so the page can
 // hide the Rola column/audit log for a plain moderator - role assignment stays admin-only
-// (see ASSIGNABLE_ROLES/handleAdminSetRoles), and GET /admin/roles(+/audit-log) would just 403 for
+// (see ASSIGNABLE_ROLES/handleAdminSetRoles), and GET /admin/roles would just 403 for
 // them, which would otherwise break Promise.all-loading the whole member list.
 async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminOrModerator(req, res);
@@ -1191,14 +1190,9 @@ async function handleAdminSetRoles(req: IncomingMessage, res: ServerResponse, de
   sendJson(res, 200, { ok: true });
 }
 
-// Admin-only (KRKG-0049) - who has admin/accountant is itself sensitive, same reasoning as the
-// dues audit log being accountant/admin-only rather than open to every signed-in member.
-async function handleAdminListRolesAuditLog(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdmin(req, res);
-  const entries = await listRoleAuditLog(deps.firestore);
-  sendJson(res, 200, { entries });
-}
-
+// Admin-only (KRKG-0049) - who has admin/accountant is itself sensitive. The legacy
+// /admin/roles/audit-log endpoint was removed in KRKG-0086; role changes are read through the
+// canonical audit (permissions category) instead.
 async function handleAdminListRedirects(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   await deps.authenticateAdmin(req, res);
   const redirects = await deps.github.listRedirects();
@@ -2644,14 +2638,6 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, { signup });
 }
 
-async function handleListaWyjazdowaGetAuditLog(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateWojownicyUpload(req, res);
-  const eventId = url.searchParams.get('eventId');
-  if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
-  const entries = await listAuditLogForEvent(deps.firestore, eventId);
-  sendJson(res, 200, { entries });
-}
-
 // Enumerates the live kruki Google Group allowlist (same as GET /members/directory, KRKG-0045),
 // not just members/{email} docs: a club member who never opened "Mój profil" still has to be
 // settable as attending/not-attending a trip, which is only possible if their row exists at all.
@@ -2933,16 +2919,6 @@ async function handleListaWyjazdowaPutDuesYearFee(req: IncomingMessage, res: Ser
     tx => saveDuesYearFee(tx, year, fields, identity.email),
   );
   sendJson(res, 200, { yearFee });
-}
-
-// Accountant/admin-only (KRKG-0047) - the dues audit log names who paid what and when, which is
-// more sensitive than the roster/dues themselves, so it is no longer open to every signed-in
-// member the way it was before this story.
-async function handleListaWyjazdowaGetDuesAuditLog(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateWojownicyUpload(req, res);
-  await requireSkladkiAccess(req, res, deps, identity.email);
-  const entries = await listDuesAuditLog(deps.firestore);
-  sendJson(res, 200, { entries });
 }
 
 // Structured console log for every destructive gallery action (KRKG-0027's audit requirement) -
@@ -3481,6 +3457,7 @@ function parseAuditQueryOptions(url: URL): AuditQueryOptions {
   const action = params.get('action');
   const actorEmail = params.get('actorEmail');
   const resourceKey = params.get('resourceKey');
+  const eventId = params.get('eventId');
   const q = params.get('q');
   if (action && !category) throw new AuditQueryError('Selektor action wymaga podania category.');
 
@@ -3488,8 +3465,9 @@ function parseAuditQueryOptions(url: URL): AuditQueryOptions {
   if (category) selectors.push({ kind: 'categoryAction', category: category as AuditCategory, ...(action ? { action: action as AuditAction } : {}) });
   if (actorEmail) selectors.push({ kind: 'actor', email: actorEmail });
   if (resourceKey) selectors.push({ kind: 'resourceKey', key: resourceKey });
+  if (eventId) selectors.push({ kind: 'event', eventId });
   if (q) selectors.push({ kind: 'search', term: q });
-  if (selectors.length > 1) throw new AuditQueryError('Można podać tylko jeden selektor podstawowy (category/action, actorEmail, resourceKey albo q).');
+  if (selectors.length > 1) throw new AuditQueryError('Można podać tylko jeden selektor podstawowy (category/action, actorEmail, resourceKey, eventId albo q).');
 
   const from = params.get('from') ?? undefined;
   const to = params.get('to') ?? undefined;
@@ -3849,8 +3827,6 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminListRoles(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/roles') {
         await handleAdminSetRoles(req, res, deps);
-      } else if (req.method === 'GET' && url.pathname === '/admin/roles/audit-log') {
-        await handleAdminListRolesAuditLog(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/audyt/whoami') {
         await handleAdminAuditWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/audyt/events') {
@@ -3937,8 +3913,6 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaGetMySignup(req, res, url, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/signups') {
         await handleListaWyjazdowaPutSignup(req, res, url, deps);
-      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/signups/audit-log') {
-        await handleListaWyjazdowaGetAuditLog(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/roster') {
         await handleListaWyjazdowaGetRoster(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/members/directory') {
@@ -3957,8 +3931,6 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaPutDues(req, res, url, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/dues/year-fee') {
         await handleListaWyjazdowaPutDuesYearFee(req, res, url, deps);
-      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/dues/audit-log') {
-        await handleListaWyjazdowaGetDuesAuditLog(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
         if (!rejectIfRateLimited(req, res)) await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {

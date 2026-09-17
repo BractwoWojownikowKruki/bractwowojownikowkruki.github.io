@@ -61,6 +61,7 @@ test('buildQueryParams: "none" selector produces no primary-selector param', () 
   assert.equal(params.has('category'), false);
   assert.equal(params.has('actorEmail'), false);
   assert.equal(params.has('resourceKey'), false);
+  assert.equal(params.has('eventId'), false);
   assert.equal(params.has('q'), false);
 });
 
@@ -85,6 +86,13 @@ test('buildQueryParams: actorEmail selector', () => {
 test('buildQueryParams: resourceKey selector (Historia deep-link shape)', () => {
   const params = AuditView.buildQueryParams({ selector: { kind: 'resourceKey', key: 'event:abc123' } });
   assert.equal(params.get('resourceKey'), 'event:abc123');
+});
+
+test('buildQueryParams: event selector maps to the eventId param (event-wide Historia deep link)', () => {
+  const params = AuditView.buildQueryParams({ selector: { kind: 'event', eventId: 'abc123' } });
+  assert.equal(params.get('eventId'), 'abc123');
+  assert.equal(params.has('resourceKey'), false);
+  assert.equal(params.has('category'), false);
 });
 
 test('buildQueryParams: search selector maps to the server\'s "q" param', () => {
@@ -139,6 +147,13 @@ test('defaultAuditState preserves a Historia resource selector without default d
   );
 });
 
+test('defaultAuditState preserves an event-wide selector without default date filters', () => {
+  assert.deepEqual(
+    AuditView.defaultAuditState({ eventId: 'abc123' }, new Date(2026, 8, 10, 12)),
+    { selector: { kind: 'event', eventId: 'abc123' }, fromDate: '', toDate: '' },
+  );
+});
+
 test('buildQueryParams: rejects a categoryAction selector with no category (defensive - the "supported filters only" contract)', () => {
   assert.throws(() => AuditView.buildQueryParams({ selector: { kind: 'categoryAction' } }), AuditView.AuditFilterError);
 });
@@ -149,6 +164,10 @@ test('buildQueryParams: rejects an actorEmail selector with an empty email', () 
 
 test('buildQueryParams: rejects a resourceKey selector with no key', () => {
   assert.throws(() => AuditView.buildQueryParams({ selector: { kind: 'resourceKey', key: '' } }), AuditView.AuditFilterError);
+});
+
+test('buildQueryParams: rejects an event selector with no eventId', () => {
+  assert.throws(() => AuditView.buildQueryParams({ selector: { kind: 'event', eventId: '' } }), AuditView.AuditFilterError);
 });
 
 test('buildQueryParams: rejects a search selector with no term', () => {

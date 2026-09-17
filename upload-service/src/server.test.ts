@@ -24,7 +24,7 @@ import { resetSettingsBootstrapForTests } from './settings.ts';
 import { resetRateLimitForTests } from './rate-limit.ts';
 import { createInMemoryFirestoreClient } from './firestore.ts';
 import { createDisabledSheetsClient } from './sheets.ts';
-import { listRoleAuditLog, createRoleAuthorizer } from './roles.ts';
+import { createRoleAuthorizer } from './roles.ts';
 import { executeAuditedFirestoreMutation, startExternalOperation, completeExternalOperation } from './audit.ts';
 import { getFile } from './files.ts';
 
@@ -3252,10 +3252,6 @@ test('PUT /admin/roles grants a role to a member and records only canonical evid
   });
   const stored = await client.getDoc<{ roles: string[] }>('userRoles', 'ala@example.com');
   assert.deepEqual(stored?.roles, ['admin']);
-  const { entries } = await withServer(makeDeps({ firestore: client }), baseUrl =>
-    fetch(`${baseUrl}/admin/roles/audit-log`).then(r => r.json()),
-  );
-  assert.deepEqual(entries, []);
   const [audit] = await client.listDocs<{ action: string; actor: { email: string }; changes: Array<{ field: string; before: string; after: string }> }>('auditEvents');
   assert.equal(audit.data.action, 'role.granted');
   assert.equal(audit.data.actor.email, 'admin@example.com');
@@ -3279,33 +3275,9 @@ test('PUT /admin/roles can revoke every role by passing an empty array without a
   });
   const stored = await client.getDoc<{ roles: string[] }>('userRoles', 'ala@example.com');
   assert.deepEqual(stored?.roles, []);
-  assert.deepEqual(await listRoleAuditLog(client), []);
   const [audit] = await client.listDocs<{ action: string; changes: Array<{ field: string; before: string; after: string }> }>('auditEvents');
   assert.equal(audit.data.action, 'role.revoked');
   assert.deepEqual(audit.data.changes, [{ field: 'roles', before: 'Księgowy', after: 'Brak', visibility: 'roleRestricted' }]);
-});
-
-test('GET /admin/roles/audit-log lists entries', async () => {
-  const client = createInMemoryFirestoreClient();
-  const deps = makeDeps({ firestore: client });
-  await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/admin/roles/audit-log`);
-    assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.deepEqual(body.entries, []);
-  });
-});
-
-test('GET /admin/roles/audit-log rejects an unauthenticated caller', async () => {
-  const deps = makeDeps({
-    authenticateAdmin: async () => {
-      throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
-    },
-  });
-  await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/admin/roles/audit-log`);
-    assert.equal(res.status, 401);
-  });
 });
 
 test('PUT /admin/roles rejects an unknown role name', async () => {
@@ -6414,9 +6386,6 @@ test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and r
     assert.equal(body.signup.memberEmail, 'inny@example.test');
     assert.equal(body.signup.lastChangedBy, 'wojownik@gmail.com', 'lastChangedBy reflects the caller, not the target member');
 
-    const auditRes = await fetch(`${baseUrl}/lista-wyjazdowa/signups/audit-log?eventId=${created.event.id}`);
-    const auditBody = await auditRes.json();
-    assert.deepEqual(auditBody.entries, []);
     const [audit] = await firestore.listDocs<{ action: string; actor: { email: string }; resource: { key: string } }>('auditEvents');
     assert.equal(audit.data.action, 'event.created');
     const signupAudit = (await firestore.listDocs<{ action: string; actor: { email: string }; resource: { key: string } }>('auditEvents'))
@@ -6917,7 +6886,7 @@ test('PUT /lista-wyjazdowa/dues rejects a status outside unpaid/paid/not_applica
   });
 });
 
-test('GET /lista-wyjazdowa/dues/audit-log retains readable legacy entries while new dues writes are canonical', async () => {
+test('new dues writes are canonical audit events (legacy dues audit-log endpoint removed)', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const deps = makeDepsWithRole('accountant', firestore);
   await withServer(deps, async baseUrl => {
@@ -6928,31 +6897,6 @@ test('GET /lista-wyjazdowa/dues/audit-log retains readable legacy entries while 
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { skladkaFee: '50 zł' });
 
-    firestore.seed('duesAuditLog', 'legacy-entry-fee', {
-      context: 'wpisowe', targetMemberEmail: 'legacy@example.test', eventId: null, eventName: null, year: null,
-      changedBy: 'legacy-admin@example.test', changedAt: '2026-01-01T00:00:00.000Z', changeSummary: 'legacy wpisowe',
-    });
-    firestore.seed('duesAuditLog', 'legacy-annual', {
-      context: 'roczna', targetMemberEmail: 'legacy@example.test', eventId: null, eventName: null, year: 2026,
-      changedBy: 'legacy-admin@example.test', changedAt: '2026-01-02T00:00:00.000Z', changeSummary: 'legacy roczna',
-    });
-    firestore.seed('duesAuditLog', 'legacy-event', {
-      context: 'eventFee', targetMemberEmail: null, eventId: 'legacy-event', eventName: 'Legacy', year: null,
-      changedBy: 'legacy-admin@example.test', changedAt: '2026-01-03T00:00:00.000Z', changeSummary: 'legacy event fee',
-    });
-
-    const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
-    assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.equal(body.entries.length, 3);
-    assert.equal(body.entries[0].context, 'wpisowe');
-    assert.equal(body.entries[0].targetMemberEmail, 'legacy@example.test');
-    assert.equal(body.entries[1].context, 'roczna');
-    assert.equal(body.entries[1].year, 2026);
-    assert.equal(body.entries[2].context, 'eventFee');
-    assert.equal(body.entries[2].eventId, 'legacy-event');
-    assert.equal(body.entries[2].eventName, 'Legacy');
-    assert.equal(body.entries[2].changeSummary, 'legacy event fee');
     const canonical = await firestore.listDocs<{ action: string }>('auditEvents');
     assert.ok(canonical.some(entry => entry.data.action === 'dues.entry_fee.changed'));
     assert.ok(canonical.some(entry => entry.data.action === 'dues.annual.changed'));
@@ -6966,20 +6910,8 @@ test('PUT /lista-wyjazdowa/events without skladkaFee in the body does not append
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { name: 'Zjazd zimowy' });
-    const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
-    assert.deepEqual((await res.json()).entries, []);
-  });
-});
-
-test('GET /lista-wyjazdowa/dues/audit-log requires accountant, 403 for a plain member (KRKG-0047)', async () => {
-  const firestore = makeListaWyjazdowaFirestore();
-  await withServer(makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } }), async baseUrl => {
-    const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
-    assert.equal(res.status, 403);
-  });
-  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
-    const res = await fetch(`${baseUrl}/lista-wyjazdowa/dues/audit-log`);
-    assert.equal(res.status, 200);
+    const canonical = await firestore.listDocs<{ action: string }>('auditEvents');
+    assert.ok(!canonical.some(entry => entry.data.action === 'dues.event_fee.changed'));
   });
 });
 
@@ -7380,7 +7312,7 @@ test('GET /admin/audyt/events: action without category is a deterministic 400, a
     const actionWithoutCategory = await fetch(`${baseUrl}/admin/audyt/events?action=event.created`);
     assert.equal(actionWithoutCategory.status, 400);
 
-    // Each of the five selector shapes is independently accepted (zero-or-one primary selector).
+    // Each of the six selector shapes is independently accepted (zero-or-one primary selector).
     const byCategory = await fetch(`${baseUrl}/admin/audyt/events?category=events`);
     assert.equal(byCategory.status, 200);
     const byCategoryAction = await fetch(`${baseUrl}/admin/audyt/events?category=events&action=event.created`);
@@ -7389,6 +7321,8 @@ test('GET /admin/audyt/events: action without category is a deterministic 400, a
     assert.equal(byActor.status, 200);
     const byResource = await fetch(`${baseUrl}/admin/audyt/events?resourceKey=event:evt-a`);
     assert.equal(byResource.status, 200);
+    const byEventId = await fetch(`${baseUrl}/admin/audyt/events?eventId=evt-a`);
+    assert.equal(byEventId.status, 200);
     const byQuery = await fetch(`${baseUrl}/admin/audyt/events?q=evt`);
     assert.equal(byQuery.status, 200);
 
@@ -7398,6 +7332,33 @@ test('GET /admin/audyt/events: action without category is a deterministic 400, a
     assert.equal(withDateRange.status, 200);
     const resourceAndQuery = await fetch(`${baseUrl}/admin/audyt/events?resourceKey=event:evt-a&q=evt`);
     assert.equal(resourceAndQuery.status, 400);
+    const eventIdAndResource = await fetch(`${baseUrl}/admin/audyt/events?eventId=evt-a&resourceKey=event:evt-a`);
+    assert.equal(eventIdAndResource.status, 400);
+  });
+});
+
+test('GET /admin/audyt/events?eventId= returns event, eventFee, and signup rows for one trip only', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await seedAuditEvent(firestore, 'evt-a', '2026-01-01T00:00:00.000Z');
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'dues.event_fee.changed', actor: { email: 'skarbnik@example.test' }, resource: { kind: 'eventFee', key: 'eventFee:evt-a', display: 'Wyjazd evt-a' }, changes: [{ field: 'feeDigest', after: 'abc' }] },
+    async () => {},
+    { createId: () => 'evt-a-fee', now: () => new Date('2026-01-02T00:00:00.000Z') },
+  );
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'signup.created', actor: { email: 'maja@example.test' }, resource: { kind: 'signup', key: 'signup:evt-a:ula@example.test', display: 'ula@example.test' }, changes: [{ field: 'attending', after: true }] },
+    async () => {},
+    { createId: () => 'evt-a-signup', now: () => new Date('2026-01-03T00:00:00.000Z') },
+  );
+  await seedAuditEvent(firestore, 'evt-b', '2026-01-04T00:00:00.000Z');
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/audyt/events?eventId=evt-a`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.rows.map((r: { id: string }) => r.id), ['evt-a-signup', 'evt-a-fee', 'evt-a']);
   });
 });
 

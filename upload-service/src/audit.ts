@@ -202,6 +202,27 @@ export interface AuditResource {
   display: string;
 }
 
+/**
+ * The Wyjazd id a resource belongs to, or `undefined` for resources not scoped to a trip
+ * (dues, members, galleries, ...). Derived centrally from the canonical key formats
+ * (`event:{id}`, `eventFee:{id}`, `signup:{eventId}:{email}`) so every write path gets a single
+ * queryable `eventId` without each caller having to remember to pass it - and so the historical
+ * backfill (audit-migration.ts) can enrich pre-existing events from the same rule.
+ */
+export function eventIdFromResource(resource: AuditResource): string | undefined {
+  const prefix = `${resource.kind}:`;
+  if (!resource.key.startsWith(prefix)) return undefined;
+  if (resource.kind === 'event' || resource.kind === 'eventFee') {
+    const id = resource.key.slice(prefix.length);
+    return id || undefined;
+  }
+  if (resource.kind === 'signup') {
+    const id = resource.key.slice(prefix.length).split(':', 1)[0];
+    return id || undefined;
+  }
+  return undefined;
+}
+
 export interface AuditChangeInput {
   field: string;
   before?: AuditScalar;
@@ -228,6 +249,11 @@ export interface CanonicalAuditEvent {
   action: AuditAction;
   audience: AuditAudience;
   resource: AuditResource;
+  /** Derived from `resource` by `eventIdFromResource` for every event-scoped resource
+   * (`event`, `eventFee`, `signup`) - the single indexed field behind the event page's
+   * event-wide Historia (`{ kind: 'event' }`). Absent for trip-unrelated resources and for
+   * historical rows written before this field existed (see the `eventId` backfill). */
+  eventId?: string;
   changes: Array<AuditChangeInput & { visibility: AuditFieldVisibility }>;
   value: string;
   /**
@@ -487,6 +513,7 @@ export function createCanonicalAuditEvent(
   const value = valueChange.after ?? valueChange.before;
   if (value === undefined) throw new AuditInputError('Audit event has no technical value.');
   const actor: AuditActor = { email: input.actor.email.trim().toLowerCase(), ...(input.actor.name ? { name: input.actor.name } : {}) };
+  const eventId = eventIdFromResource(input.resource);
   return {
     id: dependencies.createId(),
     schemaVersion: 1,
@@ -496,6 +523,7 @@ export function createCanonicalAuditEvent(
     action: input.action,
     audience: definition.audience,
     resource: input.resource,
+    ...(eventId ? { eventId } : {}),
     changes,
     value: formatTechnicalValue(input.resource.display, valueChange.field, value),
     searchTokens: computeSearchTokens(input.resource, actor, changes),
@@ -785,6 +813,7 @@ export type AuditPrimarySelector =
   | { kind: 'categoryAction'; category: AuditCategory; action?: AuditAction }
   | { kind: 'actor'; email: string }
   | { kind: 'resourceKey'; key: string }
+  | { kind: 'event'; eventId: string }
   | { kind: 'search'; term: string };
 
 export interface AuditQueryOptions {
@@ -837,6 +866,8 @@ function buildFirestoreFilter(selector: AuditPrimarySelector): FirestoreQueryFil
       return { field: 'actor.email', op: '==', value: selector.email.trim().toLowerCase() };
     case 'resourceKey':
       return { field: 'resource.key', op: '==', value: selector.key };
+    case 'event':
+      return { field: 'eventId', op: '==', value: selector.eventId };
     case 'search':
       return { field: 'searchTokens', op: 'array-contains', value: normalizeSearchTerm(selector.term) };
     default: {

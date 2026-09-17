@@ -28,6 +28,7 @@ test('checked-in Firestore index manifest covers every supported audit primary s
   assert.ok(coversPrefix('action:ORDER|timestamp:ORDER'));
   assert.ok(coversPrefix('actor.email:ORDER|timestamp:ORDER'));
   assert.ok(coversPrefix('resource.key:ORDER|timestamp:ORDER'));
+  assert.ok(coversPrefix('eventId:ORDER|timestamp:ORDER'));
   assert.ok(coversPrefix('searchTokens:CONTAINS|timestamp:ORDER'));
 });
 
@@ -78,6 +79,7 @@ test('canonical audit event is server-shaped and uses a compact technical value 
     action: 'event.updated',
     audience: 'members',
     resource: { kind: 'event', key: 'event:wolin-2020', display: 'Wolin' },
+    eventId: 'wolin-2020',
     changes: [{ field: 'startDate', before: '2019-01-01', after: '2020-01-01', visibility: 'memberVisible' }],
     value: 'Wolin.startDate=2020-01-01',
     searchTokens: event.searchTokens,
@@ -276,6 +278,7 @@ import {
   AuditQueryError,
   completeExternalOperation,
   encodeAuditCursor,
+  eventIdFromResource,
   getAuditEventDetail,
   listAuditDiagnostics,
   listOpenOperationCorrelationIds,
@@ -478,6 +481,51 @@ test('queryAuditEvents: category, category+action, actor, and resourceKey select
     admin,
   );
   assert.deepEqual(resourcePage2.rows.map(r => r.id), ['evt-created']);
+});
+
+test('eventIdFromResource derives the trip id for event/eventFee/signup and nothing else', () => {
+  assert.equal(eventIdFromResource({ kind: 'event', key: 'event:evt-1', display: 'Zlot' }), 'evt-1');
+  assert.equal(eventIdFromResource({ kind: 'eventFee', key: 'eventFee:evt-1', display: 'Zlot' }), 'evt-1');
+  assert.equal(eventIdFromResource({ kind: 'signup', key: 'signup:evt-1:ula@example.test', display: 'ula@example.test' }), 'evt-1');
+  assert.equal(eventIdFromResource({ kind: 'due', key: 'due:ula@example.test:2026', display: 'Ula 2026' }), undefined);
+  assert.equal(eventIdFromResource({ kind: 'member', key: 'member:ula@example.test', display: 'Ula' }), undefined);
+  assert.equal(eventIdFromResource({ kind: 'event', key: 'event:', display: 'Puste' }), undefined);
+});
+
+test('createCanonicalAuditEvent stamps eventId for every event-scoped resource and omits it otherwise', () => {
+  const deps = { createId: () => 'a1', now: () => new Date('2026-01-01T00:00:00.000Z') };
+  const event = createCanonicalAuditEvent(
+    { action: 'event.created', actor: { email: 'a@example.test' }, resource: { kind: 'event', key: 'event:evt-1', display: 'Zlot' }, changes: [{ field: 'name', after: 'Zlot' }] },
+    deps,
+  );
+  assert.equal(event.eventId, 'evt-1');
+  const signup = createCanonicalAuditEvent(
+    { action: 'signup.updated', actor: { email: 'a@example.test' }, resource: { kind: 'signup', key: 'signup:evt-1:ula@example.test', display: 'ula@example.test' }, changes: [{ field: 'attending', after: true }] },
+    deps,
+  );
+  assert.equal(signup.eventId, 'evt-1');
+  const due = createCanonicalAuditEvent(
+    { action: 'dues.annual.changed', actor: { email: 'a@example.test' }, resource: { kind: 'due', key: 'due:ula@example.test:2026', display: 'Ula 2026' }, changes: [{ field: 'paid', after: true }] },
+    deps,
+  );
+  assert.equal(due.eventId, undefined);
+});
+
+test('queryAuditEvents: the event selector returns every resource kind tied to one trip, projected per scope', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  const seed = (input: Parameters<typeof executeAuditedFirestoreMutation>[1], id: string, ts: string) =>
+    executeAuditedFirestoreMutation(firestore, input, async () => {}, { createId: () => id, now: () => new Date(ts) });
+  await seed({ action: 'event.created', actor: { email: 'maja@example.test' }, resource: { kind: 'event', key: 'event:evt-1', display: 'Zlot' }, changes: [{ field: 'name', after: 'Zlot' }] }, 'e1', '2026-01-01T00:00:00.000Z');
+  await seed({ action: 'dues.event_fee.changed', actor: { email: 'skarbnik@example.test' }, resource: { kind: 'eventFee', key: 'eventFee:evt-1', display: 'Zlot' }, changes: [{ field: 'feeDigest', after: 'abc' }] }, 'e2', '2026-01-02T00:00:00.000Z');
+  await seed({ action: 'signup.created', actor: { email: 'maja@example.test' }, resource: { kind: 'signup', key: 'signup:evt-1:ula@example.test', display: 'ula@example.test' }, changes: [{ field: 'attending', after: true }] }, 'e3', '2026-01-03T00:00:00.000Z');
+  await seed({ action: 'event.created', actor: { email: 'maja@example.test' }, resource: { kind: 'event', key: 'event:evt-2', display: 'Inny' }, changes: [{ field: 'name', after: 'Inny' }] }, 'e4', '2026-01-04T00:00:00.000Z');
+
+  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isModerator: false };
+  const page = await queryAuditEvents(firestore, { selector: { kind: 'event', eventId: 'evt-1' } }, admin);
+  assert.deepEqual(page.rows.map(r => r.id), ['e3', 'e2', 'e1']);
+  // Member scope still gets the members-audience rows tied to the trip, never the dues ones.
+  const memberPage = await queryAuditEvents(firestore, { selector: { kind: 'event', eventId: 'evt-1' } }, { scope: 'member' });
+  assert.deepEqual(memberPage.rows.map(r => r.id), ['e3', 'e1']);
 });
 
 test('dues.year_fee.changed accepts a dueDate field alongside note', () => {

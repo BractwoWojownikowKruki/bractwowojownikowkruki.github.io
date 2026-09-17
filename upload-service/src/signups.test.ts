@@ -7,8 +7,6 @@ import {
   getSignup,
   saveSignup,
   setSkladkaPaid,
-  appendAuditLogEntry,
-  listAuditLogForEvent,
 } from './signups.ts';
 
 test('getSignup returns null when no signup exists', async () => {
@@ -124,33 +122,4 @@ test('listAllSignups and listSignupsForEvent', async () => {
   const forEvent1 = await listSignupsForEvent(client, 'event-1');
   assert.equal(forEvent1.length, 1);
   assert.equal(forEvent1[0].memberEmail, 'ala@example.test');
-});
-
-test('appendAuditLogEntry and listAuditLogForEvent, sorted oldest first', async () => {
-  const client = createInMemoryFirestoreClient();
-  await appendAuditLogEntry(client, {
-    eventId: 'event-1',
-    targetMemberEmail: 'ala@example.test',
-    changedBy: 'ala@example.test',
-    changeSummary: 'Zgłoszono udział',
-  });
-  await new Promise((resolve) => setTimeout(resolve, 2));
-  await appendAuditLogEntry(client, {
-    eventId: 'event-1',
-    targetMemberEmail: 'ala@example.test',
-    changedBy: 'bea@example.test',
-    changeSummary: 'Wycofano zgłoszenie udziału',
-  });
-  await appendAuditLogEntry(client, {
-    eventId: 'event-2',
-    targetMemberEmail: 'bea@example.test',
-    changedBy: 'bea@example.test',
-    changeSummary: 'Zgłoszono udział',
-  });
-
-  const entries = await listAuditLogForEvent(client, 'event-1');
-  assert.equal(entries.length, 2);
-  assert.equal(entries[0].changeSummary, 'Zgłoszono udział');
-  assert.equal(entries[1].changeSummary, 'Wycofano zgłoszenie udziału');
-  assert.ok(entries[0].changedAt < entries[1].changedAt);
 });
