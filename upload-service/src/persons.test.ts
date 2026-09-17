@@ -6,10 +6,10 @@ import {
   createPerson,
   detachPerson,
   getPerson,
-  hasDomainData,
-  linkAccount,
   listPersons,
-  probeAccountDomainData,
+  mergePersonIntoAccount,
+  personDisplayName,
+  planPersonMerge,
   resolvePersonId,
   softDeletePerson,
   updatePerson,
@@ -28,17 +28,29 @@ const baseFields = {
 
 const accountEmail = 'kasia@example.test';
 
-function seedAccount(client: ReturnType<typeof createInMemoryFirestoreClient>): void {
-  client.seed('members', accountEmail, { email: accountEmail, status: 'active' });
+function seedAccount(
+  client: ReturnType<typeof createInMemoryFirestoreClient>,
+  overrides: Record<string, unknown> = {},
+): void {
+  client.seed('members', accountEmail, {
+    email: accountEmail,
+    fullName: 'Kasia Nowak',
+    nickname: 'Kasia',
+    sectionId: 'warszawa',
+    categoryId: 'thing',
+    status: 'active',
+    ...overrides,
+  });
 }
 
-test('createPerson generates a personId and defaults account/tombstone fields to null', async () => {
+test('createPerson generates a personId and defaults account/tombstone/merge fields to null', async () => {
   const client = createInMemoryFirestoreClient();
   const person = await createPerson(client, baseFields, 'opiekun@example.test', 'admin@example.test');
 
   assert.ok(person.personId.length > 0, 'a personId must be generated');
   assert.equal(person.email, null);
   assert.equal(person.deletedAt, null);
+  assert.equal(person.mergedInto, null);
   assert.equal(person.ownerPersonId, 'opiekun@example.test');
   assert.equal(person.createdBy, 'admin@example.test');
   assert.deepEqual((await getPerson(client, person.personId))?.weaponIds, ['tarcza']);
@@ -80,6 +92,12 @@ test('weapon rule: Niewiasta and Bobo never keep a weapon list', async () => {
   assert.deepEqual(back?.weaponIds, [], 'switching back to Bobo must clear the weapon again');
 });
 
+test('personDisplayName tolerates a person created with no names at all', () => {
+  assert.equal(personDisplayName({ firstName: 'Jan', lastName: 'Kowalski' }), 'Jan Kowalski');
+  assert.equal(personDisplayName({ firstName: 'Jan', lastName: '' }), 'Jan');
+  assert.equal(personDisplayName({ firstName: '', lastName: '' }), null);
+});
+
 test('listPersons hides tombstoned people by default and includes them on request', async () => {
   const client = createInMemoryFirestoreClient();
   const kept = await createPerson(client, baseFields, null, 'admin@example.test');
@@ -104,76 +122,6 @@ test('detachPerson clears the owner and keeps the person otherwise intact', asyn
   assert.deepEqual(detached?.weaponIds, ['tarcza'], 'detaching must not touch the person data');
 });
 
-test('linkAccount writes both sides of the mapping and clears the owner', async () => {
-  const client = createInMemoryFirestoreClient();
-  seedAccount(client);
-  const person = await createPerson(client, baseFields, 'opiekun@example.test', 'admin@example.test');
-
-  const result = await linkAccount(client, person.personId, 'Kasia@Example.test', 'admin@example.test');
-  assert.equal(result.ok, true);
-  if (!result.ok) return;
-  assert.equal(result.person.email, accountEmail, 'the e-mail must be normalized');
-  assert.equal(result.person.ownerPersonId, null, 'a person with an account is never attached to an owner');
-
-  const storedPerson = await getPerson(client, person.personId);
-  assert.equal(storedPerson?.email, accountEmail, 'the person document itself must carry the account');
-
-  // The reverse mapping is written by the linking operation itself - not by the test - because the
-  // resolver depends on it to find the person from the e-mail.
-  const storedMember = await client.getDoc<{ linkedPersonId?: string }>('members', accountEmail);
-  assert.equal(storedMember?.linkedPersonId, person.personId, 'members/{email}.linkedPersonId must be written');
-});
-
-test('linkAccount refuses a second link on an already-linked person', async () => {
-  const client = createInMemoryFirestoreClient();
-  seedAccount(client);
-  const person = await createPerson(client, baseFields, null, 'admin@example.test');
-  assert.equal((await linkAccount(client, person.personId, accountEmail, 'admin@example.test')).ok, true);
-
-  const second = await linkAccount(client, person.personId, accountEmail, 'admin@example.test');
-  assert.deepEqual(second, { ok: false, reason: 'already_linked' });
-});
-
-test('linkAccount refuses when the person or the account does not exist', async () => {
-  const client = createInMemoryFirestoreClient();
-  seedAccount(client);
-
-  assert.deepEqual(await linkAccount(client, 'nie-ma-takiej-osoby', accountEmail, 'admin@example.test'), {
-    ok: false,
-    reason: 'person_not_found',
-  });
-
-  const person = await createPerson(client, baseFields, null, 'admin@example.test');
-  assert.deepEqual(await linkAccount(client, person.personId, 'brak-konta@example.test', 'admin@example.test'), {
-    ok: false,
-    reason: 'account_not_found',
-  });
-});
-
-test('linkAccount refuses an account that already owns domain data, for each category', async () => {
-  const cases: Array<[string, (c: ReturnType<typeof createInMemoryFirestoreClient>) => void]> = [
-    ['profile with weapons', (c) => c.seed('listaWyjazdowaProfile', accountEmail, { weaponIds: ['tarcza'], equipment: [], wpisowePaid: false })],
-    ['profile with equipment', (c) => c.seed('listaWyjazdowaProfile', accountEmail, { weaponIds: [], equipment: [{ id: 'e1', name: 'Namiot', description: '' }], wpisowePaid: false })],
-    ['profile with wpisowe paid', (c) => c.seed('listaWyjazdowaProfile', accountEmail, { weaponIds: [], equipment: [], wpisowePaid: true })],
-    ['a non-attending signup', (c) => c.seed('signups', `event-1_${accountEmail}`, { eventId: 'event-1', attending: false })],
-    ['annual dues', (c) => c.seed('duesAnnual', `${accountEmail}_2026`, { status: 'paid' })],
-  ];
-
-  for (const [label, seed] of cases) {
-    const client = createInMemoryFirestoreClient();
-    seedAccount(client);
-    seed(client);
-    const person = await createPerson(client, baseFields, null, 'admin@example.test');
-
-    assert.deepEqual(
-      await linkAccount(client, person.personId, accountEmail, 'admin@example.test'),
-      { ok: false, reason: 'account_has_data' },
-      `linking must be refused for: ${label}`,
-    );
-    assert.equal((await getPerson(client, person.personId))?.email, null, `the person must stay unlinked: ${label}`);
-  }
-});
-
 test('resolvePersonId: an existing person resolves to kind "person"', async () => {
   const client = createInMemoryFirestoreClient();
   const person = await createPerson(client, baseFields, null, 'admin@example.test');
@@ -183,14 +131,13 @@ test('resolvePersonId: an existing person resolves to kind "person"', async () =
   assert.equal(resolved.personId, person.personId);
 });
 
-test('resolvePersonId: a member with a members document but no link resolves to the lowercased e-mail', async () => {
+test('resolvePersonId: an account resolves to the lowercased e-mail', async () => {
   const client = createInMemoryFirestoreClient();
   seedAccount(client);
 
   const resolved = await resolvePersonId(client, 'Kasia@Example.test');
   assert.equal(resolved.kind, 'account');
   assert.equal(resolved.personId, accountEmail);
-  assert.equal(resolved.kind === 'account' ? resolved.linkedPersonId : 'x', null);
 });
 
 test('resolvePersonId: an allowlisted member with no members document still resolves to the e-mail', async () => {
@@ -203,18 +150,6 @@ test('resolvePersonId: an allowlisted member with no members document still reso
   assert.equal(resolved.personId, 'ala@example.test');
 });
 
-test('resolvePersonId: a linked account resolves to the person UUID written by linkAccount', async () => {
-  const client = createInMemoryFirestoreClient();
-  seedAccount(client);
-  const person = await createPerson(client, baseFields, null, 'admin@example.test');
-  await linkAccount(client, person.personId, accountEmail, 'admin@example.test');
-
-  const resolved = await resolvePersonId(client, accountEmail);
-  assert.equal(resolved.kind, 'account');
-  assert.equal(resolved.personId, person.personId, 'a linked account must map onto its person UUID');
-  assert.equal(resolved.kind === 'account' ? resolved.linkedPersonId : null, person.personId);
-});
-
 test('resolvePersonId: an unknown value falls to the account branch, which the caller must allowlist-check', async () => {
   const client = createInMemoryFirestoreClient();
 
@@ -223,46 +158,123 @@ test('resolvePersonId: an unknown value falls to the account branch, which the c
   assert.equal(unknownUuid.personId, 'nie-istnieje-0000', 'and is what the caller will reject via the allowlist (404)');
 });
 
-test('hasDomainData flags an account that already owns profile data, signups or dues', () => {
-  assert.equal(hasDomainData({ hasProfileData: false, hasSignups: false, hasAnnualDues: false }), false);
-  assert.equal(hasDomainData({ hasProfileData: true, hasSignups: false, hasAnnualDues: false }), true);
-  assert.equal(hasDomainData({ hasProfileData: false, hasSignups: true, hasAnnualDues: false }), true);
-  assert.equal(hasDomainData({ hasProfileData: false, hasSignups: false, hasAnnualDues: true }), true);
-});
-
-test('probeAccountDomainData: an empty profile document alone does not count as domain data', async () => {
+test('merge: the person becomes a normal member keyed by the account e-mail', async () => {
   const client = createInMemoryFirestoreClient();
-  client.seed('listaWyjazdowaProfile', accountEmail, { weaponIds: [], equipment: [], wpisowePaid: false });
+  seedAccount(client, { fullName: '', nickname: null, sectionId: '', categoryId: null });
+  const person = await createPerson(client, baseFields, 'opiekun@example.test', 'admin@example.test');
+  const eventId = 'event-1';
 
-  const probe = await probeAccountDomainData(client, accountEmail);
-  assert.deepEqual(probe, { hasProfileData: false, hasSignups: false, hasAnnualDues: false });
+  client.seed('signups', `${eventId}_${person.personId}`, {
+    eventId,
+    memberEmail: person.personId,
+    attending: true,
+    equipmentIds: [],
+    skladkaPaid: false,
+  });
+  client.seed('duesAnnual', `${person.personId}_2026`, { email: person.personId, year: 2026, status: 'paid' });
+  client.seed('listaWyjazdowaProfile', person.personId, { weaponIds: ['tarcza'], equipment: [], wpisowePaid: false });
+
+  const result = await mergePersonIntoAccount(client, person.personId, 'Kasia@Example.test', 'admin@example.test');
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const merged = await getPerson(client, person.personId);
+  assert.equal(merged?.mergedInto, accountEmail, 'the retired UUID must point at the account e-mail');
+  assert.ok(merged?.deletedAt, 'a merged person must be tombstoned so it leaves current lists');
+  assert.equal(merged?.ownerPersonId, null, 'a member never keeps an owner');
+
+  const member = await client.getDoc<Record<string, unknown>>('members', accountEmail);
+  assert.equal(member?.fullName, 'Jan Kowalski', 'the person fills the account name when it is empty');
+  assert.equal(member?.nickname, 'Wilk');
+  assert.equal(member?.sectionId, 'krakow');
+  assert.equal(member?.categoryId, 'wojownik');
+
+  const movedSignup = await client.getDoc<{ memberEmail: string }>('signups', `${eventId}_${accountEmail}`);
+  assert.equal(movedSignup?.memberEmail, accountEmail, 'the moved signup must be keyed and stamped with the account');
+  assert.equal(await client.getDoc('signups', `${eventId}_${person.personId}`), null);
+
+  const movedDues = await client.getDoc<{ email: string }>('duesAnnual', `${accountEmail}_2026`);
+  assert.equal(movedDues?.email, accountEmail);
+  assert.equal(await client.getDoc('duesAnnual', `${person.personId}_2026`), null);
+
+  const movedProfile = await client.getDoc<{ weaponIds: string[] }>('listaWyjazdowaProfile', accountEmail);
+  assert.deepEqual(movedProfile?.weaponIds, ['tarcza'], 'the person weapons become the account weapons');
+  assert.equal(await client.getDoc('listaWyjazdowaProfile', person.personId), null);
+
+  const current = await listPersons(client);
+  assert.deepEqual(current, [], 'a merged person is not a live accountless person any more');
+
+  const resolved = await resolvePersonId(client, person.personId);
+  assert.equal(resolved.kind, 'account');
+  assert.equal(resolved.personId, accountEmail, 'the retired UUID must resolve to the account');
 });
 
-test('probeAccountDomainData: each profile field alone counts as domain data', async () => {
-  const seeds = [
-    { weaponIds: ['tarcza'], equipment: [], wpisowePaid: false },
-    { weaponIds: [], equipment: [{ id: 'e1', name: 'Namiot', description: '' }], wpisowePaid: false },
-    { weaponIds: [], equipment: [], wpisowePaid: true },
-  ];
-  for (const stored of seeds) {
-    const client = createInMemoryFirestoreClient();
-    client.seed('listaWyjazdowaProfile', accountEmail, stored);
-    assert.equal((await probeAccountDomainData(client, accountEmail)).hasProfileData, true, JSON.stringify(stored));
-  }
-});
-
-test('probeAccountDomainData: a non-attending signup still blocks linking', async () => {
+test('merge: the account wins every conflict and only has blanks filled', async () => {
   const client = createInMemoryFirestoreClient();
-  client.seed('signups', `event-1_${accountEmail}`, { eventId: 'event-1', memberEmail: accountEmail, attending: false });
+  seedAccount(client);
+  const person = await createPerson(client, baseFields, 'opiekun@example.test', 'admin@example.test');
+  const eventId = 'event-1';
 
-  const probe = await probeAccountDomainData(client, accountEmail);
-  assert.equal(probe.hasSignups, true);
+  client.seed('signups', `${eventId}_${person.personId}`, { eventId, memberEmail: person.personId, attending: true, equipmentIds: [] });
+  client.seed('signups', `${eventId}_${accountEmail}`, { eventId, memberEmail: accountEmail, attending: false, equipmentIds: [] });
+  client.seed('duesAnnual', `${person.personId}_2026`, { email: person.personId, year: 2026, status: 'paid' });
+  client.seed('duesAnnual', `${accountEmail}_2026`, { email: accountEmail, year: 2026, status: 'unpaid' });
+  client.seed('listaWyjazdowaProfile', person.personId, { weaponIds: ['tarcza'], equipment: [], wpisowePaid: false });
+  client.seed('listaWyjazdowaProfile', accountEmail, { weaponIds: ['miecz'], equipment: [], wpisowePaid: true });
+
+  const result = await mergePersonIntoAccount(client, person.personId, accountEmail, 'admin@example.test');
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.outcome.droppedSignups, [`${eventId}_${person.personId}`]);
+  assert.deepEqual(result.outcome.droppedDues, [`${person.personId}_2026`]);
+  assert.deepEqual(result.outcome.memberFilled, [], 'a fully populated account has no blanks to fill');
+
+  const member = await client.getDoc<Record<string, unknown>>('members', accountEmail);
+  assert.equal(member?.fullName, 'Kasia Nowak', 'the account identity is never overwritten');
+  assert.equal(member?.sectionId, 'warszawa');
+
+  const signup = await client.getDoc<{ attending: boolean }>('signups', `${eventId}_${accountEmail}`);
+  assert.equal(signup?.attending, false, 'the account signup survives');
+  assert.equal(await client.getDoc('signups', `${eventId}_${person.personId}`), null);
+
+  const dues = await client.getDoc<{ status: string }>('duesAnnual', `${accountEmail}_2026`);
+  assert.equal(dues?.status, 'unpaid', 'the account dues survive');
+  assert.equal(await client.getDoc('duesAnnual', `${person.personId}_2026`), null);
+
+  const profile = await client.getDoc<{ weaponIds: string[]; wpisowePaid: boolean }>('listaWyjazdowaProfile', accountEmail);
+  assert.deepEqual(profile?.weaponIds, ['miecz'], 'the account weapons win over the person weapons');
+  assert.equal(profile?.wpisowePaid, true);
+  assert.equal(await client.getDoc('listaWyjazdowaProfile', person.personId), null);
 });
 
-test('probeAccountDomainData: dues from any year block linking', async () => {
+test('merge refuses an unknown person or account, and a second merge of the same person', async () => {
   const client = createInMemoryFirestoreClient();
-  client.seed('duesAnnual', `${accountEmail}_2026`, { status: 'paid' });
+  seedAccount(client);
 
-  const probe = await probeAccountDomainData(client, accountEmail);
-  assert.equal(probe.hasAnnualDues, true);
+  assert.deepEqual(await mergePersonIntoAccount(client, 'nie-ma-takiej-osoby', accountEmail, 'admin@example.test'), {
+    ok: false,
+    reason: 'person_not_found',
+  });
+
+  const person = await createPerson(client, baseFields, null, 'admin@example.test');
+  assert.deepEqual(await mergePersonIntoAccount(client, person.personId, 'brak-konta@example.test', 'admin@example.test'), {
+    ok: false,
+    reason: 'account_not_found',
+  });
+
+  assert.equal((await mergePersonIntoAccount(client, person.personId, accountEmail, 'admin@example.test')).ok, true);
+  assert.deepEqual(await mergePersonIntoAccount(client, person.personId, accountEmail, 'admin@example.test'), {
+    ok: false,
+    reason: 'person_already_merged',
+  });
+});
+
+test('planPersonMerge reports errors as values so a caller can map them to HTTP statuses', async () => {
+  const client = createInMemoryFirestoreClient();
+  seedAccount(client);
+
+  assert.deepEqual(await planPersonMerge(client, 'nie-ma-takiej-osoby', accountEmail), { ok: false, reason: 'person_not_found' });
+
+  const person = await createPerson(client, baseFields, null, 'admin@example.test');
+  assert.deepEqual(await planPersonMerge(client, person.personId, 'brak-konta@example.test'), { ok: false, reason: 'account_not_found' });
 });

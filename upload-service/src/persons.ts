@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AuthError } from './auth.ts';
-import type { FirestoreDoc, FirestoreLikeClient } from './firestore.ts';
+import type { FirestoreDoc, FirestoreLikeClient, FirestoreTransaction } from './firestore.ts';
 import { getMember, type MemberDoc } from './members.ts';
 
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
@@ -11,6 +11,12 @@ type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
  * opaque key for every domain record (profile, signup, dues, audit); for a member it equals the
  * e-mail, for a person without an account it is a generated UUID. `email` is an optional attribute
  * used only for signing in - it is never the key of domain data.
+ *
+ * `mergedInto` is the one thing that retires a UUID: when this person is merged with a real
+ * account (see `planPersonMerge`/`applyPersonMerge`), it becomes a normal member keyed by the
+ * account e-mail and this field records the e-mail it was merged into. A merged person is also
+ * tombstoned (`deletedAt`), so it leaves every current list while audit and history still resolve
+ * its old UUID through this field.
  */
 export interface PersonDoc {
   personId: string;
@@ -27,6 +33,8 @@ export interface PersonDoc {
   /** Set by softDeletePerson. A tombstoned person disappears from current lists but stays
    * resolvable for history and audit. Never cleared. */
   deletedAt: string | null;
+  /** Set only by a merge: the account e-mail this person became. Never cleared. */
+  mergedInto?: string | null;
   createdAt: string;
   createdBy: string;
   /** Present on every write after creation; mirrors the other domain documents' audit columns. */
@@ -46,6 +54,9 @@ export interface PersonWritableFields {
 
 const PERSONS_COLLECTION = 'persons';
 const MEMBERS_COLLECTION = 'members';
+const PROFILES_COLLECTION = 'listaWyjazdowaProfile';
+const SIGNUPS_COLLECTION = 'signups';
+const DUES_COLLECTION = 'duesAnnual';
 
 /**
  * Niewiasta and Bobo never carry a weapon (KRKG-0087 design, section A) - enforced here so every
@@ -64,7 +75,8 @@ export function weaponAllowedForCategory(categoryId: string): boolean {
  * from carrying empty strings, so this is checked at runtime, not just in the type.
  *
  * Whether a name is required, and in which combination (ksywka alone vs first+last), is still an
- * open question in the design, so names are deliberately not validated here.
+ * open question in the design, so names are deliberately not validated here. Callers that render
+ * a person's name must therefore tolerate a missing one (see `personDisplayName`).
  */
 export function validatePersonFields(fields: PersonWritableFields): void {
   if (!fields.categoryId?.trim()) throw new AuthError('Kategoria osoby jest wymagana.', 400);
@@ -76,14 +88,26 @@ export function applyWeaponCategoryRule(fields: PersonWritableFields): PersonWri
   return weaponAllowedForCategory(fields.categoryId) ? fields : { ...fields, weaponIds: [] };
 }
 
+/**
+ * The name to display for a person whose record may carry no names at all - quick-add creates a
+ * person with only a ksywka, category and section, and names are filled in later on the profile.
+ * Kept here so the roster and every future read share one tolerant implementation instead of
+ * each calling `.trim()` on a possibly-absent field.
+ */
+export function personDisplayName(person: Pick<PersonDoc, 'firstName' | 'lastName'>): string | null {
+  const parts = [person.firstName, person.lastName].filter((part) => (part ?? '').trim());
+  const name = parts.join(' ').trim();
+  return name || null;
+}
+
 export async function getPerson(client: FirestoreLikeClient, personId: string): Promise<PersonDoc | null> {
   return client.getDoc<PersonDoc>(PERSONS_COLLECTION, personId);
 }
 
 /**
- * Every person without an account. Tombstoned people are excluded by default: current lists
- * (roster without an eventId, pickers, dropdowns) must not show them. Pass `includeDeleted` for
- * historical reads, which resolve a person that has been removed.
+ * Every person without an account. Tombstoned people (deleted or merged) are excluded by default:
+ * current lists (roster without an eventId, pickers, dropdowns) must not show them. Pass
+ * `includeDeleted` for historical reads, which resolve a person that has been removed.
  */
 export async function listPersons(
   client: FirestoreLikeClient,
@@ -106,22 +130,23 @@ export async function listPersons(
  */
 export type ResolvedPerson =
   | { kind: 'person'; personId: string; person: PersonDoc }
-  | { kind: 'account'; personId: string; linkedPersonId: string | null };
+  | { kind: 'account'; personId: string };
 
 /**
  * The single place that decides what a `personId` is (KRKG-0087 plan, "Kontrakt tożsamości").
  *
  * Deliberately **no format heuristics**: we never inspect the value for an "@". Resolution is a
  * document lookup - an existing `persons/{value}` is an accountless person; anything else is
- * treated as an account key and mapped through `members/{email}.linkedPersonId`, so an e-mail of
- * a linked account still lands on that person's UUID.
+ * treated as an account key. A **merged** person resolves to the account e-mail it became, so a
+ * historical reference to the retired UUID still lands on the live member.
  */
 export async function resolvePersonId(client: FirestoreLikeClient, value: string): Promise<ResolvedPerson> {
   const person = await getPerson(client, value);
-  if (person) return { kind: 'person', personId: person.personId, person };
-  const email = value.toLowerCase();
-  const member = await getMember(client, email);
-  return { kind: 'account', personId: member?.linkedPersonId ?? email, linkedPersonId: member?.linkedPersonId ?? null };
+  if (person) {
+    if (person.mergedInto) return { kind: 'account', personId: person.mergedInto };
+    return { kind: 'person', personId: person.personId, person };
+  }
+  return { kind: 'account', personId: value.toLowerCase() };
 }
 
 export async function createPerson(
@@ -140,6 +165,7 @@ export async function createPerson(
     ownerPersonId,
     email: null,
     deletedAt: null,
+    mergedInto: null,
     createdAt: now,
     createdBy,
   };
@@ -188,90 +214,230 @@ export async function detachPerson(
   return { ...existing, ...writable };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Merging an accountless person into a real account (KRKG-0087 design, "Scalenie konta").
+//
+// The scenario: Jan existed as Maria's osoba towarzysząca, then registered his own account.
+// The admin merges the two, and Jan becomes a normal member keyed by his account e-mail - there
+// is never a state with a live "member" and a live "person" for the same human.
+//
+// The merge is split in two so the caller can run the writes inside its own audited transaction:
+//
+//   planPersonMerge(client, ...)  - reads everything outside a transaction (Firestore
+//                                   transactions cannot scan collections) and returns the moves.
+//   applyPersonMerge(tx, plan, ..) - performs them inside the transaction, re-checking the
+//                                   person is still mergeable and letting the account win every
+//                                   conflict (the account's own document is never overwritten by
+//                                   the person's; the person only fills blanks and moves docs).
+//
+// `mergePersonIntoAccount` is the convenience wrapper for callers that do not need a custom
+// transaction (tests, scripts).
+// ---------------------------------------------------------------------------------------------
+
+/** The profile fields the merge combines. Mirrors listaWyjazdowaProfile's shape without importing it. */
+interface PersonMergeProfile {
+  weaponIds: string[];
+  equipment: Array<{ id: string; name: string; description: string }>;
+  wpisowePaid: boolean;
+}
+
+/** One document that moves from the person's key to the account's key. */
+export interface PersonMergeDocMove {
+  collection: typeof SIGNUPS_COLLECTION | typeof DUES_COLLECTION;
+  fromId: string;
+  toId: string;
+  /** The identity field rewritten to the account key on the moved document. */
+  keyField: 'memberEmail' | 'email';
+  data: Record<string, unknown>;
+}
+
+export interface PersonMergePlan {
+  personId: string;
+  accountEmail: string;
+  person: PersonDoc;
+  member: MemberDoc;
+  moves: PersonMergeDocMove[];
+  /** Identity fields the account is missing, filled from the person (a present account value wins). */
+  memberFills: Partial<Pick<MemberDoc, 'fullName' | 'nickname' | 'sectionId' | 'categoryId'>>;
+  /** The profile to write at the account key, or null when neither side has one. */
+  mergedProfile: PersonMergeProfile | null;
+  /** Whether a profile document exists at the person key and must be removed on apply. */
+  personHadProfile: boolean;
+}
+
+export type PersonMergeReason = 'person_not_found' | 'person_already_merged' | 'account_not_found';
+
+export type PersonMergePlanResult = { ok: true; plan: PersonMergePlan } | { ok: false; reason: PersonMergeReason };
+
+export interface PersonMergeOutcome {
+  personId: string;
+  accountEmail: string;
+  /** Document ids written at the account key. */
+  movedSignups: string[];
+  movedDues: string[];
+  /** Document ids deleted because the account already had its own (the account wins). */
+  droppedSignups: string[];
+  droppedDues: string[];
+  profileWritten: boolean;
+  /** Names of the member identity fields the person filled in. */
+  memberFilled: string[];
+}
+
+export type PersonMergeApplyResult =
+  | { ok: true; outcome: PersonMergeOutcome; person: PersonDoc }
+  | { ok: false; reason: PersonMergeReason };
+
+function isBlank(value: string | null | undefined): boolean {
+  return !value || !value.trim();
+}
+
 /**
- * "No domain data" test used by account linking (design D). A fresh registration account has no
- * profile with weapons/equipment/wpisowe, no signup for any event (regardless of attending) and no
- * annual dues for any year; anything else means the account already owns data and must not be
- * silently merged into an existing person record.
+ * Reads the current state and works out what a merge would do. Errors are values, not exceptions,
+ * so a caller can turn `person_not_found` into its own 404 without catching.
  */
-export interface DomainDataProbe {
-  hasProfileData: boolean;
-  hasSignups: boolean;
-  hasAnnualDues: boolean;
-}
-
-export function hasDomainData(probe: DomainDataProbe): boolean {
-  return probe.hasProfileData || probe.hasSignups || probe.hasAnnualDues;
-}
-
-export async function probeAccountDomainData(
-  client: FirestoreLikeClient,
-  personId: string,
-): Promise<DomainDataProbe> {
-  const key = personId.toLowerCase();
-  const [profile, signups, dues] = await Promise.all([
-    client.getDoc<{ weaponIds?: string[]; equipment?: unknown[]; wpisowePaid?: boolean }>(
-      'listaWyjazdowaProfile',
-      key,
-    ),
-    client.listDocs<unknown>('signups'),
-    client.listDocs<unknown>('duesAnnual'),
-  ]);
-  return {
-    hasProfileData: Boolean(
-      profile &&
-        ((profile.weaponIds?.length ?? 0) > 0 ||
-          (profile.equipment?.length ?? 0) > 0 ||
-          profile.wpisowePaid === true),
-    ),
-    // Both collections identify the person in the document id (signups: `{eventId}_{personId}`,
-    // duesAnnual: `{personId}_{year}`), which is exactly the canonical key - matching on the id
-    // keeps this probe independent of any stored field name.
-    hasSignups: signups.some((d) => d.id.toLowerCase().endsWith(`_${key}`)),
-    hasAnnualDues: dues.some((d) => d.id.toLowerCase().startsWith(`${key}_`)),
-  };
-}
-
-export type LinkAccountResult =
-  | { ok: true; person: PersonDoc }
-  | { ok: false; reason: 'person_not_found' | 'already_linked' | 'account_not_found' | 'account_has_data' };
-
-/**
- * Gives an accountless person an account (KRKG-0087 design, section D). This is the only linking
- * entry point, and it enforces every documented guard itself so no caller can skip one:
- *
- * - the account must have **no domain data** (checked before the transaction - the probe needs a
- *   collection scan, which a Firestore transaction cannot do),
- * - the person's `email` must still be empty (re-read inside the transaction, which is what makes
- *   two concurrent admins safe: the loser sees the value already set and is rejected),
- * - the account's `members/{email}` document must exist, because the reverse mapping has to be
- *   written for the resolver to find the person from the e-mail.
- *
- * Both sides are written in one transaction - `persons/{personId}.email` plus
- * `members/{email}.linkedPersonId` - and attaching an account also clears `ownerPersonId`, since
- * the attachment is exactly what makes someone an "osoba towarzysząca" (a person with an account
- * is never attached). The audit entry is the caller's job, in the same transaction.
- */
-export async function linkAccount(
+export async function planPersonMerge(
   client: FirestoreLikeClient,
   personId: string,
   accountEmail: string,
-  linkedBy: string,
-): Promise<LinkAccountResult> {
+): Promise<PersonMergePlanResult> {
   const email = accountEmail.toLowerCase();
-  if (hasDomainData(await probeAccountDomainData(client, email))) {
-    return { ok: false, reason: 'account_has_data' };
+  const person = await getPerson(client, personId);
+  if (!person) return { ok: false, reason: 'person_not_found' };
+  if (person.mergedInto) return { ok: false, reason: 'person_already_merged' };
+
+  const member = await getMember(client, email);
+  if (!member) return { ok: false, reason: 'account_not_found' };
+
+  const personKey = person.personId.toLowerCase();
+  const [signups, dues, personProfile, accountProfile] = await Promise.all([
+    client.listDocs<Record<string, unknown>>(SIGNUPS_COLLECTION),
+    client.listDocs<Record<string, unknown>>(DUES_COLLECTION),
+    client.getDoc<PersonMergeProfile>(PROFILES_COLLECTION, personKey),
+    client.getDoc<PersonMergeProfile>(PROFILES_COLLECTION, email),
+  ]);
+
+  const moves: PersonMergeDocMove[] = [];
+  for (const doc of signups) {
+    if (!doc.id.toLowerCase().endsWith(`_${personKey}`)) continue;
+    const eventId = String(doc.data.eventId ?? doc.id.slice(0, doc.id.length - personKey.length - 1));
+    moves.push({ collection: SIGNUPS_COLLECTION, fromId: doc.id, toId: `${eventId}_${email}`, keyField: 'memberEmail', data: doc.data });
   }
-  return client.runTransaction(async (tx) => {
-    const person = await tx.getDoc<PersonDoc>(PERSONS_COLLECTION, personId);
-    if (!person) return { ok: false, reason: 'person_not_found' };
-    if (person.email) return { ok: false, reason: 'already_linked' };
-    const member = await tx.getDoc<MemberDoc>(MEMBERS_COLLECTION, email);
-    if (!member) return { ok: false, reason: 'account_not_found' };
-    const now = new Date().toISOString();
-    const writable = { email, ownerPersonId: null, updatedBy: linkedBy, updatedAt: now };
-    await tx.setDoc(PERSONS_COLLECTION, personId, writable);
-    await tx.setDoc(MEMBERS_COLLECTION, email, { linkedPersonId: personId, updatedBy: linkedBy, updatedAt: now });
-    return { ok: true, person: { ...person, ...writable } };
-  });
+  for (const doc of dues) {
+    if (!doc.id.toLowerCase().startsWith(`${personKey}_`)) continue;
+    const year = doc.id.slice(personKey.length + 1);
+    moves.push({ collection: DUES_COLLECTION, fromId: doc.id, toId: `${email}_${year}`, keyField: 'email', data: doc.data });
+  }
+
+  const memberFills: PersonMergePlan['memberFills'] = {};
+  const personName = personDisplayName(person);
+  if (isBlank(member.fullName) && personName) memberFills.fullName = personName;
+  if (isBlank(member.nickname) && person.ksywka?.trim()) memberFills.nickname = person.ksywka;
+  if (isBlank(member.sectionId) && person.sectionId?.trim()) memberFills.sectionId = person.sectionId;
+  if (member.categoryId == null && person.categoryId) memberFills.categoryId = person.categoryId;
+
+  let mergedProfile: PersonMergeProfile | null = null;
+  if (accountProfile || personProfile) {
+    // The account wins wherever it has a value; the person only supplies what the account lacks.
+    mergedProfile = {
+      weaponIds: accountProfile?.weaponIds?.length ? accountProfile.weaponIds : (person.weaponIds ?? []),
+      equipment: accountProfile?.equipment?.length ? accountProfile.equipment : (personProfile?.equipment ?? []),
+      wpisowePaid: accountProfile ? accountProfile.wpisowePaid : (personProfile?.wpisowePaid ?? false),
+    };
+  }
+
+  return {
+    ok: true,
+    plan: {
+      personId: person.personId,
+      accountEmail: email,
+      person,
+      member,
+      moves,
+      memberFills,
+      mergedProfile,
+      personHadProfile: personProfile !== null,
+    },
+  };
+}
+
+/**
+ * Performs a planned merge inside the given transaction. Re-reads the person and the account so a
+ * concurrent merge cannot double-apply: the loser sees `mergedInto` already set and is rejected.
+ * Every conflict is resolved in the account's favour - a document that already exists at the
+ * account key wins, and the person's copy is deleted rather than overwriting it.
+ */
+export async function applyPersonMerge(
+  tx: FirestoreTransaction,
+  plan: PersonMergePlan,
+  mergedBy: string,
+): Promise<PersonMergeApplyResult> {
+  const person = await tx.getDoc<PersonDoc>(PERSONS_COLLECTION, plan.personId);
+  if (!person) return { ok: false, reason: 'person_not_found' };
+  if (person.mergedInto) return { ok: false, reason: 'person_already_merged' };
+  const member = await tx.getDoc<MemberDoc>(MEMBERS_COLLECTION, plan.accountEmail);
+  if (!member) return { ok: false, reason: 'account_not_found' };
+
+  const now = new Date().toISOString();
+  const outcome: PersonMergeOutcome = {
+    personId: plan.personId,
+    accountEmail: plan.accountEmail,
+    movedSignups: [],
+    movedDues: [],
+    droppedSignups: [],
+    droppedDues: [],
+    profileWritten: false,
+    memberFilled: [],
+  };
+
+  for (const move of plan.moves) {
+    const target = await tx.getDoc<Record<string, unknown>>(move.collection, move.toId);
+    if (target) {
+      await tx.deleteDoc(move.collection, move.fromId);
+      (move.collection === SIGNUPS_COLLECTION ? outcome.droppedSignups : outcome.droppedDues).push(move.fromId);
+      continue;
+    }
+    await tx.setDoc(move.collection, move.toId, { ...move.data, [move.keyField]: plan.accountEmail });
+    await tx.deleteDoc(move.collection, move.fromId);
+    (move.collection === SIGNUPS_COLLECTION ? outcome.movedSignups : outcome.movedDues).push(move.toId);
+  }
+
+  if (plan.mergedProfile) {
+    await tx.setDoc(PROFILES_COLLECTION, plan.accountEmail, { ...plan.mergedProfile, updatedBy: mergedBy, updatedAt: now });
+    outcome.profileWritten = true;
+  }
+  if (plan.personHadProfile) {
+    await tx.deleteDoc(PROFILES_COLLECTION, plan.personId.toLowerCase());
+  }
+
+  if (Object.keys(plan.memberFills).length > 0) {
+    await tx.setDoc(MEMBERS_COLLECTION, plan.accountEmail, { ...plan.memberFills, updatedBy: mergedBy, updatedAt: now });
+    outcome.memberFilled = Object.keys(plan.memberFills);
+  }
+
+  const writable = {
+    mergedInto: plan.accountEmail,
+    ownerPersonId: null,
+    deletedAt: now,
+    deletedBy: mergedBy,
+    updatedBy: mergedBy,
+    updatedAt: now,
+  };
+  await tx.setDoc(PERSONS_COLLECTION, plan.personId, writable);
+  return { ok: true, outcome, person: { ...person, ...writable } };
+}
+
+/**
+ * Convenience wrapper for callers that do not need to write the audit entry in the same
+ * transaction (tests, scripts). The server route uses `planPersonMerge` + `applyPersonMerge`
+ * directly so its audit event commits atomically with the merge.
+ */
+export async function mergePersonIntoAccount(
+  client: FirestoreLikeClient,
+  personId: string,
+  accountEmail: string,
+  mergedBy: string,
+): Promise<PersonMergeApplyResult> {
+  const planned = await planPersonMerge(client, personId, accountEmail);
+  if (!planned.ok) return planned;
+  return client.runTransaction((tx) => applyPersonMerge(tx, planned.plan, mergedBy));
 }
