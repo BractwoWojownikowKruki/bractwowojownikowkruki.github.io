@@ -7380,7 +7380,7 @@ test('GET /admin/audyt/events: action without category is a deterministic 400, a
     const actionWithoutCategory = await fetch(`${baseUrl}/admin/audyt/events?action=event.created`);
     assert.equal(actionWithoutCategory.status, 400);
 
-    // Each of the five selector shapes is independently accepted (zero-or-one primary selector).
+    // Each of the six selector shapes is independently accepted (zero-or-one primary selector).
     const byCategory = await fetch(`${baseUrl}/admin/audyt/events?category=events`);
     assert.equal(byCategory.status, 200);
     const byCategoryAction = await fetch(`${baseUrl}/admin/audyt/events?category=events&action=event.created`);
@@ -7389,6 +7389,8 @@ test('GET /admin/audyt/events: action without category is a deterministic 400, a
     assert.equal(byActor.status, 200);
     const byResource = await fetch(`${baseUrl}/admin/audyt/events?resourceKey=event:evt-a`);
     assert.equal(byResource.status, 200);
+    const byEventId = await fetch(`${baseUrl}/admin/audyt/events?eventId=evt-a`);
+    assert.equal(byEventId.status, 200);
     const byQuery = await fetch(`${baseUrl}/admin/audyt/events?q=evt`);
     assert.equal(byQuery.status, 200);
 
@@ -7398,6 +7400,33 @@ test('GET /admin/audyt/events: action without category is a deterministic 400, a
     assert.equal(withDateRange.status, 200);
     const resourceAndQuery = await fetch(`${baseUrl}/admin/audyt/events?resourceKey=event:evt-a&q=evt`);
     assert.equal(resourceAndQuery.status, 400);
+    const eventIdAndResource = await fetch(`${baseUrl}/admin/audyt/events?eventId=evt-a&resourceKey=event:evt-a`);
+    assert.equal(eventIdAndResource.status, 400);
+  });
+});
+
+test('GET /admin/audyt/events?eventId= returns event, eventFee, and signup rows for one trip only', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await seedAuditEvent(firestore, 'evt-a', '2026-01-01T00:00:00.000Z');
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'dues.event_fee.changed', actor: { email: 'skarbnik@example.test' }, resource: { kind: 'eventFee', key: 'eventFee:evt-a', display: 'Wyjazd evt-a' }, changes: [{ field: 'feeDigest', after: 'abc' }] },
+    async () => {},
+    { createId: () => 'evt-a-fee', now: () => new Date('2026-01-02T00:00:00.000Z') },
+  );
+  await executeAuditedFirestoreMutation(
+    firestore,
+    { action: 'signup.created', actor: { email: 'maja@example.test' }, resource: { kind: 'signup', key: 'signup:evt-a:ula@example.test', display: 'ula@example.test' }, changes: [{ field: 'attending', after: true }] },
+    async () => {},
+    { createId: () => 'evt-a-signup', now: () => new Date('2026-01-03T00:00:00.000Z') },
+  );
+  await seedAuditEvent(firestore, 'evt-b', '2026-01-04T00:00:00.000Z');
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/audyt/events?eventId=evt-a`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.rows.map((r: { id: string }) => r.id), ['evt-a-signup', 'evt-a-fee', 'evt-a']);
   });
 });
 

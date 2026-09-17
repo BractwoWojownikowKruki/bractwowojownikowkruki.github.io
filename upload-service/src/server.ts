@@ -3481,6 +3481,7 @@ function parseAuditQueryOptions(url: URL): AuditQueryOptions {
   const action = params.get('action');
   const actorEmail = params.get('actorEmail');
   const resourceKey = params.get('resourceKey');
+  const eventId = params.get('eventId');
   const q = params.get('q');
   if (action && !category) throw new AuditQueryError('Selektor action wymaga podania category.');
 
@@ -3488,8 +3489,9 @@ function parseAuditQueryOptions(url: URL): AuditQueryOptions {
   if (category) selectors.push({ kind: 'categoryAction', category: category as AuditCategory, ...(action ? { action: action as AuditAction } : {}) });
   if (actorEmail) selectors.push({ kind: 'actor', email: actorEmail });
   if (resourceKey) selectors.push({ kind: 'resourceKey', key: resourceKey });
+  if (eventId) selectors.push({ kind: 'event', eventId });
   if (q) selectors.push({ kind: 'search', term: q });
-  if (selectors.length > 1) throw new AuditQueryError('Można podać tylko jeden selektor podstawowy (category/action, actorEmail, resourceKey albo q).');
+  if (selectors.length > 1) throw new AuditQueryError('Można podać tylko jeden selektor podstawowy (category/action, actorEmail, resourceKey, eventId albo q).');
 
   const from = params.get('from') ?? undefined;
   const to = params.get('to') ?? undefined;
