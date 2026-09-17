@@ -13,6 +13,7 @@ class Element {
   value = '';
   href = '';
   disabled = false;
+  checked = false;
   dataset: Record<string, string> = {};
   private attributes = new Map<string, string>();
   private listeners = new Map<string, Array<(event: any) => unknown>>();
@@ -24,6 +25,9 @@ class Element {
   async click() {
     await Promise.all((this.listeners.get('click') ?? []).map((listener) => listener({ target: this })));
   }
+  async change() {
+    await Promise.all((this.listeners.get('change') ?? []).map((listener) => listener({ target: this })));
+  }
   setAttribute(name: string, value: string) { this.attributes.set(name, value); }
   getAttribute(name: string) { return this.attributes.get(name) ?? null; }
   scrollIntoView() {}
@@ -33,12 +37,15 @@ const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'main-content', 'lw-error',
   'skladka-fee-display', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
   'skladka-fee-save', 'roster-panel', 'summary-content', 'equipment-companions-content',
-  'roster-table', 'roster-content', 'roster-filter-toggle', 'roster-filter-label', 'event-title', 'event-meta',
+  'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni',
+  'event-title', 'event-meta',
   'cancel-event-btn', 'restore-event-btn', 'event-history-link', 'skladka-fee-history-link',
 ];
 
 function createHarness(event: Record<string, unknown>) {
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
+  // Mirrors index.html's default: "Zgłoszeni + ja" starts checked, "Niezgłoszeni" unchecked.
+  elements.get('roster-filter-zgloszeni')!.checked = true;
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   let mutationResult: unknown = null;
   let mutationError: Error | null = null;
@@ -103,19 +110,46 @@ const event = (skladkaFee: unknown, dueDate: unknown = undefined) => ({
   id: 'e1', name: 'Wyjazd', startDate: '2026-10-10', status: 'active', skladkaFee, dueDate,
 });
 
-test('roster toggle changes only the local filter and preserves the signed-in viewer', async () => {
+test('roster checkboxes filter locally and preserve the signed-in viewer', async () => {
   const harness = createHarness(event(null));
   await harness.signIn();
   const roster = harness.elements.get('roster-content')!;
+  const notSignedUp = harness.elements.get('roster-filter-niezgloszeni')!;
+  const signedUpAndMe = harness.elements.get('roster-filter-zgloszeni')!;
   assert.match(roster.innerHTML, /signed@example\.com/, harness.elements.get('lw-error')!.textContent);
   assert.match(roster.innerHTML, /viewer@example\.com/);
   assert.doesNotMatch(roster.innerHTML, /other@example\.com/);
 
   const requestsBeforeToggle = harness.apiCalls.length;
-  await harness.elements.get('roster-filter-toggle')!.click();
-  assert.equal(harness.elements.get('roster-filter-label')!.textContent, 'Wszyscy');
-  assert.equal(harness.elements.get('roster-filter-toggle')!.getAttribute('aria-pressed'), 'true');
+
+  // Both checked -> everybody.
+  notSignedUp.checked = true;
+  await notSignedUp.change();
+  assert.match(roster.innerHTML, /signed@example\.com/);
+  assert.match(roster.innerHTML, /viewer@example\.com/);
   assert.match(roster.innerHTML, /other@example\.com/);
+
+  // Both unchecked -> empty list.
+  notSignedUp.checked = false;
+  signedUpAndMe.checked = false;
+  await signedUpAndMe.change();
+  assert.match(roster.innerHTML, /Brak osób do wyświetlenia/);
+
+  // Only "Niezgłoszeni" -> the non-attending member, no signed-up, no viewer.
+  notSignedUp.checked = true;
+  await notSignedUp.change();
+  assert.match(roster.innerHTML, /other@example\.com/);
+  assert.doesNotMatch(roster.innerHTML, /signed@example\.com/);
+  assert.doesNotMatch(roster.innerHTML, /viewer@example\.com/);
+
+  // Only "Zgłoszeni + ja" -> signed-up and viewer, no other.
+  notSignedUp.checked = false;
+  signedUpAndMe.checked = true;
+  await signedUpAndMe.change();
+  assert.match(roster.innerHTML, /signed@example\.com/);
+  assert.match(roster.innerHTML, /viewer@example\.com/);
+  assert.doesNotMatch(roster.innerHTML, /other@example\.com/);
+
   assert.equal(harness.apiCalls.length, requestsBeforeToggle);
 });
 

@@ -331,17 +331,18 @@ function renderSummary(roster, signups) {
 // initSortableTable call below) rather than a "Sortuj wg" dropdown - 'weapon' groups by the
 // member's first weaponIds entry (a member can carry several, but the roster only ever has one row
 // per member, so grouping uses just the first one rather than duplicating the row into every
-// weapon's group). rosterFilter is a separate concern (which members are shown at all, not what
-// order) and keeps its own toggle: 'attending' (the default) hides every member who hasn't signed
-// up for this event yet, keeping the list short; 'all' reveals the full club allowlist so someone
-// who hasn't been asked yet can be ticked as attending for the first time. Re-applied locally from
-// the roster/signups already fetched by loadAll() - no network round-trip needed.
-let rosterFilter = 'attending';
+// weapon's group). The two filter checkboxes are a separate concern (which members are shown at
+// all, not what order): "Zgłoszeni + ja" (default on) shows every attending member plus the
+// viewer's own row, so someone who hasn't signed up yet can still find themselves; "Niezgłoszeni"
+// (default off) adds the members who haven't signed up. Both off means an empty list. Re-applied
+// locally from the roster/signups already fetched by loadAll() - no network round-trip needed.
+let showNotSignedUp = false;
+let showSignedUpAndMe = true;
 let cachedRoster = [];
 let cachedSignups = [];
 // Set from initGoogleSignIn's onSignedIn identity (KRKG-0058) - the viewer's own row stays
-// visible under the 'attending' filter even before they've signed up for this event, so they can
-// always find themselves to toggle Jadę/Nie jadę rather than disappearing from their own view.
+// visible under the "Zgłoszeni + ja" filter even before they've signed up for this event, so they
+// can always find themselves to toggle Jadę/Nie jadę rather than disappearing from their own view.
 let viewerEmail = null;
 
 // Sections/categories/weapons don't change within one open page load - fetched once in loadAll()
@@ -422,9 +423,11 @@ const rosterSortState = initSortableTable(document.getElementById('roster-table'
 
 function renderRoster(roster, signups) {
   const signupByEmail = new Map(signups.map((s) => [s.memberEmail, s]));
-  const visible = rosterFilter === 'all'
-    ? roster
-    : roster.filter((m) => signupByEmail.get(m.email)?.attending || m.email === viewerEmail);
+  const visible = roster.filter((m) => {
+    const attending = signupByEmail.get(m.email)?.attending ?? false;
+    if (attending || m.email === viewerEmail) return showSignedUpAndMe;
+    return showNotSignedUp;
+  });
 
   const tbody = document.getElementById('roster-content');
   if (visible.length === 0) {
@@ -548,14 +551,18 @@ async function toggleAttending(email, nextAttending, control) {
   }
 }
 
-document.getElementById('roster-filter-toggle').addEventListener('click', () => {
-  rosterFilter = rosterFilter === 'attending' ? 'all' : 'attending';
-  const toggle = document.getElementById('roster-filter-toggle');
-  const showingAll = rosterFilter === 'all';
-  toggle.setAttribute('aria-pressed', String(showingAll));
-  document.getElementById('roster-filter-label').textContent = showingAll ? 'Wszyscy' : 'Tylko zgłoszeni + ja';
+// The filter is purely local: both boxes are read straight from the DOM on every change, so the
+// render always reflects exactly what the member sees ticked. No apiFetch, so a change can never
+// fail or produce a network error banner.
+function applyRosterFilter() {
+  showNotSignedUp = document.getElementById('roster-filter-niezgloszeni').checked;
+  showSignedUpAndMe = document.getElementById('roster-filter-zgloszeni').checked;
   renderRoster(cachedRoster, cachedSignups);
-});
+}
+
+for (const id of ['roster-filter-niezgloszeni', 'roster-filter-zgloszeni']) {
+  document.getElementById(id).addEventListener('change', applyRosterFilter);
+}
 
 document.getElementById('roster-content').addEventListener('click', (e) => {
   // Tapping a row highlights it gold (KRKG-0052) - touch devices have no hover state, so this is

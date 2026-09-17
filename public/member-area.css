@@ -744,70 +744,44 @@ button.lw-skladka-icon:disabled {
   opacity: 0.45;
 }
 
-/* Filter control above the event page's roster. Its button state is represented both visually and
-   semantically by aria-pressed, matching the event attendance toggle. */
+/* Filter controls above the event page's roster. Two independent checkboxes ("Niezgłoszeni" /
+   "Zgłoszeni + ja") replace the single toggle: the roster can now be read as any combination of
+   the two groups, including an intentionally empty selection. Native checkboxes keep the
+   keyboard/focus behaviour free, and accent-color ties them to the page's gold accent. */
 .lw-roster-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
   margin-bottom: 1rem;
   font-size: 14px;
   color: var(--text-muted);
 }
 
-.lw-roster-filter-toggle {
+.lw-roster-filter-heading {
+  font-weight: 600;
+}
+
+.lw-filter-check {
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0;
-  background: none;
-  border: none;
+  gap: 0.45rem;
+  color: var(--text);
   cursor: pointer;
-  font: inherit;
-  font-weight: 600;
-  color: var(--text-muted);
 }
 
-.lw-roster-filter-toggle-track {
-  position: relative;
+.lw-filter-check input[type="checkbox"] {
   flex: 0 0 auto;
-  width: 2.5rem;
-  height: 1.4rem;
-  background: var(--surface-deep);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  transition: background-color 0.15s, border-color 0.15s;
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+  accent-color: var(--gold);
+  cursor: pointer;
 }
 
-.lw-roster-filter-toggle-track::before {
-  content: '';
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  width: 1.1rem;
-  height: 1.1rem;
-  background: var(--text-muted);
-  border-radius: 50%;
-  transition: transform 0.15s ease, background-color 0.15s;
-}
-
-.lw-roster-filter-toggle[aria-pressed="true"] {
-  color: var(--gold);
-}
-
-.lw-roster-filter-toggle[aria-pressed="true"] .lw-roster-filter-toggle-track {
-  background: color-mix(in srgb, var(--gold) 25%, var(--surface-deep));
-  border-color: var(--gold);
-}
-
-.lw-roster-filter-toggle[aria-pressed="true"] .lw-roster-filter-toggle-track::before {
-  background: var(--gold);
-  transform: translateX(1.1rem);
-}
-
-.lw-roster-filter-toggle:focus-visible {
+.lw-filter-check input[type="checkbox"]:focus-visible {
   outline: 2px solid var(--gold);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 
 /* Roster's name column (KRKG-0059/KRKG-0062) - just the computed display name in its pill, a
