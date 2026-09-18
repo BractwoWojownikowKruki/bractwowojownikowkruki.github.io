@@ -7183,19 +7183,29 @@ function makeDepsWithRole(
 test('GET /lista-wyjazdowa/my-role reflects granted roles', async () => {
   await withServer(makeDeps({
     firestore: makeListaWyjazdowaFirestore(),
-    // Plain member: no userRoles grant, and not on the env admin allowlist either.
+    // Plain member: no userRoles grant, and not on the env admin allowlist or a moderator either.
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
   }), async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
-    assert.deepEqual(await res.json(), { canManageSkladki: false });
+    assert.deepEqual(await res.json(), { canManageSkladki: false, canManagePeople: false });
   });
   await withServer(makeDepsWithRole('accountant'), async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
-    assert.deepEqual(await res.json(), { canManageSkladki: true });
+    assert.deepEqual(await res.json(), { canManageSkladki: true, canManagePeople: true });
   });
   await withServer(makeDepsWithRole('admin'), async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
-    assert.deepEqual(await res.json(), { canManageSkladki: true });
+    assert.deepEqual(await res.json(), { canManageSkladki: true, canManagePeople: true });
+  });
+  // A moderator (authenticateAdminOrModerator, no składki grant) still manages people, so the
+  // event page can offer them the "+" control on every account row.
+  await withServer(makeDeps({
+    firestore: makeListaWyjazdowaFirestore(),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  }), async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
+    assert.deepEqual(await res.json(), { canManageSkladki: false, canManagePeople: true });
   });
 });
 
@@ -7206,7 +7216,7 @@ test('GET /lista-wyjazdowa/my-role also grants canManageSkladki via the env admi
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() }); // default authenticateAdmin succeeds
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
-    assert.deepEqual(await res.json(), { canManageSkladki: true });
+    assert.deepEqual(await res.json(), { canManageSkladki: true, canManagePeople: true });
   });
 });
 

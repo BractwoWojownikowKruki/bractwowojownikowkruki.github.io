@@ -2834,7 +2834,14 @@ async function canManageSkladki(req: IncomingMessage, res: ServerResponse, deps:
 
 async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  sendJson(res, 200, { canManageSkladki: await canManageSkladki(req, res, deps, identity.email) });
+  // KRKG-0087: the event page offers the "+" (add companion) control on the viewer's own row to
+  // everyone, and on every account row to staff - so the client needs to know whether the viewer
+  // is staff (admin/moderator/accountant) even when they cannot manage składki. Reuses the same
+  // isPersonStaff predicate the person routes themselves enforce, so the UI and the server agree.
+  sendJson(res, 200, {
+    canManageSkladki: await canManageSkladki(req, res, deps, identity.email),
+    canManagePeople: await isPersonStaff(req, res, deps, identity.email),
+  });
 }
 
 async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
