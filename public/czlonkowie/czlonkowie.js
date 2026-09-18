@@ -2,7 +2,9 @@
  * Lista Członków (KRKG-0045) - member directory. Sourced from GET /members/directory, which
  * enumerates the live kruki Google Group allowlist joined with members/{email} profile data, so
  * every member with site access is listed - including someone who's never filled in a profile,
- * shown here with an em dash instead of being missing from the table entirely.
+ * shown here with an em dash instead of being missing from the table entirely. KRKG-0087: accountless
+ * people (who have no account and are not on the allowlist) are unioned in from GET
+ * /lista-wyjazdowa/roster's person rows, so this page lists every person, not just members.
  *
  * Read-only (KRKG-0063) - inline editing (KRKG-0047/0049's Imię i nazwisko/Ksywa/Sekcja fields,
  * saved via PUT /lista-wyjazdowa/member) was dropped in favor of Zarządzanie ludźmi as the one
@@ -35,16 +37,11 @@ function sectionAbbr(sectionId) {
 }
 
 // Status (categoryId) shown two ways with the same pill: wrapping the display name itself (KRKG-0057) and,
-// as its own dedicated Status column (KRKG bugfix), a standalone badge - same colored-pill
-// convention used everywhere else on the site (Zarządzanie ludźmi's Wpisowe-adjacent name cells,
-// Lista Wyjazdowa/Składki rosters), rather than plain text. never-a-color-value-in-JS convention,
-// same as the section abbreviation above; the actual colors live in member-area.css's
-// [data-category="..."] rules. extraClass carries czl-empty for an empty displayName/categoryLabel,
-// nothing otherwise. Spis Ludności is read-only (KRKG-0063), so this has no sync-on-change
-// counterpart.
-function categoryNamePillAttrs(categoryId, label, extraClass) {
-  return `class="${extraClass} category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak statusu')}"`;
-}
+// as its own dedicated Status column (KRKG bugfix), a standalone badge. KRKG-0087: both are rendered
+// by shared/person-pill.js's personPillHtml, which also carries the "osoba bez konta" marker for
+// accountless people - the Status column passes no accountless flag, since the marker belongs on the
+// person's name pill only, not on a bare category badge. Spis Ludności is read-only (KRKG-0063), so
+// this has no sync-on-change counterpart.
 
 const panels = {
   checking: document.getElementById('czl-checking'),
@@ -71,7 +68,9 @@ function cell(value) {
 }
 
 function sortValue(member) {
-  return sortState.key === 'displayName' ? displayName(member) : member[sortState.key];
+  // KRKG-0087: an accountless person has no e-mail, so every non-name column is coalesced to ''
+  // rather than leaving a null to stringify as "null" in a sort comparison.
+  return sortState.key === 'displayName' ? displayName(member) : (member[sortState.key] ?? '');
 }
 
 // Default/Sekcja-column sort (KRKG-0051): grouped by section, alphabetical within each - see the
@@ -108,20 +107,40 @@ function renderTable() {
   for (const m of sorted) {
     const row = document.createElement('tr');
     row.dataset.section = m.sectionId ?? '';
-    // Display name gets its own colored outline pill for Typ (KRKG-0057); the full name remains
+    // Display name gets its own colored pill for Typ (KRKG-0057), rendered by shared/person-pill.js
+    // so an accountless person also carries the "osoba bez konta" marker; the full name remains
     // available in the profile drawer instead of taking space in this compact directory table.
+    // KRKG-0087: an accountless person has no e-mail, so the e-mail-keyed profile drawer is a
+    // member-only affordance - their name is plain read-only text.
+    const namePill = personPillHtml({
+      name: displayName(m) || EMPTY,
+      categoryId: m.categoryId,
+      categoryLabel: m.categoryLabel,
+      accountless: m.accountless === true,
+      extraClass: displayName(m) ? undefined : 'czl-empty',
+    });
+    const nameCell = m.accountless
+      ? namePill
+      : `<button type="button" class="profile-trigger" data-profile-trigger data-email="${escapeAttr(m.personId)}">
+          ${namePill}
+        </button>
+        <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${escapeAttr(m.personId)}" aria-label="Pokaż profil" title="Pokaż profil">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+        </button>`;
+    const statusPill = personPillHtml({
+      name: m.categoryLabel || 'Brak statusu',
+      categoryId: m.categoryId,
+      categoryLabel: m.categoryLabel,
+      accountless: false,
+      extraClass: m.categoryLabel ? undefined : 'czl-empty',
+    });
     row.innerHTML = `
       <td class="czl-section-cell" title="${escapeAttr(m.sectionLabel || 'Brak sekcji')}">${m.sectionId ? escapeHtml(sectionAbbr(m.sectionId)) : EMPTY}</td>
       <td>
-        <button type="button" class="profile-trigger" data-profile-trigger data-email="${escapeAttr(m.email)}">
-          <span ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, displayName(m) ? '' : 'czl-empty')}>${cell(displayName(m))}</span>
-        </button>
-        <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${escapeAttr(m.email)}" aria-label="Pokaż profil" title="Pokaż profil">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-        </button>
+        ${nameCell}
       </td>
-      <td><span ${categoryNamePillAttrs(m.categoryId, m.categoryLabel, m.categoryLabel ? '' : 'czl-empty')}>${escapeHtml(m.categoryLabel || 'Brak statusu')}</span></td>
-      <td>${escapeHtml(m.email)}</td>
+      <td>${statusPill}</td>
+      <td>${cell(m.email)}</td>
     `;
     tbody.append(row);
   }
@@ -152,8 +171,32 @@ initGoogleSignIn({
   whoamiPath: '/wojownicy-upload/whoami',
   onSignedIn: async () => {
     try {
-      const { members: fetched } = await apiFetch('/members/directory', { method: 'GET' }, showReauth, hideReauth);
-      members = fetched;
+      // KRKG-0087: the directory is allowlist members only, so accountless people (who have no
+      // account and are not on the allowlist) come from the roster's person rows. Lookup lists
+      // resolve their section/category labels the same way /members/directory already does for
+      // members, so both sources render through one identical row template.
+      const [{ members: directoryMembers }, { roster }, lookupLists] = await Promise.all([
+        apiFetch('/members/directory', { method: 'GET' }, showReauth, hideReauth),
+        apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
+        apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
+      ]);
+      const sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
+      const categoryLabelById = new Map((lookupLists.categories ?? []).map((c) => [c.id, c.label]));
+      const memberRows = directoryMembers.map((m) => ({ ...m, personId: m.email, accountless: false }));
+      const personRows = roster
+        .filter((person) => person.accountless)
+        .map((person) => ({
+          personId: person.personId,
+          email: null,
+          accountless: true,
+          fullName: person.fullName,
+          nickname: person.nickname,
+          sectionId: person.sectionId,
+          sectionLabel: person.sectionId ? (sectionLabelById.get(person.sectionId) ?? person.sectionId) : null,
+          categoryId: person.categoryId,
+          categoryLabel: person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : null,
+        }));
+      members = [...memberRows, ...personRows];
       showOnly(panels.directory);
       renderTable();
     } catch (err) {

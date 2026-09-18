@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/lista-wyjazdowa/skladki/skladki.js', import.meta.url), 'utf8');
+const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 
 class Element {
   id: string;
@@ -48,14 +49,14 @@ const elementIds = [
   'skladki-emeryci-table',
 ];
 
-function createHarness(yearFee: Record<string, unknown> | null) {
+function createHarness(yearFee: Record<string, unknown> | null, options: { roster?: Array<Record<string, unknown>> } = {}) {
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   let mutationResult: unknown = {};
   let mutationError: Error | null = null;
   let signIn: (() => Promise<void>) | undefined;
-  const roster = [
-    { email: 'member@example.com', fullName: 'Member', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
+  const roster = options.roster ?? [
+    { personId: 'member@example.com', email: 'member@example.com', accountless: false, fullName: 'Member', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
   ];
   const context: Record<string, unknown> = {
     URLSearchParams,
@@ -108,6 +109,7 @@ function createHarness(yearFee: Record<string, unknown> | null) {
       throw new Error(`unexpected request: ${url}`);
     },
   };
+  vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
   vm.runInNewContext(source, context, { filename: 'skladki.js' });
   return {
     elements,
@@ -169,4 +171,22 @@ test('year fee: a failed removal restores the form from the last loaded fee', as
   assert.equal(harness.elements.get('skladki-year-fee-duedate-input')!.value, '2026-10-20');
   assert.equal(harness.elements.get('skladki-year-fee-duedate-input')!.disabled, false);
   assert.equal(harness.elements.get('skladki-year-fee-remove')!.disabled, false);
+});
+
+test('an accountless person renders with the marker and no e-mail-keyed profile trigger', async () => {
+  const harness = createHarness(null, {
+    roster: [
+      { personId: 'member@example.com', email: 'member@example.com', accountless: false, fullName: 'Member', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
+      { personId: 'person-uuid-1', email: null, accountless: true, fullName: 'Osoba Bez Konta', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'unpaid', wpisowePaid: false },
+    ],
+  });
+  await harness.signIn();
+  const tbody = harness.elements.get('skladki-table')!.querySelector('tbody')!;
+
+  assert.match(tbody.innerHTML, /person-uuid-1/, 'the accountless row is keyed by its personId');
+  assert.match(tbody.innerHTML, /person-pill-icon/);
+  assert.match(tbody.innerHTML, /aria-label="osoba bez konta"/);
+  assert.doesNotMatch(tbody.innerHTML, /data-email="null"/, 'no e-mail-keyed profile trigger for a person with no e-mail');
+  // The member row still gets its normal e-mail-keyed profile trigger.
+  assert.match(tbody.innerHTML, /data-email="member@example\.com"/);
 });
