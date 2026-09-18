@@ -2788,16 +2788,24 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
   const person = await getPerson(deps.firestore, personId);
   if (!person || person.deletedAt) throw new AuthError('Nie znaleziono takiej osoby.', 404);
   const year = new Date().getFullYear();
-  const [lookupLists, profile, dues] = await Promise.all([
+  const [lookupLists, profile, dues, ownerMember] = await Promise.all([
     getAllLookupLists(deps.firestore),
     getProfile(deps.firestore, person.personId),
     getDues(deps.firestore, person.personId, year),
+    // KRKG-0089: show who this person is a companion of. The owner is always an account, so their
+    // members/{email} doc is the source; fall back to the raw id when they have no member doc.
+    person.ownerPersonId ? getMember(deps.firestore, person.ownerPersonId) : Promise.resolve(null),
   ]);
   const weaponLabelById = new Map(lookupLists.weapons.map((w) => [w.id, w.label]));
+  const ownerName = person.ownerPersonId
+    ? (ownerMember ? (ownerMember.nickname || ownerMember.fullName || person.ownerPersonId) : person.ownerPersonId)
+    : null;
   sendJson(res, 200, {
     profile: {
       personId: person.personId,
       accountless: true,
+      ownerPersonId: person.ownerPersonId ?? null,
+      ownerName,
       fullName: personDisplayName(person),
       nickname: person.ksywka || null,
       sectionId: person.sectionId,
@@ -3361,8 +3369,13 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
       },
     ],
     async tx => {
-      const person = await createPerson(tx, fields, ownerKey, identity.email, personId);
+      // saveSignup reads the existing signup before writing, and real Firestore requires every
+      // read in a transaction to happen before the first write - so the signup is written first
+      // and the person second. createPerson is write-only, so this order keeps the transaction
+      // valid; the reverse (person first) makes saveSignup's read a read-after-write and the
+      // whole transaction is rejected by Firestore at commit (500).
       const signup = await saveSignup(tx, eventId, personId, { attending: true, equipmentIds: [] }, identity.email);
+      const person = await createPerson(tx, fields, ownerKey, identity.email, personId);
       return { person, signup };
     },
   );

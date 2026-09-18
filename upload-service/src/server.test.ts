@@ -6582,6 +6582,11 @@ test('GET /lista-wyjazdowa/person-profile returns an accountless person and 404s
     ownerPersonId: 'wojownik@gmail.com', email: null, deletedAt: null,
     createdAt: 'x', createdBy: 'x',
   });
+  // KRKG-0089: the owner's display name is shown in the drawer.
+  firestore.seed('members', 'wojownik@gmail.com', {
+    fullName: 'Adam Król', nickname: 'Kruk', sectionId: 'krakow', categoryId: 'thing',
+    driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
+  });
   firestore.seed('persons', 'person-gone', {
     personId: 'person-gone', ksywka: 'Cień', firstName: '', lastName: '',
     categoryId: 'thing', sectionId: 'krakow', weaponIds: [],
@@ -6600,6 +6605,8 @@ test('GET /lista-wyjazdowa/person-profile returns an accountless person and 404s
     assert.equal(profile.sectionId, 'krakow');
     assert.equal(profile.categoryId, 'thing');
     assert.deepEqual(profile.weaponIds, ['tarczownik']);
+    assert.equal(profile.ownerPersonId, 'wojownik@gmail.com');
+    assert.equal(profile.ownerName, 'Kruk', "the owner's nickname is shown in the drawer");
     assert.equal(profile.mainPhoto, null);
     assert.deepEqual(profile.photos, []);
 
@@ -6880,7 +6887,26 @@ test('POST /lista-wyjazdowa/signups/quick-add mode=new creates an attached perso
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'wojownik@gmail.com');
   seedEvent(firestore, 'event-1');
-  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+  // KRKG-0089 regression guard: real Firestore rejects a read after the first write in a
+  // transaction. The in-memory fake does not enforce that, so this wraps it to do so - quick-add
+  // must write the signup (which reads first) before the write-only person, or this throws.
+  const guarded = {
+    ...firestore,
+    runTransaction: (fn: (tx: unknown) => Promise<unknown>) => firestore.runTransaction(async tx => {
+      let wrote = false;
+      const guardedTx = {
+        getDoc: async (collection: string, id: string) => {
+          if (wrote) throw new Error('Firestore transactions require all reads to be executed before all writes.');
+          return tx.getDoc(collection, id);
+        },
+        setDoc: async (collection: string, id: string, data: object) => { wrote = true; return tx.setDoc(collection, id, data); },
+        createDoc: async (collection: string, id: string, data: object) => { wrote = true; return tx.createDoc(collection, id, data); },
+        deleteDoc: async (collection: string, id: string) => { wrote = true; return tx.deleteDoc(collection, id); },
+      };
+      return fn(guardedTx);
+    }),
+  } as unknown as typeof firestore;
+  await withServer(memberDeps(guarded, 'wojownik@gmail.com'), async baseUrl => {
     const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', {
       eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'new', ksywka: 'Wilk', categoryId: 'thing',
     });
