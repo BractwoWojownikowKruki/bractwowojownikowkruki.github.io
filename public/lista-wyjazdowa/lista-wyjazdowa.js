@@ -44,6 +44,12 @@ let viewerEmail = null;
 // e-mail), set from the whoami identity; `openAddPanelEventId` is the single event whose panel is
 // open, or null.
 let viewerPersonId = null;
+// KRKG-0094 review: whether the viewer is a real (non-hidden) roster account. The roster itself
+// is lazy-loaded, but onSignedIn already fetches /lista-wyjazdowa/member (to decide the
+// no-profile gate), and a hidden member is the one case the roster excludes - so this is the
+// cheap, no-extra-fetch check that keeps the "+" from appearing for a viewer who could never own
+// a companion.
+let viewerHasAccount = false;
 let currentRoster = [];
 let categoryOptions = [];
 let panelSignups = [];
@@ -102,9 +108,9 @@ function renderEvents() {
     .map((e) => {
       const statusLabel = e.status === 'cancelled' ? ' (odwołany)' : '';
       // KRKG-0094: the "+ osoba towarzysząca" control sits to the right of the toggle and only
-      // appears once the viewer is attending. It does not require the roster to be loaded yet -
-      // the panel it opens lazy-loads that on first use.
-      const canAddCompanion = e.viewerAttending && Boolean(viewerPersonId);
+      // appears once the viewer is attending and is a real (non-hidden) account. It does not
+      // require the roster to be loaded yet - the panel it opens lazy-loads that on first use.
+      const canAddCompanion = e.viewerAttending && viewerHasAccount;
       const addCompanionHtml = canAddCompanion
         ? window.CompanionAdd.buttonHtml({ ownerPersonId: viewerPersonId, eventId: e.id, expanded: openAddPanelEventId === e.id })
         : '';
@@ -433,6 +439,7 @@ initGoogleSignIn({
     // KRKG-0094: the viewer's canonical person key for the companion panel, and a clean slate for
     // its lazy-loaded data (a re-sign-in must not reuse a previous member's roster/signups).
     viewerPersonId = identity.email?.toLowerCase() ?? null;
+    viewerHasAccount = false;
     currentRoster = [];
     categoryOptions = [];
     panelSignups = [];
@@ -447,6 +454,7 @@ initGoogleSignIn({
         showOnly(panels.noProfile);
         return;
       }
+      viewerHasAccount = member.hidden !== true;
       await loadEvents();
       showOnly(panels.events);
       // Arrived from the sub-nav's "Dodaj wyjazd" on another page (?new=1) - open the form the

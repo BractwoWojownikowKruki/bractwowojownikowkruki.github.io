@@ -52,6 +52,7 @@ const elementIds = [
 interface HarnessOptions {
   viewerAttending?: boolean;
   withAttachedPerson?: boolean;
+  hiddenMember?: boolean;
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -72,6 +73,7 @@ function createHarness(options: HarnessOptions = {}) {
       : []),
   ];
 
+  const hiddenMember = options.hiddenMember === true;
   const context: Record<string, unknown> = {
     URLSearchParams,
     Map,
@@ -110,7 +112,7 @@ function createHarness(options: HarnessOptions = {}) {
       if (url === '/lista-wyjazdowa/events') return { events };
       if (url === '/lista-wyjazdowa/roster') return { roster };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [{ id: 'kandydat', label: 'Kandydat' }], weapons: [] };
-      if (url === '/lista-wyjazdowa/member') return { member: { categoryId: 'kandydat' } };
+      if (url === '/lista-wyjazdowa/member') return { member: { categoryId: 'kandydat', ...(hiddenMember ? { hidden: true } : {}) } };
       if (url === '/lista-wyjazdowa/profile') return { profile: { equipment: [], wpisowePaid: true } };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups: [] };
       if (url.startsWith('/lista-wyjazdowa/signups/mine?')) return { signup: null };
@@ -143,6 +145,12 @@ test('the events list shows the add-companion control next to the toggle only wh
   const notAttending = createHarness({ viewerAttending: false });
   await notAttending.signIn();
   assert.doesNotMatch(notAttending.elements.get('events-list')!.innerHTML, /lw-add-companion/);
+});
+
+test('a hidden member gets no add-companion control even while attending', async () => {
+  const harness = createHarness({ viewerAttending: true, hiddenMember: true });
+  await harness.signIn();
+  assert.doesNotMatch(harness.elements.get('events-list')!.innerHTML, /lw-add-companion/);
 });
 
 test('tapping + lazy-loads the roster/categories/signups and opens the shared panel', async () => {
