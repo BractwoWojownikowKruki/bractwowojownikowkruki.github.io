@@ -491,10 +491,13 @@ function rosterEntryFromPerson(person) {
 // time - see openAddPanelOwnerPersonId.
 function renderAddPanel(member) {
   const ownerPersonId = member.personId.toLowerCase();
+  // Only people currently attending are excluded - someone already marked "nie jadę" (a signup
+  // exists with attending:false) must stay selectable so they can be added back, and quick-add is
+  // idempotent on (eventId, personId) anyway.
   const attached = cachedRoster
     .filter((person) => person.accountless
       && (person.ownerPersonId ?? '').toLowerCase() === ownerPersonId
-      && !cachedSignups.some((signup) => signup.memberEmail === person.personId))
+      && !cachedSignups.some((signup) => signup.memberEmail === person.personId && signup.attending))
     .sort((a, b) => displayName(a).localeCompare(displayName(b), 'pl'));
   const hasAttached = attached.length > 0;
   const existingOptions = attached
@@ -524,7 +527,6 @@ function renderAddPanel(member) {
             <button type="button" class="lw-inline-add-new">Dodaj</button>
             <button type="button" class="lw-inline-cancel">Anuluj</button>
           </div>
-          <p class="lw-inline-hint">Nowa osoba nie ma konta, dostaje sekcję opiekuna i od razu status „Jadę".</p>
         </div>
       </td>
     </tr>`;

@@ -866,12 +866,6 @@ button.lw-skladka-icon:disabled {
   font-weight: 400;
 }
 
-.lw-inline-hint {
-  margin: 0.35rem 0 0;
-  font-size: 0.72rem;
-  color: var(--text-faint);
-}
-
 /* Filter controls above the event page's roster. Two independent checkboxes ("Niezgłoszeni" /
    "Zgłoszeni + ja") replace the single toggle: the roster can now be read as any combination of
    the two groups, including an intentionally empty selection. Native checkboxes keep the

@@ -50,7 +50,7 @@ const elementIds = [
   'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-category',
 ];
 
-function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean } = {}) {
+function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean } = {}) {
   const canManageSkladki = options.canManageSkladki ?? true;
   const canManagePeople = options.canManagePeople ?? false;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
@@ -74,12 +74,13 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   // it only renders correctly if the page keys rows by personId (the bug this batch fixes).
   const removedPerson = { personId: 'gone-uuid-1', email: null, accountless: true, ownerPersonId: null, fullName: 'Cień Nowak', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'unpaid', wpisowePaid: true };
   const eventRoster = options.withRemovedPerson ? [...currentRoster, removedPerson] : currentRoster;
-  const signups = options.withRemovedPerson
-    ? [
-        { memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [] },
-        { memberEmail: 'gone-uuid-1', attending: true, skladkaPaid: false, equipmentIds: [] },
-      ]
-    : [{ memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [] }];
+  const signups = [
+    { memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [] },
+    ...(options.withRemovedPerson ? [{ memberEmail: 'gone-uuid-1', attending: true, skladkaPaid: false, equipmentIds: [] }] : []),
+    // KRKG-0089: an attached person already marked "nie jadę" (a signup with attending:false) must
+    // still be offered in the add panel so they can be added back.
+    ...(options.attachedNotAttending ? [{ memberEmail: 'attached-uuid-1', attending: false, skladkaPaid: false, equipmentIds: [] }] : []),
+  ];
   const context: Record<string, unknown> = {
     URLSearchParams,
     Map,
@@ -387,6 +388,27 @@ test("opening the add panel lists the member's attached people and a new-person 
   assert.match(roster.innerHTML, /id="lw-inline-new-category"/);
   assert.match(roster.innerHTML, /Kandydat/);
   assert.match(roster.innerHTML, /aria-expanded="true"/);
+});
+
+test('the add panel offers an attached person already marked "nie jadę" so they can be re-added', async () => {
+  const harness = createHarness(event(null), { withAttachedPerson: true, attachedNotAttending: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+
+  assert.match(roster.innerHTML, /value="attached-uuid-1"/, 'a not-attending attached person stays offered');
+});
+
+test('the add panel no longer shows the "new person inherits section / status Jadę" hint', async () => {
+  const harness = createHarness(event(null), { withAttachedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+
+  assert.doesNotMatch(roster.innerHTML, /lw-inline-hint/);
+  assert.doesNotMatch(roster.innerHTML, /dostaje sekcję opiekuna/);
 });
 
 test('adding an existing attached person posts quick-add and applies the signup locally', async () => {

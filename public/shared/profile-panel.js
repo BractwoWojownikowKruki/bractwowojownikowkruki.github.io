@@ -17,9 +17,9 @@
 (function () {
   const ICON_CHEVRON_LEFT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
   const ICON_CHEVRON_RIGHT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
-  // KRKG-0087: the same "osoba bez konta" marker the person pills carry - meaningful (role="img" +
-  // aria-label), shown next to the drawer's heading for an accountless person.
-  const PERSON_MARKER_ICON = '<svg class="person-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="osoba bez konta"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>';
+  // KRKG-0087/KRKG-0089: the same "osoba bez konta" marker the person pills carry - the child/
+  // companion figure from the roster's add-companion button, not the profile-open person icon.
+  const PERSON_MARKER_ICON = '<svg class="person-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="osoba bez konta"><circle cx="12" cy="5.5" r="2.6"/><path d="M12 8.5v6.5"/><path d="M8.2 11h7.6"/><path d="M9.2 22l2.8-7 2.8 7"/></svg>';
 
   // Weapon icons (KRKG-0074): the same hand-drawn PNG set wyjazd.js/profil.js use for a member's
   // weapons. The seeded lookup label "Duńczyk (D)" still carries its "(D)" placeholder, which
@@ -285,6 +285,7 @@
         ${profile.nickname ? `<dt>Ksywka</dt><dd>${escapeHtml(profile.nickname)}</dd>` : ''}
         ${profile.sectionLabel ? `<dt>Sekcja</dt><dd><span class="section-pill" data-section="${escapeHtml(profile.sectionId ?? '')}">${escapeHtml(profile.sectionLabel)}</span></dd>` : ''}
         ${profile.categoryLabel ? `<dt>Status</dt><dd><span class="category-name-pill" data-category="${escapeHtml(profile.categoryId ?? '')}" title="${escapeHtml(profile.categoryLabel)}">${escapeHtml(profile.categoryLabel)}</span></dd>` : ''}
+        ${profile.ownerName ? `<dt>Opiekun</dt><dd>${escapeHtml(profile.ownerName)}</dd>` : ''}
         ${weaponsHtml}
       </dl>
       ${descriptionHtml}

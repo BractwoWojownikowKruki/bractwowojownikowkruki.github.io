@@ -28,6 +28,9 @@ test('personPillHtml renders the shared pill and adds a meaningful marker only f
   assert.match(person, /role="img"/);
   assert.match(person, /aria-label="osoba bez konta"/);
   assert.doesNotMatch(person, /aria-hidden/, 'the marker is meaningful, not decorative');
+  // KRKG-0089: the marker uses the add-companion child figure, not the profile-open person icon.
+  assert.match(person, /M9\.2 22l2\.8-7/);
+  assert.doesNotMatch(person, /M20 21v-2a4 4 0 0 0-4-4H8/);
 });
 
 test('personPillHtml escapes the name and appends an extra class without duplicating class=', () => {

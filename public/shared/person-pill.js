@@ -21,8 +21,11 @@ function personPillEscapeAttr(value) {
   return personPillEscapeHtml(value);
 }
 
+// KRKG-0089: the marker uses the same "child/companion" figure as the roster's add-companion
+// button (.lw-add-companion-icon) - deliberately NOT the generic person icon the profile-open
+// trigger uses, so a companion pill reads as a different kind of entry at a glance.
 function personPillIconHtml() {
-  return '<svg class="person-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="osoba bez konta"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>';
+  return '<svg class="person-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="osoba bez konta"><circle cx="12" cy="5.5" r="2.6"/><path d="M12 8.5v6.5"/><path d="M8.2 11h7.6"/><path d="M9.2 22l2.8-7 2.8 7"/></svg>';
 }
 
 /**
