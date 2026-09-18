@@ -36,7 +36,10 @@ initGoogleSignIn({
       canManageSkladki = false;
     }
     document.getElementById('membership-wpisowe-header').hidden = !canManageSkladki;
+    // KRKG-0087: only an administrator may merge an accountless person with an account.
+    document.getElementById('accountless-merge-section').hidden = !isAdminCaller;
     loadMembershipMembers();
+    loadAccountless();
   },
   onSignedOut: () => {
     document.getElementById('admin-checking').hidden = true;
@@ -746,5 +749,245 @@ document.getElementById('membership-members-list').addEventListener('click', asy
     if (sheetWarning) window.alert(sheetWarning);
   } catch (err) {
     window.alert(`Błąd: ${err.message}`);
+  }
+});
+
+// ── Osoby bez konta (KRKG-0087 design.md section C) ──────────────────────────────────────────
+//
+// Accountless people, attached or not, managed by staff. Read from the roster's person rows;
+// writes go through the same /lista-wyjazdowa/persons routes Mój profil uses (POST/PUT/DELETE
+// /persons, PUT /persons/owner to detach), with the merge being administrator-only
+// (PUT /persons/account). The server re-checks the staff role on every write.
+const ACCOUNT_NO_WEAPON_CATEGORY_IDS = ['niewiasta', 'bobo'];
+let accountlessCache = { persons: [], sections: [], categories: [], weapons: [] };
+let editingAccountlessPersonId = null;
+
+function accountlessOptionsHtml(items, selectedId) {
+  return items
+    .filter((item) => !item.retired || item.id === selectedId)
+    .map((item) => `<option value="${escapeAttr(item.id)}"${item.id === selectedId ? ' selected' : ''}>${escapeHtml(item.label)}</option>`)
+    .join('');
+}
+
+function accountlessWeaponCheckboxesHtml(weapons, currentIds) {
+  const current = new Set(currentIds ?? []);
+  return weapons
+    .filter((w) => !w.retired || current.has(w.id))
+    .map((w) => `<label class="member-role-label"><input type="checkbox" class="accountless-weapon-checkbox" value="${escapeAttr(w.id)}"${current.has(w.id) ? ' checked' : ''} />${escapeHtml(w.label)}</label>`)
+    .join('');
+}
+
+// Niewiasta/Bobo never carry a weapon (server: persons.ts's weaponAllowedForCategory) - clear and
+// hide the weapon group so the form can't offer a combination the save would reject.
+function updateAccountlessWeaponState() {
+  const allowed = !ACCOUNT_NO_WEAPON_CATEGORY_IDS.includes(document.getElementById('accountless-category').value);
+  const weapons = document.getElementById('accountless-weapons');
+  weapons.hidden = !allowed;
+  if (!allowed) {
+    for (const cb of weapons.querySelectorAll('.accountless-weapon-checkbox')) cb.checked = false;
+  }
+}
+
+function resetAccountlessForm() {
+  editingAccountlessPersonId = null;
+  document.getElementById('accountless-ksywka').value = '';
+  document.getElementById('accountless-first-name').value = '';
+  document.getElementById('accountless-last-name').value = '';
+  document.getElementById('accountless-category').innerHTML = accountlessOptionsHtml(accountlessCache.categories, null);
+  document.getElementById('accountless-section-select').innerHTML = accountlessOptionsHtml(accountlessCache.sections, null);
+  document.getElementById('accountless-weapons').innerHTML = accountlessWeaponCheckboxesHtml(accountlessCache.weapons, []);
+  updateAccountlessWeaponState();
+  document.getElementById('accountless-save').textContent = 'Dodaj osobę';
+  document.getElementById('accountless-error').hidden = true;
+}
+
+function openAccountlessForm(person) {
+  resetAccountlessForm();
+  if (person) {
+    editingAccountlessPersonId = person.personId;
+    document.getElementById('accountless-ksywka').value = person.nickname ?? '';
+    document.getElementById('accountless-first-name').value = person.firstName ?? '';
+    document.getElementById('accountless-last-name').value = person.lastName ?? '';
+    if (person.categoryId) document.getElementById('accountless-category').value = person.categoryId;
+    if (person.sectionId) document.getElementById('accountless-section-select').value = person.sectionId;
+    document.getElementById('accountless-weapons').innerHTML = accountlessWeaponCheckboxesHtml(accountlessCache.weapons, person.weaponIds ?? []);
+    updateAccountlessWeaponState();
+    document.getElementById('accountless-save').textContent = 'Zapisz zmiany';
+  }
+  document.getElementById('accountless-form-panel').hidden = false;
+}
+
+function renderAccountless(roster) {
+  const persons = roster.filter((person) => person.accountless);
+  accountlessCache.persons = persons;
+  const byPersonId = new Map(roster.map((person) => [person.personId, person]));
+  const sectionLabelById = new Map(accountlessCache.sections.map((s) => [s.id, s.label]));
+  const categoryLabelById = new Map(accountlessCache.categories.map((c) => [c.id, c.label]));
+  const weaponLabelById = new Map(accountlessCache.weapons.map((w) => [w.id, w.label]));
+  const tbody = document.getElementById('accountless-list');
+  if (persons.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="czl-empty">Brak osób bez konta.</td></tr>';
+  } else {
+    tbody.innerHTML = persons.map((person) => {
+      const owner = person.ownerPersonId ? byPersonId.get(person.ownerPersonId.toLowerCase()) : null;
+      const ownerName = owner ? displayName(owner) : (person.ownerPersonId ?? '');
+      const weaponLabel = (person.weaponIds ?? []).map((id) => weaponLabelById.get(id) ?? id).join(', ');
+      return `
+    <tr data-person-id="${escapeAttr(person.personId)}" data-section="${escapeAttr(person.sectionId ?? '')}">
+      <td class="czl-section-cell" title="${escapeAttr(sectionLabelById.get(person.sectionId) ?? 'Brak sekcji')}">${person.sectionId ? escapeHtml(sectionAbbr(person.sectionId)) : '—'}</td>
+      <td>${escapeHtml(displayName(person))}</td>
+      <td>${escapeHtml(person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : '—')}</td>
+      <td>${weaponLabel ? escapeHtml(weaponLabel) : '—'}</td>
+      <td>${person.ownerPersonId ? escapeHtml(ownerName) : '—'}</td>
+      <td>bez konta</td>
+      <td>
+        <button type="button" class="member-action accountless-edit">Edytuj</button>
+        ${person.ownerPersonId ? '<button type="button" class="member-action accountless-detach">Odepnij</button>' : ''}
+        <button type="button" class="member-action accountless-delete">Usuń</button>
+      </td>
+    </tr>`;
+    }).join('');
+  }
+  document.getElementById('accountless-merge-person').innerHTML =
+    '<option value="">— wybierz osobę —</option>' +
+    persons.map((person) => `<option value="${escapeAttr(person.personId)}">${escapeHtml(displayName(person))}</option>`).join('');
+}
+
+async function loadAccountless() {
+  const tbody = document.getElementById('accountless-list');
+  tbody.innerHTML = '<tr><td colspan="7" class="czl-empty">Ładowanie...</td></tr>';
+  try {
+    const [{ roster }, sections, categories, weapons] = await Promise.all([
+      apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
+      loadSections(),
+      loadCategories(),
+      loadWeapons(),
+    ]);
+    accountlessCache = { persons: [], sections, categories, weapons };
+    resetAccountlessForm();
+    renderAccountless(roster);
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="7" class="czl-empty">Błąd: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function runAccountlessMutation(control, execute) {
+  await window.MutationFeedback.confirmed({
+    control,
+    anchor: document.getElementById('accountless-section'),
+    viewRoot: document.getElementById('accountless-section'),
+    refreshFragment: loadAccountless,
+    execute,
+    apply: () => loadAccountless(),
+  });
+}
+
+async function submitAccountlessForm() {
+  const errorEl = document.getElementById('accountless-error');
+  errorEl.hidden = true;
+  const categoryId = document.getElementById('accountless-category').value;
+  const fields = {
+    ksywka: document.getElementById('accountless-ksywka').value.trim(),
+    firstName: document.getElementById('accountless-first-name').value.trim(),
+    lastName: document.getElementById('accountless-last-name').value.trim(),
+    categoryId,
+    sectionId: document.getElementById('accountless-section-select').value,
+    weaponIds: ACCOUNT_NO_WEAPON_CATEGORY_IDS.includes(categoryId)
+      ? []
+      : Array.from(document.querySelectorAll('#accountless-weapons .accountless-weapon-checkbox:checked')).map((cb) => cb.value),
+  };
+  if (!fields.ksywka || !fields.categoryId || !fields.sectionId) {
+    errorEl.textContent = 'Ksywka, kategoria i sekcja są wymagane.';
+    errorEl.hidden = false;
+    return;
+  }
+  const editing = editingAccountlessPersonId;
+  try {
+    await runAccountlessMutation(document.getElementById('accountless-save'), () => apiFetch(
+      '/lista-wyjazdowa/persons',
+      {
+        method: editing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editing ? { personId: editing, ...fields } : fields),
+      },
+      showReauth,
+      hideReauth,
+    ));
+    document.getElementById('accountless-form-panel').hidden = true;
+    resetAccountlessForm();
+  } catch (err) {
+    errorEl.textContent = `Nie udało się zapisać osoby: ${err.message}`;
+    errorEl.hidden = false;
+  }
+}
+
+document.getElementById('accountless-add-toggle').addEventListener('click', () => openAccountlessForm(null));
+document.getElementById('accountless-cancel').addEventListener('click', () => {
+  document.getElementById('accountless-form-panel').hidden = true;
+  resetAccountlessForm();
+});
+document.getElementById('accountless-save').addEventListener('click', submitAccountlessForm);
+document.getElementById('accountless-category').addEventListener('change', updateAccountlessWeaponState);
+
+document.getElementById('accountless-list').addEventListener('click', async (e) => {
+  const row = e.target.closest('tr[data-person-id]');
+  if (!row) return;
+  const personId = row.dataset.personId;
+  if (e.target.closest('.accountless-edit')) {
+    const person = accountlessCache.persons.find((p) => p.personId === personId);
+    if (person) openAccountlessForm(person);
+    return;
+  }
+  if (e.target.closest('.accountless-detach')) {
+    if (!window.confirm('Odpiąć tę osobę od opiekuna?')) return;
+    try {
+      await runAccountlessMutation(e.target, () => apiFetch(
+        '/lista-wyjazdowa/persons/owner',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personId, ownerPersonId: null }) },
+        showReauth,
+        hideReauth,
+      ));
+    } catch (err) {
+      window.alert(`Błąd: ${err.message}`);
+    }
+    return;
+  }
+  if (e.target.closest('.accountless-delete')) {
+    if (!window.confirm('Usunąć tę osobę? Historia i audyt pozostaną.')) return;
+    try {
+      await runAccountlessMutation(e.target, () => apiFetch(
+        '/lista-wyjazdowa/persons',
+        { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personId }) },
+        showReauth,
+        hideReauth,
+      ));
+    } catch (err) {
+      window.alert(`Błąd: ${err.message}`);
+    }
+  }
+});
+
+document.getElementById('accountless-merge').addEventListener('click', async (e) => {
+  const errorEl = document.getElementById('accountless-merge-error');
+  errorEl.hidden = true;
+  const personId = document.getElementById('accountless-merge-person').value;
+  const accountEmail = document.getElementById('accountless-merge-email').value.trim();
+  if (!personId || !accountEmail) {
+    errorEl.textContent = 'Wybierz osobę i podaj e-mail konta.';
+    errorEl.hidden = false;
+    return;
+  }
+  if (!window.confirm(`Scalić tę osobę z kontem ${accountEmail}?`)) return;
+  try {
+    await runAccountlessMutation(e.target, () => apiFetch(
+      '/lista-wyjazdowa/persons/account',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personId, accountEmail }) },
+      showReauth,
+      hideReauth,
+    ));
+    document.getElementById('accountless-merge-email').value = '';
+  } catch (err) {
+    errorEl.textContent = `Nie udało się scalić: ${err.message}`;
+    errorEl.hidden = false;
   }
 });
