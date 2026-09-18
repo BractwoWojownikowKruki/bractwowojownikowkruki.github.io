@@ -41,17 +41,6 @@ const NULL_BODY_STATUSES = new Set([204, 205, 304]);
 // being left in a half-read state across this suite's rapid server create/close cycles (see
 // withServer). Buffering it into a plain Response also means callers can still call
 // .json()/.text() exactly as before, just against the buffered bytes instead of the live socket.
-//
-// NOTE: this does not fully eliminate the intermittent "wrong response for this request" flake
-// this suite exhibits roughly 1 in 10-20 runs. Investigation (see the story's flake-fix report)
-// traced it to at least two distinct causes, neither of which is fixable from inside this file:
-// (1) other local processes on the development machine (confirmed: a Python debugpy/ptvsd
-// debug adapter in an unrelated repo) occasionally emit non-HTTP data that collides with the
-// ephemeral TCP ports Node's listen(0) hands out during this suite's ~180 rapid create/destroy
-// cycles, and (2) a smaller number of clean-but-wrong-status responses that reproduce
-// identically whether the client is undici's fetch() or a hand-rolled node:http client with no
-// connection pooling at all, meaning it isn't specific to undici's pool. Kept anyway as correct
-// practice independent of the flake.
 async function drainResponse(res: Response): Promise<Response> {
   const buffer = await res.arrayBuffer();
   const body = NULL_BODY_STATUSES.has(res.status) ? null : buffer;
