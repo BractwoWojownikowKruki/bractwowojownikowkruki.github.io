@@ -20,5 +20,5 @@ test('the profile drawer marks an accountless person with the shared person icon
 });
 
 test('the profile drawer shows who an accountless person is a companion of', () => {
-  assert.match(panel, /profile\.ownerName \? `<dt>Opiekun<\/dt><dd>\$\{escapeHtml\(profile\.ownerName\)\}<\/dd>`/);
+  assert.match(panel, /profile\.ownerName \? `<dt>Osoba towarzysząca<\/dt><dd>\$\{escapeHtml\(profile\.ownerName\)\}<\/dd>`/);
 });
