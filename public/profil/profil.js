@@ -549,7 +549,7 @@ function addPersonRow(container, person = null) {
     <div class="person-row-actions">
       <button type="button" class="person-save add-album-submit">${person ? 'Zapisz' : 'Dodaj'}</button>
       ${person
-        ? '<button type="button" class="person-delete btn-cancel">Usuń</button>'
+        ? '<button type="button" class="person-delete btn-cancel">Deaktywuj</button>'
         : '<button type="button" class="person-cancel btn-cancel">Anuluj</button>'}
     </div>
   `;
@@ -568,7 +568,7 @@ function addPersonRow(container, person = null) {
   if (person) {
     row.querySelector('.person-delete').addEventListener('click', (event) => {
       clearPersonsError();
-      if (!window.confirm('Usunąć tę osobę? Historia i audyt pozostaną.')) return;
+      if (!window.confirm('Deaktywować tę osobę? Zostanie odpięta i zniknie z listy, ale pozostanie w historii.')) return;
       deletePerson(row.dataset.personId, event.target);
     });
   } else {

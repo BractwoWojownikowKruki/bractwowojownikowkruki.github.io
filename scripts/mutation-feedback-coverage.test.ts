@@ -158,6 +158,7 @@ test('all canonical write routes are wired by batch five', async () => {
     'POST /admin/redirects',
     'DELETE /admin/redirects',
     'POST /admin/settings',
+    'DELETE /lista-wyjazdowa/persons/permanent',
   ];
 
   for (const route of expectedWiredRoutes) {

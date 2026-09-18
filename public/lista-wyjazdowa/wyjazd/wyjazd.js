@@ -611,12 +611,16 @@ function renderRoster(roster, signups) {
       // KRKG-0087: one shared pill renderer, with the "osoba bez konta" marker for an accountless
       // person. A member's name opens the shared profile drawer by e-mail; a person has no e-mail,
       // so their pill opens the same drawer through the person-keyed endpoint (data-person-id).
+      // KRKG-0091: a deactivated person is read-only here - the drawer and the write routes both
+      // reject a tombstone, so their pill is plain text (no trigger) and the row has no controls.
       const namePill = personPillHtml({ name: displayName(member), categoryId: member.categoryId, categoryLabel, accountless: member.accountless === true });
-      const nameCellHtml = member.accountless
-        ? `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}">
+      const nameCellHtml = member.deleted
+        ? namePill
+        : member.accountless
+          ? `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}">
           ${namePill}
         </button>`
-        : `<button type="button" class="profile-trigger" data-profile-trigger data-email="${personIdAttr}">
+          : `<button type="button" class="profile-trigger" data-profile-trigger data-email="${personIdAttr}">
           ${namePill}
         </button>
         <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${personIdAttr}" aria-label="Pokaż profil" title="Pokaż profil">
@@ -637,11 +641,13 @@ function renderRoster(roster, signups) {
         ${duesBadgesHtml}
       </td>
       <td>
-        <button type="button" class="lw-attend-toggle" data-person-id="${personIdAttr}" data-attending="${attending}" aria-pressed="${attending}">
+        ${member.deleted
+          ? `<span class="lw-attend-static" title="Osoba deaktywowana">${attending ? 'Jadę' : 'Nie jadę'}</span>`
+          : `<button type="button" class="lw-attend-toggle" data-person-id="${personIdAttr}" data-attending="${attending}" aria-pressed="${attending}">
           <span class="lw-attend-toggle-track" aria-hidden="true"></span>
           ${attending ? 'Jadę' : 'Nie jadę'}
         </button>
-        ${attending && normalizeSkladkaFee(cachedEvent?.skladkaFee) ? renderSkladkaIcon(personIdAttr, signup?.skladkaPaid ?? false) : ''}
+        ${attending && normalizeSkladkaFee(cachedEvent?.skladkaFee) ? renderSkladkaIcon(personIdAttr, signup?.skladkaPaid ?? false) : ''}`}
       </td>
       <td class="${member.weaponIds.length ? '' : 'czl-empty'}">${member.weaponIds.length ? weaponHtml : EMPTY}</td>
       <td class="lw-status-changed-cell">${escapeHtml(formatStatusChangedAt(signup?.statusChangedAt))}</td>

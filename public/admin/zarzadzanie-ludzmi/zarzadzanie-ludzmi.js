@@ -805,7 +805,7 @@ function openAccountlessForm(person) {
   resetAccountlessForm();
   if (person) {
     editingAccountlessPersonId = person.personId;
-    document.getElementById('accountless-ksywka').value = person.nickname ?? '';
+    document.getElementById('accountless-ksywka').value = person.ksywka ?? person.nickname ?? '';
     document.getElementById('accountless-first-name').value = person.firstName ?? '';
     document.getElementById('accountless-last-name').value = person.lastName ?? '';
     if (person.categoryId) document.getElementById('accountless-category').value = person.categoryId;
@@ -817,10 +817,14 @@ function openAccountlessForm(person) {
   document.getElementById('accountless-form-panel').hidden = false;
 }
 
-function renderAccountless(roster) {
-  const persons = roster.filter((person) => person.accountless);
+function accountlessDisplayName(person) {
+  return person.ksywka || [person.firstName, person.lastName].filter((part) => (part ?? '').trim()).join(' ') || person.personId;
+}
+
+// KRKG-0091: the list is GET /lista-wyjazdowa/persons (staff), which - unlike the roster's current
+// read - also returns deactivated (tombstoned) people, so they can be permanently removed.
+function renderAccountless(persons) {
   accountlessCache.persons = persons;
-  const byPersonId = new Map(roster.map((person) => [person.personId, person]));
   const sectionLabelById = new Map(accountlessCache.sections.map((s) => [s.id, s.label]));
   const categoryLabelById = new Map(accountlessCache.categories.map((c) => [c.id, c.label]));
   const weaponLabelById = new Map(accountlessCache.weapons.map((w) => [w.id, w.label]));
@@ -829,47 +833,51 @@ function renderAccountless(roster) {
     tbody.innerHTML = '<tr><td colspan="7" class="czl-empty">Brak osób bez konta.</td></tr>';
   } else {
     tbody.innerHTML = persons.map((person) => {
-      const owner = person.ownerPersonId ? byPersonId.get(person.ownerPersonId.toLowerCase()) : null;
-      const ownerName = owner ? displayName(owner) : (person.ownerPersonId ?? '');
+      const categoryLabel = person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : null;
+      const namePill = personPillHtml({ name: accountlessDisplayName(person), categoryId: person.categoryId, categoryLabel, accountless: true });
+      // A deactivated person's drawer 404s, so their pill is plain text; an active one opens it.
+      const nameCell = person.deleted
+        ? namePill
+        : `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${escapeAttr(person.personId)}">${namePill}</button>`;
       const weaponLabel = (person.weaponIds ?? []).map((id) => weaponLabelById.get(id) ?? id).join(', ');
       return `
     <tr data-person-id="${escapeAttr(person.personId)}" data-section="${escapeAttr(person.sectionId ?? '')}">
       <td class="czl-section-cell" title="${escapeAttr(sectionLabelById.get(person.sectionId) ?? 'Brak sekcji')}">${person.sectionId ? escapeHtml(sectionAbbr(person.sectionId)) : '—'}</td>
-      <td>
-        <button type="button" class="profile-trigger" data-profile-trigger data-person-id="${escapeAttr(person.personId)}">
-          ${personPillHtml({ name: displayName(person), categoryId: person.categoryId, categoryLabel: person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : null, accountless: true })}
-        </button>
-      </td>
-      <td>${escapeHtml(person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : '—')}</td>
+      <td>${nameCell}</td>
+      <td>${escapeHtml(categoryLabel ?? '—')}</td>
       <td>${weaponLabel ? escapeHtml(weaponLabel) : '—'}</td>
-      <td>${person.ownerPersonId ? escapeHtml(ownerName) : '—'}</td>
-      <td>bez konta</td>
+      <td>${person.ownerPersonId ? escapeHtml(person.ownerName ?? person.ownerPersonId) : '—'}</td>
+      <td>${person.deleted ? 'deaktywowana' : 'bez konta'}</td>
       <td>
-        <button type="button" class="member-action accountless-edit">Edytuj</button>
-        ${person.ownerPersonId ? '<button type="button" class="member-action accountless-detach">Odepnij</button>' : ''}
-        <button type="button" class="member-action accountless-delete">Usuń</button>
+        ${person.deleted ? '' : '<button type="button" class="member-action accountless-edit">Edytuj</button>'}
+        ${!person.deleted && person.ownerPersonId ? '<button type="button" class="member-action accountless-detach">Odepnij</button>' : ''}
+        ${person.deleted ? '' : '<button type="button" class="member-action accountless-deactivate">Deaktywuj</button>'}
+        <button type="button" class="member-action accountless-purge">Usuń trwale</button>
       </td>
     </tr>`;
     }).join('');
   }
   document.getElementById('accountless-merge-person').innerHTML =
     '<option value="">— wybierz osobę —</option>' +
-    persons.map((person) => `<option value="${escapeAttr(person.personId)}">${escapeHtml(displayName(person))}</option>`).join('');
+    persons
+      .filter((person) => !person.deleted)
+      .map((person) => `<option value="${escapeAttr(person.personId)}">${escapeHtml(accountlessDisplayName(person))}</option>`)
+      .join('');
 }
 
 async function loadAccountless() {
   const tbody = document.getElementById('accountless-list');
   tbody.innerHTML = '<tr><td colspan="7" class="czl-empty">Ładowanie...</td></tr>';
   try {
-    const [{ roster }, sections, categories, weapons] = await Promise.all([
-      apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
+    const [{ persons }, sections, categories, weapons] = await Promise.all([
+      apiFetch('/lista-wyjazdowa/persons', { method: 'GET' }, showReauth, hideReauth),
       loadSections(),
       loadCategories(),
       loadWeapons(),
     ]);
     accountlessCache = { persons: [], sections, categories, weapons };
     resetAccountlessForm();
-    renderAccountless(roster);
+    renderAccountless(persons);
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="czl-empty">Błąd: ${escapeHtml(err.message)}</td></tr>`;
   }
@@ -956,11 +964,25 @@ document.getElementById('accountless-list').addEventListener('click', async (e) 
     }
     return;
   }
-  if (e.target.closest('.accountless-delete')) {
-    if (!window.confirm('Usunąć tę osobę? Historia i audyt pozostaną.')) return;
+  if (e.target.closest('.accountless-deactivate')) {
+    if (!window.confirm('Deaktywować tę osobę? Zostanie odpięta od opiekuna i pozostanie w historii jako nieaktywna, ale nie będzie można jej już dodać.')) return;
     try {
       await runAccountlessMutation(e.target, () => apiFetch(
         '/lista-wyjazdowa/persons',
+        { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personId }) },
+        showReauth,
+        hideReauth,
+      ));
+    } catch (err) {
+      window.alert(`Błąd: ${err.message}`);
+    }
+    return;
+  }
+  if (e.target.closest('.accountless-purge')) {
+    if (!window.confirm('Trwale usunąć tę osobę? Zniknie także z przeszłych wyjazdów i zmieni ich statystyki. Audyt pozostanie.')) return;
+    try {
+      await runAccountlessMutation(e.target, () => apiFetch(
+        '/lista-wyjazdowa/persons/permanent',
         { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personId }) },
         showReauth,
         hideReauth,

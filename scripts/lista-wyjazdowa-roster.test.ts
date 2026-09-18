@@ -72,7 +72,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   // KRKG-0087: the event-scoped (historical) roster additionally carries a person who has since been
   // removed but was signed up for this trip. A person row has `email: null` and a UUID personId, so
   // it only renders correctly if the page keys rows by personId (the bug this batch fixes).
-  const removedPerson = { personId: 'gone-uuid-1', email: null, accountless: true, ownerPersonId: null, fullName: 'Cień Nowak', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'unpaid', wpisowePaid: true };
+  const removedPerson = { personId: 'gone-uuid-1', email: null, accountless: true, ownerPersonId: null, deleted: true, fullName: 'Cień Nowak', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'unpaid', wpisowePaid: true };
   const eventRoster = options.withRemovedPerson ? [...currentRoster, removedPerson] : currentRoster;
   const signups = [
     { memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [] },
@@ -323,11 +323,14 @@ test('the event-scoped roster renders an accountless person with the marker and 
   const row = roster.innerHTML.match(/<tr data-person-id="gone-uuid-1"[\s\S]*?<\/tr>/)?.[0];
   assert.ok(row, 'the removed person signed up for this trip is rendered');
   assert.match(row, /data-person-id="gone-uuid-1"/, 'the row is keyed by the person UUID, not the null e-mail');
-  assert.match(row, /class="lw-attend-toggle" data-person-id="gone-uuid-1"/, 'the attend toggle targets the personId');
   assert.match(row, /person-pill-icon/, 'the accountless marker is rendered');
   assert.match(row, /aria-label="osoba bez konta"/);
-  assert.match(row, /data-person-id="gone-uuid-1"[\s\S]*?data-profile-trigger|data-profile-trigger[\s\S]*?data-person-id="gone-uuid-1"/, 'the pill opens the drawer through the person-keyed trigger');
-  assert.doesNotMatch(row, /data-email="null"/, 'no e-mail-keyed profile trigger for a person with no e-mail');
+  // KRKG-0091: a deactivated person is read-only on the event list - no toggle (it would 404) and
+  // no profile drawer trigger (the drawer 404s a tombstone).
+  assert.match(row, /lw-attend-static/, 'the status is shown read-only');
+  assert.doesNotMatch(row, /lw-attend-toggle/, 'no attend toggle for a deactivated person');
+  assert.doesNotMatch(row, /profile-trigger/, 'no profile drawer trigger for a deactivated person');
+  assert.doesNotMatch(row, /data-email="null"/);
 
   // The two distinct accountless rows must not collapse onto a shared key.
   const keyedRows = roster.innerHTML.match(/data-person-id="gone-uuid-1"/g) ?? [];

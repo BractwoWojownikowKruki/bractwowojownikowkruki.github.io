@@ -79,24 +79,27 @@ const mutationFeedbackWiredRoutes = new Set([
   'PUT /lista-wyjazdowa/wpisowe',
   'PUT /lista-wyjazdowa/dues',
   'PUT /lista-wyjazdowa/dues/year-fee',
+  // KRKG-0087/KRKG-0091: the accountless-person record routes are now wired by the frontend
+  // (Mój profil, Zarządzanie ludźmi, the event page's quick-add).
+  'POST /lista-wyjazdowa/persons',
+  'PUT /lista-wyjazdowa/persons',
+  'DELETE /lista-wyjazdowa/persons',
+  'DELETE /lista-wyjazdowa/persons/permanent',
+  'PUT /lista-wyjazdowa/persons/owner',
+  'PUT /lista-wyjazdowa/persons/account',
+  'POST /lista-wyjazdowa/signups/quick-add',
   'POST /files',
   'DELETE /files',
 ]);
 
 /**
- * Routes whose server contract has shipped but whose page wiring is deliberately still in flight
- * (KRKG-0087: the accountless-person record routes land with their audit/inventory contract before
- * the frontend batches that call them). This is not an exception - each route still requires a
- * MutationFeedback check - it only lets the batch-five "nothing is still planned" gate stay exact
- * while a later story's frontend catches up. The gate fails for any planned route not named here.
+ * Routes whose server contract has shipped but whose page wiring is deliberately still in flight.
+ * Empty since KRKG-0087/KRKG-0091 wired the accountless-person routes; a route listed here would
+ * still require a MutationFeedback check, it only lets the batch-five "nothing is still planned"
+ * gate stay exact while a later story's frontend catches up. The gate fails for any planned route
+ * not named here.
  */
-export const mutationFeedbackPendingRoutes = new Set([
-  'POST /lista-wyjazdowa/persons',
-  'PUT /lista-wyjazdowa/persons',
-  'DELETE /lista-wyjazdowa/persons',
-  'PUT /lista-wyjazdowa/persons/owner',
-  'PUT /lista-wyjazdowa/persons/account',
-  'POST /lista-wyjazdowa/signups/quick-add',
+export const mutationFeedbackPendingRoutes = new Set<string>([
 ]);
 
 /** Parses and expands method-and-route rows from the checked-in canonical Mutation inventory table. */
