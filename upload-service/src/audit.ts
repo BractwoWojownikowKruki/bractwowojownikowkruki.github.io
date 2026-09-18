@@ -198,6 +198,9 @@ export const ACTION_REGISTRY = {
   'person.updated': action('profile', 'adminOrModerator', ['person'], personFields),
   'person.deleted': action('profile', 'adminOrModerator', ['person'], personFields),
   'person.detached': action('profile', 'adminOrModerator', ['person'], personFields),
+  // KRKG-0091: permanent removal (person record + profile + signups + dues). Staff-only; the
+  // immutable audit events themselves are never removed, so the action stays traceable.
+  'person.purged': action('profile', 'adminOrModerator', ['person'], personFields),
   'person.merged': action('profile', 'admin', ['person'], personFields),
   'session.login.succeeded': action('session', 'admin', ['session'], sessionFields),
   'application.pwa.installation_reported': action('application', 'admin', ['application'], applicationFields),

@@ -193,7 +193,9 @@ export async function updatePerson(
   return { ...existing, ...writable };
 }
 
-/** Tombstone: the record stays resolvable for history and audit, but leaves every current list. */
+/** Tombstone: the record stays resolvable for history and audit, but leaves every current list.
+ * KRKG-0091: it is also detached from its owner, so a deactivated companion no longer belongs to
+ * anyone (and cannot be added to a trip from the owner's row). */
 export async function softDeletePerson(
   client: FirestoreWriteContext,
   personId: string,
@@ -201,7 +203,7 @@ export async function softDeletePerson(
 ): Promise<PersonDoc | null> {
   const existing = await client.getDoc<PersonDoc>(PERSONS_COLLECTION, personId);
   if (!existing) return null;
-  const writable = { deletedAt: new Date().toISOString(), deletedBy };
+  const writable = { deletedAt: new Date().toISOString(), deletedBy, ownerPersonId: null };
   await client.setDoc(PERSONS_COLLECTION, personId, writable);
   return { ...existing, ...writable };
 }

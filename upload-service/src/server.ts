@@ -232,6 +232,7 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   personCreate: auditedRoute('POST', '/lista-wyjazdowa/persons', ['person.created']),
   personUpdate: auditedRoute('PUT', '/lista-wyjazdowa/persons', ['person.updated']),
   personDelete: auditedRoute('DELETE', '/lista-wyjazdowa/persons', ['person.deleted']),
+  personPurge: auditedRoute('DELETE', '/lista-wyjazdowa/persons/permanent', ['person.purged']),
   personOwner: auditedRoute('PUT', '/lista-wyjazdowa/persons/owner', ['person.detached']),
   personAccount: auditedRoute('PUT', '/lista-wyjazdowa/persons/account', ['person.merged']),
   quickAdd: auditedRoute('POST', '/lista-wyjazdowa/signups/quick-add', ['person.created', 'signup.created', 'signup.updated']),
@@ -2760,6 +2761,9 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       ownerPersonId: person.ownerPersonId,
       email: null,
       fullName: personDisplayName(person),
+      // KRKG-0091: a tombstoned person still resolves in a historical read (they were signed up for
+      // that trip); the client renders their row read-only instead of offering a toggle that 404s.
+      deleted: Boolean(person.deletedAt),
       // KRKG-0087: the separate name parts too, so Mój profil can edit them individually (the
       // joined fullName alone can't be split back apart).
       firstName: person.firstName,
@@ -3214,6 +3218,82 @@ async function handleListaWyjazdowaDeletePerson(req: IncomingMessage, res: Serve
     },
   );
   sendJson(res, 200, { person });
+}
+
+// KRKG-0091: staff-only listing of every person, including deactivated (tombstoned) ones, so
+// Zarządzanie ludźmi can show and permanently remove them. The roster's current read excludes
+// tombstones, so this is the one place they remain visible.
+async function handleListaWyjazdowaGetPersons(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  if (!(await isPersonStaff(req, res, deps, identity.email))) throw new AuthError('Brak uprawnień do tej osoby.', 403);
+  const [persons, members] = await Promise.all([
+    listPersons(deps.firestore, { includeDeleted: true }),
+    listAllMembers(deps.firestore),
+  ]);
+  const memberByEmail = new Map(members.map((m) => [m.email, m]));
+  const ownerName = (ownerPersonId: string | null): string | null => {
+    if (!ownerPersonId) return null;
+    const owner = memberByEmail.get(ownerPersonId.toLowerCase());
+    return owner ? (owner.nickname || owner.fullName || ownerPersonId) : ownerPersonId;
+  };
+  sendJson(res, 200, {
+    persons: persons.map(({ data: person }) => ({
+      personId: person.personId,
+      ksywka: person.ksywka,
+      firstName: person.firstName,
+      lastName: person.lastName,
+      categoryId: person.categoryId,
+      sectionId: person.sectionId,
+      weaponIds: person.weaponIds,
+      ownerPersonId: person.ownerPersonId,
+      ownerName: ownerName(person.ownerPersonId),
+      deletedAt: person.deletedAt,
+      deleted: Boolean(person.deletedAt),
+    })),
+  });
+}
+
+// KRKG-0091: permanent removal - the person record, profile, every signup and every annual-dues
+// record keyed by this person. Unlike the tombstone it also drops the person from past trips (their
+// counts change); this is the escape hatch for a mistaken duplicate. Immutable audit events are
+// never removed, so the purge stays traceable via person.purged. Staff-only.
+async function handleListaWyjazdowaDeletePersonPermanent(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  if (!(await isPersonStaff(req, res, deps, identity.email))) throw new AuthError('Brak uprawnień do tej osoby.', 403);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
+  const existing = await getPerson(deps.firestore, personId);
+  if (!existing) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+  // Collections cannot be scanned inside a Firestore transaction, so the doc ids to delete are
+  // resolved first and only the deletes (plus the audit event) run transactionally.
+  const [signups, dues] = await Promise.all([
+    deps.firestore.listDocs<{ memberEmail?: string }>('signups'),
+    deps.firestore.listDocs<{ email?: string }>('duesAnnual'),
+  ]);
+  const signupIds = signups.filter(({ data }) => data.memberEmail === existing.personId).map(({ id }) => id);
+  const duesIds = dues.filter(({ data }) => data.email === existing.personId).map(({ id }) => id);
+  await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.personPurge,
+    'person.purged',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'person', key: `person:${existing.personId}`, display: existing.ksywka || existing.personId },
+      changes: [
+        { field: 'deleted', before: false, after: true },
+        { field: 'droppedSignups', after: signupIds.length },
+        { field: 'droppedDues', after: duesIds.length },
+      ],
+    },
+    async tx => {
+      for (const id of signupIds) await tx.deleteDoc('signups', id);
+      for (const id of duesIds) await tx.deleteDoc('duesAnnual', id);
+      await tx.deleteDoc('listaWyjazdowaProfile', existing.personId);
+      await tx.deleteDoc('persons', existing.personId);
+      return { personId: existing.personId };
+    },
+  );
+  sendJson(res, 200, { personId: existing.personId, deletedSignups: signupIds.length, deletedDues: duesIds.length });
 }
 
 async function handleListaWyjazdowaPutPersonOwner(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -4378,12 +4458,16 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaGetRoster(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/person-profile') {
         await handleListaWyjazdowaGetPersonProfile(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/persons') {
+        await handleListaWyjazdowaGetPersons(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/lista-wyjazdowa/persons') {
         await handleListaWyjazdowaPostPerson(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/persons') {
         await handleListaWyjazdowaPutPerson(req, res, deps);
       } else if (req.method === 'DELETE' && url.pathname === '/lista-wyjazdowa/persons') {
         await handleListaWyjazdowaDeletePerson(req, res, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/lista-wyjazdowa/persons/permanent') {
+        await handleListaWyjazdowaDeletePersonPermanent(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/persons/owner') {
         await handleListaWyjazdowaPutPersonOwner(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/persons/account') {

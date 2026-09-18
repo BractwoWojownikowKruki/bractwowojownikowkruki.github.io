@@ -2,7 +2,7 @@
 Checked-in copy of the "## Mutation inventory" table from implementation-contract.md.
 
 Source of truth (istra tracker, NOT part of this repo, not available in CI):
-~/repos/istra/2-InProgress/KRKG-0050 - Centralny, czytelny audyt operacji zapisu/implementation-contract.md
+~/repos/istra/4-Done/KRKG-0050 - Centralny, czytelny audyt operacji zapisu/implementation-contract.md
 
 mutation-inventory.test.ts parses THIS file (not the istra path, which CI and other developers'
 checkouts do not have) and compares it against server.ts's live dispatch chain. That comparison is
@@ -14,7 +14,7 @@ table into this file in the same change. If you forget, this test will keep pass
 stale copy while the real contract document silently diverges - exactly the failure mode this
 fixture exists to prevent.
 
-Last synced with implementation-contract.md: 2026-09-17 (KRKG-0087: added the accountless-person record routes POST/PUT/DELETE /lista-wyjazdowa/persons, PUT /lista-wyjazdowa/persons/owner, PUT /lista-wyjazdowa/persons/account and POST /lista-wyjazdowa/signups/quick-add, actions person.created/updated/deleted/detached/merged).
+Last synced with implementation-contract.md: 2026-09-18 (KRKG-0091: added DELETE /lista-wyjazdowa/persons/permanent, action person.purged; KRKG-0087 added the accountless-person record routes POST/PUT/DELETE /lista-wyjazdowa/persons, PUT /lista-wyjazdowa/persons/owner, PUT /lista-wyjazdowa/persons/account and POST /lista-wyjazdowa/signups/quick-add, actions person.created/updated/deleted/detached/merged).
 -->
 
 | Method and route | Classification and action | Resource and side effect | Execution |
@@ -56,6 +56,7 @@ Last synced with implementation-contract.md: 2026-09-17 (KRKG-0087: added the ac
 | POST `/lista-wyjazdowa/persons` | businessWrite — `person.created` | person; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/persons` | businessWrite — `person.updated` | person; Firestore | requestAwaited |
 | DELETE `/lista-wyjazdowa/persons` | businessWrite — `person.deleted` | person; Firestore | requestAwaited |
+| DELETE `/lista-wyjazdowa/persons/permanent` | businessWrite — `person.purged` | person, profile, signup and dues; Firestore; one transaction | requestAwaited |
 | PUT `/lista-wyjazdowa/persons/owner` | businessWrite — `person.detached` | person; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/persons/account` | businessWrite — `person.merged` | person and member; Firestore | requestAwaited |
 | POST `/lista-wyjazdowa/signups/quick-add` | businessWrite — `person.created` + `signup.created` for `mode=new`; `signup.created` / `signup.updated` for `mode=existing` | person and signup; Firestore; one transaction | requestAwaited |

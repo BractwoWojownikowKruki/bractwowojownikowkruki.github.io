@@ -6790,14 +6790,96 @@ test('PUT /lista-wyjazdowa/persons lets the owner edit their own person, clears 
   });
 });
 
-test('DELETE /lista-wyjazdowa/persons tombstones the owner\'s person and audits it', async () => {
+test('DELETE /lista-wyjazdowa/persons tombstones the owner\'s person, detaches it and audits it', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedPerson(firestore, 'p1', 'wojownik@gmail.com');
   await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
     const res = await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons', { personId: 'p1' });
     assert.equal(res.status, 200);
-    assert.ok((await res.json()).person.deletedAt, 'delete must tombstone, not remove');
+    const { person } = await res.json();
+    assert.ok(person.deletedAt, 'delete must tombstone, not remove');
+    assert.equal(person.ownerPersonId, null, 'a deactivated person is detached from its owner');
     assert.ok((await firestore.listDocs<{ action?: string }>('auditEvents')).some((d) => d.data.action === 'person.deleted'));
+  });
+});
+
+// KRKG-0091: staff-only listing of every person including deactivated ones, so Zarządzanie ludźmi
+// can show and permanently remove them.
+test('GET /lista-wyjazdowa/persons is staff-only and lists deactivated people with their owner name', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'wojownik@gmail.com', {
+    fullName: 'Adam Król', nickname: 'Kruk', sectionId: 'krakow', categoryId: 'thing',
+    driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  firestore.seed('persons', 'p2', {
+    personId: 'p2', ksywka: 'Cień', firstName: '', lastName: '', categoryId: 'thing',
+    sectionId: 'krakow', weaponIds: [], ownerPersonId: null, email: null,
+    deletedAt: '2027-01-01T00:00:00.000Z', createdAt: 'x', createdBy: 'x',
+  });
+
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    assert.equal((await fetch(`${baseUrl}/lista-wyjazdowa/persons`)).status, 403, 'a plain member cannot list people');
+  });
+
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/persons`)).json();
+    const live = body.persons.find((p: { personId: string }) => p.personId === 'p1');
+    const gone = body.persons.find((p: { personId: string }) => p.personId === 'p2');
+    assert.equal(live.deleted, false);
+    assert.equal(live.ownerName, 'Kruk');
+    assert.equal(gone.deleted, true);
+    assert.ok(gone.deletedAt);
+  });
+});
+
+test('DELETE /lista-wyjazdowa/persons/permanent purges the person, profile, signups and dues', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedEvent(firestore, 'event-1');
+  seedPerson(firestore, 'p1', null);
+  firestore.seed('listaWyjazdowaProfile', 'p1', { email: 'p1', weaponIds: [], equipment: [], wpisowePaid: false });
+  firestore.seed('signups', 'event-1_p1', { eventId: 'event-1', memberEmail: 'p1', attending: true, equipmentIds: [], skladkaPaid: false });
+  firestore.seed('duesAnnual', 'p1_2027', { email: 'p1', year: 2027, status: 'paid' });
+
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons/permanent', { personId: 'p1' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { personId: 'p1', deletedSignups: 1, deletedDues: 1 });
+    assert.equal((await firestore.listDocs('persons')).length, 0, 'the person record is gone');
+    assert.equal((await firestore.listDocs('signups')).length, 0, 'their signups are gone (past-trip counts change)');
+    assert.equal((await firestore.listDocs('duesAnnual')).length, 0, 'their dues are gone');
+    assert.equal((await firestore.listDocs('listaWyjazdowaProfile')).length, 0, 'their profile is gone');
+    assert.ok((await firestore.listDocs<{ action?: string }>('auditEvents')).some((d) => d.data.action === 'person.purged'));
+  });
+});
+
+test('DELETE /lista-wyjazdowa/persons/permanent is staff-only and 404s an unknown person', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons/permanent', { personId: 'p1' })).status, 403);
+    assert.ok(await firestore.getDoc('persons', 'p1'), 'a denied purge must not remove the person');
+  });
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons/permanent', { personId: 'nie-ma' })).status, 404);
   });
 });
 
