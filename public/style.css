@@ -2144,6 +2144,36 @@ button.nav-item {
   border-bottom-color: var(--gold);
 }
 
+.contact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.contact-card {
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+}
+
+.contact-card h3 {
+  color: var(--gold);
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+}
+
+.contact-card p {
+  margin-bottom: 0;
+}
+
+.contact-card p + p {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
 /* Qualified with the .content-section ancestor (rather than bare .btn-add-album) to
    out-specificity .content-section a above - the doc-gate pages' "Zaloguj się"/"Zaloguj się
    ponownie" buttons live inside .content-section, so without this they'd inherit that rule's
