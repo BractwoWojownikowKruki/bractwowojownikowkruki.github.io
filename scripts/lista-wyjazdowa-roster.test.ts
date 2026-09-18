@@ -46,7 +46,7 @@ const elementIds = [
   'cancel-event-btn', 'restore-event-btn', 'event-history-link', 'skladka-fee-history-link',
 ];
 
-function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean } = {}) {
+function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; withRemovedPerson?: boolean } = {}) {
   const canManageSkladki = options.canManageSkladki ?? true;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
   // Mirrors index.html's default: "Zgłoszeni + ja" starts checked, "Niezgłoszeni" unchecked.
@@ -60,7 +60,17 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
     { personId: 'other@example.com', email: 'other@example.com', accountless: false, fullName: 'Other', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
   ];
-  const signups = [{ memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [] }];
+  // KRKG-0087: the event-scoped (historical) roster additionally carries a person who has since been
+  // removed but was signed up for this trip. A person row has `email: null` and a UUID personId, so
+  // it only renders correctly if the page keys rows by personId (the bug this batch fixes).
+  const removedPerson = { personId: 'gone-uuid-1', email: null, accountless: true, fullName: 'Cień Nowak', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'unpaid', wpisowePaid: true };
+  const eventRoster = options.withRemovedPerson ? [...roster, removedPerson] : roster;
+  const signups = options.withRemovedPerson
+    ? [
+        { memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [] },
+        { memberEmail: 'gone-uuid-1', attending: true, skladkaPaid: false, equipmentIds: [] },
+      ]
+    : [{ memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [] }];
   const context: Record<string, unknown> = {
     URLSearchParams,
     Map,
@@ -102,7 +112,8 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
         return mutationResult;
       }
       if (url === '/lista-wyjazdowa/events') return { events: [event] };
-      if (url.startsWith('/lista-wyjazdowa/roster')) return { roster };
+      if (url === '/lista-wyjazdowa/roster') return { roster };
+      if (url.startsWith('/lista-wyjazdowa/roster?eventId=')) return { roster: eventRoster };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups };
       if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [], weapons: [] };
@@ -281,4 +292,27 @@ test('a failed fee removal restores the form from the last loaded event', async 
   assert.equal(harness.elements.get('skladka-fee-duedate-input')!.value, '2026-10-20');
   assert.equal(harness.elements.get('skladka-fee-duedate-input')!.disabled, false);
   assert.equal(harness.elements.get('skladka-fee-remove')!.disabled, false);
+});
+
+test('the event-scoped roster renders an accountless person with the marker and its own personId', async () => {
+  const harness = createHarness(event(null), { withRemovedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+
+  assert.ok(
+    harness.apiCalls.some((call) => call.url === '/lista-wyjazdowa/roster?eventId=e1'),
+    'the page fetches the historical (event-scoped) roster',
+  );
+
+  const row = roster.innerHTML.match(/<tr data-person-id="gone-uuid-1"[\s\S]*?<\/tr>/)?.[0];
+  assert.ok(row, 'the removed person signed up for this trip is rendered');
+  assert.match(row, /data-person-id="gone-uuid-1"/, 'the row is keyed by the person UUID, not the null e-mail');
+  assert.match(row, /class="lw-attend-toggle" data-person-id="gone-uuid-1"/, 'the attend toggle targets the personId');
+  assert.match(row, /person-pill-icon/, 'the accountless marker is rendered');
+  assert.match(row, /aria-label="osoba bez konta"/);
+  assert.doesNotMatch(row, /profile-trigger/, 'no e-mail-based profile drawer trigger for a person with no e-mail');
+
+  // The two distinct accountless rows must not collapse onto a shared key.
+  const keyedRows = roster.innerHTML.match(/data-person-id="gone-uuid-1"/g) ?? [];
+  assert.ok(keyedRows.length >= 1);
 });
