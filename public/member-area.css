@@ -681,6 +681,14 @@
   font-size: 12px;
 }
 
+/* KRKG-0092: the read-only status shown for a deactivated person's event row - same size/weight as
+   the toggle's own label so the Status column stays visually consistent. */
+.lw-attend-static {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
 /* Kasa icon standing in for "Składka: opłacona/nieopłacona" text - a red/green badge behind the
    emoji says the same thing at a glance without taking up a line of its own (a CSS filter on the
    emoji itself would depend on the platform's emoji font actually being grayscale-tintable, which

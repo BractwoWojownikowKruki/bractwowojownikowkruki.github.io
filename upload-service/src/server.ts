@@ -3125,8 +3125,9 @@ function readOwnerPersonId(value: unknown): string | null {
   return value.trim();
 }
 
-function personMergeError(reason: 'person_not_found' | 'person_already_merged' | 'account_not_found'): AuthError {
+function personMergeError(reason: 'person_not_found' | 'person_already_merged' | 'person_deleted' | 'account_not_found'): AuthError {
   if (reason === 'person_already_merged') return new AuthError('Ta osoba jest już scalona z kontem.', 409);
+  if (reason === 'person_deleted') return new AuthError('Ta osoba jest deaktywowana - nie można jej scalić.', 409);
   return new AuthError('Nie znaleziono osoby lub konta.', 404);
 }
 

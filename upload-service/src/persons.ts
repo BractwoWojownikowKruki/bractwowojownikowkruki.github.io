@@ -273,7 +273,7 @@ export interface PersonMergePlan {
   moves: PersonMergeDocMove[];
 }
 
-export type PersonMergeReason = 'person_not_found' | 'person_already_merged' | 'account_not_found';
+export type PersonMergeReason = 'person_not_found' | 'person_already_merged' | 'person_deleted' | 'account_not_found';
 
 export type PersonMergePlanResult = { ok: true; plan: PersonMergePlan } | { ok: false; reason: PersonMergeReason };
 
@@ -318,6 +318,10 @@ export async function planPersonMerge(
   const person = await getPerson(client, personId);
   if (!person) return { ok: false, reason: 'person_not_found' };
   if (person.mergedInto) return { ok: false, reason: 'person_already_merged' };
+  // KRKG-0092: a deactivated (tombstoned) person cannot be merged - merging would resurrect them
+  // and move their data onto the account. The UI hides them from the dropdown, but hiding a
+  // control is not a guard; this is the server-side rejection.
+  if (person.deletedAt) return { ok: false, reason: 'person_deleted' };
 
   const member = await getMember(client, email);
   if (!member) return { ok: false, reason: 'account_not_found' };
@@ -359,6 +363,8 @@ export async function applyPersonMerge(
   const person = await tx.getDoc<PersonDoc>(PERSONS_COLLECTION, plan.personId);
   if (!person) return { ok: false, reason: 'person_not_found' };
   if (person.mergedInto) return { ok: false, reason: 'person_already_merged' };
+  // KRKG-0092: re-checked at commit time too, same as mergedInto.
+  if (person.deletedAt) return { ok: false, reason: 'person_deleted' };
   const member = await tx.getDoc<MemberDoc>(MEMBERS_COLLECTION, plan.accountEmail);
   if (!member) return { ok: false, reason: 'account_not_found' };
 

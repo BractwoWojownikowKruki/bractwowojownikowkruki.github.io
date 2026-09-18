@@ -6929,6 +6929,22 @@ test('PUT /lista-wyjazdowa/persons/account merges for an admin, rejects a modera
   });
 });
 
+test('PUT /lista-wyjazdowa/persons/account refuses to merge a deactivated person', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('persons', 'p-del', {
+    personId: 'p-del', ksywka: 'Cień', firstName: '', lastName: '', categoryId: 'thing',
+    sectionId: 'krakow', weaponIds: [], ownerPersonId: null, email: null,
+    deletedAt: '2027-01-01T00:00:00.000Z', createdAt: 'x', createdBy: 'x',
+  });
+  seedMember(firestore, 'nowak@gmail.com');
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const res = await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/account', { personId: 'p-del', accountEmail: 'nowak@gmail.com' });
+    assert.equal(res.status, 409, 'a deactivated person cannot be merged');
+    const stored = await firestore.getDoc<{ mergedInto?: string }>('persons', 'p-del');
+    assert.equal(stored?.mergedInto ?? null, null, 'the deactivated person is left untouched');
+  });
+});
+
 test('an accountant is staff on the person routes', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   firestore.seed('userRoles', 'ksiegowa@example.com', { roles: ['accountant'] });
