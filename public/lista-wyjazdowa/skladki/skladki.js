@@ -111,11 +111,11 @@ const EMERYT_CATEGORY_ID = 'emeryt';
 // joined partway through the year). Mirrors dues.ts's effectiveDuesStatus exactly: an explicit
 // stored record always wins (an emeryt who actually pays voluntarily just gets flipped to 'paid'
 // and stays there), this default only applies when no DuesDoc exists yet for that member+year.
-function effectiveDuesStatus(member, duesByEmail) {
+function effectiveDuesStatus(member, duesByPersonId) {
   // KRKG-0087: dues are keyed by the canonical personId (a member's e-mail, an accountless
   // person's UUID), not by e-mail - a person row has email: null, so keying by e-mail both missed
   // their stored status and crashed on the null. For a member the value is identical.
-  const stored = duesByEmail.get(member.personId)?.status;
+  const stored = duesByPersonId.get(member.personId)?.status;
   if (stored) return stored;
   return member.categoryId === EMERYT_CATEGORY_ID ? 'not_applicable' : 'unpaid';
 }
@@ -255,13 +255,13 @@ const emeryciSortState = initSortableTable(document.getElementById('skladki-emer
 });
 
 let cachedRoster = [];
-let cachedDuesByEmail = new Map();
+let cachedDuesByPersonId = new Map();
 
 function renderCurrentView() {
   if (wpisoweMode) {
     renderWpisoweList(cachedRoster);
   } else {
-    renderTable(cachedRoster, cachedDuesByEmail);
+    renderTable(cachedRoster, cachedDuesByPersonId);
   }
 }
 
@@ -333,7 +333,7 @@ function unpaidBadgeHtml(unpaid, total) {
 // osób zalega" when 3 of those 20 were never asked to pay in the first place. Emeryci as a
 // category show up below in their own "Emeryci" table (renderTable); a non-emeryt hand-set to
 // not_applicable stays in the main table with a grey icon.
-function renderSummary(roster, duesByEmail) {
+function renderSummary(roster, duesByPersonId) {
   const unpaidBySection = new Map();
   const totalBySection = new Map();
   const unpaidByCategory = new Map();
@@ -347,7 +347,7 @@ function renderSummary(roster, duesByEmail) {
     if (wpisoweMode) {
       unpaid = !member.wpisowePaid;
     } else {
-      const status = effectiveDuesStatus(member, duesByEmail);
+      const status = effectiveDuesStatus(member, duesByPersonId);
       if (status === 'not_applicable') {
         notApplicableCount += 1;
         continue;
@@ -450,9 +450,9 @@ function dueHistoryHref(personId) {
 // hidden when nobody falls into it. Both tables share the same row template; the Emeryci one has
 // its own sort state (emeryciSortState) and a sortable Składka column of its own, since an
 // emeryt's status can be anything (not_applicable by default, unpaid/paid when set by hand).
-function renderTable(roster, duesByEmail) {
+function renderTable(roster, duesByPersonId) {
   cachedRoster = roster;
-  cachedDuesByEmail = duesByEmail;
+  cachedDuesByPersonId = duesByPersonId;
 
   const mainRoster = [];
   const emeryciRoster = [];
@@ -469,7 +469,7 @@ function renderTable(roster, duesByEmail) {
   const sortValue = (member) => {
     switch (skladkiSortState.key) {
       case 'name': return displayName(member);
-      case 'roczna': return ROCZNA_SORT_RANK[effectiveDuesStatus(member, duesByEmail)];
+      case 'roczna': return ROCZNA_SORT_RANK[effectiveDuesStatus(member, duesByPersonId)];
       default: return sectionLabel(member.sectionId);
     }
   };
@@ -488,7 +488,7 @@ function renderTable(roster, duesByEmail) {
         <td class="lw-roster-name-cell">
           ${nameCellHtml(member, personIdAttr, categoryLabel)}
         </td>
-        <td>${rocznaIconHtml(personIdAttr, effectiveDuesStatus(member, duesByEmail))}</td>
+        <td>${rocznaIconHtml(personIdAttr, effectiveDuesStatus(member, duesByPersonId))}</td>
         ${canManageSkladki ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.personId))}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a></td>` : ''}
       </tr>`;
   };
@@ -508,7 +508,7 @@ function renderTable(roster, duesByEmail) {
   const emeryciSortValue = (member) => {
     switch (emeryciSortState.key) {
       case 'name': return displayName(member);
-      case 'roczna': return ROCZNA_SORT_RANK[effectiveDuesStatus(member, duesByEmail)];
+      case 'roczna': return ROCZNA_SORT_RANK[effectiveDuesStatus(member, duesByPersonId)];
       default: return sectionLabel(member.sectionId);
     }
   };
@@ -709,12 +709,12 @@ async function loadAndRender() {
   sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
   categoryLabelById = new Map((lookupLists.categories ?? []).map((c) => [c.id, c.label]));
   renderYearFee(yearFee);
-  const duesByEmail = new Map(dues.map((d) => [d.email, d]));
-  renderSummary(roster, duesByEmail);
+  const duesByPersonId = new Map(dues.map((d) => [d.personId, d]));
+  renderSummary(roster, duesByPersonId);
   if (wpisoweMode) {
     renderWpisoweList(roster);
   } else {
-    renderTable(roster, duesByEmail);
+    renderTable(roster, duesByPersonId);
   }
 }
 

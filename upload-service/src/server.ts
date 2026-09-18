@@ -2926,7 +2926,10 @@ async function handleListaWyjazdowaGetDues(req: IncomingMessage, res: ServerResp
     listDuesForYear(deps.firestore, year),
     getDuesYearFee(deps.firestore, year),
   ]);
-  sendJson(res, 200, { dues, yearFee });
+  // KRKG-0087: the canonical key is personId (a member's e-mail, an accountless person's UUID).
+  // DuesDoc's legacy-named `email` field already stores that key, so expose it under its real name
+  // too - clients key their lookups by personId and never have to treat the field as an e-mail.
+  sendJson(res, 200, { dues: dues.map((due) => ({ ...due, personId: due.email })), yearFee });
 }
 
 // Self-scoped read (mirrors GET /lista-wyjazdowa/signups/mine) - Mój profil shows the caller's own

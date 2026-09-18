@@ -7396,6 +7396,8 @@ test('PUT /lista-wyjazdowa/dues requires accountant, validates member exists, an
     const body = await getRes.json();
     assert.equal(body.dues.length, 1);
     assert.equal(body.dues[0].status, 'paid');
+    // KRKG-0087: the canonical key is exposed under personId (not just the legacy-named email field).
+    assert.equal(body.dues[0].personId, 'wojownik@gmail.com');
 
     const wrongYear = await fetch(`${baseUrl}/lista-wyjazdowa/dues?year=2026`);
     assert.deepEqual((await wrongYear.json()).dues, []);
