@@ -93,3 +93,10 @@ test('the inline add-companion panel posts quick-add and applies only after conf
   assert.match(script, /function applyQuickAdd\(/);
   assert.match(script, /openAddPanelOwnerPersonId = null;/);
 });
+
+test('the add-companion panel puts each Dodaj on its own row and narrows the name fields', () => {
+  // The existing-person Dodaj button is in its own row, right after the select's row closes.
+  assert.match(script, /<\/select>\s*<\/div>\s*<div class="lw-inline-row">\s*<button type="button" class="lw-inline-add-existing"/);
+  // The ksywka input and the existing-person select are about half-width (KRKG-0090).
+  assert.match(css, /\.lw-inline-form-inner \.lw-inline-existing-select,[\s\S]*?\.lw-inline-form-inner \.lw-inline-new-name\s*\{[^}]*max-width:\s*11rem/);
+});

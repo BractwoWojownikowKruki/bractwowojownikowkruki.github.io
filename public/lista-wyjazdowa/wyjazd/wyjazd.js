@@ -517,6 +517,8 @@ function renderAddPanel(member) {
               <option value="">${hasAttached ? '— wybierz osobę —' : '— brak dostępnych osób —'}</option>
               ${existingOptions}
             </select>
+          </div>
+          <div class="lw-inline-row">
             <button type="button" class="lw-inline-add-existing" ${hasAttached ? '' : 'disabled'}>Dodaj</button>
           </div>
           <div class="lw-inline-sep"></div>
@@ -524,6 +526,8 @@ function renderAddPanel(member) {
             <label class="lw-inline-label" for="lw-inline-new-name">lub nowa:</label>
             <input type="text" id="lw-inline-new-name" class="lw-inline-new-name" placeholder="Ksywka" />
             <select id="lw-inline-new-category" class="lw-inline-new-category" aria-label="Kategoria nowej osoby">${categorySelectOptions}</select>
+          </div>
+          <div class="lw-inline-row">
             <button type="button" class="lw-inline-add-new">Dodaj</button>
             <button type="button" class="lw-inline-cancel">Anuluj</button>
           </div>
