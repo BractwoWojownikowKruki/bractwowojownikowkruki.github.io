@@ -842,13 +842,14 @@ button.lw-skladka-icon:disabled {
   color: var(--text);
 }
 
-/* KRKG-0090: the ksywka field and the existing-person dropdown are deliberately about half-width,
-   so the category dropdown fits beside the name on one line instead of the row stretching out. */
+/* KRKG-0090: the ksywka field and the existing-person dropdown are deliberately narrow (about a
+   third of the row), so the category dropdown fits beside the name on one line instead of the row
+   stretching out. */
 .lw-inline-form-inner .lw-inline-existing-select,
 .lw-inline-form-inner .lw-inline-new-name {
-  flex: 0 1 11rem;
+  flex: 0 1 7.5rem;
   min-width: 0;
-  max-width: 11rem;
+  max-width: 7.5rem;
 }
 
 .lw-inline-form-inner button {
