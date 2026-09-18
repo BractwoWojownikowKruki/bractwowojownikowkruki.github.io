@@ -835,7 +835,11 @@ function renderAccountless(roster) {
       return `
     <tr data-person-id="${escapeAttr(person.personId)}" data-section="${escapeAttr(person.sectionId ?? '')}">
       <td class="czl-section-cell" title="${escapeAttr(sectionLabelById.get(person.sectionId) ?? 'Brak sekcji')}">${person.sectionId ? escapeHtml(sectionAbbr(person.sectionId)) : '—'}</td>
-      <td>${escapeHtml(displayName(person))}</td>
+      <td>
+        <button type="button" class="profile-trigger" data-profile-trigger data-person-id="${escapeAttr(person.personId)}">
+          ${personPillHtml({ name: displayName(person), categoryId: person.categoryId, categoryLabel: person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : null, accountless: true })}
+        </button>
+      </td>
       <td>${escapeHtml(person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : '—')}</td>
       <td>${weaponLabel ? escapeHtml(weaponLabel) : '—'}</td>
       <td>${person.ownerPersonId ? escapeHtml(ownerName) : '—'}</td>

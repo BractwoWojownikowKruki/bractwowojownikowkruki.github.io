@@ -6572,6 +6572,42 @@ test('GET /lista-wyjazdowa/roster omits tombstoned people', async () => {
   });
 });
 
+// KRKG-0087: the profile drawer is keyed by e-mail for a member; a person without an account has
+// none, so their drawer reads this person-keyed endpoint instead. Same public fields, read-only.
+test('GET /lista-wyjazdowa/person-profile returns an accountless person and 404s a tombstone', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('persons', 'person-uuid-1', {
+    personId: 'person-uuid-1', ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski',
+    categoryId: 'thing', sectionId: 'krakow', weaponIds: ['tarczownik'],
+    ownerPersonId: 'wojownik@gmail.com', email: null, deletedAt: null,
+    createdAt: 'x', createdBy: 'x',
+  });
+  firestore.seed('persons', 'person-gone', {
+    personId: 'person-gone', ksywka: 'Cień', firstName: '', lastName: '',
+    categoryId: 'thing', sectionId: 'krakow', weaponIds: [],
+    ownerPersonId: null, email: null, deletedAt: '2027-01-01T00:00:00.000Z',
+    createdAt: 'x', createdBy: 'x',
+  });
+
+  const deps = makeDeps({ firestore, listMemberEmails: async () => [] });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=person-uuid-1`);
+    assert.equal(res.status, 200);
+    const { profile } = await res.json();
+    assert.equal(profile.accountless, true);
+    assert.equal(profile.fullName, 'Jan Kowalski');
+    assert.equal(profile.nickname, 'Wilk');
+    assert.equal(profile.sectionId, 'krakow');
+    assert.equal(profile.categoryId, 'thing');
+    assert.deepEqual(profile.weaponIds, ['tarczownik']);
+    assert.equal(profile.mainPhoto, null);
+    assert.deepEqual(profile.photos, []);
+
+    assert.equal((await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=person-gone`)).status, 404);
+    assert.equal((await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=nope`)).status, 404);
+  });
+});
+
 // KRKG-0087: the event-scoped read is the historical one. A person who has left the club must still
 // appear on a trip they were signed up for, or that past trip's summary and audit would change.
 test('GET /lista-wyjazdowa/roster?eventId= keeps a tombstoned person who signed up for that trip', async () => {

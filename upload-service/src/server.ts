@@ -2777,6 +2777,47 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, { roster: [...roster, ...personRoster] });
 }
 
+// KRKG-0087: the read-only profile drawer for a person without an account. GET /member-profile is
+// keyed by e-mail, which an accountless person does not have, so this is the person-keyed
+// counterpart: the same public fields the drawer shows for a member (minus photos/description,
+// which a person never has) plus their dues status, so any signed-in member can open their pill.
+async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req, res);
+  const personId = url.searchParams.get('personId');
+  if (!personId) throw new AuthError('Brak identyfikatora osoby.', 400);
+  const person = await getPerson(deps.firestore, personId);
+  if (!person || person.deletedAt) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+  const year = new Date().getFullYear();
+  const [lookupLists, profile, dues] = await Promise.all([
+    getAllLookupLists(deps.firestore),
+    getProfile(deps.firestore, person.personId),
+    getDues(deps.firestore, person.personId, year),
+  ]);
+  const weaponLabelById = new Map(lookupLists.weapons.map((w) => [w.id, w.label]));
+  sendJson(res, 200, {
+    profile: {
+      personId: person.personId,
+      accountless: true,
+      fullName: personDisplayName(person),
+      nickname: person.ksywka || null,
+      sectionId: person.sectionId,
+      sectionLabel: lookupLists.sections.find((s) => s.id === person.sectionId)?.label ?? person.sectionId,
+      categoryId: person.categoryId,
+      categoryLabel: lookupLists.categories.find((c) => c.id === person.categoryId)?.label ?? person.categoryId,
+      weaponIds: person.weaponIds,
+      weapons: person.weaponIds.map((id) => weaponLabelById.get(id) ?? id),
+      mainPhoto: null,
+      photos: [],
+      pendingPhotos: [],
+      published: false,
+      description: null,
+      wpisowePaid: profile?.wpisowePaid ?? false,
+      duesStatus: effectiveDuesStatus(dues, person.categoryId),
+      duesYear: year,
+    },
+  });
+}
+
 // GET /members/directory (KRKG-0045): the club-wide "Lista Członków" page. Same allowlist
 // enumeration as the Lista Wyjazdowa roster above (the same live kruki Google Group membership
 // that already gates authenticateWojownicyUpload/authenticate), so someone who has site access but
@@ -4322,6 +4363,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaPutSignup(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/roster') {
         await handleListaWyjazdowaGetRoster(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/person-profile') {
+        await handleListaWyjazdowaGetPersonProfile(req, res, url, deps);
       } else if (req.method === 'POST' && url.pathname === '/lista-wyjazdowa/persons') {
         await handleListaWyjazdowaPostPerson(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/persons') {

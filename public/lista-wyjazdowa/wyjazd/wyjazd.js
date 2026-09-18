@@ -603,11 +603,13 @@ function renderRoster(roster, signups) {
         ? `<span class="lw-dues-badges">${!member.wpisowePaid ? '<span class="lw-dues-badge lw-dues-badge--wpisowe" title="Wpisowe nieopłacone">💰<span>wpisowe</span></span>' : ''}${member.duesStatus === 'unpaid' ? '<span class="lw-dues-badge lw-dues-badge--roczna" title="Składka roczna nieopłacona">💰<span>roczna</span></span>' : ''}</span>`
         : '';
       // KRKG-0087: one shared pill renderer, with the "osoba bez konta" marker for an accountless
-      // person. A member's name opens the shared profile drawer; the read-only drawer for a person
-      // is a later batch, so their name is plain text for now (the pill still carries the marker).
+      // person. A member's name opens the shared profile drawer by e-mail; a person has no e-mail,
+      // so their pill opens the same drawer through the person-keyed endpoint (data-person-id).
       const namePill = personPillHtml({ name: displayName(member), categoryId: member.categoryId, categoryLabel, accountless: member.accountless === true });
       const nameCellHtml = member.accountless
-        ? namePill
+        ? `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}">
+          ${namePill}
+        </button>`
         : `<button type="button" class="profile-trigger" data-profile-trigger data-email="${personIdAttr}">
           ${namePill}
         </button>

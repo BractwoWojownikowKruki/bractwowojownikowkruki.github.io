@@ -23,6 +23,6 @@ test('Spis Ludności unions accountless people from the roster and renders them 
   assert.match(script, /'\/lista-wyjazdowa\/roster'/);
   assert.match(script, /personPillHtml\(\{/);
   assert.match(script, /accountless: m\.accountless === true/);
-  assert.match(script, /m\.accountless\s*\? namePill/);
+  assert.match(script, /data-person-id="\$\{escapeAttr\(m\.personId\)\}"/);
   assert.doesNotMatch(script, /categoryNamePillAttrs/);
 });

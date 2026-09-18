@@ -110,8 +110,6 @@ function renderTable() {
     // Display name gets its own colored pill for Typ (KRKG-0057), rendered by shared/person-pill.js
     // so an accountless person also carries the "osoba bez konta" marker; the full name remains
     // available in the profile drawer instead of taking space in this compact directory table.
-    // KRKG-0087: an accountless person has no e-mail, so the e-mail-keyed profile drawer is a
-    // member-only affordance - their name is plain read-only text.
     const namePill = personPillHtml({
       name: displayName(m) || EMPTY,
       categoryId: m.categoryId,
@@ -119,8 +117,12 @@ function renderTable() {
       accountless: m.accountless === true,
       extraClass: displayName(m) ? undefined : 'czl-empty',
     });
+    // KRKG-0087: an accountless person has no e-mail, so their pill opens the shared drawer
+    // through the person-keyed endpoint (data-person-id); a member's opens it by e-mail.
     const nameCell = m.accountless
-      ? namePill
+      ? `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${escapeAttr(m.personId)}">
+          ${namePill}
+        </button>`
       : `<button type="button" class="profile-trigger" data-profile-trigger data-email="${escapeAttr(m.personId)}">
           ${namePill}
         </button>

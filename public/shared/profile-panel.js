@@ -17,6 +17,9 @@
 (function () {
   const ICON_CHEVRON_LEFT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
   const ICON_CHEVRON_RIGHT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+  // KRKG-0087: the same "osoba bez konta" marker the person pills carry - meaningful (role="img" +
+  // aria-label), shown next to the drawer's heading for an accountless person.
+  const PERSON_MARKER_ICON = '<svg class="person-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="osoba bez konta"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>';
 
   // Weapon icons (KRKG-0074): the same hand-drawn PNG set wyjazd.js/profil.js use for a member's
   // weapons. The seeded lookup label "Duńczyk (D)" still carries its "(D)" placeholder, which
@@ -277,7 +280,7 @@
       ${avatarHtml}
       ${duesStatusHtml}
       ${galleryHtml}
-      <h3>${escapeHtml(shownName)}</h3>
+      <h3>${profile.accountless ? PERSON_MARKER_ICON : ''}${escapeHtml(shownName)}</h3>
       <dl class="profile-fields">
         ${profile.nickname ? `<dt>Ksywka</dt><dd>${escapeHtml(profile.nickname)}</dd>` : ''}
         ${profile.sectionLabel ? `<dt>Sekcja</dt><dd><span class="section-pill" data-section="${escapeHtml(profile.sectionId ?? '')}">${escapeHtml(profile.sectionLabel)}</span></dd>` : ''}
@@ -319,10 +322,29 @@
     }
   }
 
+  // KRKG-0087: an accountless person has no e-mail, so their drawer is keyed by personId and read
+  // from the person-keyed endpoint. Same drawer/render path as open() above - the response carries
+  // accountless:true and no photos, so the render is naturally the read-only person view.
+  async function openPerson(personId) {
+    lastFocused = document.activeElement;
+    const { drawer, content, close } = ensureDrawer();
+    content.innerHTML = loadingHtml();
+    drawer.hidden = false;
+    close.focus();
+    try {
+      const { profile } = await apiFetch(`/lista-wyjazdowa/person-profile?personId=${encodeURIComponent(personId)}`, { method: 'GET' });
+      content.innerHTML = renderProfile(profile);
+    } catch (err) {
+      currentPhotos = [];
+      content.innerHTML = `<p class="profile-drawer-error">Nie udało się wczytać profilu: ${escapeHtml(err.message)}</p>`;
+    }
+  }
+
   document.addEventListener('click', (e) => {
     const trigger = e.target.closest('[data-profile-trigger]');
     if (trigger) {
-      open(trigger.dataset.email);
+      if (trigger.dataset.personId) openPerson(trigger.dataset.personId);
+      else open(trigger.dataset.email);
       return;
     }
 

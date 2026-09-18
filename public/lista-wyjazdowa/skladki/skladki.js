@@ -69,9 +69,9 @@ function sectionAbbr(sectionId) {
 }
 
 // The name cell shared by both tables below (year table and Wpisowe list). KRKG-0087: the pill is
-// rendered by shared/person-pill.js, which adds the "osoba bez konta" marker; an accountless person
-// has no e-mail, so the profile drawer (keyed by e-mail) is a member-only affordance - a person's
-// name is plain read-only text for now, same as the event roster.
+// rendered by shared/person-pill.js, which adds the "osoba bez konta" marker. A member's pill opens
+// the shared profile drawer by e-mail; an accountless person has no e-mail, so their pill opens the
+// same drawer through the person-keyed endpoint (data-person-id).
 function nameCellHtml(member, personIdAttr, categoryLabel) {
   const namePill = personPillHtml({
     name: displayName(member),
@@ -79,7 +79,11 @@ function nameCellHtml(member, personIdAttr, categoryLabel) {
     categoryLabel,
     accountless: member.accountless === true,
   });
-  if (member.accountless) return namePill;
+  if (member.accountless) {
+    return `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}">
+            ${namePill}
+          </button>`;
+  }
   return `<button type="button" class="profile-trigger" data-profile-trigger data-email="${personIdAttr}">
             ${namePill}
           </button>

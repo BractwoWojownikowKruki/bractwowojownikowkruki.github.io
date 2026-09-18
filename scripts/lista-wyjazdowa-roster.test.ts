@@ -325,7 +325,8 @@ test('the event-scoped roster renders an accountless person with the marker and 
   assert.match(row, /class="lw-attend-toggle" data-person-id="gone-uuid-1"/, 'the attend toggle targets the personId');
   assert.match(row, /person-pill-icon/, 'the accountless marker is rendered');
   assert.match(row, /aria-label="osoba bez konta"/);
-  assert.doesNotMatch(row, /profile-trigger/, 'no e-mail-based profile drawer trigger for a person with no e-mail');
+  assert.match(row, /data-person-id="gone-uuid-1"[\s\S]*?data-profile-trigger|data-profile-trigger[\s\S]*?data-person-id="gone-uuid-1"/, 'the pill opens the drawer through the person-keyed trigger');
+  assert.doesNotMatch(row, /data-email="null"/, 'no e-mail-keyed profile trigger for a person with no e-mail');
 
   // The two distinct accountless rows must not collapse onto a shared key.
   const keyedRows = roster.innerHTML.match(/data-person-id="gone-uuid-1"/g) ?? [];
