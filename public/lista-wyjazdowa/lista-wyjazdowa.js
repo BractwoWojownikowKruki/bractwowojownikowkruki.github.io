@@ -37,6 +37,36 @@ let showAll = false;
 let cachedEvents = [];
 let viewerEmail = null;
 
+// KRKG-0094: the events list now offers the same "add companion" panel as the trip detail page.
+// The viewer's own roster row, the categories and the event's signups are only needed once the
+// member actually opens that panel, so they are fetched lazily (see ensureCompanionData) and the
+// plain list stays as light as before. `viewerPersonId` is the viewer's canonical key (lowercased
+// e-mail), set from the whoami identity; `openAddPanelEventId` is the single event whose panel is
+// open, or null.
+let viewerPersonId = null;
+let currentRoster = [];
+let categoryOptions = [];
+let panelSignups = [];
+let openAddPanelEventId = null;
+let companionDataPromise = null;
+
+function ensureCompanionData() {
+  if (!companionDataPromise) {
+    companionDataPromise = Promise.all([
+      apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
+      apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
+    ]).then(([rosterResult, lookup]) => {
+      currentRoster = rosterResult.roster;
+      categoryOptions = lookup.categories ?? [];
+    }).catch((err) => {
+      // Reset so a failed first attempt can be retried by clicking "+" again.
+      companionDataPromise = null;
+      throw err;
+    });
+  }
+  return companionDataPromise;
+}
+
 function todayIsoDate() {
   const d = new Date();
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -67,9 +97,24 @@ function renderEvents() {
     container.innerHTML = '<p>Brak wyjazdów do wyświetlenia.</p>';
     return;
   }
+  const viewerMember = currentRoster.find((m) => m.personId === viewerPersonId) ?? null;
   container.innerHTML = events
     .map((e) => {
       const statusLabel = e.status === 'cancelled' ? ' (odwołany)' : '';
+      // KRKG-0094: the "+ osoba towarzysząca" control sits to the right of the toggle and only
+      // appears once the viewer is attending. It does not require the roster to be loaded yet -
+      // the panel it opens lazy-loads that on first use.
+      const canAddCompanion = e.viewerAttending && Boolean(viewerPersonId);
+      const addCompanionHtml = canAddCompanion
+        ? window.CompanionAdd.buttonHtml({ ownerPersonId: viewerPersonId, eventId: e.id, expanded: openAddPanelEventId === e.id })
+        : '';
+      const panelHtml = canAddCompanion && openAddPanelEventId === e.id && viewerMember
+        ? `<div class="lw-inline-form lw-event-inline-form">${window.CompanionAdd.panelHtml(viewerMember, {
+            roster: currentRoster,
+            signups: panelSignups,
+            categories: categoryOptions,
+          })}</div>`
+        : '';
       return `
         <div class="lw-event-row">
           <a href="wyjazd/?eventId=${encodeURIComponent(e.id)}" class="lw-event-name">${escapeHtml(e.name)}${statusLabel}</a>
@@ -79,6 +124,8 @@ function renderEvents() {
             <span class="lw-attend-toggle-track" aria-hidden="true"></span>
             ${e.viewerAttending ? 'Jadę' : 'Nie jadę'}
           </button>
+          ${addCompanionHtml}
+          ${panelHtml}
         </div>
       `;
     })
@@ -104,18 +151,145 @@ function stillValidIds(ids, items) {
   return (ids ?? []).filter((id) => valid.has(id));
 }
 
+// KRKG-0094: quick-add a companion from the events list, reusing the trip detail page's endpoint
+// and local-apply pattern. `openAddPanelEventId` is still the event the panel was opened for when
+// this runs, so the new signup is recorded against it and the event's count bumps by one (the
+// panel only ever offers people who are not already attending, so this is always a real +1).
+function applyQuickAdd(result) {
+  const signup = result?.signup;
+  if (signup) {
+    const existing = panelSignups.find((item) => item.memberEmail === signup.memberEmail);
+    if (existing) Object.assign(existing, signup);
+    else panelSignups.push(signup);
+  }
+  const event = cachedEvents.find((item) => item.id === openAddPanelEventId);
+  if (event && signup?.attending) event.attendingCount = (event.attendingCount ?? 0) + 1;
+  // A brand-new companion has to be offered as an existing person the next time any panel opens,
+  // so drop the cached roster/categories rather than leaving them stale; the next "+" re-fetches.
+  companionDataPromise = null;
+  openAddPanelEventId = null;
+  renderEvents();
+}
+
+async function quickAddCompanion(body, control) {
+  const errorEl = document.getElementById('events-error');
+  errorEl.hidden = true;
+  try {
+    await window.MutationFeedback.confirmed({
+      control,
+      anchor: document.getElementById('events-list'),
+      execute: () => apiFetch(
+        '/lista-wyjazdowa/signups/quick-add',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: (result) => applyQuickAdd(result),
+      viewRoot: document.getElementById('events-panel'),
+      refreshFragment: loadEvents,
+    });
+  } catch (err) {
+    errorEl.textContent = `Nie udało się dodać osoby: ${err.message}`;
+    errorEl.hidden = false;
+  }
+}
+
+async function quickAddExisting(eventId, ownerPersonId, personId, control) {
+  await quickAddCompanion({ eventId, ownerPersonId, mode: 'existing', personId }, control);
+}
+
+async function quickAddNew(eventId, ownerPersonId, ksywka, categoryId, control) {
+  await quickAddCompanion({ eventId, ownerPersonId, mode: 'new', ksywka, categoryId }, control);
+}
+
 document.getElementById('events-list').addEventListener('click', async (e) => {
+  const errorEl = document.getElementById('events-error');
+
+  // KRKG-0094: the "+ osoba towarzysząca" control opens/closes the same inline panel the trip
+  // detail page renders. Opening it lazy-loads the roster/categories (once) and this event's
+  // signups (so already-attending companions are not offered again).
+  const addBtn = e.target.closest('.lw-add-companion');
+  if (addBtn) {
+    const targetEventId = addBtn.dataset.eventId;
+    if (openAddPanelEventId === targetEventId) {
+      openAddPanelEventId = null;
+      renderEvents();
+      return;
+    }
+    errorEl.hidden = true;
+    addBtn.disabled = true;
+    try {
+      await ensureCompanionData();
+      if (!currentRoster.some((m) => m.personId === viewerPersonId && !m.accountless)) {
+        throw new Error('nie znaleziono Twojej osoby na liście');
+      }
+      const { signups } = await apiFetch(
+        `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(targetEventId)}`,
+        { method: 'GET' },
+        showReauth,
+        hideReauth,
+      );
+      panelSignups = signups;
+      openAddPanelEventId = targetEventId;
+      renderEvents();
+    } catch (err) {
+      errorEl.textContent = `Nie udało się otworzyć panelu osoby towarzyszącej: ${err.message}`;
+      errorEl.hidden = false;
+    } finally {
+      addBtn.disabled = false;
+    }
+    return;
+  }
+
+  if (e.target.closest('.lw-inline-cancel')) {
+    openAddPanelEventId = null;
+    renderEvents();
+    return;
+  }
+
+  const addExistingBtn = e.target.closest('.lw-inline-add-existing');
+  if (addExistingBtn) {
+    const personId = document.getElementById('lw-inline-existing-select')?.value;
+    if (!personId) return;
+    addExistingBtn.disabled = true;
+    try {
+      await quickAddExisting(openAddPanelEventId, viewerPersonId, personId, addExistingBtn);
+    } finally {
+      addExistingBtn.disabled = false;
+    }
+    return;
+  }
+
+  const addNewBtn = e.target.closest('.lw-inline-add-new');
+  if (addNewBtn) {
+    const ksywka = document.getElementById('lw-inline-new-name')?.value.trim() ?? '';
+    const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
+    if (!ksywka || !categoryId) {
+      errorEl.textContent = 'Podaj ksywkę i kategorię nowej osoby.';
+      errorEl.hidden = false;
+      return;
+    }
+    addNewBtn.disabled = true;
+    try {
+      await quickAddNew(openAddPanelEventId, viewerPersonId, ksywka, categoryId, addNewBtn);
+    } finally {
+      addNewBtn.disabled = false;
+    }
+    return;
+  }
+
   const btn = e.target.closest('.lw-attend-toggle');
   if (!btn) return;
   const eventId = btn.dataset.eventId;
   const nextAttending = btn.dataset.attending !== 'true';
-  const errorEl = document.getElementById('events-error');
   errorEl.hidden = true;
   btn.disabled = true;
   try {
     await window.MutationFeedback.confirmed({
       control: btn,
-      anchor: btn,
+      // Anchor on the list container, not the button: apply re-renders the list (so the "+" appears
+      // or disappears with the new attendance), which would detach a button anchor.
+      anchor: document.getElementById('events-list'),
       execute: async () => {
     const [{ signup: mine }, { profile }] = await Promise.all([
       apiFetch(`/lista-wyjazdowa/signups/mine?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
@@ -135,9 +309,16 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
       hideReauth,
     );
       },
+      // Patch the cached event and re-render, rather than rewriting btn.textContent: that used to
+      // drop the toggle track and show "Wypisz się / Zapisz się" instead of the rendered "Jadę /
+      // Nie jadę" label, and it could not reveal the companion "+" (KRKG-0094).
       apply: () => {
-        btn.dataset.attending = String(nextAttending);
-        btn.textContent = nextAttending ? 'Wypisz się' : 'Zapisz się';
+        const event = cachedEvents.find((item) => item.id === eventId);
+        if (event) {
+          event.viewerAttending = nextAttending;
+          event.attendingCount = Math.max(0, (event.attendingCount ?? 0) + (nextAttending ? 1 : -1));
+        }
+        renderEvents();
       },
       viewRoot: document.getElementById('events-list'),
       refreshFragment: loadEvents,
@@ -249,6 +430,14 @@ initGoogleSignIn({
   // than being left staring at the "please sign in" panel they just signed in from.
   onSignedIn: async (identity) => {
     viewerEmail = identity.email;
+    // KRKG-0094: the viewer's canonical person key for the companion panel, and a clean slate for
+    // its lazy-loaded data (a re-sign-in must not reuse a previous member's roster/signups).
+    viewerPersonId = identity.email?.toLowerCase() ?? null;
+    currentRoster = [];
+    categoryOptions = [];
+    panelSignups = [];
+    openAddPanelEventId = null;
+    companionDataPromise = null;
     try {
       const [{ member }, { profile }] = await Promise.all([
         apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),

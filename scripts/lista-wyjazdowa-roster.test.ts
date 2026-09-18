@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8');
 const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
+const companionAddSource = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
 
 class Element {
   id: string;
@@ -137,6 +138,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     },
   };
   vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
+  vm.runInNewContext(companionAddSource, context, { filename: 'companion-add.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   return {
     elements,

@@ -884,6 +884,21 @@ button.lw-skladka-icon:disabled {
   font-weight: 400;
 }
 
+/* KRKG-0094: the events list's inline add-companion panel. It is a full-width child of the same
+   flex-wrap .lw-event-row card, so it wraps onto its own line inside the card instead of becoming
+   a detached box; the dashed separator keeps it visually tied to its event. Same inner markup as
+   the roster's panel, only without the roster table's left indent. */
+.lw-event-row .lw-inline-form {
+  flex: 1 1 100%;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border);
+}
+.lw-event-row .lw-inline-form-inner {
+  padding-left: 0;
+}
+
 /* Filter controls above the event page's roster. Two independent checkboxes ("Niezgłoszeni" /
    "Zgłoszeni + ja") replace the single toggle: the roster can now be read as any combination of
    the two groups, including an intentionally empty selection. Native checkboxes keep the

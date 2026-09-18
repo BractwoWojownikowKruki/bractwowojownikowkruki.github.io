@@ -487,53 +487,14 @@ function rosterEntryFromPerson(person) {
 
 // The inline panel under one account row (design.md section A): an existing person attached to
 // that member but not yet on this trip, or a brand-new one (ksywka + category, section inherited
-// server-side from the owner). Fixed control ids are safe because only one panel is open at a
-// time - see openAddPanelOwnerPersonId.
+// server-side from the owner). The panel body and its candidate rule are shared with the events
+// list (KRKG-0094) via shared/companion-add.js; only the table-row wrapper is page-specific here.
 function renderAddPanel(member) {
-  const ownerPersonId = member.personId.toLowerCase();
-  // Only people currently attending are excluded - someone already marked "nie jadę" (a signup
-  // exists with attending:false) must stay selectable so they can be added back, and quick-add is
-  // idempotent on (eventId, personId) anyway.
-  const attached = cachedRoster
-    .filter((person) => person.accountless
-      && (person.ownerPersonId ?? '').toLowerCase() === ownerPersonId
-      && !cachedSignups.some((signup) => signup.memberEmail === person.personId && signup.attending))
-    .sort((a, b) => displayName(a).localeCompare(displayName(b), 'pl'));
-  const hasAttached = attached.length > 0;
-  const existingOptions = attached
-    .map((person) => `<option value="${escapeAttr(person.personId)}">${escapeHtml(displayName(person))}</option>`)
-    .join('');
-  const categorySelectOptions = categoryOptions
-    .map((category) => `<option value="${escapeAttr(category.id)}">${escapeHtml(category.label)}</option>`)
-    .join('');
-  return `
-    <tr class="lw-inline-form">
-      <td colspan="5">
-        <div class="lw-inline-form-inner">
-          <p class="lw-inline-title">Osoby towarzyszące: ${escapeHtml(displayName(member))}</p>
-          <div class="lw-inline-row">
-            <label class="lw-inline-label" for="lw-inline-existing-select">istniejąca:</label>
-            <select id="lw-inline-existing-select" class="lw-inline-existing-select" ${hasAttached ? '' : 'disabled'}>
-              <option value="">${hasAttached ? '— wybierz osobę —' : '— brak dostępnych osób —'}</option>
-              ${existingOptions}
-            </select>
-          </div>
-          <div class="lw-inline-row">
-            <button type="button" class="lw-inline-add-existing" ${hasAttached ? '' : 'disabled'}>Dodaj</button>
-          </div>
-          <div class="lw-inline-sep"></div>
-          <div class="lw-inline-row">
-            <label class="lw-inline-label" for="lw-inline-new-name">lub nowa:</label>
-            <input type="text" id="lw-inline-new-name" class="lw-inline-new-name" placeholder="Ksywka" />
-            <select id="lw-inline-new-category" class="lw-inline-new-category" aria-label="Kategoria nowej osoby">${categorySelectOptions}</select>
-          </div>
-          <div class="lw-inline-row">
-            <button type="button" class="lw-inline-add-new">Dodaj</button>
-            <button type="button" class="lw-inline-cancel">Anuluj</button>
-          </div>
-        </div>
-      </td>
-    </tr>`;
+  return `<tr class="lw-inline-form"><td colspan="5">${window.CompanionAdd.panelHtml(member, {
+    roster: cachedRoster,
+    signups: cachedSignups,
+    categories: categoryOptions,
+  })}</td></tr>`;
 }
 
 // A confirmed quick-add's response is applied locally (same pattern as the add-event flow): an
@@ -630,7 +591,7 @@ function renderRoster(roster, signups) {
       // an account row - the viewer's own row for everyone, any account row for staff.
       const canAddCompanion = !member.accountless && (canManagePeople || member.personId === viewerPersonId);
       const addCompanionHtml = canAddCompanion
-        ? `<button type="button" class="lw-add-companion" data-owner-person-id="${personIdAttr}" aria-expanded="${member.personId === openAddPanelOwnerPersonId}" aria-label="Dodaj osobę towarzyszącą" title="Dodaj osobę towarzyszącą"><span class="lw-add-companion-plus" aria-hidden="true">+</span><svg class="lw-add-companion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5.5" r="2.6"/><path d="M12 8.5v6.5"/><path d="M8.2 11h7.6"/><path d="M9.2 22l2.8-7 2.8 7"/></svg><span class="lw-add-companion-label">osoba towarzysząca</span></button>`
+        ? window.CompanionAdd.buttonHtml({ ownerPersonId: personIdAttr, expanded: member.personId === openAddPanelOwnerPersonId })
         : '';
       return `
     <tr data-person-id="${personIdAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">

@@ -6,6 +6,7 @@ import vm from 'node:vm';
 const page = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/index.html', import.meta.url), 'utf8');
 const skladkiPage = readFileSync(new URL('../public/lista-wyjazdowa/skladki/index.html', import.meta.url), 'utf8');
 const script = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8');
+const companionAdd = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
 const sortable = readFileSync(new URL('../public/shared/sortable-table.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/member-area.css', import.meta.url), 'utf8');
 
@@ -73,11 +74,11 @@ test('fee edit panels share the ordered layout styles', () => {
 });
 
 test('roster add-companion control is a flat labelled button with a person icon, label hidden on mobile', () => {
-  assert.match(script, /class="lw-add-companion"/);
-  assert.match(script, /class="lw-add-companion-plus"/);
-  assert.match(script, /class="lw-add-companion-icon"/);
-  assert.match(script, /class="lw-add-companion-label">osoba towarzysząca</);
-  assert.match(script, /aria-label="Dodaj osobę towarzyszącą"/);
+  assert.match(companionAdd, /class="lw-add-companion"/);
+  assert.match(companionAdd, /class="lw-add-companion-plus"/);
+  assert.match(companionAdd, /class="lw-add-companion-icon"/);
+  assert.match(companionAdd, /class="lw-add-companion-label">osoba towarzysząca</);
+  assert.match(companionAdd, /aria-label="Dodaj osobę towarzyszącą"/);
   // Only account rows offer it - the viewer's own row for everyone, any account row for staff.
   assert.match(script, /!member\.accountless && \(canManagePeople \|\| member\.personId === viewerPersonId\)/);
   assert.match(css, /\.lw-add-companion\s*\{/);
@@ -96,7 +97,7 @@ test('the inline add-companion panel posts quick-add and applies only after conf
 
 test('the add-companion panel puts each Dodaj on its own row and narrows the name fields', () => {
   // The existing-person Dodaj button is in its own row, right after the select's row closes.
-  assert.match(script, /<\/select>\s*<\/div>\s*<div class="lw-inline-row">\s*<button type="button" class="lw-inline-add-existing"/);
+  assert.match(companionAdd, /<\/select>\s*<\/div>\s*<div class="lw-inline-row">\s*<button type="button" class="lw-inline-add-existing"/);
   // The ksywka input and the existing-person select are deliberately narrow (KRKG-0090).
   assert.match(css, /\.lw-inline-form-inner \.lw-inline-existing-select,[\s\S]*?\.lw-inline-form-inner \.lw-inline-new-name\s*\{[^}]*max-width:\s*7\.5rem/);
 });
