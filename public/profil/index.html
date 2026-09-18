@@ -105,6 +105,18 @@
               <button type="submit" class="add-album-submit" id="profile-form-submit">Zapisz profil</button>
             </div>
           </form>
+
+          <!-- KRKG-0087: accountless people attached to this member. Its own panel outside
+               #profile-form so these controls never take part in the profile submit. -->
+          <section id="persons-panel">
+            <fieldset class="lw-fieldset">
+              <legend>Osoby towarzyszące</legend>
+              <p class="lw-hint">Osoby bez konta przypisane do Ciebie. Mają własny status wyjazdowy, kategorię, sekcję i składki.</p>
+              <div id="persons-rows" class="lw-rows"></div>
+              <button type="button" id="add-person-row" class="btn-cancel">Dodaj osobę</button>
+              <p class="add-album-error" id="persons-error" hidden></p>
+            </fieldset>
+          </section>
         </section>
       </section>
     </div>

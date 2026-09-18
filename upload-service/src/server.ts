@@ -2760,6 +2760,10 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       ownerPersonId: person.ownerPersonId,
       email: null,
       fullName: personDisplayName(person),
+      // KRKG-0087: the separate name parts too, so Mój profil can edit them individually (the
+      // joined fullName alone can't be split back apart).
+      firstName: person.firstName,
+      lastName: person.lastName,
       nickname: person.ksywka || null,
       sectionId: person.sectionId,
       categoryId: person.categoryId,

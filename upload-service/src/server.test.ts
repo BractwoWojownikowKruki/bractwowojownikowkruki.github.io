@@ -6545,6 +6545,9 @@ test('GET /lista-wyjazdowa/roster unions members with people who have no account
     assert.equal(person.accountless, true, 'a person without an account must be flagged');
     assert.equal(person.email, null, 'a person without an account has no e-mail');
     assert.equal(person.fullName, 'Jan Kowalski');
+    // KRKG-0087: the separate name parts are exposed too, so Mój profil can edit them individually.
+    assert.equal(person.firstName, 'Jan');
+    assert.equal(person.lastName, 'Kowalski');
     assert.equal(person.nickname, 'Wilk');
     assert.equal(person.ownerPersonId, 'wojownik@gmail.com');
     assert.deepEqual(person.weaponIds, ['tarczownik']);
