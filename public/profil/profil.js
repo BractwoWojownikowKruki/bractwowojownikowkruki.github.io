@@ -613,7 +613,7 @@ async function createPerson(fields, control) {
     await runPersonMutation(control, () => apiFetch('/lista-wyjazdowa/persons', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...fields, ownerPersonId: viewerEmail }),
+      body: JSON.stringify({ ...fields, ownerPersonId: viewerEmail.toLowerCase() }),
     }, showReauth, hideReauth));
   } catch (err) {
     showPersonsError(`Nie udało się dodać osoby: ${err.message}`);

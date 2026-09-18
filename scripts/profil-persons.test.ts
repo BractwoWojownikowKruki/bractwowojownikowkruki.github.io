@@ -23,7 +23,7 @@ test('Mój profil renders attached people from the roster and writes them throug
   assert.match(script, /method: 'POST'/);
   assert.match(script, /method: 'PUT'/);
   assert.match(script, /method: 'DELETE'/);
-  assert.match(script, /ownerPersonId: viewerEmail/);
+  assert.match(script, /ownerPersonId: viewerEmail\.toLowerCase\(\)/);
   assert.match(script, /MutationFeedback\.confirmed\(\{/);
 });
 
