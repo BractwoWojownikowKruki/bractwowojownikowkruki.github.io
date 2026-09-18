@@ -48,6 +48,8 @@ import {
   type AuditOperationIntent,
   type ExternalOperationProbe,
   type CanonicalAuditEventInput,
+  type CanonicalAuditEventInputAfterResult,
+  type CanonicalAuditEventInputFactory,
 } from './audit.ts';
 import { verifyReconcilerOidcToken } from './auth.ts';
 import { getMember, listAllMembers, saveMember, setMemberDriveFolderId, setMemberStagingFolderId, setMemberCategoryId, setMemberHidden, recordLastLogin, type MemberDoc, type MemberWritableFields } from './members.ts';
@@ -56,6 +58,23 @@ import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
 import { createDisabledSheetsClient, createSheetsClient, type SheetsClient } from './sheets.ts';
 import { getProfile, listAllProfiles, saveProfile, setProfileWeaponIds, setWpisowePaid, type ListaWyjazdowaProfileDoc, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
+// KRKG-0087: people without an account are real people on the roster, not entries inside a
+// member's profile - the roster below unions the two sources.
+import {
+  applyPersonMerge,
+  createPerson,
+  detachPerson,
+  getPerson,
+  listPersons,
+  personDisplayName,
+  planPersonMerge,
+  resolvePersonId,
+  softDeletePerson,
+  updatePerson,
+  type PersonDoc,
+  type PersonMergeApplyResult,
+  type PersonWritableFields,
+} from './persons.ts';
 import { getAllLookupLists, getLookupList } from './lookup-lists.ts';
 import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWritableFields } from './events.ts';
 import {
@@ -209,6 +228,13 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   eventCreate: auditedRoute('POST', '/lista-wyjazdowa/events', ['event.created']),
   eventUpdate: auditedRoute('PUT', '/lista-wyjazdowa/events', ['event.updated', 'event.cancelled', 'dues.event_fee.changed']),
   signup: auditedRoute('PUT', '/lista-wyjazdowa/signups', ['signup.created', 'signup.updated']),
+  // KRKG-0087: the accountless-person record routes.
+  personCreate: auditedRoute('POST', '/lista-wyjazdowa/persons', ['person.created']),
+  personUpdate: auditedRoute('PUT', '/lista-wyjazdowa/persons', ['person.updated']),
+  personDelete: auditedRoute('DELETE', '/lista-wyjazdowa/persons', ['person.deleted']),
+  personOwner: auditedRoute('PUT', '/lista-wyjazdowa/persons/owner', ['person.detached']),
+  personAccount: auditedRoute('PUT', '/lista-wyjazdowa/persons/account', ['person.merged']),
+  quickAdd: auditedRoute('POST', '/lista-wyjazdowa/signups/quick-add', ['person.created', 'signup.created', 'signup.updated']),
   signupFee: auditedRoute('PUT', '/lista-wyjazdowa/signups/skladka', ['dues.event_fee.changed']),
   entryFee: auditedRoute('PUT', '/lista-wyjazdowa/wpisowe', ['dues.entry_fee.changed']),
   annualDues: auditedRoute('PUT', '/lista-wyjazdowa/dues', ['dues.annual.changed']),
@@ -224,32 +250,50 @@ export function findAuditedMemberMutationRoute(method: string, path: string): Au
   return AUDITED_MEMBER_MUTATION_ROUTE_DESCRIPTORS.find(route => route.method === method && route.path === path);
 }
 
+/** The audit input forms a declared route accepts; `afterResult` covers a diff known only after the write. */
+type DeclaredAuditInput<T> =
+  | Omit<CanonicalAuditEventInput, 'action'>
+  | readonly Omit<CanonicalAuditEventInput, 'action'>[]
+  | ((tx: FirestoreTransaction) => Promise<Omit<CanonicalAuditEventInput, 'action'> | readonly Omit<CanonicalAuditEventInput, 'action'>[]>)
+  | {
+      afterResult: (
+        tx: FirestoreTransaction,
+        result: T,
+      ) => Promise<Omit<CanonicalAuditEventInput, 'action'> | readonly Omit<CanonicalAuditEventInput, 'action'>[]>;
+    };
+
+function isDeclaredAuditInputAfterResult<T>(
+  input: DeclaredAuditInput<T>,
+): input is Extract<DeclaredAuditInput<T>, { afterResult: unknown }> {
+  return typeof input === 'object' && input !== null && !Array.isArray(input) && 'afterResult' in input;
+}
+
 async function executeDeclaredAuditedMutation<T, Actions extends readonly AuditAction[]>(
   deps: ServerDeps,
   descriptor: AuditedMutationRouteDescriptor<Actions>,
   action: Actions[number] | readonly Actions[number][],
-  input:
-    | Omit<CanonicalAuditEventInput, 'action'>
-    | readonly Omit<CanonicalAuditEventInput, 'action'>[]
-    | ((tx: FirestoreTransaction) => Promise<Omit<CanonicalAuditEventInput, 'action'> | readonly Omit<CanonicalAuditEventInput, 'action'>[]>),
+  input: DeclaredAuditInput<T>,
   mutation: (tx: FirestoreTransaction) => Promise<T>,
 ): ReturnType<typeof executeAuditedFirestoreMutation<T>> {
   const actions = Array.isArray(action) ? action : [action];
   if (actions.some(candidate => !(descriptor.actions as readonly AuditAction[]).includes(candidate))) {
     throw new Error(`Undeclared audit action for ${descriptor.method} ${descriptor.path}.`);
   }
-  const withAction = typeof input === 'function'
-    ? async (tx: FirestoreTransaction) => {
-        const resolvedInput = await input(tx);
-        const inputs = Array.isArray(resolvedInput) ? resolvedInput : [resolvedInput];
-        if (inputs.length !== actions.length) throw new Error(`Audit input count does not match actions for ${descriptor.method} ${descriptor.path}.`);
-        return inputs.map((auditInput, index) => ({ action: actions[index], ...auditInput }));
-      }
-    : (() => {
-        const inputs = Array.isArray(input) ? input : [input];
-        if (inputs.length !== actions.length) throw new Error(`Audit input count does not match actions for ${descriptor.method} ${descriptor.path}.`);
-        return inputs.map((auditInput, index) => ({ action: actions[index], ...auditInput }));
-      })();
+  const addActions = (
+    resolved: Omit<CanonicalAuditEventInput, 'action'> | readonly Omit<CanonicalAuditEventInput, 'action'>[],
+  ) => {
+    const inputs = Array.isArray(resolved) ? resolved : [resolved];
+    if (inputs.length !== actions.length) throw new Error(`Audit input count does not match actions for ${descriptor.method} ${descriptor.path}.`);
+    return inputs.map((auditInput, index) => ({ action: actions[index], ...auditInput }));
+  };
+  let withAction: CanonicalAuditEventInput | readonly CanonicalAuditEventInput[] | CanonicalAuditEventInputFactory | CanonicalAuditEventInputAfterResult<T>;
+  if (typeof input === 'function') {
+    withAction = async (tx: FirestoreTransaction) => addActions(await input(tx));
+  } else if (isDeclaredAuditInputAfterResult(input)) {
+    withAction = { afterResult: async (tx, result) => addActions(await input.afterResult(tx, result)) };
+  } else {
+    withAction = addActions(input);
+  }
   return executeAuditedFirestoreMutation(deps.firestore, withAction, mutation);
 }
 
@@ -2379,22 +2423,6 @@ async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerR
           ) ?? '',
       };
     }),
-    companions: requireArray(body.companions, 'Lista osób towarzyszących ma nieprawidłowy format.').map((raw) => {
-      const companion = requireObject(raw, 'Lista osób towarzyszących ma nieprawidłowy format.');
-      return {
-        id:
-          optionalTrimmedString(
-            companion.id,
-            LW_MAX_NAME_LENGTH,
-            'Lista osób towarzyszących ma nieprawidłowy format.',
-          ) ?? '',
-        name: requireTrimmedString(
-          companion.name,
-          LW_MAX_NAME_LENGTH,
-          `Imię osoby towarzyszącej jest wymagane (maks. ${LW_MAX_NAME_LENGTH} znaków).`,
-        ),
-      };
-    }),
   };
   const lookupLists = await getAllLookupLists(deps.firestore);
   for (const weaponId of fields.weaponIds) {
@@ -2412,7 +2440,6 @@ async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerR
         changes: [
           { field: 'weaponCount', ...(existing ? { before: existing.weaponIds.length } : {}), after: fields.weaponIds.length },
           { field: 'equipmentCount', ...(existing ? { before: existing.equipment.length } : {}), after: fields.equipment.length },
-          { field: 'companionCount', ...(existing ? { before: existing.companions.length } : {}), after: fields.companions.length },
         ],
       };
     },
@@ -2568,72 +2595,85 @@ async function handleListaWyjazdowaGetMySignup(req: IncomingMessage, res: Server
   sendJson(res, 200, { signup });
 }
 
+// KRKG-0087: resolves a write target from either a member e-mail or an accountless person's UUID
+// (the roster's personId). For a member the personId is the lowercased e-mail, so nothing changes;
+// an accountless person must exist and not be tombstoned. No allowlist check here: the open-edit
+// signup route adds one for member targets itself, while the staff-only money routes operate on
+// targets the Składki page already lists.
+async function resolvePersonWriteTarget(
+  deps: ServerDeps,
+  raw: string,
+): Promise<{ personId: string; display: string; accountless: boolean }> {
+  // A tombstoned person (deleted or merged) is not a writable target. This must be checked on the
+  // source document before resolvePersonId: for a merged person that resolver deliberately maps the
+  // retired UUID to its live account e-mail (for history and audit), which would otherwise make the
+  // old UUID a valid mutation alias for the account.
+  const source = await getPerson(deps.firestore, raw);
+  if (source?.deletedAt) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+  const resolved = await resolvePersonId(deps.firestore, raw);
+  if (resolved.kind === 'person') {
+    if (resolved.person.deletedAt) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+    return { personId: resolved.personId, display: personDisplayName(resolved.person) ?? resolved.personId, accountless: true };
+  }
+  return { personId: resolved.personId, display: resolved.personId, accountless: false };
+}
+
 async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const eventId = url.searchParams.get('eventId');
-  const memberEmail = url.searchParams.get('memberEmail');
+  const personIdParam = url.searchParams.get('personId');
   if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
-  if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
+  if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
 
   const event = await getEvent(deps.firestore, eventId);
   if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
 
-  // memberEmail is open-edit (any member may sign anyone up), but it still has to name a real
-  // club member - checked against the live Google Group allowlist (the same one GET
-  // /lista-wyjazdowa/roster now enumerates), not the members/{email} collection. A member who has
-  // never opened "Mój profil" has no members/{email} document yet but is still a real member and
-  // must be signable up; a typo'd or invented address isn't on the allowlist either way, so this
-  // still rejects it before it can create an orphan signup doc that inflates attendingCount (the
-  // events list's "N os.") while never showing up on the roster or the event page's breakdown.
-  const allowedEmails = await deps.listMemberEmails();
-  if (!allowedEmails.includes(memberEmail.toLowerCase())) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  // This route is open-edit (any member may sign anyone up), but the target still has to name a
+  // real club member or an existing accountless person - checked by resolvePersonWriteTarget before
+  // it can create an orphan signup doc that inflates attendingCount (the events list's "N os.")
+  // while never showing up on the roster or the event page's breakdown. A member target is checked
+  // against the live Google Group allowlist; a person is a real record and is not in that group.
+  const target = await resolvePersonWriteTarget(deps, personIdParam);
+  if (!target.accountless) {
+    const allowedEmails = await deps.listMemberEmails();
+    if (!allowedEmails.includes(target.personId)) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  }
 
-  // The target member need not have a Lista Wyjazdowa profile yet - "I'm coming, no gear/
-  // companions listed yet" is a legitimate signup. A missing profile just means its
-  // equipment/companion sets are empty for the referential check below, so any *non-empty*
-  // equipmentIds/companionIds on a profile-less member are rejected the same way an id that's
-  // simply not theirs would be - not via a separate "no profile" 400.
-  const targetProfile = await getProfile(deps.firestore, memberEmail);
+  // The target need not have a Lista Wyjazdowa profile yet - "I'm coming, no gear listed yet" is a
+  // legitimate signup. A missing profile just means its equipment set is empty for the referential
+  // check below, so any *non-empty* equipmentIds on a profile-less target are rejected the same way
+  // an id that's simply not theirs would be - not via a separate "no profile" 400.
+  const targetProfile = await getProfile(deps.firestore, target.personId);
 
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.attending !== 'boolean') throw new AuthError('Pole attending jest wymagane (true/false).', 400);
   const equipmentIds = requireArray(body.equipmentIds, 'Lista sprzętu ma nieprawidłowy format.').map((id) =>
     requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista sprzętu ma nieprawidłowy format.'),
   );
-  const companionIds = requireArray(body.companionIds, 'Lista osób towarzyszących ma nieprawidłowy format.').map((id) =>
-    requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista osób towarzyszących ma nieprawidłowy format.'),
-  );
-
   const validEquipmentIds = new Set(targetProfile?.equipment.map((e) => e.id) ?? []);
   for (const id of equipmentIds) {
-    if (!validEquipmentIds.has(id)) throw new AuthError('Wybrany sprzęt nie należy do tego członka.', 400);
-  }
-  const validCompanionIds = new Set(targetProfile?.companions.map((c) => c.id) ?? []);
-  for (const id of companionIds) {
-    if (!validCompanionIds.has(id)) throw new AuthError('Wybrana osoba towarzysząca nie należy do tego członka.', 400);
+    if (!validEquipmentIds.has(id)) throw new AuthError('Wybrany sprzęt nie należy do tej osoby.', 400);
   }
 
-  const fields: SignupWritableFields = { attending: body.attending, equipmentIds, companionIds };
-  const normalizedMemberEmail = memberEmail.toLowerCase();
-  const existingSignup = await getSignup(deps.firestore, eventId, normalizedMemberEmail);
+  const fields: SignupWritableFields = { attending: body.attending, equipmentIds };
+  const existingSignup = await getSignup(deps.firestore, eventId, target.personId);
   const action = existingSignup ? 'signup.updated' : 'signup.created';
   const { result: signup } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.signup,
     action,
     async tx => {
-      const existing = await tx.getDoc<SignupDoc>('signups', `${eventId}_${normalizedMemberEmail}`);
+      const existing = await tx.getDoc<SignupDoc>('signups', `${eventId}_${target.personId}`);
       return {
         actor: { email: identity.email },
-        resource: { kind: 'signup', key: `signup:${eventId}:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        resource: { kind: 'signup', key: `signup:${eventId}:${target.personId}`, display: target.display },
         changes: [
           { field: 'attending', ...(existing ? { before: existing.attending } : {}), after: fields.attending },
           { field: 'equipmentCount', ...(existing ? { before: existing.equipmentIds.length } : {}), after: equipmentIds.length },
-          { field: 'companionCount', ...(existing ? { before: existing.companionIds.length } : {}), after: companionIds.length },
         ],
       };
     },
-    tx => saveSignup(tx, eventId, normalizedMemberEmail, fields, identity.email),
+    tx => saveSignup(tx, eventId, target.personId, fields, identity.email),
   );
   sendJson(res, 200, { signup });
 }
@@ -2644,10 +2684,16 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
 // fullName/nickname/sectionId/categoryId are null for such a member; the event page's "Wszyscy"
 // filter is what surfaces them (see wyjazd.js's renderRoster), hidden by default behind "tylko
 // zgłoszeni" so a long allowlist doesn't bury the people who already signed up.
-async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   await deps.authenticateWojownicyUpload(req, res);
+  // KRKG-0087: the event-scoped read is the historical one. For one specific trip the roster must
+  // still resolve people who have since been removed (tombstoned), as long as they were signed up
+  // for that trip - otherwise a past trip's counts and summary would change when someone leaves the
+  // club, and the audit entries about them would lose their subject. The current read (no eventId)
+  // leaves every tombstoned person out.
+  const eventId = url.searchParams.get('eventId');
   const duesYear = new Date().getFullYear();
-  const [emails, members, profiles, dues] = await Promise.all([
+  const [emails, members, profiles, dues, persons, eventSignups] = await Promise.all([
     deps.listMemberEmails(),
     listAllMembers(deps.firestore),
     listAllProfiles(deps.firestore),
@@ -2656,7 +2702,14 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
     // effective dues status - same effectiveDuesStatus defaulting as handleMemberProfile (an
     // Emeryt with no stored record reads as not_applicable, anything else unpaid).
     listDuesForYear(deps.firestore, duesYear),
+    // KRKG-0087: people without an account are a second source of roster rows, keyed by their own
+    // personId. On the current read tombstoned people are excluded by listPersons' default; on the
+    // historical read they are fetched too and filtered below to those signed up for this trip.
+    listPersons(deps.firestore, { includeDeleted: Boolean(eventId) }),
+    eventId ? listSignupsForEvent(deps.firestore, eventId) : Promise.resolve([]),
   ]);
+  const signupPersonIds = new Set(eventSignups.map((s) => s.memberEmail.toLowerCase()));
+
   const memberByEmail = new Map(members.map((m) => [m.email, m]));
   const profileByEmail = new Map(profiles.map((p) => [p.email, p]));
   const duesByEmail = new Map(dues.map((d) => [d.email, d]));
@@ -2666,6 +2719,11 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
     const member = memberByEmail.get(email);
     const profile = profileByEmail.get(email);
     return {
+      // KRKG-0087: the canonical person key. For a member it equals the e-mail, which is why
+      // nothing below changes for them; `accountless` tells the client which kind of row this is.
+      personId: email,
+      accountless: false,
+      ownerPersonId: null,
       email,
       fullName: member?.fullName ?? null,
       nickname: member?.nickname ?? null,
@@ -2673,10 +2731,9 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       categoryId: member?.categoryId ?? null,
       weaponIds: profile?.weaponIds ?? [],
       equipment: profile?.equipment ?? [],
-      companions: profile?.companions ?? [],
       // wpisowePaid is independent of whether the member has ever filled in "Mój profil" -
       // setWpisowePaid (lista-wyjazdowa-profile.ts) creates a profile document with empty
-      // weaponIds/equipment/companions on first use if none exists yet, so there is no "no
+      // weaponIds/equipment on first use if none exists yet, so there is no "no
       // profile to record this on" case left to distinguish here.
       wpisowePaid: profile?.wpisowePaid ?? false,
       // Current-year składka roczna status (KRKG-0074, see the listDuesForYear fetch above) -
@@ -2689,7 +2746,76 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       approvedAt: member?.approvedAt ?? null,
     };
   });
-  sendJson(res, 200, { roster });
+  // KRKG-0087: people without an account, as rows of their own. Their profile and dues live under
+  // their own personId, exactly like a member's live under their e-mail, so the same lookups work.
+  // On the historical read a tombstoned person is kept only when they were signed up for this trip;
+  // on the current read every tombstoned person was already filtered out by listPersons.
+  const personRoster = persons
+    .filter(({ data: person }) => !person.deletedAt || signupPersonIds.has(person.personId.toLowerCase()))
+    .map(({ data: person }) => {
+    const profile = profileByEmail.get(person.personId);
+    return {
+      personId: person.personId,
+      accountless: true,
+      ownerPersonId: person.ownerPersonId,
+      email: null,
+      fullName: personDisplayName(person),
+      // KRKG-0087: the separate name parts too, so Mój profil can edit them individually (the
+      // joined fullName alone can't be split back apart).
+      firstName: person.firstName,
+      lastName: person.lastName,
+      nickname: person.ksywka || null,
+      sectionId: person.sectionId,
+      categoryId: person.categoryId,
+      weaponIds: person.weaponIds,
+      equipment: profile?.equipment ?? [],
+      wpisowePaid: profile?.wpisowePaid ?? false,
+      duesStatus: effectiveDuesStatus(duesByEmail.get(person.personId) ?? null, person.categoryId),
+      approvedAt: null,
+    };
+  });
+  sendJson(res, 200, { roster: [...roster, ...personRoster] });
+}
+
+// KRKG-0087: the read-only profile drawer for a person without an account. GET /member-profile is
+// keyed by e-mail, which an accountless person does not have, so this is the person-keyed
+// counterpart: the same public fields the drawer shows for a member (minus photos/description,
+// which a person never has) plus their dues status, so any signed-in member can open their pill.
+async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req, res);
+  const personId = url.searchParams.get('personId');
+  if (!personId) throw new AuthError('Brak identyfikatora osoby.', 400);
+  const person = await getPerson(deps.firestore, personId);
+  if (!person || person.deletedAt) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+  const year = new Date().getFullYear();
+  const [lookupLists, profile, dues] = await Promise.all([
+    getAllLookupLists(deps.firestore),
+    getProfile(deps.firestore, person.personId),
+    getDues(deps.firestore, person.personId, year),
+  ]);
+  const weaponLabelById = new Map(lookupLists.weapons.map((w) => [w.id, w.label]));
+  sendJson(res, 200, {
+    profile: {
+      personId: person.personId,
+      accountless: true,
+      fullName: personDisplayName(person),
+      nickname: person.ksywka || null,
+      sectionId: person.sectionId,
+      sectionLabel: lookupLists.sections.find((s) => s.id === person.sectionId)?.label ?? person.sectionId,
+      categoryId: person.categoryId,
+      categoryLabel: lookupLists.categories.find((c) => c.id === person.categoryId)?.label ?? person.categoryId,
+      weaponIds: person.weaponIds,
+      weapons: person.weaponIds.map((id) => weaponLabelById.get(id) ?? id),
+      mainPhoto: null,
+      photos: [],
+      pendingPhotos: [],
+      published: false,
+      description: null,
+      wpisowePaid: profile?.wpisowePaid ?? false,
+      duesStatus: effectiveDuesStatus(dues, person.categoryId),
+      duesYear: year,
+    },
+  });
 }
 
 // GET /members/directory (KRKG-0045): the club-wide "Lista Członków" page. Same allowlist
@@ -2753,39 +2879,46 @@ async function canManageSkladki(req: IncomingMessage, res: ServerResponse, deps:
 
 async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  sendJson(res, 200, { canManageSkladki: await canManageSkladki(req, res, deps, identity.email) });
+  // KRKG-0087: the event page offers the "+" (add companion) control on the viewer's own row to
+  // everyone, and on every account row to staff - so the client needs to know whether the viewer
+  // is staff (admin/moderator/accountant) even when they cannot manage składki. Reuses the same
+  // isPersonStaff predicate the person routes themselves enforce, so the UI and the server agree.
+  sendJson(res, 200, {
+    canManageSkladki: await canManageSkladki(req, res, deps, identity.email),
+    canManagePeople: await isPersonStaff(req, res, deps, identity.email),
+  });
 }
 
 async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   await requireSkladkiAccess(req, res, deps, identity.email);
   const eventId = url.searchParams.get('eventId');
-  const memberEmail = url.searchParams.get('memberEmail');
+  const personIdParam = url.searchParams.get('personId');
   if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
-  if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
+  if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
+  const target = await resolvePersonWriteTarget(deps, personIdParam);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
   const paid = body.paid;
-  const normalizedMemberEmail = memberEmail.toLowerCase();
   const { result: signup } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.signupFee,
     'dues.event_fee.changed',
     async tx => {
-      const existing = await tx.getDoc<SignupDoc>('signups', `${eventId}_${normalizedMemberEmail}`);
-      if (!existing) throw new AuthError('Ten członek nie jest zapisany na ten wyjazd.', 404);
+      const existing = await tx.getDoc<SignupDoc>('signups', `${eventId}_${target.personId}`);
+      if (!existing) throw new AuthError('Ta osoba nie jest zapisana na ten wyjazd.', 404);
       return {
         actor: { email: identity.email },
-        resource: { kind: 'signup', key: `signup:${eventId}:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        resource: { kind: 'signup', key: `signup:${eventId}:${target.personId}`, display: target.display },
         changes: [
-          { field: 'memberEmail', after: normalizedMemberEmail },
+          { field: 'memberEmail', after: target.personId },
           { field: 'paid', before: existing.skladkaPaid, after: paid },
         ],
       };
     },
     async tx => {
-      const updated = await setSkladkaPaid(tx, eventId, normalizedMemberEmail, paid, identity.email);
-      if (!updated) throw new AuthError('Ten członek nie jest zapisany na ten wyjazd.', 404);
+      const updated = await setSkladkaPaid(tx, eventId, target.personId, paid, identity.email);
+      if (!updated) throw new AuthError('Ta osoba nie jest zapisana na ten wyjazd.', 404);
       return updated;
     },
   );
@@ -2795,32 +2928,32 @@ async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: Ser
 async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   await requireSkladkiAccess(req, res, deps, identity.email);
-  const memberEmail = url.searchParams.get('memberEmail');
-  if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
+  const personIdParam = url.searchParams.get('personId');
+  if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
+  const target = await resolvePersonWriteTarget(deps, personIdParam);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
   const paid = body.paid;
-  const normalizedMemberEmail = memberEmail.toLowerCase();
-  // Wpisowe is a club due, not a Lista Wyjazdowa feature - whether this member has ever filled in
+  // Wpisowe is a club due, not a Lista Wyjazdowa feature - whether this person has ever filled in
   // "Mój profil" must not gate whether they can be marked as having paid it (setWpisowePaid
-  // upserts a profile with empty weaponIds/equipment/companions if none exists yet).
+  // upserts a profile with empty weaponIds/equipment if none exists yet).
   const { result: profile } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.entryFee,
     'dues.entry_fee.changed',
     async tx => {
-      const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', normalizedMemberEmail);
+      const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', target.personId);
       return {
         actor: { email: identity.email },
-        // Same resource key as składka roczna below (due:{email}, no :entry_fee/:{year} suffix) -
-        // one member's wpisowe and every year's roczna share one Historia timeline, per the
-        // Składki page's single combined history button. The action field (dues.entry_fee.changed
-        // vs dues.annual.changed) already tells the two apart in that timeline.
-        resource: { kind: 'due', key: `due:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        // Same resource key as składka roczna below (due:{personId}, no :entry_fee/:{year} suffix) -
+        // one person's wpisowe and every year's roczna share one Historia timeline, per the Składki
+        // page's single combined history button. The action field (dues.entry_fee.changed vs
+        // dues.annual.changed) already tells the two apart in that timeline.
+        resource: { kind: 'due', key: `due:${target.personId}`, display: target.display },
         changes: [{ field: 'paid', ...(existing ? { before: existing.wpisowePaid } : {}), after: paid }],
       };
     },
-    tx => setWpisowePaid(tx, normalizedMemberEmail, paid, identity.email),
+    tx => setWpisowePaid(tx, target.personId, paid, identity.email),
   );
   sendJson(res, 200, { profile });
 }
@@ -2838,7 +2971,10 @@ async function handleListaWyjazdowaGetDues(req: IncomingMessage, res: ServerResp
     listDuesForYear(deps.firestore, year),
     getDuesYearFee(deps.firestore, year),
   ]);
-  sendJson(res, 200, { dues, yearFee });
+  // KRKG-0087: the canonical key is personId (a member's e-mail, an accountless person's UUID).
+  // DuesDoc's legacy-named `email` field already stores that key, so expose it under its real name
+  // too - clients key their lookups by personId and never have to treat the field as an e-mail.
+  sendJson(res, 200, { dues: dues.map((due) => ({ ...due, personId: due.email })), yearFee });
 }
 
 // Self-scoped read (mirrors GET /lista-wyjazdowa/signups/mine) - Mój profil shows the caller's own
@@ -2854,36 +2990,39 @@ async function handleListaWyjazdowaGetMyDues(req: IncomingMessage, res: ServerRe
 async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   await requireSkladkiAccess(req, res, deps, identity.email);
-  const memberEmail = url.searchParams.get('memberEmail');
+  const personIdParam = url.searchParams.get('personId');
   const year = requireYear(url.searchParams.get('year'), 'Nieprawidłowy rok.');
-  if (!memberEmail) throw new AuthError('Brak adresu e-mail członka.', 400);
-  const member = await getMember(deps.firestore, memberEmail);
-  if (!member) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
+  const target = await resolvePersonWriteTarget(deps, personIdParam);
+  // A member target still needs a members/{email} document, as before; an accountless person is
+  // validated by resolvePersonWriteTarget itself.
+  if (!target.accountless && !(await getMember(deps.firestore, target.personId))) {
+    throw new AuthError('Nie znaleziono takiego członka.', 404);
+  }
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (body.status !== 'unpaid' && body.status !== 'paid' && body.status !== 'not_applicable') {
     throw new AuthError('Pole status musi być jednym z: unpaid, paid, not_applicable.', 400);
   }
   const status = body.status;
-  const normalizedMemberEmail = memberEmail.toLowerCase();
   const { result: dues } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.annualDues,
     'dues.annual.changed',
     async tx => {
-      const existing = await tx.getDoc<{ status?: unknown; paid?: unknown }>('duesAnnual', `${normalizedMemberEmail}_${year}`);
+      const existing = await tx.getDoc<{ status?: unknown; paid?: unknown }>('duesAnnual', `${target.personId}_${year}`);
       return {
         actor: { email: identity.email },
-        // Same resource key as wpisowe above (due:{email}) - the year no longer lives in the key,
+        // Same resource key as wpisowe above (due:{personId}) - the year no longer lives in the key,
         // so it must be carried as its own change field instead for the combined history to still
         // say which year a given roczna entry was about.
-        resource: { kind: 'due', key: `due:${normalizedMemberEmail}`, display: normalizedMemberEmail },
+        resource: { kind: 'due', key: `due:${target.personId}`, display: target.display },
         changes: [
           { field: 'status', ...(existing ? { before: normalizeDuesStatus(existing) } : {}), after: status },
           { field: 'year', after: year },
         ],
       };
     },
-    tx => saveDues(tx, normalizedMemberEmail, year, { status }, identity.email),
+    tx => saveDues(tx, target.personId, year, { status }, identity.email),
   );
   sendJson(res, 200, { dues });
 }
@@ -2919,6 +3058,315 @@ async function handleListaWyjazdowaPutDuesYearFee(req: IncomingMessage, res: Ser
     tx => saveDuesYearFee(tx, year, fields, identity.email),
   );
   sendJson(res, 200, { yearFee });
+}
+
+// ---------------------------------------------------------------------------------------------
+// KRKG-0087: accountless-person record routes. Staff (admin, moderator, accountant) may manage any
+// person; a plain member may only create/update/delete/detach a person attached to them - their own
+// "osoba towarzysząca". Merging a person with a real account is administrator-only.
+// ---------------------------------------------------------------------------------------------
+
+/** Staff = admin or accountant (requireSkladkiAccess) or admin or moderator (authenticateAdminOrModerator). */
+async function isPersonStaff(req: IncomingMessage, res: ServerResponse, deps: ServerDeps, email: string): Promise<boolean> {
+  try {
+    await requireSkladkiAccess(req, res, deps, email);
+    return true;
+  } catch (err) {
+    if (!(err instanceof AuthError)) throw err;
+  }
+  try {
+    await deps.authenticateAdminOrModerator(req, res);
+    return true;
+  } catch (err) {
+    if (!(err instanceof AuthError)) throw err;
+    return false;
+  }
+}
+
+/** A member may act on a person only when that person is attached to them (their own personId is their e-mail). */
+function requireOwnedOrStaff(identity: { email: string }, person: PersonDoc, staff: boolean): void {
+  if (staff) return;
+  const owner = person.ownerPersonId?.toLowerCase() ?? null;
+  if (owner && owner === identity.email.toLowerCase()) return;
+  throw new AuthError('Brak uprawnień do tej osoby.', 403);
+}
+
+/** Reads and validates the person fields shared by POST and PUT /lista-wyjazdowa/persons. */
+function readPersonWritableFields(body: Record<string, unknown>): PersonWritableFields {
+  const weaponIds = body.weaponIds === undefined
+    ? []
+    : requireArray(body.weaponIds, 'Lista broni ma nieprawidłowy format.').map((id) =>
+        requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista broni ma nieprawidłowy format.'));
+  return {
+    ksywka: optionalTrimmedString(body.ksywka, LW_MAX_NAME_LENGTH, 'Ksywka jest nieprawidłowa.') ?? '',
+    firstName: optionalTrimmedString(body.firstName, LW_MAX_NAME_LENGTH, 'Imię jest nieprawidłowe.') ?? '',
+    lastName: optionalTrimmedString(body.lastName, LW_MAX_NAME_LENGTH, 'Nazwisko jest nieprawidłowe.') ?? '',
+    categoryId: requireTrimmedString(body.categoryId, LW_MAX_NAME_LENGTH, 'Kategoria osoby jest wymagana.'),
+    sectionId: requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja osoby jest wymagana.'),
+    weaponIds,
+  };
+}
+
+function readOwnerPersonId(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || !value.trim()) throw new AuthError('Pole ownerPersonId jest nieprawidłowe.', 400);
+  return value.trim();
+}
+
+function personMergeError(reason: 'person_not_found' | 'person_already_merged' | 'account_not_found'): AuthError {
+  if (reason === 'person_already_merged') return new AuthError('Ta osoba jest już scalona z kontem.', 409);
+  return new AuthError('Nie znaleziono osoby lub konta.', 404);
+}
+
+async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const fields = readPersonWritableFields(body);
+  const ownerPersonId = readOwnerPersonId(body.ownerPersonId);
+  const staff = await isPersonStaff(req, res, deps, identity.email);
+  if (!staff && (!ownerPersonId || ownerPersonId.toLowerCase() !== identity.email.toLowerCase())) {
+    throw new AuthError('Brak uprawnień do utworzenia takiej osoby.', 403);
+  }
+  const personId = randomUUID();
+  const { result: person } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.personCreate,
+    'person.created',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'person', key: `person:${personId}`, display: fields.ksywka || personId },
+      changes: [
+        { field: 'nickname', after: fields.ksywka },
+        { field: 'categoryId', after: fields.categoryId },
+        { field: 'sectionId', after: fields.sectionId },
+        { field: 'weaponCount', after: fields.weaponIds.length },
+        { field: 'ownerPersonId', after: ownerPersonId },
+      ],
+    },
+    tx => createPerson(tx, fields, ownerPersonId, identity.email, personId),
+  );
+  sendJson(res, 201, { person });
+}
+
+async function handleListaWyjazdowaPutPerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
+  const existing = await getPerson(deps.firestore, personId);
+  if (!existing) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+  requireOwnedOrStaff(identity, existing, await isPersonStaff(req, res, deps, identity.email));
+  const fields = readPersonWritableFields(body);
+  const { result: person } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.personUpdate,
+    'person.updated',
+    async tx => {
+      const before = await tx.getDoc<PersonDoc>('persons', existing.personId);
+      if (!before) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'person' as const, key: `person:${before.personId}`, display: before.ksywka || before.personId },
+        changes: [
+          { field: 'nickname', before: before.ksywka, after: fields.ksywka },
+          { field: 'categoryId', before: before.categoryId, after: fields.categoryId },
+          { field: 'sectionId', before: before.sectionId, after: fields.sectionId },
+          { field: 'weaponCount', before: before.weaponIds.length, after: fields.weaponIds.length },
+        ],
+      };
+    },
+    async tx => {
+      const updated = await updatePerson(tx, existing.personId, fields, identity.email);
+      if (!updated) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+      return updated;
+    },
+  );
+  sendJson(res, 200, { person });
+}
+
+async function handleListaWyjazdowaDeletePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
+  const existing = await getPerson(deps.firestore, personId);
+  if (!existing) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+  requireOwnedOrStaff(identity, existing, await isPersonStaff(req, res, deps, identity.email));
+  const { result: person } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.personDelete,
+    'person.deleted',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'person', key: `person:${existing.personId}`, display: existing.ksywka || existing.personId },
+      changes: [{ field: 'deleted', before: false, after: true }],
+    },
+    async tx => {
+      const deleted = await softDeletePerson(tx, existing.personId, identity.email);
+      if (!deleted) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+      return deleted;
+    },
+  );
+  sendJson(res, 200, { person });
+}
+
+async function handleListaWyjazdowaPutPersonOwner(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
+  // This route is "Odepnij" only - attaching is done at creation (POST /persons).
+  if (body.ownerPersonId !== null) throw new AuthError('Odpięcie wymaga ownerPersonId = null.', 400);
+  const existing = await getPerson(deps.firestore, personId);
+  if (!existing) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+  requireOwnedOrStaff(identity, existing, await isPersonStaff(req, res, deps, identity.email));
+  const { result: person } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.personOwner,
+    'person.detached',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'person', key: `person:${existing.personId}`, display: existing.ksywka || existing.personId },
+      changes: [{ field: 'ownerPersonId', before: existing.ownerPersonId, after: null }],
+    },
+    async tx => {
+      const detached = await detachPerson(tx, existing.personId, identity.email);
+      if (!detached) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+      return detached;
+    },
+  );
+  sendJson(res, 200, { person });
+}
+
+async function handleListaWyjazdowaPutPersonAccount(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
+  const accountEmail = requireTrimmedString(body.accountEmail, LW_MAX_NAME_LENGTH, 'Brak adresu e-mail konta.');
+  const planned = await planPersonMerge(deps.firestore, personId, accountEmail);
+  if (!planned.ok) throw personMergeError(planned.reason);
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.personAccount,
+    'person.merged',
+    {
+      // Which documents actually moved is only known after the merge runs, so the audit input is
+      // derived from its result - still inside the same transaction, so the event commits with the
+      // business write (plan: "audyt before/after obejmujący przeniesione dokumenty i zmianę opiekuna").
+      afterResult: async (_tx, merged: Extract<PersonMergeApplyResult, { ok: true }>) => ({
+        actor: { email: identity.email },
+        resource: { kind: 'person' as const, key: `person:${planned.plan.personId}`, display: merged.outcome.personDisplay },
+        changes: [
+          { field: 'accountEmail', after: planned.plan.accountEmail },
+          { field: 'mergedInto', after: planned.plan.accountEmail },
+          { field: 'ownerPersonId', before: merged.outcome.previousOwnerPersonId, after: null },
+          { field: 'movedSignups', after: merged.outcome.movedSignups.length },
+          { field: 'movedDues', after: merged.outcome.movedDues.length },
+          { field: 'droppedSignups', after: merged.outcome.droppedSignups.length },
+          { field: 'droppedDues', after: merged.outcome.droppedDues.length },
+          { field: 'profileMerged', after: merged.outcome.profileWritten },
+        ],
+      }),
+    },
+    async tx => {
+      const merged = await applyPersonMerge(tx, planned.plan, identity.email);
+      if (!merged.ok) throw personMergeError(merged.reason);
+      return merged;
+    },
+  );
+  sendJson(res, 200, { person: result.person });
+}
+
+// KRKG-0087: adding a person to a trip straight from the event page. `mode='existing'` signs up an
+// already-attached accountless person; `mode='new'` creates the person (section inherited from the
+// owner, no account) and signs them up in one transaction, so a failed signup write cannot leave an
+// orphan person. The owner must be the caller unless the caller is staff, and an existing target
+// must be an accountless person attached to that owner.
+async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const eventId = requireTrimmedString(body.eventId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora wyjazdu.');
+  const ownerPersonId = requireTrimmedString(body.ownerPersonId, LW_MAX_NAME_LENGTH, 'Brak opiekuna.');
+  if (body.mode !== 'existing' && body.mode !== 'new') throw new AuthError('Pole mode musi być jednym z: existing, new.', 400);
+  const mode = body.mode;
+
+  const event = await getEvent(deps.firestore, eventId);
+  if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+
+  const staff = await isPersonStaff(req, res, deps, identity.email);
+  const caller = await resolvePersonId(deps.firestore, identity.email);
+  if (!staff && ownerPersonId.toLowerCase() !== caller.personId.toLowerCase()) {
+    throw new AuthError('Brak uprawnień do tego opiekuna.', 403);
+  }
+  // The owner is a person with an account - an accountless person cannot own anyone.
+  const owner = await resolvePersonId(deps.firestore, ownerPersonId);
+  if (owner.kind !== 'account') throw new AuthError('Opiekun musi być osobą z kontem.', 400);
+  const ownerKey = owner.personId;
+  const allowedEmails = await deps.listMemberEmails();
+  if (!allowedEmails.includes(ownerKey)) throw new AuthError('Nie znaleziono takiego członka.', 404);
+
+  if (mode === 'existing') {
+    const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
+    const person = await getPerson(deps.firestore, personId);
+    if (!person || person.deletedAt) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+    if (person.ownerPersonId?.toLowerCase() !== ownerKey.toLowerCase()) {
+      throw new AuthError('Ta osoba nie jest przywiązana do tego opiekuna.', 403);
+    }
+    const existing = await getSignup(deps.firestore, eventId, person.personId);
+    const { result: signup } = await executeDeclaredAuditedMutation(
+      deps,
+      AUDITED_MEMBER_MUTATION_ROUTES.quickAdd,
+      existing ? 'signup.updated' : 'signup.created',
+      async tx => {
+        const before = await tx.getDoc<SignupDoc>('signups', `${eventId}_${person.personId}`);
+        return {
+          actor: { email: identity.email },
+          resource: { kind: 'signup' as const, key: `signup:${eventId}:${person.personId}`, display: person.ksywka || person.personId },
+          changes: [
+            { field: 'attending', ...(before ? { before: before.attending } : {}), after: true },
+            { field: 'equipmentCount', ...(before ? { before: before.equipmentIds.length } : {}), after: 0 },
+          ],
+        };
+      },
+      tx => saveSignup(tx, eventId, person.personId, { attending: true, equipmentIds: [] }, identity.email),
+    );
+    sendJson(res, 200, { person, signup });
+    return;
+  }
+
+  const ksywka = requireTrimmedString(body.ksywka, LW_MAX_NAME_LENGTH, 'Ksywka jest wymagana.');
+  const categoryId = requireTrimmedString(body.categoryId, LW_MAX_NAME_LENGTH, 'Kategoria jest wymagana.');
+  const ownerMember = await getMember(deps.firestore, ownerKey);
+  const sectionId = ownerMember?.sectionId?.trim();
+  if (!sectionId) throw new AuthError('Opiekun nie ma ustawionej sekcji.', 400);
+  const fields: PersonWritableFields = { ksywka, firstName: '', lastName: '', categoryId, sectionId, weaponIds: [] };
+  const personId = randomUUID();
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.quickAdd,
+    ['person.created', 'signup.created'],
+    [
+      {
+        actor: { email: identity.email },
+        resource: { kind: 'person' as const, key: `person:${personId}`, display: ksywka },
+        changes: [
+          { field: 'nickname', after: ksywka },
+          { field: 'categoryId', after: categoryId },
+          { field: 'sectionId', after: sectionId },
+          { field: 'weaponCount', after: 0 },
+          { field: 'ownerPersonId', after: ownerKey },
+        ],
+      },
+      {
+        actor: { email: identity.email },
+        resource: { kind: 'signup' as const, key: `signup:${eventId}:${personId}`, display: ksywka },
+        changes: [{ field: 'attending', after: true }, { field: 'equipmentCount', after: 0 }],
+      },
+    ],
+    async tx => {
+      const person = await createPerson(tx, fields, ownerKey, identity.email, personId);
+      const signup = await saveSignup(tx, eventId, personId, { attending: true, equipmentIds: [] }, identity.email);
+      return { person, signup };
+    },
+  );
+  sendJson(res, 201, { person: result.person, signup: result.signup });
 }
 
 // Structured console log for every destructive gallery action (KRKG-0027's audit requirement) -
@@ -3914,7 +4362,21 @@ export function createRequestListener(deps: ServerDeps) {
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/signups') {
         await handleListaWyjazdowaPutSignup(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/roster') {
-        await handleListaWyjazdowaGetRoster(req, res, deps);
+        await handleListaWyjazdowaGetRoster(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/person-profile') {
+        await handleListaWyjazdowaGetPersonProfile(req, res, url, deps);
+      } else if (req.method === 'POST' && url.pathname === '/lista-wyjazdowa/persons') {
+        await handleListaWyjazdowaPostPerson(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/persons') {
+        await handleListaWyjazdowaPutPerson(req, res, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/lista-wyjazdowa/persons') {
+        await handleListaWyjazdowaDeletePerson(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/persons/owner') {
+        await handleListaWyjazdowaPutPersonOwner(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/persons/account') {
+        await handleListaWyjazdowaPutPersonAccount(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/lista-wyjazdowa/signups/quick-add') {
+        await handleListaWyjazdowaPostQuickAdd(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/members/directory') {
         await handleMembersDirectory(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/my-role') {

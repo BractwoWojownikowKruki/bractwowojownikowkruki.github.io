@@ -744,6 +744,134 @@ button.lw-skladka-icon:disabled {
   opacity: 0.45;
 }
 
+/* KRKG-0087: the "+" add-companion control in the roster's name cell and its inline panel. Flat
+   and muted so it never competes with the person's name; the text label is dropped on narrow
+   screens, leaving just the "+" and the person icon, while the button's aria-label keeps its
+   accessible name. */
+.lw-add-companion {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  margin-left: 0.3rem;
+  padding: 0.1rem 0.35rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1;
+  vertical-align: middle;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.lw-add-companion:hover,
+.lw-add-companion:focus-visible {
+  background: color-mix(in srgb, var(--gold) 16%, transparent);
+  opacity: 1;
+}
+
+.lw-add-companion-plus {
+  font-weight: 700;
+}
+
+.lw-add-companion-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+@media (max-width: 760px) {
+  .lw-add-companion-label {
+    display: none;
+  }
+}
+
+/* The "osoba bez konta" marker inside every person pill (shared/person-pill.js) - meaningful, so
+   deliberately not aria-hidden; the renderer supplies role="img" + aria-label. */
+.person-pill-icon {
+  width: 0.72rem;
+  height: 0.72rem;
+  margin-right: 0.18rem;
+  vertical-align: -0.06em;
+  opacity: 0.85;
+}
+
+/* The inline add-companion panel, rendered as a full-width row right under its member's row. */
+.lw-inline-form td {
+  background: color-mix(in srgb, var(--gold) 6%, transparent) !important;
+  white-space: normal;
+}
+
+.lw-inline-form-inner {
+  padding-left: 2.6rem;
+}
+
+.lw-inline-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.lw-inline-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.lw-inline-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.lw-inline-sep {
+  margin: 0.55rem 0;
+  border-top: 1px dashed var(--border);
+}
+
+.lw-inline-form-inner input,
+.lw-inline-form-inner select {
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.lw-inline-form-inner button {
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  background: var(--gold);
+  color: #241d05;
+  cursor: pointer;
+}
+
+.lw-inline-form-inner button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.lw-inline-form-inner button.lw-inline-cancel {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.lw-inline-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+
 /* Filter controls above the event page's roster. Two independent checkboxes ("Niezgłoszeni" /
    "Zgłoszeni + ja") replace the single toggle: the roster can now be read as any combination of
    the two groups, including an intentionally empty selection. Native checkboxes keep the

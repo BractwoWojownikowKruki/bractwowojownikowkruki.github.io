@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8');
+const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 
 class Element {
   id: string;
@@ -25,6 +26,9 @@ class Element {
   async click() {
     await Promise.all((this.listeners.get('click') ?? []).map((listener) => listener({ target: this })));
   }
+  async clickWith(target: unknown) {
+    await Promise.all((this.listeners.get('click') ?? []).map((listener) => listener({ target })));
+  }
   async change() {
     await Promise.all((this.listeners.get('change') ?? []).map((listener) => listener({ target: this })));
   }
@@ -43,10 +47,12 @@ const elementIds = [
   'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni',
   'event-title', 'event-meta',
   'cancel-event-btn', 'restore-event-btn', 'event-history-link', 'skladka-fee-history-link',
+  'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-category',
 ];
 
-function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean } = {}) {
+function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean } = {}) {
   const canManageSkladki = options.canManageSkladki ?? true;
+  const canManagePeople = options.canManagePeople ?? false;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
   // Mirrors index.html's default: "Zgłoszeni + ja" starts checked, "Niezgłoszeni" unchecked.
   elements.get('roster-filter-zgloszeni')!.checked = true;
@@ -55,11 +61,25 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   let mutationError: Error | null = null;
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
   const roster = [
-    { email: 'signed@example.com', fullName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], equipment: [], companions: [], duesStatus: 'paid', wpisowePaid: true },
-    { email: 'viewer@example.com', fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], equipment: [], companions: [], duesStatus: 'paid', wpisowePaid: true },
-    { email: 'other@example.com', fullName: 'Other', sectionId: null, categoryId: null, weaponIds: [], equipment: [], companions: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, fullName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'other@example.com', email: 'other@example.com', accountless: false, fullName: 'Other', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
   ];
-  const signups = [{ memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [], companionIds: [] }];
+  // KRKG-0087: an accountless person already attached to the viewer but not signed up for this
+  // trip - the roster's inline add panel offers them in its "istniejąca" dropdown.
+  const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: 'viewer@example.com', fullName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], equipment: [], duesStatus: 'unpaid', wpisowePaid: true };
+  const currentRoster = options.withAttachedPerson ? [...roster, attachedPerson] : roster;
+  // KRKG-0087: the event-scoped (historical) roster additionally carries a person who has since been
+  // removed but was signed up for this trip. A person row has `email: null` and a UUID personId, so
+  // it only renders correctly if the page keys rows by personId (the bug this batch fixes).
+  const removedPerson = { personId: 'gone-uuid-1', email: null, accountless: true, ownerPersonId: null, fullName: 'Cień Nowak', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'unpaid', wpisowePaid: true };
+  const eventRoster = options.withRemovedPerson ? [...currentRoster, removedPerson] : currentRoster;
+  const signups = options.withRemovedPerson
+    ? [
+        { memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [] },
+        { memberEmail: 'gone-uuid-1', attending: true, skladkaPaid: false, equipmentIds: [] },
+      ]
+    : [{ memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [] }];
   const context: Record<string, unknown> = {
     URLSearchParams,
     Map,
@@ -96,18 +116,26 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     initGoogleSignIn: (config: { onSignedIn: (identity: { email: string }) => Promise<void> }) => { signIn = config.onSignedIn; },
     apiFetch: async (url: string, options: Record<string, unknown>) => {
       apiCalls.push({ url, options });
-      if (options.method === 'PUT') {
+      if (options.method === 'PUT' || options.method === 'POST') {
         if (mutationError) throw mutationError;
         return mutationResult;
       }
       if (url === '/lista-wyjazdowa/events') return { events: [event] };
-      if (url === '/lista-wyjazdowa/roster') return { roster };
+      if (url === '/lista-wyjazdowa/roster') return { roster: currentRoster };
+      if (url.startsWith('/lista-wyjazdowa/roster?eventId=')) return { roster: eventRoster };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups };
-      if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki };
-      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [], weapons: [] };
+      if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki, canManagePeople };
+      if (url === '/lista-wyjazdowa/lookup-lists') {
+        return {
+          sections: [],
+          categories: [{ id: 'kandydat', label: 'Kandydat' }, { id: 'emeryt', label: 'Emeryt' }],
+          weapons: [],
+        };
+      }
       throw new Error(`unexpected request: ${url}`);
     },
   };
+  vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   return {
     elements,
@@ -279,4 +307,140 @@ test('a failed fee removal restores the form from the last loaded event', async 
   assert.equal(harness.elements.get('skladka-fee-duedate-input')!.value, '2026-10-20');
   assert.equal(harness.elements.get('skladka-fee-duedate-input')!.disabled, false);
   assert.equal(harness.elements.get('skladka-fee-remove')!.disabled, false);
+});
+
+test('the event-scoped roster renders an accountless person with the marker and its own personId', async () => {
+  const harness = createHarness(event(null), { withRemovedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+
+  assert.ok(
+    harness.apiCalls.some((call) => call.url === '/lista-wyjazdowa/roster?eventId=e1'),
+    'the page fetches the historical (event-scoped) roster',
+  );
+
+  const row = roster.innerHTML.match(/<tr data-person-id="gone-uuid-1"[\s\S]*?<\/tr>/)?.[0];
+  assert.ok(row, 'the removed person signed up for this trip is rendered');
+  assert.match(row, /data-person-id="gone-uuid-1"/, 'the row is keyed by the person UUID, not the null e-mail');
+  assert.match(row, /class="lw-attend-toggle" data-person-id="gone-uuid-1"/, 'the attend toggle targets the personId');
+  assert.match(row, /person-pill-icon/, 'the accountless marker is rendered');
+  assert.match(row, /aria-label="osoba bez konta"/);
+  assert.match(row, /data-person-id="gone-uuid-1"[\s\S]*?data-profile-trigger|data-profile-trigger[\s\S]*?data-person-id="gone-uuid-1"/, 'the pill opens the drawer through the person-keyed trigger');
+  assert.doesNotMatch(row, /data-email="null"/, 'no e-mail-keyed profile trigger for a person with no e-mail');
+
+  // The two distinct accountless rows must not collapse onto a shared key.
+  const keyedRows = roster.innerHTML.match(/data-person-id="gone-uuid-1"/g) ?? [];
+  assert.ok(keyedRows.length >= 1);
+});
+
+// The roster's delegated click handler only reads closest(...) + dataset off the event target, so a
+// minimal stub is enough to drive it without a real DOM tree (which the harness deliberately lacks).
+function clickTarget(selector: string, dataset: Record<string, string> = {}) {
+  return { closest: (query: string) => (query === selector ? { dataset } : null) };
+}
+
+test('the "+" add-companion button is on the viewer\'s own account row only, never on an accountless row', async () => {
+  const harness = createHarness(event(null), { withRemovedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+
+  const ownRow = roster.innerHTML.match(/<tr data-person-id="viewer@example\.com"[\s\S]*?<\/tr>/)?.[0];
+  assert.ok(ownRow);
+  assert.match(ownRow, /class="lw-add-companion"/);
+  assert.match(ownRow, /aria-label="Dodaj osobę towarzyszącą"/);
+  assert.match(ownRow, /lw-add-companion-label/);
+
+  const otherRow = roster.innerHTML.match(/<tr data-person-id="signed@example\.com"[\s\S]*?<\/tr>/)?.[0];
+  assert.ok(otherRow);
+  assert.doesNotMatch(otherRow, /lw-add-companion/, "a plain member gets no control on someone else's row");
+
+  const accountlessRow = roster.innerHTML.match(/<tr data-person-id="gone-uuid-1"[\s\S]*?<\/tr>/)?.[0];
+  assert.ok(accountlessRow);
+  assert.doesNotMatch(accountlessRow, /lw-add-companion/, 'a person without an account cannot own a companion');
+});
+
+test('staff get the "+" control on every account row, never on an accountless row', async () => {
+  const harness = createHarness(event(null), { canManagePeople: true, withRemovedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+
+  const otherRow = roster.innerHTML.match(/<tr data-person-id="signed@example\.com"[\s\S]*?<\/tr>/)?.[0];
+  assert.ok(otherRow);
+  assert.match(otherRow, /class="lw-add-companion"/);
+
+  const accountlessRow = roster.innerHTML.match(/<tr data-person-id="gone-uuid-1"[\s\S]*?<\/tr>/)?.[0];
+  assert.ok(accountlessRow);
+  assert.doesNotMatch(accountlessRow, /lw-add-companion/);
+});
+
+test("opening the add panel lists the member's attached people and a new-person form", async () => {
+  const harness = createHarness(event(null), { withAttachedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+
+  assert.match(roster.innerHTML, /class="lw-inline-form"/);
+  assert.match(roster.innerHTML, /id="lw-inline-existing-select"/);
+  assert.match(roster.innerHTML, /value="attached-uuid-1"/);
+  assert.match(roster.innerHTML, /id="lw-inline-new-name"/);
+  assert.match(roster.innerHTML, /id="lw-inline-new-category"/);
+  assert.match(roster.innerHTML, /Kandydat/);
+  assert.match(roster.innerHTML, /aria-expanded="true"/);
+});
+
+test('adding an existing attached person posts quick-add and applies the signup locally', async () => {
+  const harness = createHarness(event(null), { withAttachedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-existing-select')!.value = 'attached-uuid-1';
+  harness.setMutationResult({
+    person: { personId: 'attached-uuid-1', ksywka: 'Młody', firstName: '', lastName: '', categoryId: 'kandydat', sectionId: null, weaponIds: [], ownerPersonId: 'viewer@example.com' },
+    signup: { memberEmail: 'attached-uuid-1', attending: true, skladkaPaid: false, equipmentIds: [] },
+  });
+
+  await roster.clickWith(clickTarget('.lw-inline-add-existing'));
+
+  const post = harness.apiCalls.find((call) => call.url === '/lista-wyjazdowa/signups/quick-add');
+  assert.equal(post?.options.method, 'POST');
+  assert.deepEqual(JSON.parse(String(post?.options.body)), { eventId: 'e1', ownerPersonId: 'viewer@example.com', mode: 'existing', personId: 'attached-uuid-1' });
+  assert.match(roster.innerHTML, /data-person-id="attached-uuid-1"[\s\S]*?Jadę/);
+  assert.doesNotMatch(roster.innerHTML, /class="lw-inline-form"/, 'the panel closes after a successful add');
+});
+
+test('adding a new person posts quick-add and appends the created row', async () => {
+  const harness = createHarness(event(null));
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  harness.setMutationResult({
+    person: { personId: 'new-uuid-1', ksywka: 'Nowy', firstName: '', lastName: '', categoryId: 'kandydat', sectionId: 'bydgoszcz', weaponIds: [], ownerPersonId: 'viewer@example.com' },
+    signup: { memberEmail: 'new-uuid-1', attending: true, skladkaPaid: false, equipmentIds: [] },
+  });
+
+  await roster.clickWith(clickTarget('.lw-inline-add-new'));
+
+  const post = harness.apiCalls.find((call) => call.url === '/lista-wyjazdowa/signups/quick-add');
+  assert.deepEqual(JSON.parse(String(post?.options.body)), { eventId: 'e1', ownerPersonId: 'viewer@example.com', mode: 'new', ksywka: 'Nowy', categoryId: 'kandydat' });
+  assert.match(roster.innerHTML, /data-person-id="new-uuid-1"/);
+  assert.match(roster.innerHTML, /person-pill-icon/);
+  assert.doesNotMatch(roster.innerHTML, /class="lw-inline-form"/);
+});
+
+test('a failed quick-add changes nothing and reports the error', async () => {
+  const harness = createHarness(event(null), { withAttachedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-existing-select')!.value = 'attached-uuid-1';
+  const before = roster.innerHTML;
+  harness.setMutationError(new Error('network'));
+
+  await roster.clickWith(clickTarget('.lw-inline-add-existing'));
+
+  assert.equal(roster.innerHTML, before);
+  assert.match(harness.elements.get('lw-error')!.textContent, /Nie udało się dodać osoby/);
 });

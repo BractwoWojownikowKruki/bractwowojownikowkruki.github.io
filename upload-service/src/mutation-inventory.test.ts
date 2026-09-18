@@ -141,9 +141,13 @@ test('every authenticated mutating route in server.ts dispatch is classified in 
  * the file-level comment above and `mutation-inventory.contract-table.md`'s header). Present only on
  * checkouts that also have the istra tracker repo cloned next to this one (typically just the
  * author's machine) - never in CI, and not guaranteed on another developer's machine.
+ *
+ * KRKG-0050 moved to `4-Done` after it shipped, which silently turned this drift guard into a
+ * no-op (the path no longer existed, so the test skipped). Point it at the story's current status
+ * folder so the guard actually runs.
  */
 const LIVE_CONTRACT_PATH =
-  '/Users/bartosz/repos/istra/2-InProgress/KRKG-0050 - Centralny, czytelny audyt operacji zapisu/implementation-contract.md';
+  '/Users/bartosz/repos/istra/4-Done/KRKG-0050 - Centralny, czytelny audyt operacji zapisu/implementation-contract.md';
 
 /** Returns the trimmed text of every markdown-table-row line (`| ... |`) in `source`, in order. */
 function extractPipeTableLines(source: string): string {

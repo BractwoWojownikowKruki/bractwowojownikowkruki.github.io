@@ -68,10 +68,26 @@ function sectionAbbr(sectionId) {
   return SECTION_ABBR[sectionId] ?? (sectionId ?? '').slice(0, 3).toUpperCase();
 }
 
-// The classic person pill used everywhere else a member's name is listed (wyjazd.js's roster,
-// Spis Ludności/Zarządzanie ludźmi) - one line per person instead of the old multi-line row.
-function categoryNamePillAttrs(categoryId, label) {
-  return `class="category-name-pill" data-category="${escapeAttr(categoryId ?? '')}" title="${escapeAttr(label || 'Brak statusu')}"`;
+// The name cell shared by both tables below (year table and Wpisowe list). KRKG-0087: the pill is
+// rendered by shared/person-pill.js, which adds the "osoba bez konta" marker. A member's pill opens
+// the shared profile drawer by e-mail; an accountless person has no e-mail, so their pill opens the
+// same drawer through the person-keyed endpoint (data-person-id).
+function nameCellHtml(member, personIdAttr, categoryLabel) {
+  const namePill = personPillHtml({
+    name: displayName(member),
+    categoryId: member.categoryId,
+    categoryLabel,
+    accountless: member.accountless === true,
+  });
+  if (member.accountless) {
+    return `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}">
+            ${namePill}
+          </button>`;
+  }
+  return `<button type="button" class="profile-trigger" data-profile-trigger data-email="${personIdAttr}">
+            ${namePill}
+          </button>
+          <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${personIdAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>`;
 }
 
 // displayName(member) itself now lives in shared/display-name.js (included via index.html) - see
@@ -81,12 +97,12 @@ function categoryNamePillAttrs(categoryId, label) {
 // background from data-paid) - a plain <span> for members who can't manage składki (nothing to
 // click), an actual <button> otherwise. data-kind="wpisowe" is how the shared click handler below
 // tells this apart from rocznaIconHtml's three-state coin.
-function paidIconHtml(emailAttr, paid, label) {
+function paidIconHtml(personIdAttr, paid, label) {
   const glyph = paid ? '✓' : '✕';
   if (!canManageSkladki) {
     return `<span class="lw-skladka-icon" data-paid="${paid}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">${glyph}</span>`;
   }
-  return `<button type="button" class="lw-skladka-icon" data-kind="wpisowe" data-email="${emailAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">${glyph}</button>`;
+  return `<button type="button" class="lw-skladka-icon" data-kind="wpisowe" data-person-id="${personIdAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">${glyph}</button>`;
 }
 
 // categories' fixed id set is seeded by upload-service/scripts/seed-lookup-lists.ts's slugify -
@@ -99,8 +115,11 @@ const EMERYT_CATEGORY_ID = 'emeryt';
 // joined partway through the year). Mirrors dues.ts's effectiveDuesStatus exactly: an explicit
 // stored record always wins (an emeryt who actually pays voluntarily just gets flipped to 'paid'
 // and stays there), this default only applies when no DuesDoc exists yet for that member+year.
-function effectiveDuesStatus(member, duesByEmail) {
-  const stored = duesByEmail.get(member.email)?.status;
+function effectiveDuesStatus(member, duesByPersonId) {
+  // KRKG-0087: dues are keyed by the canonical personId (a member's e-mail, an accountless
+  // person's UUID), not by e-mail - a person row has email: null, so keying by e-mail both missed
+  // their stored status and crashed on the null. For a member the value is identical.
+  const stored = duesByPersonId.get(member.personId)?.status;
   if (stored) return stored;
   return member.categoryId === EMERYT_CATEGORY_ID ? 'not_applicable' : 'unpaid';
 }
@@ -122,12 +141,12 @@ function nextDuesStatus(current) {
 // Same badge shape as paidIconHtml above, but three-coloured (green/red/grey via data-status,
 // member-area.css) instead of a plain boolean - not_applicable renders the same 💰 glyph so the
 // column stays visually uniform, only its background says "this member doesn't owe this at all".
-function rocznaIconHtml(emailAttr, status) {
+function rocznaIconHtml(personIdAttr, status) {
   const label = rocznaLabel(status);
   if (!canManageSkladki) {
     return `<span class="lw-skladka-icon" data-status="${status}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">💰</span>`;
   }
-  return `<button type="button" class="lw-skladka-icon" data-kind="roczna" data-email="${emailAttr}" data-status="${status}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
+  return `<button type="button" class="lw-skladka-icon" data-kind="roczna" data-person-id="${personIdAttr}" data-status="${status}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
 }
 
 function formatDate(iso) {
@@ -240,13 +259,13 @@ const emeryciSortState = initSortableTable(document.getElementById('skladki-emer
 });
 
 let cachedRoster = [];
-let cachedDuesByEmail = new Map();
+let cachedDuesByPersonId = new Map();
 
 function renderCurrentView() {
   if (wpisoweMode) {
     renderWpisoweList(cachedRoster);
   } else {
-    renderTable(cachedRoster, cachedDuesByEmail);
+    renderTable(cachedRoster, cachedDuesByPersonId);
   }
 }
 
@@ -277,7 +296,7 @@ let canManageSkladki = false;
 let sectionLabelById = new Map();
 
 // categoryId -> label from lookupLists/categories, fetched alongside the roster - feeds the name
-// pill's title/color the same way wyjazd.js's roster does (categoryNamePillAttrs above).
+// pill's title/color the same way wyjazd.js's roster does (nameCellHtml above).
 let categoryLabelById = new Map();
 
 // sectionId is null for a member with no "Mój profil" saved yet (the roster now enumerates the
@@ -318,7 +337,7 @@ function unpaidBadgeHtml(unpaid, total) {
 // osób zalega" when 3 of those 20 were never asked to pay in the first place. Emeryci as a
 // category show up below in their own "Emeryci" table (renderTable); a non-emeryt hand-set to
 // not_applicable stays in the main table with a grey icon.
-function renderSummary(roster, duesByEmail) {
+function renderSummary(roster, duesByPersonId) {
   const unpaidBySection = new Map();
   const totalBySection = new Map();
   const unpaidByCategory = new Map();
@@ -332,7 +351,7 @@ function renderSummary(roster, duesByEmail) {
     if (wpisoweMode) {
       unpaid = !member.wpisowePaid;
     } else {
-      const status = effectiveDuesStatus(member, duesByEmail);
+      const status = effectiveDuesStatus(member, duesByPersonId);
       if (status === 'not_applicable') {
         notApplicableCount += 1;
         continue;
@@ -369,8 +388,8 @@ function renderSummary(roster, duesByEmail) {
     .map((categoryId) => {
       const label = categoryLabelFor(categoryId);
       const badge = unpaidBadgeHtml(unpaidByCategory.get(categoryId) ?? 0, totalByCategory.get(categoryId));
-      // Not categoryNamePillAttrs() here - it bakes in its own class="category-name-pill", and
-      // appending lw-summary-chip as a second class attribute would just be dropped as a duplicate.
+      // Not personPillHtml() here - this is a category chip, not a person pill (no accountless
+      // marker), and it appends lw-summary-chip plus its own count badge.
       return categoryId === null
         ? `<span class="lw-summary-chip">${escapeHtml(label)}${badge}</span>`
         : `<span class="category-name-pill lw-summary-chip" data-category="${escapeAttr(categoryId)}" title="${escapeAttr(label)}">${escapeHtml(label)}${badge}</span>`;
@@ -411,13 +430,13 @@ function renderSummary(roster, duesByEmail) {
 
 // Same one-account-key comment as before applies to both tables below: server.ts's
 // handleListaWyjazdowaPutWpisowe/handleListaWyjazdowaPutDues both write to the same
-// `due:{memberEmail}` resource key (no :entry_fee/:{year} suffix), so one Historia deep link per
+// `due:{personId}` resource key (no :entry_fee/:{year} suffix), so one Historia deep link per
 // member already covers wpisowe and every year of składka roczna - the action label (visible in
 // the audit view) is what tells the two apart in that shared timeline. Points at /admin/audyt/,
 // not the member-zone /audyt/: dues.* actions carry audience 'adminOrAccountant'
 // (ACTION_REGISTRY, upload-service/src/audit.ts), which only the admin-scope viewer can see.
-function dueHistoryHref(email) {
-  return `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${email}`)}`;
+function dueHistoryHref(personId) {
+  return `/admin/audyt/?resourceKey=${encodeURIComponent(`due:${personId}`)}`;
 }
 
 // Same shape as czlonkowie.js/wyjazd.js's dense .czl-table roster (KRKG-0052) - Sekcja/Nazwa
@@ -435,9 +454,9 @@ function dueHistoryHref(email) {
 // hidden when nobody falls into it. Both tables share the same row template; the Emeryci one has
 // its own sort state (emeryciSortState) and a sortable Składka column of its own, since an
 // emeryt's status can be anything (not_applicable by default, unpaid/paid when set by hand).
-function renderTable(roster, duesByEmail) {
+function renderTable(roster, duesByPersonId) {
   cachedRoster = roster;
-  cachedDuesByEmail = duesByEmail;
+  cachedDuesByPersonId = duesByPersonId;
 
   const mainRoster = [];
   const emeryciRoster = [];
@@ -454,7 +473,7 @@ function renderTable(roster, duesByEmail) {
   const sortValue = (member) => {
     switch (skladkiSortState.key) {
       case 'name': return displayName(member);
-      case 'roczna': return ROCZNA_SORT_RANK[effectiveDuesStatus(member, duesByEmail)];
+      case 'roczna': return ROCZNA_SORT_RANK[effectiveDuesStatus(member, duesByPersonId)];
       default: return sectionLabel(member.sectionId);
     }
   };
@@ -465,19 +484,16 @@ function renderTable(roster, duesByEmail) {
   });
 
   const rowHtml = (member) => {
-    const emailAttr = escapeAttr(member.email);
+    const personIdAttr = escapeAttr(member.personId);
     const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
     return `
       <tr data-section="${escapeAttr(member.sectionId ?? '')}">
         <td class="czl-section-cell" title="${escapeAttr(sectionLabel(member.sectionId))}">${member.sectionId ? escapeHtml(sectionAbbr(member.sectionId)) : EMPTY}</td>
         <td class="lw-roster-name-cell">
-          <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
-            <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
-          </button>
-          <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>
+          ${nameCellHtml(member, personIdAttr, categoryLabel)}
         </td>
-        <td>${rocznaIconHtml(emailAttr, effectiveDuesStatus(member, duesByEmail))}</td>
-        ${canManageSkladki ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.email))}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a></td>` : ''}
+        <td>${rocznaIconHtml(personIdAttr, effectiveDuesStatus(member, duesByPersonId))}</td>
+        ${canManageSkladki ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.personId))}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a></td>` : ''}
       </tr>`;
   };
 
@@ -496,7 +512,7 @@ function renderTable(roster, duesByEmail) {
   const emeryciSortValue = (member) => {
     switch (emeryciSortState.key) {
       case 'name': return displayName(member);
-      case 'roczna': return ROCZNA_SORT_RANK[effectiveDuesStatus(member, duesByEmail)];
+      case 'roczna': return ROCZNA_SORT_RANK[effectiveDuesStatus(member, duesByPersonId)];
       default: return sectionLabel(member.sectionId);
     }
   };
@@ -561,20 +577,17 @@ function renderWpisoweList(roster) {
     ? `<tr><td colspan="${colCount}" class="czl-empty">Wszyscy członkowie mają opłacone wpisowe.</td></tr>`
     : unpaid
       .map((member) => {
-        const emailAttr = escapeAttr(member.email);
+        const personIdAttr = escapeAttr(member.personId);
         const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
         return `
       <tr data-section="${escapeAttr(member.sectionId ?? '')}">
         <td class="czl-section-cell" title="${escapeAttr(sectionLabel(member.sectionId))}">${member.sectionId ? escapeHtml(sectionAbbr(member.sectionId)) : EMPTY}</td>
         <td class="lw-roster-name-cell">
-          <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
-            <span ${categoryNamePillAttrs(member.categoryId, categoryLabel)}>${escapeHtml(displayName(member))}</span>
-          </button>
-          <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${emailAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>
+          ${nameCellHtml(member, personIdAttr, categoryLabel)}
         </td>
         <td class="${member.approvedAt ? '' : 'czl-empty'}">${member.approvedAt ? escapeHtml(formatDate(member.approvedAt)) : EMPTY}</td>
-        <td>${paidIconHtml(emailAttr, false, 'Wpisowe: nieopłacone')}</td>
-        ${canManageSkladki ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.email))}" title="Historia" aria-label="Historia wpisowego">${HISTORY_ICON}</a></td>` : ''}
+        <td>${paidIconHtml(personIdAttr, false, 'Wpisowe: nieopłacone')}</td>
+        ${canManageSkladki ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.personId))}" title="Historia" aria-label="Historia wpisowego">${HISTORY_ICON}</a></td>` : ''}
       </tr>`;
       })
       .join('');
@@ -700,12 +713,12 @@ async function loadAndRender() {
   sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
   categoryLabelById = new Map((lookupLists.categories ?? []).map((c) => [c.id, c.label]));
   renderYearFee(yearFee);
-  const duesByEmail = new Map(dues.map((d) => [d.email, d]));
-  renderSummary(roster, duesByEmail);
+  const duesByPersonId = new Map(dues.map((d) => [d.personId, d]));
+  renderSummary(roster, duesByPersonId);
   if (wpisoweMode) {
     renderWpisoweList(roster);
   } else {
-    renderTable(roster, duesByEmail);
+    renderTable(roster, duesByPersonId);
   }
 }
 
@@ -715,11 +728,11 @@ async function loadAndRender() {
 // Wpisowe column instead. toRemove is the element that should disappear from the DOM on success:
 // the whole <tr> in the Wpisowe-only list (every row there exists only because it's unpaid, so
 // the member simply drops off the list).
-async function markWpisowePaid(email, control, toRemove) {
+async function markWpisowePaid(personId, control, toRemove) {
   clearError();
   try {
     await confirmedDuesMutation(control, () => apiFetch(
-      `/lista-wyjazdowa/wpisowe?memberEmail=${encodeURIComponent(email)}`,
+      `/lista-wyjazdowa/wpisowe?personId=${encodeURIComponent(personId)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: true }) },
       showReauth,
       hideReauth,
@@ -733,11 +746,11 @@ async function markWpisowePaid(email, control, toRemove) {
 
 // nextStatus cycles unpaid -> paid -> not_applicable -> unpaid (see DUES_STATUS_CYCLE) - a plain
 // reversible click same as before, just three stops instead of two.
-async function toggleRoczna(email, nextStatus, control) {
+async function toggleRoczna(personId, nextStatus, control) {
   clearError();
   try {
     await confirmedDuesMutation(control, () => apiFetch(
-      `/lista-wyjazdowa/dues?memberEmail=${encodeURIComponent(email)}&year=${selectedYear}`,
+      `/lista-wyjazdowa/dues?personId=${encodeURIComponent(personId)}&year=${selectedYear}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: nextStatus }) },
       showReauth,
       hideReauth,
@@ -755,14 +768,14 @@ async function toggleRoczna(email, nextStatus, control) {
 document.getElementById('skladki-content').addEventListener('click', (e) => {
   const icon = e.target.closest('.lw-skladka-icon[data-kind]');
   if (!icon) return;
-  const email = icon.dataset.email;
+  const personId = icon.dataset.personId;
   if (icon.dataset.kind === 'wpisowe') {
     // See markWpisowePaid's comment - always a one-way "mark paid" from either table, never a
     // toggle back, so this confirms first regardless of which table is showing.
     if (!window.confirm('Czy na pewno chcesz zaznaczyć, że wpisowe zostało opłacone?')) return;
-    markWpisowePaid(email, icon, wpisoweMode ? icon.closest('tr') : icon);
+    markWpisowePaid(personId, icon, wpisoweMode ? icon.closest('tr') : icon);
   } else {
-    toggleRoczna(email, nextDuesStatus(icon.dataset.status), icon);
+    toggleRoczna(personId, nextDuesStatus(icon.dataset.status), icon);
   }
 });
 

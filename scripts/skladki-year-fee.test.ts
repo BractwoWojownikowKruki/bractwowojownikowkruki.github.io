@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/lista-wyjazdowa/skladki/skladki.js', import.meta.url), 'utf8');
+const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 
 class Element {
   id: string;
@@ -25,6 +26,9 @@ class Element {
   }
   async click() {
     await Promise.all((this.listeners.get('click') ?? []).map((listener) => listener({ target: this })));
+  }
+  async clickWith(target: unknown) {
+    await Promise.all((this.listeners.get('click') ?? []).map((listener) => listener({ target })));
   }
   async input() {
     await Promise.all((this.listeners.get('input') ?? []).map((listener) => listener({ target: this })));
@@ -48,15 +52,18 @@ const elementIds = [
   'skladki-emeryci-table',
 ];
 
-function createHarness(yearFee: Record<string, unknown> | null) {
+function createHarness(yearFee: Record<string, unknown> | null, options: { roster?: Array<Record<string, unknown>>; dues?: Array<Record<string, unknown>> } = {}) {
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   let mutationResult: unknown = {};
   let mutationError: Error | null = null;
   let signIn: (() => Promise<void>) | undefined;
-  const roster = [
-    { email: 'member@example.com', fullName: 'Member', sectionId: null, categoryId: null, weaponIds: [], equipment: [], companions: [], duesStatus: 'paid', wpisowePaid: true },
+  const roster = options.roster ?? [
+    { personId: 'member@example.com', email: 'member@example.com', accountless: false, fullName: 'Member', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
   ];
+  // Captured here because apiFetch's own `options` parameter (the fetch options) would shadow the
+  // harness options inside the closure below.
+  const duesFixture = options.dues ?? [];
   const context: Record<string, unknown> = {
     URLSearchParams,
     Map,
@@ -103,11 +110,12 @@ function createHarness(yearFee: Record<string, unknown> | null) {
       }
       if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: true };
       if (url === '/lista-wyjazdowa/roster') return { roster };
-      if (url.startsWith('/lista-wyjazdowa/dues?')) return { dues: [], yearFee };
+      if (url.startsWith('/lista-wyjazdowa/dues?')) return { dues: duesFixture, yearFee };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [], weapons: [] };
       throw new Error(`unexpected request: ${url}`);
     },
   };
+  vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
   vm.runInNewContext(source, context, { filename: 'skladki.js' });
   return {
     elements,
@@ -169,4 +177,35 @@ test('year fee: a failed removal restores the form from the last loaded fee', as
   assert.equal(harness.elements.get('skladki-year-fee-duedate-input')!.value, '2026-10-20');
   assert.equal(harness.elements.get('skladki-year-fee-duedate-input')!.disabled, false);
   assert.equal(harness.elements.get('skladki-year-fee-remove')!.disabled, false);
+});
+
+test('an accountless person renders with the marker, no e-mail trigger, and its stored personId-keyed due', async () => {
+  const harness = createHarness(null, {
+    roster: [
+      { personId: 'member@example.com', email: 'member@example.com', accountless: false, fullName: 'Member', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'unpaid', wpisowePaid: true },
+      { personId: 'person-uuid-1', email: null, accountless: true, fullName: 'Osoba Bez Konta', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: false },
+    ],
+    dues: [{ email: 'person-uuid-1', personId: 'person-uuid-1', status: 'paid' }],
+  });
+  await harness.signIn();
+  const tbody = harness.elements.get('skladki-table')!.querySelector('tbody')!;
+
+  assert.match(tbody.innerHTML, /person-uuid-1/, 'the accountless row is keyed by its personId');
+  assert.match(tbody.innerHTML, /person-pill-icon/);
+  assert.match(tbody.innerHTML, /aria-label="osoba bez konta"/);
+  assert.doesNotMatch(tbody.innerHTML, /data-email="null"/, 'no e-mail-keyed profile trigger for a person with no e-mail');
+  assert.match(tbody.innerHTML, /data-email="member@example\.com"/, 'the member row keeps its e-mail-keyed profile trigger');
+  // The stored due (keyed by the person UUID) is looked up via personId and shown as paid, not
+  // defaulted to unpaid - and the audit history deep link is keyed by personId too.
+  assert.match(tbody.innerHTML, /data-status="paid"[^>]*data-person-id="person-uuid-1"|data-person-id="person-uuid-1"[^>]*data-status="paid"/);
+  assert.match(tbody.innerHTML, /due%3Aperson-uuid-1/);
+
+  // Clicking the roczna coin sends the rekeyed personId PUT.
+  await harness.elements.get('skladki-content')!.clickWith({
+    closest: (selector: string) => selector === '.lw-skladka-icon[data-kind]'
+      ? { dataset: { kind: 'roczna', personId: 'person-uuid-1', status: 'paid' }, title: '', setAttribute() {} }
+      : null,
+  });
+  const put = harness.apiCalls.filter((call) => call.options.method === 'PUT').at(-1);
+  assert.match(String(put?.url), /personId=person-uuid-1/);
 });

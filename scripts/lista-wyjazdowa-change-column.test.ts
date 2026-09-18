@@ -19,7 +19,7 @@ test('event roster keeps Zmiana as the final sortable column', () => {
 
 test('event roster renders statusChangedAt and applies the successful signup response locally', () => {
   assert.match(script, /function formatStatusChangedAt\(iso\)/);
-  assert.match(script, /case 'statusChangedAt': return signupByEmail\.get\(member\.email\)\?\.statusChangedAt \?\? '';/);
+  assert.match(script, /case 'statusChangedAt': return signupByPersonId\.get\(member\.personId\)\?\.statusChangedAt \?\? '';/);
   assert.match(script, /<td class="lw-status-changed-cell">\$\{escapeHtml\(formatStatusChangedAt\(signup\?\.statusChangedAt\)\)\}<\/td>/);
   assert.match(script, /apply: \(result\) =>|\(result\) => \{/);
   assert.match(script, /Object\.assign\(signup, savedSignup\)/);
@@ -70,4 +70,26 @@ test('fee panels expose labelled fields and a remove button on both pages', () =
 test('fee edit panels share the ordered layout styles', () => {
   assert.match(css, /\.lw-fee-edit\s*\{[^}]*flex-direction:\s*column/);
   assert.match(css, /\.lw-fee-actions\s*\{[^}]*display:\s*flex/);
+});
+
+test('roster add-companion control is a flat labelled button with a person icon, label hidden on mobile', () => {
+  assert.match(script, /class="lw-add-companion"/);
+  assert.match(script, /class="lw-add-companion-plus"/);
+  assert.match(script, /class="lw-add-companion-icon"/);
+  assert.match(script, /class="lw-add-companion-label">osoba towarzysząca</);
+  assert.match(script, /aria-label="Dodaj osobę towarzyszącą"/);
+  // Only account rows offer it - the viewer's own row for everyone, any account row for staff.
+  assert.match(script, /!member\.accountless && \(canManagePeople \|\| member\.personId === viewerPersonId\)/);
+  assert.match(css, /\.lw-add-companion\s*\{/);
+  assert.match(css, /\.lw-add-companion-label\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(css, /@media \(max-width: 760px\)\s*\{[\s\S]*?\.lw-add-companion-label/);
+  assert.match(css, /\.person-pill-icon\s*\{/);
+});
+
+test('the inline add-companion panel posts quick-add and applies only after confirmation', () => {
+  assert.match(script, /'\/lista-wyjazdowa\/signups\/quick-add'/);
+  assert.match(script, /mode: 'existing'/);
+  assert.match(script, /mode: 'new'/);
+  assert.match(script, /function applyQuickAdd\(/);
+  assert.match(script, /openAddPanelOwnerPersonId = null;/);
 });

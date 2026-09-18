@@ -115,6 +115,58 @@
         <datalist id="drive-folder-datalist"></datalist>
       </section>
 
+      <!-- KRKG-0087: accountless people (attached or not) - staff manage their record here.
+           Attached people can also be edited on their owner's Mój profil; this is the only place
+           an unattached (or detached) one is edited. -->
+      <section id="accountless-section" style="margin-bottom: 2rem;">
+        <h2>Osoby bez konta</h2>
+        <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
+          Osoby bez konta (przywiązane lub bez opiekuna). Edycja, odpięcie i usunięcie tutaj;
+          osoby przywiązane można też edytować na profilu opiekuna.
+        </p>
+        <button type="button" id="accountless-add-toggle" class="btn-add-album">Dodaj osobę bez konta</button>
+        <div id="accountless-form-panel" hidden style="margin: 1rem 0; max-width: 32rem;">
+          <div class="field"><label for="accountless-ksywka">Ksywka</label><input type="text" id="accountless-ksywka" /></div>
+          <div class="field"><label for="accountless-first-name">Imię</label><input type="text" id="accountless-first-name" /></div>
+          <div class="field"><label for="accountless-last-name">Nazwisko</label><input type="text" id="accountless-last-name" /></div>
+          <div class="field"><label for="accountless-category">Status (kategoria)</label><select id="accountless-category"></select></div>
+          <div class="field"><label for="accountless-section-select">Sekcja</label><select id="accountless-section-select"></select></div>
+          <div class="field"><label>Broń</label><div id="accountless-weapons" class="lw-checkbox-grid"></div></div>
+          <div style="display:flex; gap:0.5rem;">
+            <button type="button" id="accountless-save" class="add-album-submit">Dodaj osobę</button>
+            <button type="button" id="accountless-cancel" class="btn-cancel">Anuluj</button>
+          </div>
+          <p class="add-album-error" id="accountless-error" hidden></p>
+        </div>
+        <div class="czl-table-wrap">
+          <table class="czl-table" id="accountless-table">
+            <thead>
+              <tr>
+                <th scope="col" class="czl-section-cell" title="Sekcja">S</th>
+                <th scope="col">Imię i nazwisko</th>
+                <th scope="col">Status</th>
+                <th scope="col">Broń</th>
+                <th scope="col">Przywiązana do</th>
+                <th scope="col">Konto</th>
+                <th scope="col">Akcje</th>
+              </tr>
+            </thead>
+            <tbody id="accountless-list"></tbody>
+          </table>
+        </div>
+
+        <!-- Admin-only (design.md section D): merging an accountless person with a new account
+             makes them a normal member under the account e-mail and tombstones the person record. -->
+        <div id="accountless-merge-section" hidden style="margin-top: 1.25rem; max-width: 32rem;">
+          <h3>Scalenie konta</h3>
+          <p style="color: var(--text-muted); margin-bottom: 0.5rem;">Gdy ktoś zarejestruje konto, scal je z istniejącą osobą bez konta.</p>
+          <div class="field"><label for="accountless-merge-email">E-mail konta</label><input type="email" id="accountless-merge-email" /></div>
+          <div class="field"><label for="accountless-merge-person">Osoba bez konta</label><select id="accountless-merge-person"></select></div>
+          <button type="button" id="accountless-merge" class="add-album-submit">Scal</button>
+          <p class="add-album-error" id="accountless-merge-error" hidden></p>
+        </div>
+      </section>
+
       <!-- Admin-only (KRKG bugfix) - shown/hidden by zarzadzanie-ludzmi.js based on isAdminCaller,
            same gate as the Rola column above. A moderator manages member records but
            must not trigger the Sheets backup sync. -->
@@ -186,6 +238,7 @@
   <script src="../../nav.js"></script>
   <script src="../admin-shared.js"></script>
   <script src="../../shared/display-name.js"></script>
+  <script src="../../shared/person-pill.js"></script>
   <script src="../../shared/profile-panel.js"></script>
   <script src="../../shared/sortable-table.js"></script>
   <script src="zarzadzanie-ludzmi.js"></script>

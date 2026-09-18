@@ -12,8 +12,17 @@ test('Spis Ludności keeps only display name as the visible name column', () => 
 });
 
 test('Spis Ludności renders and sorts the primary name with displayName', () => {
-  assert.match(script, /sortState\.key === 'displayName' \? displayName\(member\) : member\[sortState\.key\]/);
-  assert.match(script, /\$\{cell\(displayName\(m\)\)\}/);
+  assert.match(script, /sortState\.key === 'displayName' \? displayName\(member\) : \(member\[sortState\.key\] \?\? ''\)/);
+  assert.match(script, /name: displayName\(m\)/);
   assert.doesNotMatch(script, /\$\{cell\(m\.fullName\)\}/);
   assert.match(script, /compareValues\(displayName\(a\), displayName\(b\), sortState\.dir\)/);
+});
+
+test('Spis Ludności unions accountless people from the roster and renders them read-only with the marker', () => {
+  assert.match(page, /shared\/person-pill\.js/);
+  assert.match(script, /'\/lista-wyjazdowa\/roster'/);
+  assert.match(script, /personPillHtml\(\{/);
+  assert.match(script, /accountless: m\.accountless === true/);
+  assert.match(script, /data-person-id="\$\{escapeAttr\(m\.personId\)\}"/);
+  assert.doesNotMatch(script, /categoryNamePillAttrs/);
 });

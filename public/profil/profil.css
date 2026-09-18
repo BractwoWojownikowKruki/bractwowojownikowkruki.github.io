@@ -113,6 +113,49 @@
   color: var(--text);
 }
 
+/* KRKG-0087: an accountless person attached to this member. Its own bordered row with the editable
+   identity fields, a weapon checkbox group (hidden for Niewiasta/Bobo) and save/delete actions. */
+.person-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.person-row-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.5rem;
+}
+
+.person-row-fields input[type="text"],
+.person-row-fields select {
+  padding: 9px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+
+.person-row-fields input[type="text"]:focus,
+.person-row-fields select:focus {
+  border-color: var(--accent);
+}
+
+.person-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.person-weapons[hidden] {
+  display: none;
+}
+
 .lw-photo-preview {
   display: flex;
   flex-wrap: wrap;

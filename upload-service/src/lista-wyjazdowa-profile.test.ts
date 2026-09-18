@@ -13,28 +13,24 @@ test('saveProfile creates a record with wpisowePaid defaulted to false', async (
   const profile = await saveProfile(client, 'ala@example.test', {
     weaponIds: ['tarcza', 'wlocznia'],
     equipment: [{ id: '', name: 'Namiot', description: '4-osobowy' }],
-    companions: [{ id: '', name: 'Jaś (syn)' }],
   });
   assert.deepEqual(profile.weaponIds, ['tarcza', 'wlocznia']);
   assert.equal(profile.wpisowePaid, false);
   assert.equal(profile.equipment[0].name, 'Namiot');
   assert.ok(profile.equipment[0].id.length > 0, 'a blank id must be generated');
-  assert.ok(profile.companions[0].id.length > 0, 'a blank id must be generated');
 });
 
-test('saveProfile preserves existing equipment/companion ids and wpisowePaid on update', async () => {
+test('saveProfile preserves existing equipment ids and wpisowePaid on update', async () => {
   const client = createInMemoryFirestoreClient();
   const created = await saveProfile(client, 'ala@example.test', {
     weaponIds: ['tarcza'],
     equipment: [{ id: '', name: 'Namiot', description: '' }],
-    companions: [],
   });
   client.seed('listaWyjazdowaProfile', 'ala@example.test', { ...created, wpisowePaid: true });
 
   const updated = await saveProfile(client, 'ala@example.test', {
     weaponIds: ['tarcza', 'topor'],
     equipment: [{ id: created.equipment[0].id, name: 'Namiot 6-osobowy', description: '' }],
-    companions: [],
   });
 
   assert.equal(updated.equipment[0].id, created.equipment[0].id, 'existing id must be kept, not regenerated');
@@ -59,7 +55,7 @@ test('saveProfile leaves fields it does not know about untouched', async () => {
     updatedBy: 'admin@example.test',
   });
 
-  await saveProfile(client, 'ala@example.test', { weaponIds: ['topor'], equipment: [], companions: [] });
+  await saveProfile(client, 'ala@example.test', { weaponIds: ['topor'], equipment: [] });
 
   const stored = await client.getDoc<Record<string, unknown>>('listaWyjazdowaProfile', 'ala@example.test');
   assert.equal(stored?.someAdminAddedField, 'ustawione ręcznie w konsoli');
@@ -68,25 +64,23 @@ test('saveProfile leaves fields it does not know about untouched', async () => {
 
 // Wpisowe is a club due, not a Lista Wyjazdowa feature - whether a member has ever filled in "Mój
 // profil" must not gate whether they can be marked as having paid it.
-test('setWpisowePaid creates a profile with empty weaponIds/equipment/companions when none exists', async () => {
+test('setWpisowePaid creates a profile with empty weaponIds/equipment when none exists', async () => {
   const client = createInMemoryFirestoreClient();
   const created = await setWpisowePaid(client, 'ala@example.test', true, 'accountant@example.test');
   assert.equal(created.wpisowePaid, true);
   assert.deepEqual(created.weaponIds, []);
   assert.deepEqual(created.equipment, []);
-  assert.deepEqual(created.companions, []);
   assert.equal(created.updatedBy, 'accountant@example.test');
 
   const stored = await getProfile(client, 'ala@example.test');
   assert.deepEqual(stored, created);
 });
 
-test('setWpisowePaid toggles paid, preserving weaponIds/equipment/companions', async () => {
+test('setWpisowePaid toggles paid, preserving weaponIds/equipment', async () => {
   const client = createInMemoryFirestoreClient();
   await saveProfile(client, 'ala@example.test', {
     weaponIds: ['tarcza'],
     equipment: [{ id: '', name: 'Namiot', description: '' }],
-    companions: [],
   });
   const updated = await setWpisowePaid(client, 'ala@example.test', true, 'accountant@example.test');
   assert.equal(updated?.wpisowePaid, true);
@@ -97,8 +91,8 @@ test('setWpisowePaid toggles paid, preserving weaponIds/equipment/companions', a
 
 test('listAllProfiles returns every profile with email populated from the doc id', async () => {
   const client = createInMemoryFirestoreClient();
-  await saveProfile(client, 'ala@example.test', { weaponIds: ['tarcza'], equipment: [], companions: [] });
-  await saveProfile(client, 'basia@example.test', { weaponIds: ['topor'], equipment: [], companions: [] });
+  await saveProfile(client, 'ala@example.test', { weaponIds: ['tarcza'], equipment: [] });
+  await saveProfile(client, 'basia@example.test', { weaponIds: ['topor'], equipment: [] });
 
   const all = await listAllProfiles(client);
   assert.equal(all.length, 2);

@@ -302,19 +302,7 @@ function addEquipmentRow(container, item = { id: '', name: '', description: '' }
   container.appendChild(row);
 }
 
-function addCompanionRow(container, companion = { id: '', name: '' }) {
-  const row = document.createElement('div');
-  row.className = 'companion-row';
-  row.innerHTML = `
-    <input type="hidden" class="companion-id" value="${escapeAttr(companion.id)}" />
-    <input type="text" class="companion-name" placeholder="Imię" value="${escapeAttr(companion.name)}" />
-    <button type="button" class="remove-row">Usuń</button>
-  `;
-  row.querySelector('.remove-row').addEventListener('click', () => row.remove());
-  container.appendChild(row);
-}
-
-// Rows left completely blank (added with "Dodaj sprzęt"/"Dodaj osobę" and then abandoned) are
+// Rows left completely blank (added with "Dodaj sprzęt" and then abandoned) are
 // dropped rather than submitted: the server rejects a nameless entry with a 400, and failing the
 // whole save over an empty leftover row would be a poor trade for a form this long.
 function readEquipmentRows(container) {
@@ -325,15 +313,6 @@ function readEquipmentRows(container) {
       description: row.querySelector('.equipment-description').value,
     }))
     .filter((item) => item.name.trim());
-}
-
-function readCompanionRows(container) {
-  return Array.from(container.querySelectorAll('.companion-row'))
-    .map((row) => ({
-      id: row.querySelector('.companion-id').value,
-      name: row.querySelector('.companion-name').value,
-    }))
-    .filter((companion) => companion.name.trim());
 }
 
 // ── Photo selection + crop modal (ported from wojownicy/wrzuc/wrzuc.js) ─────────────────────
@@ -491,12 +470,186 @@ function fillRows(container, items, addRow) {
   for (const item of items) addRow(container, item);
 }
 
+// ── Osoby towarzyszące (KRKG-0087 design.md section B) ───────────────────────────────────────
+//
+// Accountless people attached to this member, edited in place. Kept in its own panel outside
+// #profile-form: these controls must not take part in the main profile submit, and their weapon
+// checkboxes deliberately use a different input name so the form's own input[name="weaponIds"]
+// query never picks them up. The server re-checks ownership on every write regardless.
+const NO_WEAPON_CATEGORY_IDS = ['niewiasta', 'bobo'];
+let viewerEmail = null;
+let ownerSectionId = null;
+let personLookupLists = { sections: [], categories: [], weapons: [] };
+
+function personOptionsHtml(items, selectedId) {
+  return selectableLookupItems(items, selectedId ? [selectedId] : [])
+    .map((item) => `<option value="${escapeAttr(item.id)}"${item.id === selectedId ? ' selected' : ''}>${escapeHtml(item.label)}</option>`)
+    .join('');
+}
+
+function personWeaponCheckboxesHtml(weapons, currentIds) {
+  return selectableLookupItems(weapons, currentIds)
+    .map((w) => `<label><input type="checkbox" name="personWeaponIds" value="${escapeAttr(w.id)}"${currentIds.includes(w.id) ? ' checked' : ''} /><span>${escapeHtml(w.label)}</span></label>`)
+    .join('');
+}
+
+// Niewiasta/Bobo never carry a weapon (server: persons.ts's weaponAllowedForCategory) - clearing
+// and hiding the row's weapon checkboxes mirrors that rule, so the UI can't offer a combination
+// the save would reject. Changing back to a weapon-bearing category just re-shows the checkboxes.
+function updatePersonWeaponState(row) {
+  const weapons = row.querySelector('.person-weapons');
+  if (!weapons) return;
+  const allowed = !NO_WEAPON_CATEGORY_IDS.includes(row.querySelector('.person-category').value);
+  weapons.hidden = !allowed;
+  if (!allowed) {
+    for (const cb of weapons.querySelectorAll('input[name="personWeaponIds"]')) cb.checked = false;
+  }
+}
+
+function readPersonRow(row) {
+  const categoryId = row.querySelector('.person-category').value;
+  return {
+    ksywka: row.querySelector('.person-ksywka').value.trim(),
+    firstName: row.querySelector('.person-first-name').value.trim(),
+    lastName: row.querySelector('.person-last-name').value.trim(),
+    categoryId,
+    sectionId: row.querySelector('.person-section').value,
+    weaponIds: NO_WEAPON_CATEGORY_IDS.includes(categoryId)
+      ? []
+      : Array.from(row.querySelectorAll('input[name="personWeaponIds"]:checked')).map((cb) => cb.value),
+  };
+}
+
+function showPersonsError(message) {
+  const errorEl = document.getElementById('persons-error');
+  errorEl.textContent = message;
+  errorEl.hidden = false;
+}
+
+function clearPersonsError() {
+  document.getElementById('persons-error').hidden = true;
+}
+
+// `person` null renders a blank "new person" row; the caller's owner section is the default so a
+// member only has to pick a ksywka and category (design.md section B). The category's no-weapon
+// rule is applied on render too, for a person already saved as Niewiasta/Bobo.
+function addPersonRow(container, person = null) {
+  const row = document.createElement('div');
+  row.className = 'person-row';
+  if (person) row.dataset.personId = person.personId;
+  row.innerHTML = `
+    <div class="person-row-fields">
+      <input type="text" class="person-ksywka" placeholder="Ksywka" value="${escapeAttr(person?.nickname ?? '')}" aria-label="Ksywka" />
+      <input type="text" class="person-first-name" placeholder="Imię" value="${escapeAttr(person?.firstName ?? '')}" aria-label="Imię" />
+      <input type="text" class="person-last-name" placeholder="Nazwisko" value="${escapeAttr(person?.lastName ?? '')}" aria-label="Nazwisko" />
+      <select class="person-category" aria-label="Kategoria">${personOptionsHtml(personLookupLists.categories, person?.categoryId ?? null)}</select>
+      <select class="person-section" aria-label="Sekcja">${personOptionsHtml(personLookupLists.sections, person?.sectionId ?? ownerSectionId)}</select>
+    </div>
+    <div class="person-weapons lw-checkbox-grid">${personWeaponCheckboxesHtml(personLookupLists.weapons, person?.weaponIds ?? [])}</div>
+    <div class="person-row-actions">
+      <button type="button" class="person-save add-album-submit">${person ? 'Zapisz' : 'Dodaj'}</button>
+      ${person
+        ? '<button type="button" class="person-delete btn-cancel">Usuń</button>'
+        : '<button type="button" class="person-cancel btn-cancel">Anuluj</button>'}
+    </div>
+  `;
+  row.querySelector('.person-category').addEventListener('change', () => updatePersonWeaponState(row));
+  updatePersonWeaponState(row);
+  row.querySelector('.person-save').addEventListener('click', (event) => {
+    clearPersonsError();
+    const fields = readPersonRow(row);
+    if (!fields.ksywka || !fields.categoryId || !fields.sectionId) {
+      showPersonsError('Ksywka, kategoria i sekcja są wymagane.');
+      return;
+    }
+    if (person) savePerson(row.dataset.personId, fields, event.target);
+    else createPerson(fields, event.target);
+  });
+  if (person) {
+    row.querySelector('.person-delete').addEventListener('click', (event) => {
+      clearPersonsError();
+      if (!window.confirm('Usunąć tę osobę? Historia i audyt pozostaną.')) return;
+      deletePerson(row.dataset.personId, event.target);
+    });
+  } else {
+    row.querySelector('.person-cancel').addEventListener('click', () => row.remove());
+  }
+  container.appendChild(row);
+}
+
+function renderPersons(roster) {
+  const owner = (viewerEmail ?? '').toLowerCase();
+  const attached = roster.filter((person) => person.accountless && (person.ownerPersonId ?? '').toLowerCase() === owner);
+  const container = document.getElementById('persons-rows');
+  container.innerHTML = '';
+  if (attached.length === 0) {
+    container.innerHTML = '<p class="lw-hint">Nie masz jeszcze osób towarzyszących.</p>';
+    return;
+  }
+  for (const person of attached) addPersonRow(container, person);
+}
+
+async function loadPersons() {
+  const { roster } = await apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth);
+  renderPersons(roster);
+}
+
+// Every person write goes through the shared confirmed-mutation helper: the list is only re-read
+// after the server confirms the write, and a failure leaves the form untouched and reports it.
+async function runPersonMutation(control, execute) {
+  const panel = document.getElementById('persons-panel');
+  await window.MutationFeedback.confirmed({
+    control,
+    anchor: panel,
+    viewRoot: panel,
+    refreshFragment: loadPersons,
+    execute,
+    apply: () => loadPersons(),
+  });
+}
+
+async function createPerson(fields, control) {
+  try {
+    await runPersonMutation(control, () => apiFetch('/lista-wyjazdowa/persons', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...fields, ownerPersonId: viewerEmail.toLowerCase() }),
+    }, showReauth, hideReauth));
+  } catch (err) {
+    showPersonsError(`Nie udało się dodać osoby: ${err.message}`);
+  }
+}
+
+async function savePerson(personId, fields, control) {
+  try {
+    await runPersonMutation(control, () => apiFetch('/lista-wyjazdowa/persons', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personId, ...fields }),
+    }, showReauth, hideReauth));
+  } catch (err) {
+    showPersonsError(`Nie udało się zapisać osoby: ${err.message}`);
+  }
+}
+
+async function deletePerson(personId, control) {
+  try {
+    await runPersonMutation(control, () => apiFetch('/lista-wyjazdowa/persons', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personId }),
+    }, showReauth, hideReauth));
+  } catch (err) {
+    showPersonsError(`Nie udało się usunąć osoby: ${err.message}`);
+  }
+}
+
 async function initForm(lookupLists) {
   const form = document.getElementById('profile-form');
   const equipmentContainer = document.getElementById('equipment-rows');
-  const companionContainer = document.getElementById('companion-rows');
   document.getElementById('add-equipment-row').addEventListener('click', () => addEquipmentRow(equipmentContainer));
-  document.getElementById('add-companion-row').addEventListener('click', () => addCompanionRow(companionContainer));
+  personLookupLists = lookupLists;
+  document.getElementById('add-person-row').addEventListener('click', () => addPersonRow(document.getElementById('persons-rows')));
 
   // Submit handling is wired unconditionally, before the member/profile prefetch below - so a
   // transient failure fetching existing data (network blip, cold Cloud Run instance) leaves a
@@ -515,10 +668,9 @@ async function initForm(lookupLists) {
 
     const applySavedProfile = ({ savedMember, savedProfile }) => {
       // Re-seed the rows from the server's response so the ids it just generated for brand-new
-      // equipment/companions are carried by the form: without this, editing and re-saving would
+      // equipment items are carried by the form: without this, editing and re-saving would
       // send blank ids again and mint a duplicate id for the same item on every save.
       fillRows(equipmentContainer, savedProfile.equipment, addEquipmentRow);
-      fillRows(companionContainer, savedProfile.companions, addCompanionRow);
       // Reflect the server's fullName back into the field it may have just backfilled, so a
       // member who only typed Ksywa sees where their name came from, not a blank field.
       form.fullName.value = savedMember.fullName;
@@ -573,7 +725,6 @@ async function initForm(lookupLists) {
           body: JSON.stringify({
             weaponIds,
             equipment: readEquipmentRows(equipmentContainer),
-            companions: readCompanionRows(companionContainer),
           }),
         },
         showReauth,
@@ -644,19 +795,26 @@ async function initForm(lookupLists) {
   let member = null;
   let profile = null;
   let dues = null;
+  let roster = [];
   let loadError = null;
   try {
-    const [memberResponse, profileResponse, duesResponse] = await Promise.all([
+    const [memberResponse, profileResponse, duesResponse, rosterResponse] = await Promise.all([
       apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
       apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
       apiFetch(`/lista-wyjazdowa/dues/mine?year=${CURRENT_YEAR}`, { method: 'GET' }, showReauth, hideReauth),
+      apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
     ]);
     member = memberResponse.member;
     profile = profileResponse.profile;
     dues = duesResponse.dues;
+    roster = rosterResponse.roster;
   } catch (err) {
     loadError = err;
   }
+
+  // The owner's section is the default for a new person (design.md section B) - captured before
+  // renderPersons so a "Dodaj osobę" row preselects it.
+  ownerSectionId = member?.sectionId ?? null;
 
   populateSectionSelect(form.sectionId, lookupLists.sections, member?.sectionId ?? null);
   populateWeaponCheckboxes(document.getElementById('weapons-checkboxes'), lookupLists.weapons, profile?.weaponIds ?? []);
@@ -676,10 +834,10 @@ async function initForm(lookupLists) {
       cb.checked = profile.weaponIds.includes(cb.value);
     }
     fillRows(equipmentContainer, profile.equipment, addEquipmentRow);
-    fillRows(companionContainer, profile.companions, addCompanionRow);
   }
   if (!loadError) {
     renderDuesStatus(profile?.wpisowePaid ?? false, dues?.paid ?? false);
+    renderPersons(roster);
   }
 
   if (loadError) {
@@ -699,6 +857,7 @@ initGoogleSignIn({
   whoamiPath: '/wojownicy-upload/whoami',
   onSignedIn: async identity => {
     try {
+      viewerEmail = identity.email;
       // Historia deep link (KRKG-0050 batch 5/6) - member:{email}, the same resource key
       // profile.member.updated (and every role/membership event) is stored under (see
       // implementation-contract.md's "Action registry" intro paragraph).

@@ -9,15 +9,15 @@ export interface EquipmentItem {
   description: string;
 }
 
-export interface Companion {
-  id: string;
-  name: string;
-}
-
+/**
+ * A member's Lista Wyjazdowa profile. The key is the canonical `personId` (KRKG-0087): for a
+ * member it equals the e-mail, for a person without an account it is their UUID. The legacy
+ * `companions` list lived here until KRKG-0087 - companions are now real person records
+ * (`persons.ts`), not entries owned by a member's profile.
+ */
 export interface ListaWyjazdowaProfileDoc {
   weaponIds: string[];
   equipment: EquipmentItem[];
-  companions: Companion[];
   wpisowePaid: boolean;
   updatedAt: string;
   updatedBy: string;
@@ -26,16 +26,15 @@ export interface ListaWyjazdowaProfileDoc {
 export interface ProfileWritableFields {
   weaponIds: string[];
   equipment: Array<{ id: string; name: string; description: string }>;
-  companions: Array<{ id: string; name: string }>;
 }
 
 const COLLECTION = 'listaWyjazdowaProfile';
 
 export async function getProfile(
   client: FirestoreLikeClient,
-  email: string,
+  personId: string,
 ): Promise<ListaWyjazdowaProfileDoc | null> {
-  return client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, email.toLowerCase());
+  return client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, personId.toLowerCase());
 }
 
 /**
@@ -48,15 +47,14 @@ export async function getProfile(
  */
 export async function saveProfile(
   client: FirestoreWriteContext,
-  email: string,
+  personId: string,
   fields: ProfileWritableFields,
 ): Promise<ListaWyjazdowaProfileDoc> {
-  const id = email.toLowerCase();
+  const id = personId.toLowerCase();
   const existing = await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id);
   const writable = {
     weaponIds: fields.weaponIds,
     equipment: fields.equipment.map((e) => ({ ...e, id: e.id || randomUUID() })),
-    companions: fields.companions.map((c) => ({ ...c, id: c.id || randomUUID() })),
     updatedAt: new Date().toISOString(),
     updatedBy: id,
   };
@@ -66,25 +64,24 @@ export async function saveProfile(
 
 /**
  * Wpisowe is a club due, not a Lista Wyjazdowa feature - whether a member has ever filled in
- * "Mój profil" (weaponIds/equipment/companions) must not gate whether they can be marked as
- * having paid it. For a member with no existing document this creates one with empty defaults,
- * the same "give a brand-new document its complete shape" approach saveProfile above already uses
- * for a self-service first save.
+ * "Mój profil" (weaponIds/equipment) must not gate whether they can be marked as having paid it.
+ * For a member with no existing document this creates one with empty defaults, the same "give a
+ * brand-new document its complete shape" approach saveProfile above already uses for a
+ * self-service first save.
  */
 export async function setWpisowePaid(
   client: FirestoreWriteContext,
-  email: string,
+  personId: string,
   paid: boolean,
   updatedBy: string,
 ): Promise<ListaWyjazdowaProfileDoc> {
-  const id = email.toLowerCase();
+  const id = personId.toLowerCase();
   const existing = await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id);
   const writable = { wpisowePaid: paid, updatedBy, updatedAt: new Date().toISOString() };
-  await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, weaponIds: [], equipment: [], companions: [] });
+  await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, weaponIds: [], equipment: [] });
   return {
     weaponIds: existing?.weaponIds ?? [],
     equipment: existing?.equipment ?? [],
-    companions: existing?.companions ?? [],
     ...writable,
   };
 }
@@ -94,28 +91,27 @@ export async function setWpisowePaid(
  * checkboxes - unlike weaponIds via saveProfile above (self-service, the member's own "Mój
  * profil"), this lets an admin/moderator correct or set it on someone else's behalf, e.g. for a
  * member who hasn't filled in their profile yet. Same upsert shape as setWpisowePaid: creates a
- * document with empty equipment/companions defaults if the member has none yet.
+ * document with empty equipment defaults if the member has none yet.
  */
 export async function setProfileWeaponIds(
   client: FirestoreWriteContext,
-  email: string,
+  personId: string,
   weaponIds: string[],
   updatedBy: string,
 ): Promise<ListaWyjazdowaProfileDoc> {
-  const id = email.toLowerCase();
+  const id = personId.toLowerCase();
   const existing = await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id);
   const writable = { weaponIds, updatedBy, updatedAt: new Date().toISOString() };
-  await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, equipment: [], companions: [], wpisowePaid: false });
+  await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, equipment: [], wpisowePaid: false });
   return {
     equipment: existing?.equipment ?? [],
-    companions: existing?.companions ?? [],
     wpisowePaid: existing?.wpisowePaid ?? false,
     ...writable,
   };
 }
 
 // Plan B (roster join, GET /lista-wyjazdowa/roster): unlike getProfile, callers here need the
-// email too, since ListaWyjazdowaProfileDoc itself doesn't carry it - it's only known via the doc id.
+// key too, since ListaWyjazdowaProfileDoc itself doesn't carry it - it's only known via the doc id.
 export async function listAllProfiles(client: FirestoreLikeClient): Promise<Array<ListaWyjazdowaProfileDoc & { email: string }>> {
   const docs = await client.listDocs<ListaWyjazdowaProfileDoc>(COLLECTION);
   return docs.map((d) => ({ email: d.id, ...d.data }));
