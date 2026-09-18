@@ -1509,7 +1509,17 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   gap: 0.5rem;
   font-size: 0.9rem;
 }
-.dashboard-mini-item-name { color: var(--text); }
+.dashboard-mini-item-name {
+  color: var(--text);
+  /* KRKG-0094: each trip name is its own link into that trip, so it has to read as clickable
+     without turning the whole row into a link (the card lists several trips). */
+  text-decoration: none;
+}
+.dashboard-mini-item-name:hover,
+.dashboard-mini-item-name:focus-visible {
+  color: var(--gold);
+  text-decoration: underline;
+}
 .dashboard-mini-item-meta { color: var(--text-muted); font-size: 0.8rem; white-space: nowrap; }
 
 .dashboard-gallery-thumbs { display: flex; gap: 0.5rem; }

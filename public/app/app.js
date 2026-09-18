@@ -65,6 +65,12 @@ function daysUntil(isoDate) {
   return Math.round((target - today) / msPerDay);
 }
 
+// KRKG-0094: one trip's detail URL, shared by both dashboard trip widgets so tapping a trip
+// always opens that specific trip rather than the generic Lista Wyjazdowa page.
+function eventDetailHref(eventId) {
+  return `/lista-wyjazdowa/wyjazd/?eventId=${encodeURIComponent(eventId)}`;
+}
+
 function renderNearestEventWidget(events) {
   const upcoming = events
     .filter((e) => e.status === 'active' && e.startDate >= todayIsoDate())
@@ -72,7 +78,7 @@ function renderNearestEventWidget(events) {
   if (upcoming.length === 0) return null;
   const event = upcoming[0];
   const widget = document.createElement('a');
-  widget.href = '/lista-wyjazdowa/';
+  widget.href = eventDetailHref(event.id);
   widget.className = 'dashboard-widget';
   widget.innerHTML = `
     <h3>Najbliższy wyjazd</h3>
@@ -94,23 +100,27 @@ function renderMySignupsWidget(events) {
   const mine = events
     .filter((e) => e.status === 'active' && e.viewerAttending && e.startDate >= todayIsoDate())
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
-  const widget = document.createElement('a');
-  widget.href = '/lista-wyjazdowa/';
+  // A plain <div>, not the whole-card <a> the other widgets use: this card can list several trips,
+  // so the click target has to be each trip name on its own (KRKG-0094) - one card-wide link could
+  // only ever point at one of them.
+  const widget = document.createElement('div');
   widget.className = 'dashboard-widget';
   if (mine.length === 0) {
     widget.innerHTML = `<h3>Twoje zapisy</h3><p class="dashboard-widget-empty">Nie jesteś jeszcze zapisany(a) na żaden wyjazd.</p>`;
     return widget;
   }
-  const rows = mine.map((e) => `
+  const rows = mine.map(() => `
     <div class="dashboard-mini-item">
-      <span class="dashboard-mini-item-name"></span>
+      <a class="dashboard-mini-item-name"></a>
       <span class="dashboard-mini-item-meta"></span>
     </div>
   `).join('');
   widget.innerHTML = `<h3>Twoje zapisy</h3><div class="dashboard-mini-list">${rows}</div>`;
   const items = widget.querySelectorAll('.dashboard-mini-item');
   mine.forEach((e, i) => {
-    items[i].querySelector('.dashboard-mini-item-name').textContent = e.name;
+    const nameLink = items[i].querySelector('.dashboard-mini-item-name');
+    nameLink.href = eventDetailHref(e.id);
+    nameLink.textContent = e.name;
     items[i].querySelector('.dashboard-mini-item-meta').textContent = formatDate(e.startDate);
   });
   return widget;
