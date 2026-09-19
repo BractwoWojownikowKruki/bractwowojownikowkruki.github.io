@@ -347,9 +347,17 @@ function wireAddForm() {
           body: JSON.stringify(payload),
         }),
         apply: async ({ equipment: saved }) => {
-          const idx = equipment.findIndex(i => i.id === saved.id);
-          if (idx === -1) equipment.push(saved);
-          else equipment[idx] = saved;
+          // Neither POST nor PUT /equipment's response carries canEdit/canDelete - only the GET
+          // /equipment list handler synthesizes them (server.ts's handleListEquipment, always true
+          // on every item, see its own comment). Without this merge, a freshly-added item would
+          // render with no edit/delete buttons until the page reloads (equipmentActionsHtml gates
+          // both on item.canEdit/canDelete), and editing an existing item would wholesale replace
+          // its entry - dropping the canEdit/canDelete it already had from the GET response - and
+          // lose its buttons the same way.
+          const withPermissions = { ...saved, canEdit: true, canDelete: true };
+          const idx = equipment.findIndex(i => i.id === withPermissions.id);
+          if (idx === -1) equipment.push(withPermissions);
+          else equipment[idx] = withPermissions;
           resetAddForm();
           form.hidden = true;
           renderBothTables();

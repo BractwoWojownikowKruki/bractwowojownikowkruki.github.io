@@ -289,6 +289,33 @@ test('adding a team item posts to /equipment with belongsToPersonId null and app
   assert.match(harness.elements.get('equipment-team-table-body')!.innerHTML, /Nowy namiot/);
 });
 
+// Regression test (review finding, task-3 fix round): neither POST nor PUT /equipment's response
+// carries canEdit/canDelete - only GET /equipment's list handler synthesizes them (server.ts's
+// handleListEquipment, always true). Without locally merging { canEdit: true, canDelete: true }
+// onto the saved item before pushing/replacing it in `equipment`, a freshly-added (or just-edited)
+// item would render with no edit/delete buttons (equipmentActionsHtml gates both on
+// item.canEdit/item.canDelete) until the page reloads.
+test('a freshly-added item gets working edit/delete buttons immediately, even though the mutation response omits canEdit/canDelete', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const categorySelect = harness.elements.get('equipment-add-category')!;
+  const sectionSelect = harness.elements.get('equipment-add-section')!;
+  const description = harness.elements.get('equipment-add-description')!;
+  categorySelect.value = 'namiot';
+  sectionSelect.value = 'krakow';
+  description.value = 'Bez uprawnień w odpowiedzi';
+  // Mirrors the real server response shape (server.ts's handleAddEquipment/handleUpdateEquipment):
+  // no canEdit/canDelete fields at all.
+  harness.setMutationResult({ equipment: { id: 'eq-team-3', categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: null, description: 'Bez uprawnień w odpowiedzi', createdAt: '2026-01-03T00:00:00.000Z', createdBy: 'ala@example.com' } });
+
+  await harness.elements.get('equipment-add-form')!.submit();
+
+  const teamBody = harness.elements.get('equipment-team-table-body')!;
+  assert.match(teamBody.innerHTML, /Bez uprawnień w odpowiedzi/);
+  assert.match(teamBody.innerHTML, /data-edit-id="eq-team-3"/, 'the freshly-added item must render its edit button right away, not only after a reload');
+  assert.match(teamBody.innerHTML, /data-delete-id="eq-team-3"/, 'the freshly-added item must render its delete button right away, not only after a reload');
+});
+
 test('submitting Prywatny mode without picking a real owner is rejected client-side with no request sent', async () => {
   const harness = createHarness();
   await harness.signIn();

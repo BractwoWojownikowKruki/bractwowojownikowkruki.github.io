@@ -25,7 +25,7 @@ class Element {
   addEventListener() {}
 }
 
-function createContext() {
+function createContext(overrides: { apiFetch?: (...args: unknown[]) => Promise<unknown>; window?: Record<string, unknown> } = {}) {
   const elements = new Map<string, Element>();
   const context: Record<string, unknown> = {
     document: {
@@ -34,8 +34,8 @@ function createContext() {
         return elements.get(id);
       },
     },
-    window: {},
-    apiFetch: async () => { throw new Error('apiFetch should not be called by loading the script'); },
+    window: overrides.window ?? {},
+    apiFetch: overrides.apiFetch ?? (async () => { throw new Error('apiFetch should not be called by loading the script'); }),
     initGoogleSignIn: () => {},
     Cropper: class {},
     URL: { createObjectURL: () => '' },
@@ -157,4 +157,50 @@ test('CSS defines the mini-list item/list/delete-button classes referenced by th
   assert.match(css, /\.person-equipment-list\s*\{/);
   assert.match(css, /\.person-equipment-item\s*\{/);
   assert.match(css, /\.person-equipment-item \.person-equipment-delete\s*\{/);
+});
+
+// Regression test (review finding, task-3 fix round): POST /equipment's response does not carry
+// canEdit/canDelete - only GET /equipment's list handler synthesizes them (server.ts's
+// handleListEquipment, always true). Without locally merging { canEdit: true, canDelete: true }
+// onto the item addPersonEquipmentItem's `apply` pushes into equipmentItems, a freshly-added item
+// would render with no delete button (equipmentItemHtml gates it on item.canDelete) until reload.
+test('a freshly-added equipment item renders with a working delete button immediately, even though POST /equipment omits canEdit/canDelete', async () => {
+  const context = createContext({
+    apiFetch: async (...args: unknown[]) => {
+      const [url, options] = args as [string, Record<string, unknown>];
+      if (url === '/equipment' && options.method === 'POST') {
+        // Mirrors the real server response shape (server.ts's handleAddEquipment): no
+        // canEdit/canDelete fields at all.
+        return { equipment: { id: 'new-eq', categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: 'ala@example.com', description: '' } };
+      }
+      throw new Error(`unexpected request: ${url}`);
+    },
+    window: {
+      MutationFeedback: {
+        confirmed: async ({ execute, apply }: { execute: () => Promise<unknown>; apply: (result: unknown) => unknown }) => {
+          const result = await execute();
+          await apply(result);
+        },
+      },
+    },
+  });
+  const container = {
+    innerHTML: '',
+    querySelector(selector: string) {
+      if (selector === '.person-equipment-category') return { value: 'namiot' };
+      if (selector === '.person-equipment-description') return { value: '' };
+      return null;
+    },
+  };
+  const addPersonEquipmentItem = context.addPersonEquipmentItem as (
+    container: unknown,
+    ownerId: string,
+    getSectionId: () => string,
+    control: unknown,
+  ) => Promise<void>;
+
+  await addPersonEquipmentItem(container, 'ala@example.com', () => 'krakow', {});
+
+  assert.match(container.innerHTML, /data-equipment-id="new-eq"/);
+  assert.match(container.innerHTML, /person-equipment-delete/, 'the freshly-added item must render its delete button right away, not only after a reload');
 });

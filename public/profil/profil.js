@@ -521,7 +521,11 @@ async function addPersonEquipmentItem(container, ownerId, getSectionId, control)
       hideReauth,
     ),
     apply: ({ equipment: saved }) => {
-      equipmentItems.push(saved);
+      // POST /equipment's response doesn't carry canEdit/canDelete (only the GET /equipment list
+      // handler synthesizes them, server.ts's handleListEquipment - always true on every item, see
+      // its own comment). Without this, a freshly-added item would render with no delete button
+      // until the page reloads, since equipmentItemHtml gates the button on item.canDelete.
+      equipmentItems.push({ ...saved, canEdit: true, canDelete: true });
       renderPersonEquipment(container, ownerId);
     },
     refreshFragment: async () => renderPersonEquipment(container, ownerId),
