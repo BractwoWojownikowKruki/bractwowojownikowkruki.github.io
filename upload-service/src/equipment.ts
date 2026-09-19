@@ -29,9 +29,12 @@ const MAX_DESCRIPTION_LENGTH = 500;
 
 /** Runtime validation of the fields the model requires - mirrors persons.ts's own validation
  * function for the same reason: TypeScript's required properties don't stop a request body from
- * carrying empty strings. categoryId/sectionId are checked for non-emptiness only, not lookup-list
- * membership, so a retired category/section stays valid on an item that already has it (same
- * lookup-list convention as persons.ts and profil.js's selectableLookupItems). */
+ * carrying empty strings. categoryId/sectionId are checked here for non-emptiness only - referential
+ * validation against the equipmentCategories/sections lookup lists (and belongsToPersonId's
+ * resolution to a live member or person) lives in server.ts's validateEquipmentReferences, which
+ * uses the same requireKnownLookupId convention as parseMemberWritableFields/
+ * handleListaWyjazdowaPutProfile: a retired category/section stays valid on an item that already
+ * has it, since this module has no access to the lookup lists on its own. */
 export function validateEquipmentFields(fields: EquipmentWritableFields): void {
   if (!fields.categoryId?.trim()) throw new InvalidEquipmentError('Kategoria jest wymagana.');
   if (!fields.sectionId?.trim()) throw new InvalidEquipmentError('Sekcja jest wymagana.');

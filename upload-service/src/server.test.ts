@@ -8662,3 +8662,173 @@ test('POST /internal/audit/reconcile: profile.photo_submission.created is unaffe
   assert.equal(outcome!.determinedBy, 'reconciler');
   assert.ok(outcome!.auditEventId);
 });
+
+// KRKG-0096: /equipment HTTP-route tests. Mirrors the /files route tests above (createInMemoryFirestoreClient
+// + makeDeps + withServer, jsonRequest-shaped fetch calls), covering the gaps the final-review flagged
+// rather than /files's full depth: auth gating, the "any member can edit anything" trust decision,
+// the PUT-unknown-id 404, and that a create actually emits an audit event with the right shape.
+function makeEquipmentFirestore() {
+  const firestore = makeFakeFirestore();
+  firestore.seed('lookupLists', 'equipmentCategories', {
+    items: [{ id: 'namiot', label: 'Namiot', retired: false }],
+  });
+  firestore.seed('lookupLists', 'sections', {
+    items: [{ id: 'krakow', label: 'Kraków', retired: false }],
+  });
+  return firestore;
+}
+
+test('GET /equipment rejects an unauthenticated caller', async () => {
+  const deps = makeDeps({
+    authenticate: async () => { throw new AuthError('Brak sesji.', 401); },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`);
+    assert.equal(res.status, 401);
+  });
+});
+
+// design.md's headline trust decision for this feature: unlike /files (owner-or-moderator), any
+// signed-in member may edit or delete any equipment item, private or team-owned - canEdit/canDelete
+// must come back true even for a private item belonging to somebody else.
+test('GET /equipment marks a private item owned by a different member as editable and deletable', async () => {
+  const firestore = makeEquipmentFirestore();
+  const listMemberEmails = async () => ['ala@example.test', 'bob@example.test'];
+  await withServer(
+    makeDeps({ firestore, listMemberEmails, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }),
+    async baseUrl => {
+      const postRes = await fetch(`${baseUrl}/equipment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Namiot Ali', belongsToPersonId: 'ala@example.test' }),
+      });
+      assert.equal(postRes.status, 200);
+    },
+  );
+  await withServer(
+    makeDeps({ firestore, listMemberEmails, authenticate: async () => fakeSessionClaims({ email: 'bob@example.test' }) }),
+    async baseUrl => {
+      const res = await fetch(`${baseUrl}/equipment`);
+      assert.equal(res.status, 200);
+      const { equipment } = (await res.json()) as { equipment: Array<{ belongsToPersonId: string | null; canEdit: boolean; canDelete: boolean }> };
+      assert.equal(equipment.length, 1);
+      assert.equal(equipment[0].belongsToPersonId, 'ala@example.test');
+      assert.equal(equipment[0].canEdit, true, 'any member may edit a private item they do not own');
+      assert.equal(equipment[0].canDelete, true, 'any member may delete a private item they do not own');
+    },
+  );
+});
+
+test('PUT /equipment returns 404 for an unknown id', async () => {
+  const deps = makeDeps({ firestore: makeEquipmentFirestore(), authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment?id=nie-ma-takiego`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'x', belongsToPersonId: null }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('POST /equipment records an equipment.added audit event with the resource key and created fields', async () => {
+  const firestore = makeEquipmentFirestore();
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  let equipmentId = '';
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Wiata drużynowa', belongsToPersonId: null }),
+    });
+    assert.equal(res.status, 200);
+    const { equipment } = (await res.json()) as { equipment: { id: string } };
+    equipmentId = equipment.id;
+  });
+
+  const events = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after?: unknown }> }>('auditEvents');
+  const addedEvent = events.map(e => e.data).find(e => e.action === 'equipment.added');
+  assert.ok(addedEvent, 'expected an equipment.added audit event');
+  assert.equal(addedEvent!.resource.key, `equipment:${equipmentId}`);
+  const changesByField = new Map(addedEvent!.changes.map(c => [c.field, c.after]));
+  assert.equal(changesByField.get('categoryId'), 'namiot');
+  assert.equal(changesByField.get('sectionId'), 'krakow');
+  assert.equal(changesByField.get('belongsToPersonId'), null);
+  assert.equal(changesByField.get('description'), 'Wiata drużynowa');
+});
+
+// KRKG-0096 final review, Finding 5: categoryId/sectionId/belongsToPersonId referential validation.
+// design.md §5 requires categoryId/sectionId to exist in their lookup lists, and belongsToPersonId
+// (when given) to resolve to a live member or a non-deleted person. These mirror the existing
+// requireKnownLookupId convention (parseMemberWritableFields/handleListaWyjazdowaPutProfile): a
+// never-valid id is rejected, but a retired id already in use on an existing item stays valid.
+test('POST /equipment rejects a categoryId that is not in lookupLists', async () => {
+  const deps = makeDeps({ firestore: makeEquipmentFirestore(), authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'nie-ma-takiej', sectionId: 'krakow', description: '', belongsToPersonId: null }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('POST /equipment rejects a sectionId that is not in lookupLists', async () => {
+  const deps = makeDeps({ firestore: makeEquipmentFirestore(), authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'nie-ma-takiej', description: '', belongsToPersonId: null }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('POST /equipment rejects a belongsToPersonId that resolves to neither a live member nor an existing person', async () => {
+  const deps = makeDeps({ firestore: makeEquipmentFirestore(), listMemberEmails: async () => [], authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: '', belongsToPersonId: 'nikt-taki@example.test' }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+// The whole point of reusing requireKnownLookupId instead of a naive membership check: an item
+// that already carries a since-retired categoryId must still be editable (e.g. changing only its
+// description), not locked out because the category it already has is no longer offered for new
+// selection.
+test('PUT /equipment accepts a retired categoryId that the item already has', async () => {
+  const firestore = makeEquipmentFirestore();
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  let equipmentId = '';
+  await withServer(deps, async baseUrl => {
+    const postRes = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Stary namiot', belongsToPersonId: null }),
+    });
+    equipmentId = ((await postRes.json()) as { equipment: { id: string } }).equipment.id;
+  });
+
+  // Retire the category after the item was created, exactly like an admin editing lookupLists
+  // directly in Firestore (design.md - no admin UI for this list).
+  await firestore.setDoc('lookupLists', 'equipmentCategories', {
+    items: [{ id: 'namiot', label: 'Namiot', retired: true }],
+  });
+
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment?id=${equipmentId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Stary namiot, opisany na nowo', belongsToPersonId: null }),
+    });
+    assert.equal(res.status, 200, 'a retired categoryId already on the item must still be accepted');
+    const { equipment } = (await res.json()) as { equipment: { description: string } };
+    assert.equal(equipment.description, 'Stary namiot, opisany na nowo');
+  });
+});

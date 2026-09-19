@@ -205,13 +205,21 @@ function populateSectionSelect(currentId) {
   select.innerHTML = options.join('');
 }
 
-// The datalist itself always lists every known person (member + accountless) - filterOwnerCandidates
-// is used to narrow this on typing (tested separately), but the native <input list> element needs
-// the full option set up front since the browser does its own substring matching against it.
-function populateOwnerDatalist() {
-  document.getElementById('equipment-owner-datalist').innerHTML = rosterList
+// Renders the datalist's <option> set from an explicit candidate list, so both the initial
+// full-roster population and the narrowed-on-typing population (wireOwnerModeToggle's 'input'
+// listener) share one rendering path.
+function renderOwnerDatalistOptions(candidates) {
+  document.getElementById('equipment-owner-datalist').innerHTML = candidates
     .map(person => `<option value="${escapeAttr(displayName(person))}"></option>`)
     .join('');
+}
+
+// The datalist starts out listing every known person (member + accountless) - wireOwnerModeToggle's
+// 'input' listener then narrows this to filterOwnerCandidates(rosterList, value) as the member
+// types (tested separately), giving the przeszukiwalne pole z osobami (searchable field) the
+// design calls for instead of relying on the browser's own full-roster substring matching.
+function populateOwnerDatalist() {
+  renderOwnerDatalistOptions(rosterList);
 }
 
 // Resolves the free-text owner input back to a personId by exact displayName match - same
@@ -243,6 +251,8 @@ function wireOwnerModeToggle() {
   privateRadio.addEventListener('change', applyMode);
 
   ownerInput.addEventListener('input', () => {
+    renderOwnerDatalistOptions(filterOwnerCandidates(rosterList, ownerInput.value));
+
     const personId = resolveOwnerInput(ownerInput.value);
     const owner = personId ? personById.get(personId) : null;
     if (owner) {
@@ -263,6 +273,7 @@ function resetAddForm() {
   document.getElementById('equipment-add-section').disabled = false;
   populateCategorySelect(null);
   populateSectionSelect(null);
+  populateOwnerDatalist();
   document.getElementById('equipment-add-submit').textContent = 'Dodaj';
 }
 
@@ -270,6 +281,7 @@ function openAddFormForEdit(item) {
   const form = document.getElementById('equipment-add-form');
   form.hidden = false;
   document.getElementById('equipment-add-editing-id').value = item.id;
+  populateOwnerDatalist();
   populateCategorySelect(item.categoryId);
   document.getElementById('equipment-add-category').value = item.categoryId;
   const isPrivate = item.belongsToPersonId !== null;

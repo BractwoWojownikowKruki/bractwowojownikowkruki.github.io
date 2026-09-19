@@ -257,10 +257,14 @@ test('switching the add form to Prywatny reveals the owner field, and picking a 
   await ownerInput.input();
   assert.equal(sectionSelect.disabled, true, 'Sekcja is disabled once a known owner is picked');
   assert.equal(sectionSelect.value, 'warszawa', "Sekcja auto-fills from the owner's own sectionId");
+  const datalist = harness.elements.get('equipment-owner-datalist')!;
+  assert.match(datalist.innerHTML, /Młody/, 'typing narrows the datalist to the matching candidate');
+  assert.doesNotMatch(datalist.innerHTML, /Ala Kowalska/, 'typing narrows the datalist away from non-matching candidates');
 
   ownerInput.value = 'nikt taki';
   await ownerInput.input();
   assert.equal(sectionSelect.disabled, false, 'an unresolved owner re-enables Sekcja');
+  assert.equal(datalist.innerHTML, '', 'no match narrows the datalist down to nothing');
 
   teamRadio.checked = true;
   privateRadio.checked = false;

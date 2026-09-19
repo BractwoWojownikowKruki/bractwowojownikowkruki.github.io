@@ -813,6 +813,33 @@ async function handleListEquipment(req: IncomingMessage, res: ServerResponse, de
   sendJson(res, 200, { equipment: equipment.map((item) => ({ ...item, canEdit: true, canDelete: true })) });
 }
 
+// Referential validation shared by handleAddEquipment/handleUpdateEquipment - design.md §5's
+// "categoryId i sectionId wymagane i muszą istnieć w odpowiednich lookup listach" requirement,
+// checked the same way parseMemberWritableFields/handleListaWyjazdowaPutProfile validate
+// sectionId/weaponIds: requireKnownLookupId accepts a retired item already in use, so editing an
+// old item whose category/section has since been retired does not break. belongsToPersonId, when
+// given, must resolve to a live member (checked against the same allowlist
+// handleListaWyjazdowaPutSignup uses) or a non-deleted person - resolvePersonWriteTarget already
+// implements exactly that resolution for the signup route, so it is reused here rather than
+// duplicating person/member resolution logic.
+async function validateEquipmentReferences(
+  deps: ServerDeps,
+  categoryId: string,
+  sectionId: string,
+  belongsToPersonId: string | null,
+): Promise<void> {
+  const lookupLists = await getAllLookupLists(deps.firestore);
+  requireKnownLookupId(lookupLists.equipmentCategories, categoryId, 'Wybrana kategoria nie istnieje.');
+  requireKnownLookupId(lookupLists.sections, sectionId, 'Wybrana sekcja nie istnieje.');
+  if (belongsToPersonId !== null) {
+    const target = await resolvePersonWriteTarget(deps, belongsToPersonId);
+    if (!target.accountless) {
+      const allowedEmails = await deps.listMemberEmails();
+      if (!allowedEmails.includes(target.personId)) throw new AuthError('Nie znaleziono takiego członka.', 404);
+    }
+  }
+}
+
 async function handleAddEquipment(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
@@ -820,6 +847,7 @@ async function handleAddEquipment(req: IncomingMessage, res: ServerResponse, dep
   const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
   const description = optionalTrimmedString(body.description, LW_MAX_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 500 znaków.') ?? '';
   const belongsToPersonId = body.belongsToPersonId == null ? null : requireTrimmedString(body.belongsToPersonId, LW_MAX_NAME_LENGTH, 'Nieprawidłowy właściciel.');
+  await validateEquipmentReferences(deps, categoryId, sectionId, belongsToPersonId);
   let doc: EquipmentDoc;
   try {
     doc = buildEquipmentDoc({ categoryId, sectionId, description, belongsToPersonId }, identity.email);
@@ -858,6 +886,7 @@ async function handleUpdateEquipment(req: IncomingMessage, res: ServerResponse, 
   const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
   const description = optionalTrimmedString(body.description, LW_MAX_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 500 znaków.') ?? '';
   const belongsToPersonId = body.belongsToPersonId == null ? null : requireTrimmedString(body.belongsToPersonId, LW_MAX_NAME_LENGTH, 'Nieprawidłowy właściciel.');
+  await validateEquipmentReferences(deps, categoryId, sectionId, belongsToPersonId);
   const { result } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.equipmentUpdate,
