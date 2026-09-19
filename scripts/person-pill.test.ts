@@ -41,6 +41,24 @@ test('personPillHtml escapes the name and appends an extra class without duplica
   assert.match(html, /title="Brak statusu"/);
 });
 
+test('personPillHtml distinguishes announced Brokuł people from decorative Brokuł category labels', () => {
+  const { personPillHtml } = loadHelper();
+
+  const person = personPillHtml({ name: 'Jan', categoryId: 'brokul', categoryLabel: 'Brokuł', mode: 'person' });
+  assert.match(person, /🥦/);
+  assert.match(person, /class="brokul-pill-icon"/);
+  assert.match(person, /role="img"/);
+  assert.match(person, /aria-label="Brokuł"/);
+
+  const label = personPillHtml({ name: 'Brokuł', categoryId: 'brokul', categoryLabel: 'Brokuł', mode: 'category-label' });
+  assert.match(label, /🥦/);
+  assert.match(label, /aria-hidden="true"/);
+  assert.doesNotMatch(label, /aria-label="Brokuł"/);
+
+  const candidate = personPillHtml({ name: 'Anna', categoryId: 'kandydat', categoryLabel: 'Kandydat', mode: 'person' });
+  assert.doesNotMatch(candidate, /🥦/);
+});
+
 test('the event page renders pills through the shared helper, keys rows by personId and fetches the historical roster', () => {
   assert.match(wyjazdSource, /personPillHtml\(/);
   assert.doesNotMatch(wyjazdSource, /categoryNamePillAttrs/);
@@ -48,4 +66,5 @@ test('the event page renders pills through the shared helper, keys rows by perso
   assert.match(wyjazdSource, /data-person-id="\$\{personIdAttr\}"/);
   assert.match(wyjazdSource, /\/lista-wyjazdowa\/roster\?eventId=/);
   assert.match(indexHtml, /shared\/person-pill\.js/);
+  assert.match(wyjazdSource, /categoryPillBroccoliIconHtml\(categoryId, 'category-label'\)/);
 });

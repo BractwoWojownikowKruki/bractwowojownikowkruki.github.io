@@ -110,7 +110,7 @@ function fileTileHtml(file, slug) {
       <div class="pliki-tile-meta">
         <span>${formatDate(file.addedAt)}</span>
         <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
-          <span class="category-name-pill" data-category="${escapeHtml(member.categoryId ?? '')}" title="${escapeHtml(member.categoryLabel ?? '')}">${escapeHtml(displayName(member))}</span>
+          ${personPillHtml({ name: displayName(member), categoryId: member.categoryId, categoryLabel: member.categoryLabel, mode: 'person' })}
         </button>
       </div>
       <div class="pliki-tile-actions">

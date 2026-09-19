@@ -392,7 +392,7 @@ function renderSummary(roster, duesByPersonId) {
       // marker), and it appends lw-summary-chip plus its own count badge.
       return categoryId === null
         ? `<span class="lw-summary-chip">${escapeHtml(label)}${badge}</span>`
-        : `<span class="category-name-pill lw-summary-chip" data-category="${escapeAttr(categoryId)}" title="${escapeAttr(label)}">${escapeHtml(label)}${badge}</span>`;
+        : `<span class="category-name-pill lw-summary-chip" data-category="${escapeAttr(categoryId)}" title="${escapeAttr(label)}">${categoryPillBroccoliIconHtml(categoryId, 'category-label')}${escapeHtml(label)}${badge}</span>`;
     })
     .join('');
 

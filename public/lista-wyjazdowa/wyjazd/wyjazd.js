@@ -339,7 +339,7 @@ function renderSummary(roster, signups) {
       // whole content, which would drop this count badge.
       return categoryId === null
         ? `<span class="lw-summary-chip">${escapeHtml(label)}${badge}</span>`
-        : `<span class="category-name-pill lw-summary-chip" data-category="${escapeAttr(categoryId)}" title="${escapeAttr(label)}">${escapeHtml(label)}${badge}</span>`;
+        : `<span class="category-name-pill lw-summary-chip" data-category="${escapeAttr(categoryId)}" title="${escapeAttr(label)}">${categoryPillBroccoliIconHtml(categoryId, 'category-label')}${escapeHtml(label)}${badge}</span>`;
     })
     .join('');
 

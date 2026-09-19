@@ -25,4 +25,5 @@ test('Spis Ludności unions accountless people from the roster and renders them 
   assert.match(script, /accountless: m\.accountless === true/);
   assert.match(script, /data-person-id="\$\{escapeAttr\(m\.personId\)\}"/);
   assert.doesNotMatch(script, /categoryNamePillAttrs/);
+  assert.match(script, /name: m\.categoryLabel \|\| 'Brak statusu',[\s\S]*?mode: 'category-label'/);
 });

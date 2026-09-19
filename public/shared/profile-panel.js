@@ -284,7 +284,7 @@
       <dl class="profile-fields">
         ${profile.nickname ? `<dt>Ksywka</dt><dd>${escapeHtml(profile.nickname)}</dd>` : ''}
         ${profile.sectionLabel ? `<dt>Sekcja</dt><dd><span class="section-pill" data-section="${escapeHtml(profile.sectionId ?? '')}">${escapeHtml(profile.sectionLabel)}</span></dd>` : ''}
-        ${profile.categoryLabel ? `<dt>Status</dt><dd><span class="category-name-pill" data-category="${escapeHtml(profile.categoryId ?? '')}" title="${escapeHtml(profile.categoryLabel)}">${escapeHtml(profile.categoryLabel)}</span></dd>` : ''}
+        ${profile.categoryLabel ? `<dt>Status</dt><dd><span class="category-name-pill" data-category="${escapeHtml(profile.categoryId ?? '')}" title="${escapeHtml(profile.categoryLabel)}">${categoryPillBroccoliIconHtml(profile.categoryId, 'category-label')}${escapeHtml(profile.categoryLabel)}</span></dd>` : ''}
         ${profile.ownerName ? `<dt>Osoba towarzysząca</dt><dd>${escapeHtml(profile.ownerName)}</dd>` : ''}
         ${weaponsHtml}
       </dl>

@@ -6,6 +6,10 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../public/lista-wyjazdowa/skladki/skladki.js', import.meta.url), 'utf8');
 const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 
+test('fee category summary adds a decorative Brokuł icon through the shared helper', () => {
+  assert.match(source, /categoryPillBroccoliIconHtml\(categoryId, 'category-label'\)/);
+});
+
 class Element {
   id: string;
   hidden = false;

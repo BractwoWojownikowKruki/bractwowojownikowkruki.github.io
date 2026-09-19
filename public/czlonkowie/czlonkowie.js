@@ -135,6 +135,7 @@ function renderTable() {
       categoryLabel: m.categoryLabel,
       accountless: false,
       extraClass: m.categoryLabel ? undefined : 'czl-empty',
+      mode: 'category-label',
     });
     row.innerHTML = `
       <td class="czl-section-cell" title="${escapeAttr(m.sectionLabel || 'Brak sekcji')}">${m.sectionId ? escapeHtml(sectionAbbr(m.sectionId)) : EMPTY}</td>

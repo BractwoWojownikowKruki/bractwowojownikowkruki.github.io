@@ -28,10 +28,19 @@ function personPillIconHtml() {
   return '<svg class="person-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="osoba bez konta"><circle cx="12" cy="5.5" r="2.6"/><path d="M12 8.5v6.5"/><path d="M8.2 11h7.6"/><path d="M9.2 22l2.8-7 2.8 7"/></svg>';
 }
 
+// Brokuł is semantic when it qualifies a person's name, but decorative beside the visible
+// "Brokuł" category label; the explicit mode prevents duplicate screen-reader announcements.
+function categoryPillBroccoliIconHtml(categoryId, mode = 'person') {
+  if (categoryId !== 'brokul') return '';
+  return mode === 'category-label'
+    ? '<span class="brokul-pill-icon" aria-hidden="true">🥦</span>'
+    : '<span class="brokul-pill-icon" role="img" aria-label="Brokuł">🥦</span>';
+}
+
 /**
  * Renders a person's name as the shared colored category pill.
  *
- * @param {{ name: string, categoryId?: string|null, categoryLabel?: string|null, accountless?: boolean, extraClass?: string }} person
+ * @param {{ name: string, categoryId?: string|null, categoryLabel?: string|null, accountless?: boolean, extraClass?: string, mode?: 'person'|'category-label' }} person
  *   `name` is the already-computed display name; `categoryLabel` is the resolved label (the caller
  *   owns the lookup-list map), defaulting to the raw id or "Brak statusu"; `extraClass` appends an
  *   extra class (e.g. a summary chip) without duplicating the class attribute.
@@ -43,6 +52,7 @@ function personPillHtml(person) {
   const categoryAttrs = categoryId
     ? ` data-category="${personPillEscapeAttr(categoryId)}" title="${personPillEscapeAttr(label)}"`
     : ` title="${personPillEscapeAttr(label)}"`;
-  const icon = person.accountless ? personPillIconHtml() : '';
-  return `<span class="${classes}"${categoryAttrs}>${icon}${personPillEscapeHtml(person.name)}</span>`;
+  const accountlessIcon = person.accountless ? personPillIconHtml() : '';
+  const broccoliIcon = categoryPillBroccoliIconHtml(categoryId, person.mode);
+  return `<span class="${classes}"${categoryAttrs}>${accountlessIcon}${broccoliIcon}${personPillEscapeHtml(person.name)}</span>`;
 }

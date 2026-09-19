@@ -37,7 +37,7 @@
   --category-color-niewiasta: #d93fa8;
   --category-color-thing:     #e8642e;
   --category-color-blacha:    #427bff;
-  --category-color-kandydat:  #fa9e00;
+  --category-color-kandydat:  #639f09;
   --category-color-bobo:      #06b6d4;
   --category-color-emeryt:    #94a3b8;
   --category-color-default:   var(--text-faint);
@@ -803,6 +803,14 @@ button.lw-skladka-icon:disabled {
   margin-right: 0.18rem;
   vertical-align: -0.06em;
   opacity: 0.85;
+}
+
+/* The Brokuł emoji is text-sized rather than SVG-sized, so it deliberately does not share the
+   dimensions of .person-pill-icon, which identifies an accountless companion. */
+.brokul-pill-icon {
+  font-size: 1em;
+  margin-right: 0.28rem;
+  vertical-align: -0.02em;
 }
 
 /* The inline add-companion panel, rendered as a full-width row right under its member's row. */
