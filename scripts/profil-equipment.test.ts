@@ -142,15 +142,17 @@ test('equipment add/delete are wired as their own immediate POST/DELETE /equipme
   assert.match(script, /container\.addEventListener\('click', \(event\) => \{/);
 });
 
-test('own equipment uses the member\'s own identity/sectionId; a companion row uses the person\'s own identity/sectionId', () => {
+test('only the member\'s own equipment uses wireEquipmentMiniList - companions don\'t have one', () => {
   assert.match(script, /wireEquipmentMiniList\(document\.getElementById\('own-equipment'\), viewerEmail\.toLowerCase\(\), \(\) => ownerSectionId\)/);
-  assert.match(script, /wireEquipmentMiniList\(row\.querySelector\('\.person-equipment'\), person\.personId, \(\) => person\.sectionId\)/);
+  // One definition + exactly one call site (the own-equipment panel above) - a second call site
+  // would mean a companion mini-list crept back in.
+  assert.equal((script.match(/wireEquipmentMiniList\(/g) ?? []).length, 2, 'wireEquipmentMiniList must have exactly one call site (definition + the own-equipment call only)');
 });
 
-test('a brand-new (unsaved) companion row has no equipment mini-list - there is no personId to attach items to yet', () => {
+test('a companion row (new or existing) never renders an equipment mini-list - companions don\'t have their own equipment (product decision, 2026-09-19)', () => {
   const addPersonRow = script.match(/function addPersonRow\(container, person = null\) \{[\s\S]*?\n\}\n/)?.[0];
   assert.ok(addPersonRow);
-  assert.match(addPersonRow, /\$\{person \? `[\s\S]*?person-equipment[\s\S]*?` : ''\}/);
+  assert.doesNotMatch(addPersonRow, /person-equipment/, 'addPersonRow must not build any person-equipment markup for a companion row');
 });
 
 test('CSS defines the mini-list item/list/delete-button classes referenced by the templates', () => {

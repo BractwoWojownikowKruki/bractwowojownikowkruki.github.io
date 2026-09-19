@@ -138,16 +138,6 @@
   color: var(--danger, #c0392b);
 }
 
-.person-equipment-block {
-  margin-top: 0.25rem;
-}
-
-.person-equipment-heading {
-  font-size: 12px;
-  color: var(--text-faint);
-  margin: 0 0 0.4rem;
-}
-
 .equipment-row .remove-row,
 .companion-row .remove-row {
   padding: 8px 0.9rem;

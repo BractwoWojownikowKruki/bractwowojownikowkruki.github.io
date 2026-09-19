@@ -645,11 +645,6 @@ function addPersonRow(container, person = null) {
       <select class="person-section" aria-label="Sekcja">${personOptionsHtml(personLookupLists.sections, person?.sectionId ?? ownerSectionId)}</select>
     </div>
     <div class="person-weapons lw-checkbox-grid">${personWeaponCheckboxesHtml(personLookupLists.weapons, person?.weaponIds ?? [])}</div>
-    ${person ? `
-    <div class="person-equipment-block">
-      <p class="person-equipment-heading">Namioty i wiaty</p>
-      <div class="person-equipment"></div>
-    </div>` : ''}
     <div class="person-row-actions">
       <button type="button" class="person-save add-album-submit">${person ? 'Zapisz' : 'Dodaj'}</button>
       ${person
@@ -659,12 +654,6 @@ function addPersonRow(container, person = null) {
   `;
   row.querySelector('.person-category').addEventListener('change', () => updatePersonWeaponState(row));
   updatePersonWeaponState(row);
-  // A brand-new (unsaved) row has no personId yet, so there is no belongsToPersonId identity to
-  // attach equipment to until the person is actually created - the mini-list only renders once
-  // `person` (an existing, already-saved companion) is truthy.
-  if (person) {
-    wireEquipmentMiniList(row.querySelector('.person-equipment'), person.personId, () => person.sectionId);
-  }
   row.querySelector('.person-save').addEventListener('click', (event) => {
     clearPersonsError();
     const fields = readPersonRow(row);
