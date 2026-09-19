@@ -1,13 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import type { FirestoreLikeClient } from './firestore.ts';
 
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
-
-export interface EquipmentItem {
-  id: string;
-  name: string;
-  description: string;
-}
 
 /**
  * A member's Lista Wyjazdowa profile. The key is the canonical `personId` (KRKG-0087): for a
@@ -17,7 +10,6 @@ export interface EquipmentItem {
  */
 export interface ListaWyjazdowaProfileDoc {
   weaponIds: string[];
-  equipment: EquipmentItem[];
   wpisowePaid: boolean;
   updatedAt: string;
   updatedBy: string;
@@ -25,7 +17,6 @@ export interface ListaWyjazdowaProfileDoc {
 
 export interface ProfileWritableFields {
   weaponIds: string[];
-  equipment: Array<{ id: string; name: string; description: string }>;
 }
 
 const COLLECTION = 'listaWyjazdowaProfile';
@@ -54,7 +45,6 @@ export async function saveProfile(
   const existing = await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id);
   const writable = {
     weaponIds: fields.weaponIds,
-    equipment: fields.equipment.map((e) => ({ ...e, id: e.id || randomUUID() })),
     updatedAt: new Date().toISOString(),
     updatedBy: id,
   };
@@ -64,7 +54,7 @@ export async function saveProfile(
 
 /**
  * Wpisowe is a club due, not a Lista Wyjazdowa feature - whether a member has ever filled in
- * "Mój profil" (weaponIds/equipment) must not gate whether they can be marked as having paid it.
+ * "Mój profil" (weaponIds) must not gate whether they can be marked as having paid it.
  * For a member with no existing document this creates one with empty defaults, the same "give a
  * brand-new document its complete shape" approach saveProfile above already uses for a
  * self-service first save.
@@ -78,10 +68,9 @@ export async function setWpisowePaid(
   const id = personId.toLowerCase();
   const existing = await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id);
   const writable = { wpisowePaid: paid, updatedBy, updatedAt: new Date().toISOString() };
-  await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, weaponIds: [], equipment: [] });
+  await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, weaponIds: [] });
   return {
     weaponIds: existing?.weaponIds ?? [],
-    equipment: existing?.equipment ?? [],
     ...writable,
   };
 }
@@ -91,7 +80,7 @@ export async function setWpisowePaid(
  * checkboxes - unlike weaponIds via saveProfile above (self-service, the member's own "Mój
  * profil"), this lets an admin/moderator correct or set it on someone else's behalf, e.g. for a
  * member who hasn't filled in their profile yet. Same upsert shape as setWpisowePaid: creates a
- * document with empty equipment defaults if the member has none yet.
+ * document with empty defaults if the member has none yet.
  */
 export async function setProfileWeaponIds(
   client: FirestoreWriteContext,
@@ -102,9 +91,8 @@ export async function setProfileWeaponIds(
   const id = personId.toLowerCase();
   const existing = await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id);
   const writable = { weaponIds, updatedBy, updatedAt: new Date().toISOString() };
-  await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, equipment: [], wpisowePaid: false });
+  await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, wpisowePaid: false });
   return {
-    equipment: existing?.equipment ?? [],
     wpisowePaid: existing?.wpisowePaid ?? false,
     ...writable,
   };

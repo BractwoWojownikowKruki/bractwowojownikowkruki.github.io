@@ -169,11 +169,10 @@ test('merge: the person becomes a normal member keyed by the account e-mail', as
     eventId,
     memberEmail: person.personId,
     attending: true,
-    equipmentIds: [],
     skladkaPaid: false,
   });
   client.seed('duesAnnual', `${person.personId}_2026`, { email: person.personId, year: 2026, status: 'paid' });
-  client.seed('listaWyjazdowaProfile', person.personId, { weaponIds: ['tarcza'], equipment: [], wpisowePaid: false });
+  client.seed('listaWyjazdowaProfile', person.personId, { weaponIds: ['tarcza'], wpisowePaid: false });
 
   const result = await mergePersonIntoAccount(client, person.personId, 'Kasia@Example.test', 'admin@example.test');
   assert.equal(result.ok, true);
@@ -216,12 +215,12 @@ test('merge: the account wins every conflict and only has blanks filled', async 
   const person = await createPerson(client, baseFields, 'opiekun@example.test', 'admin@example.test');
   const eventId = 'event-1';
 
-  client.seed('signups', `${eventId}_${person.personId}`, { eventId, memberEmail: person.personId, attending: true, equipmentIds: [] });
-  client.seed('signups', `${eventId}_${accountEmail}`, { eventId, memberEmail: accountEmail, attending: false, equipmentIds: [] });
+  client.seed('signups', `${eventId}_${person.personId}`, { eventId, memberEmail: person.personId, attending: true });
+  client.seed('signups', `${eventId}_${accountEmail}`, { eventId, memberEmail: accountEmail, attending: false });
   client.seed('duesAnnual', `${person.personId}_2026`, { email: person.personId, year: 2026, status: 'paid' });
   client.seed('duesAnnual', `${accountEmail}_2026`, { email: accountEmail, year: 2026, status: 'unpaid' });
-  client.seed('listaWyjazdowaProfile', person.personId, { weaponIds: ['tarcza'], equipment: [], wpisowePaid: false });
-  client.seed('listaWyjazdowaProfile', accountEmail, { weaponIds: ['miecz'], equipment: [], wpisowePaid: true });
+  client.seed('listaWyjazdowaProfile', person.personId, { weaponIds: ['tarcza'], wpisowePaid: false });
+  client.seed('listaWyjazdowaProfile', accountEmail, { weaponIds: ['miecz'], wpisowePaid: true });
 
   const result = await mergePersonIntoAccount(client, person.personId, accountEmail, 'admin@example.test');
   assert.equal(result.ok, true);
@@ -252,7 +251,7 @@ test('merge recomputes blanks and the profile at apply time, so a newer account 
   const client = createInMemoryFirestoreClient();
   seedAccount(client, { fullName: '', nickname: null, sectionId: '', categoryId: null });
   const person = await createPerson(client, baseFields, 'opiekun@example.test', 'admin@example.test');
-  client.seed('listaWyjazdowaProfile', person.personId, { weaponIds: ['tarcza'], equipment: [], wpisowePaid: false });
+  client.seed('listaWyjazdowaProfile', person.personId, { weaponIds: ['tarcza'], wpisowePaid: false });
 
   const planned = await planPersonMerge(client, person.personId, accountEmail);
   assert.equal(planned.ok, true);
@@ -261,7 +260,7 @@ test('merge recomputes blanks and the profile at apply time, so a newer account 
   // The account fills its own identity and weapons after planning, but before the merge is applied
   // (the same window a transaction retry opens up). Those newer values must survive.
   await client.setDoc('members', accountEmail, { fullName: 'Kasia Nowak', nickname: 'Kasia', sectionId: 'warszawa', categoryId: 'thing' });
-  await client.setDoc('listaWyjazdowaProfile', accountEmail, { weaponIds: ['miecz'], equipment: [], wpisowePaid: false });
+  await client.setDoc('listaWyjazdowaProfile', accountEmail, { weaponIds: ['miecz'], wpisowePaid: false });
 
   const applied = await client.runTransaction((tx) => applyPersonMerge(tx, planned.plan, 'admin@example.test'));
   assert.equal(applied.ok, true);

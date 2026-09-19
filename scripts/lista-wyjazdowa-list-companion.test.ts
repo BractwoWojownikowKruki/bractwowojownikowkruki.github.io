@@ -67,9 +67,9 @@ function createHarness(options: HarnessOptions = {}) {
     { id: 'e1', name: 'Wyjazd Letni', startDate: '2027-05-01', status: 'active', viewerAttending, attendingCount: 2 },
   ];
   const roster = [
-    { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], equipment: [] },
+    { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [] },
     ...(options.withAttachedPerson
-      ? [{ personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: 'viewer@example.com', fullName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], equipment: [] }]
+      ? [{ personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: 'viewer@example.com', fullName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [] }]
       : []),
   ];
 
@@ -113,9 +113,8 @@ function createHarness(options: HarnessOptions = {}) {
       if (url === '/lista-wyjazdowa/roster') return { roster };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [{ id: 'kandydat', label: 'Kandydat' }], weapons: [] };
       if (url === '/lista-wyjazdowa/member') return { member: { categoryId: 'kandydat', ...(hiddenMember ? { hidden: true } : {}) } };
-      if (url === '/lista-wyjazdowa/profile') return { profile: { equipment: [], wpisowePaid: true } };
+      if (url === '/lista-wyjazdowa/profile') return { profile: { wpisowePaid: true } };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups: [] };
-      if (url.startsWith('/lista-wyjazdowa/signups/mine?')) return { signup: null };
       throw new Error(`unexpected request: ${url}`);
     },
   };
@@ -181,7 +180,7 @@ test('adding an existing companion posts quick-add, closes the panel and bumps t
   harness.elements.get('lw-inline-existing-select')!.value = 'attached-uuid-1';
   harness.setMutationResult({
     person: { personId: 'attached-uuid-1', ksywka: 'Młody', categoryId: 'kandydat', sectionId: null, weaponIds: [], ownerPersonId: 'viewer@example.com' },
-    signup: { memberEmail: 'attached-uuid-1', attending: true, skladkaPaid: false, equipmentIds: [] },
+    signup: { memberEmail: 'attached-uuid-1', attending: true, skladkaPaid: false },
   });
 
   await list.clickWith(clickTarget('.lw-inline-add-existing'));
@@ -213,7 +212,7 @@ test('toggling to "Jadę" reveals the + and keeps the toggle track', async () =>
   await harness.signIn();
   const list = harness.elements.get('events-list')!;
   assert.doesNotMatch(list.innerHTML, /lw-add-companion/);
-  harness.setMutationResult({ signup: { memberEmail: 'viewer@example.com', attending: true, skladkaPaid: false, equipmentIds: [] } });
+  harness.setMutationResult({ signup: { memberEmail: 'viewer@example.com', attending: true, skladkaPaid: false } });
 
   await list.clickWith(clickTarget('.lw-attend-toggle', { eventId: 'e1', attending: 'false' }));
 

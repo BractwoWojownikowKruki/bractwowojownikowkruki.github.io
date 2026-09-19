@@ -14,7 +14,6 @@ export interface SignupDoc {
   eventId: string;
   memberEmail: string;
   attending: boolean;
-  equipmentIds: string[];
   skladkaPaid: boolean;
   lastChangedBy: string;
   lastChangedAt: string;
@@ -24,7 +23,6 @@ export interface SignupDoc {
 
 export interface SignupWritableFields {
   attending: boolean;
-  equipmentIds: string[];
 }
 
 export interface AuditLogEntry {
@@ -69,7 +67,6 @@ export async function saveSignup(
     eventId,
     memberEmail: email.toLowerCase(),
     attending: fields.attending,
-    equipmentIds: fields.equipmentIds,
     lastChangedBy: changedBy,
     lastChangedAt: now,
     ...(statusChanged ? { statusChangedAt: now } : {}),

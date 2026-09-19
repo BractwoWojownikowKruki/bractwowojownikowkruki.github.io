@@ -90,6 +90,11 @@ const mutationFeedbackWiredRoutes = new Set([
   'POST /lista-wyjazdowa/signups/quick-add',
   'POST /files',
   'DELETE /files',
+  // KRKG-0096 batch 2: the camp-equipment page (public/sprzet-obozowy/) wires add/edit/delete
+  // through MutationFeedback.confirmed().
+  'POST /equipment',
+  'PUT /equipment',
+  'DELETE /equipment',
 ]);
 
 /**

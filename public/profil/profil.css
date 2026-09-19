@@ -80,7 +80,8 @@
 }
 
 .equipment-row input[type="text"],
-.companion-row input[type="text"] {
+.companion-row input[type="text"],
+.equipment-row select {
   padding: 9px 10px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -91,8 +92,60 @@
 }
 
 .equipment-row input[type="text"]:focus,
-.companion-row input[type="text"]:focus {
+.companion-row input[type="text"]:focus,
+.equipment-row select:focus {
   border-color: var(--accent);
+}
+
+/* KRKG-0096 batch 3: the "Namioty i wiaty" mini-list - a member's own equipment, or a companion
+   row's, saved immediately per add/delete via /equipment (see profil.js's wireEquipmentMiniList),
+   not staged with the rest of the profile form. */
+.person-equipment-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0 0 0.6rem;
+  padding: 0;
+}
+
+.person-equipment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.person-equipment-item .person-equipment-delete {
+  padding: 4px 0.7rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.person-equipment-item .person-equipment-delete:hover {
+  border-color: var(--danger, #c0392b);
+  color: var(--danger, #c0392b);
+}
+
+.person-equipment-block {
+  margin-top: 0.25rem;
+}
+
+.person-equipment-heading {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin: 0 0 0.4rem;
 }
 
 .equipment-row .remove-row,

@@ -2476,7 +2476,7 @@ test('GET /admin/members includes weaponIds joined from listaWyjazdowaProfile', 
     approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x', hidden: false,
   });
   client.seed('listaWyjazdowaProfile', 'zbrojny@example.com', {
-    weaponIds: ['miecz', 'topor'], equipment: [], companions: [], wpisowePaid: false,
+    weaponIds: ['miecz', 'topor'], companions: [], wpisowePaid: false,
     updatedAt: 'x', updatedBy: 'x',
   });
   client.seed('members', 'goly@example.com', {
@@ -3105,7 +3105,7 @@ test('PUT /admin/members/weapons can clear weaponIds back to empty', async () =>
     categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
   });
   client.seed('listaWyjazdowaProfile', 'ala@example.com', {
-    weaponIds: ['miecz'], equipment: [], companions: [], wpisowePaid: false, updatedAt: 'x', updatedBy: 'x',
+    weaponIds: ['miecz'], companions: [], wpisowePaid: false, updatedAt: 'x', updatedBy: 'x',
   });
   const deps = makeDeps({
     firestore: client,
@@ -5447,7 +5447,6 @@ test('GET /member-profile returns basic fields, no photos, no description when t
   await firestore.setDoc('lookupLists', 'weapons', { items: [{ id: 'miecz', label: 'Miecz', retired: false }] });
   await firestore.setDoc('listaWyjazdowaProfile', 'ktos@gmail.com', {
     weaponIds: ['miecz'],
-    equipment: [],
     companions: [],
     wpisowePaid: false,
     updatedAt: new Date().toISOString(),
@@ -5487,7 +5486,7 @@ test('GET /member-profile includes wpisowePaid and the current year\'s składka 
   const currentYear = new Date().getFullYear();
   await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: null }));
   await firestore.setDoc('listaWyjazdowaProfile', 'ktos@gmail.com', {
-    weaponIds: [], equipment: [], companions: [], wpisowePaid: true,
+    weaponIds: [], companions: [], wpisowePaid: true,
     updatedAt: new Date().toISOString(), updatedBy: 'ktos@gmail.com',
   });
   await firestore.setDoc('duesAnnual', `ktos@gmail.com_${currentYear}`, {
@@ -6203,7 +6202,6 @@ test('PUT /lista-wyjazdowa/profile creates the caller\'s own profile', async () 
   await withServer(deps, async baseUrl => {
     const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
       weaponIds: ['tarczownik'],
-      equipment: [],
       companions: [],
     });
     assert.equal(res.status, 200);
@@ -6221,7 +6219,6 @@ test('PUT /lista-wyjazdowa/profile ignores wpisowePaid sent in the body', async 
   await withServer(deps, async baseUrl => {
     const created = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
       weaponIds: ['tarczownik'],
-      equipment: [],
       companions: [],
       wpisowePaid: true, // must be ignored — accountant/admin-only
     });
@@ -6231,7 +6228,6 @@ test('PUT /lista-wyjazdowa/profile ignores wpisowePaid sent in the body', async 
     // ...and again on an update, where the stored value is what has to win.
     const updated = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
       weaponIds: ['wlocznik'],
-      equipment: [],
       companions: [],
       wpisowePaid: true,
     });
@@ -6244,10 +6240,7 @@ test('PUT /lista-wyjazdowa/profile ignores wpisowePaid sent in the body', async 
 });
 
 for (const [label, body] of [
-  ['a non-array equipment', { weaponIds: [], equipment: 'x' }],
-  ['a non-array weaponIds', { weaponIds: 'tarczownik', equipment: [] }],
-  ['a non-object equipment entry', { weaponIds: [], equipment: [null] }],
-  ['a nameless equipment entry', { weaponIds: [], equipment: [{ id: '', name: '  ', description: '' }] }],
+  ['a non-array weaponIds', { weaponIds: 'tarczownik' }],
 ] as const) {
   test(`PUT /lista-wyjazdowa/profile rejects ${label} with 400 rather than crashing`, async () => {
     const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
@@ -6263,7 +6256,6 @@ test('PUT /lista-wyjazdowa/profile rejects a weaponId that is not in lookupLists
   await withServer(deps, async baseUrl => {
     const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
       weaponIds: ['tarczownik', 'miotacz-ognia'],
-      equipment: [],
       companions: [],
     });
     assert.equal(res.status, 400);
@@ -6310,7 +6302,6 @@ test('GET /lista-wyjazdowa/events includes attendingCount and the caller\'s own 
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=wojownik@gmail.com`, {
       attending: true,
-      equipmentIds: [],
       companionIds: [],
     });
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/events`);
@@ -6341,22 +6332,6 @@ test('PUT /lista-wyjazdowa/events?eventId= returns 404 for an unknown event', as
   });
 });
 
-test('PUT /lista-wyjazdowa/signups rejects an equipmentId that does not belong to the target member', async () => {
-  const firestore = makeListaWyjazdowaFirestore();
-  seedMember(firestore, 'wojownik@gmail.com');
-  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
-  await withServer(deps, async baseUrl => {
-    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
-    // wojownik@gmail.com has no listaWyjazdowaProfile yet in this fixture, so any equipmentId is "not theirs".
-    const res = await putListaWyjazdowa(
-      baseUrl,
-      `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=wojownik@gmail.com`,
-      { attending: true, equipmentIds: ['not-mine'], companionIds: [] },
-    );
-    assert.equal(res.status, 400);
-  });
-});
-
 test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and records canonical evidence', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'inny@example.test');
@@ -6366,7 +6341,7 @@ test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and r
     const res = await putListaWyjazdowa(
       baseUrl,
       `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=inny@example.test`,
-      { attending: true, equipmentIds: [], companionIds: [] },
+      { attending: true, companionIds: [] },
     );
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -6382,71 +6357,6 @@ test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and r
   });
 });
 
-// The open-edit test above only exercises an empty equipmentIds against a profile-less target, so
-// it can't catch a handler bug that looks up the *caller's* profile instead of the *target's*
-// (e.g. an accidental memberEmail -> identity.email swap in the getProfile call) - that bug would
-// still pass every existing test since neither identity has a profile there. This test gives both
-// a real, distinct target profile and a real, distinct caller profile with different equipment
-// ids, so the referential check is actually exercised against genuine data on both sides.
-test("PUT /lista-wyjazdowa/signups validates equipment ids against the target member's own profile, not the caller's", async () => {
-  const firestore = makeListaWyjazdowaFirestore();
-  const targetEmail = 'inny@example.test';
-  seedMember(firestore, targetEmail);
-
-  // Register the target member's own profile - acting AS the target (not the caller) via a
-  // separate authenticateWojownicyUpload override, same pattern used elsewhere in this file
-  // (e.g. '/wojownicy-upload/whoami returns the caller's email once authenticated') for a second
-  // test identity. Shares the same firestore instance across withServer calls so the write
-  // persists into the next session.
-  let targetEquipmentId = '';
-  await withServer(
-    makeDeps({ firestore, authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'target-1', email: targetEmail }) }),
-    async baseUrl => {
-      const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
-        weaponIds: [],
-        equipment: [{ id: '', name: 'Namiot', description: '' }],
-      });
-      const body = await res.json();
-      targetEquipmentId = body.profile.equipment[0].id;
-    },
-  );
-
-  // Register the caller's own profile (wojownik@gmail.com - makeDeps()'s default
-  // authenticateWojownicyUpload identity) with a *different* equipment item - its id is used
-  // below as the negative case: it must not validate just because it happens to belong to some
-  // real profile, only the target's.
-  let callerEquipmentId = '';
-  await withServer(makeDeps({ firestore }), async baseUrl => {
-    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {
-      weaponIds: [],
-      equipment: [{ id: '', name: 'Plecak', description: '' }],
-    });
-    callerEquipmentId = (await res.json()).profile.equipment[0].id;
-  });
-
-  const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com', targetEmail] });
-  await withServer(deps, async baseUrl => {
-    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
-
-    // Positive case: the target's own real equipment id is accepted.
-    const ok = await putListaWyjazdowa(
-      baseUrl,
-      `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=${targetEmail}`,
-      { attending: true, equipmentIds: [targetEquipmentId] },
-    );
-    assert.equal(ok.status, 200, "the target member's own equipment id must be accepted");
-
-    // Negative case: the caller's own equipment id (not the target's) is rejected against that
-    // same target - the case that would catch a memberEmail-for-identity.email swap regression.
-    const rejected = await putListaWyjazdowa(
-      baseUrl,
-      `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=${targetEmail}`,
-      { attending: true, equipmentIds: [callerEquipmentId] },
-    );
-    assert.equal(rejected.status, 400, "the caller's own equipment id must not validate against a different target member");
-  });
-});
-
 // Open-edit lets any member sign up any *other* member, but not an address that is nobody: such a
 // signup is counted by attendingCount on the events list yet invisible to the roster/per-section
 // breakdown on the event page, leaving the two pages disagreeing about the attendee total.
@@ -6458,7 +6368,7 @@ test('PUT /lista-wyjazdowa/signups returns 404 for a memberEmail not on the allo
     const res = await putListaWyjazdowa(
       baseUrl,
       `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=nikt@example.test`,
-      { attending: true, equipmentIds: [], companionIds: [] },
+      { attending: true, companionIds: [] },
     );
     assert.equal(res.status, 404);
     assert.equal((await res.json()).error, 'Nie znaleziono takiego członka.');
@@ -6483,7 +6393,7 @@ test('PUT /lista-wyjazdowa/signups succeeds for an allowlisted member with no me
     const res = await putListaWyjazdowa(
       baseUrl,
       `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=bezdokumentu@example.test`,
-      { attending: true, equipmentIds: [], companionIds: [] },
+      { attending: true, companionIds: [] },
     );
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -6496,7 +6406,7 @@ test('GET /lista-wyjazdowa/roster joins members with their listaWyjazdowaProfile
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore(), listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Ala Kowalska', sectionId: 'krakow' });
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: ['tarczownik'], equipment: [] });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: ['tarczownik'] });
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/roster`);
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -6615,7 +6525,7 @@ test('GET /lista-wyjazdowa/roster?eventId= keeps a tombstoned person who signed 
     createdAt: 'x', createdBy: 'x',
   });
   firestore.seed('signups', 'event-1_person-uuid-3', {
-    eventId: 'event-1', memberEmail: 'person-uuid-3', attending: true, equipmentIds: [], skladkaPaid: false,
+    eventId: 'event-1', memberEmail: 'person-uuid-3', attending: true, skladkaPaid: false,
   });
 
   const deps = makeDeps({ firestore, listMemberEmails: async () => [] });
@@ -6642,7 +6552,7 @@ test('GET /lista-wyjazdowa/roster?eventId= returns the live roster plus the elig
     ownerPersonId: null, email: null, deletedAt: '2027-01-01T00:00:00.000Z', createdAt: 'x', createdBy: 'x',
   });
   firestore.seed('signups', 'event-1_person-gone', {
-    eventId: 'event-1', memberEmail: 'person-gone', attending: true, equipmentIds: [], skladkaPaid: false,
+    eventId: 'event-1', memberEmail: 'person-gone', attending: true, skladkaPaid: false,
   });
   firestore.seed('duesAnnual', `person-gone_${duesYear}`, { email: 'person-gone', year: duesYear, status: 'paid' });
 
@@ -6675,7 +6585,7 @@ test('GET /lista-wyjazdowa/roster?eventId= still omits a tombstoned person with 
     createdAt: 'x', createdBy: 'x',
   });
   firestore.seed('signups', 'event-2_person-uuid-4', {
-    eventId: 'event-2', memberEmail: 'person-uuid-4', attending: true, equipmentIds: [], skladkaPaid: false,
+    eventId: 'event-2', memberEmail: 'person-uuid-4', attending: true, skladkaPaid: false,
   });
 
   const deps = makeDeps({ firestore, listMemberEmails: async () => [] });
@@ -6832,8 +6742,8 @@ test('DELETE /lista-wyjazdowa/persons/permanent purges the person, profile, sign
   const firestore = makeListaWyjazdowaFirestore();
   seedEvent(firestore, 'event-1');
   seedPerson(firestore, 'p1', null);
-  firestore.seed('listaWyjazdowaProfile', 'p1', { email: 'p1', weaponIds: [], equipment: [], wpisowePaid: false });
-  firestore.seed('signups', 'event-1_p1', { eventId: 'event-1', memberEmail: 'p1', attending: true, equipmentIds: [], skladkaPaid: false });
+  firestore.seed('listaWyjazdowaProfile', 'p1', { email: 'p1', weaponIds: [], wpisowePaid: false });
+  firestore.seed('signups', 'event-1_p1', { eventId: 'event-1', memberEmail: 'p1', attending: true, skladkaPaid: false });
   firestore.seed('duesAnnual', 'p1_2027', { email: 'p1', year: 2027, status: 'paid' });
 
   const deps = makeDeps({
@@ -6888,7 +6798,7 @@ test('PUT /lista-wyjazdowa/persons/account merges for an admin, rejects a modera
   const firestore = makeListaWyjazdowaFirestore();
   seedPerson(firestore, 'p1', 'wojownik@gmail.com');
   seedMember(firestore, 'nowak@gmail.com');
-  firestore.seed('signups', 'event-1_p1', { eventId: 'event-1', memberEmail: 'p1', attending: true, equipmentIds: [], skladkaPaid: false });
+  firestore.seed('signups', 'event-1_p1', { eventId: 'event-1', memberEmail: 'p1', attending: true, skladkaPaid: false });
 
   const moderator = makeDeps({ firestore, authenticateAdminWithStepUp: async () => { throw new AuthError('Brak uprawnień.', 403); } });
   await withServer(moderator, async baseUrl => {
@@ -7159,7 +7069,7 @@ test('existing write routes accept an accountless personId and reject a tombston
   });
   const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
-    const signup = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/signups?eventId=event-1&personId=p1', { attending: true, equipmentIds: [] });
+    const signup = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/signups?eventId=event-1&personId=p1', { attending: true });
     assert.equal(signup.status, 200);
     assert.equal((await signup.json()).signup.memberEmail, 'p1', 'a person signup is keyed by their personId');
 
@@ -7167,7 +7077,7 @@ test('existing write routes accept an accountless personId and reject a tombston
     assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=p1&year=2027', { status: 'paid' })).status, 200);
 
     assert.equal(
-      (await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/signups?eventId=event-1&personId=p2', { attending: true, equipmentIds: [] })).status,
+      (await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/signups?eventId=event-1&personId=p2', { attending: true })).status,
       404,
       'a tombstoned person is not a writable target',
     );
@@ -7191,7 +7101,7 @@ test('existing write routes reject a merged person\'s retired UUID', async () =>
   const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com', 'nowak@gmail.com'] });
   await withServer(deps, async baseUrl => {
     assert.equal(
-      (await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/signups?eventId=event-1&personId=p-merged', { attending: true, equipmentIds: [] })).status,
+      (await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/signups?eventId=event-1&personId=p-merged', { attending: true })).status,
       404,
     );
     assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/signups/skladka?eventId=event-1&personId=p-merged', { paid: true })).status, 404);
@@ -7281,7 +7191,6 @@ test('GET /lista-wyjazdowa/signups returns the full raw roster of signups for an
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=wojownik@gmail.com`, {
       attending: true,
-      equipmentIds: [],
       companionIds: [],
     });
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/signups?eventId=${created.event.id}`);
@@ -7310,7 +7219,6 @@ test('GET /lista-wyjazdowa/signups/mine returns the caller\'s own signup after s
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=wojownik@gmail.com`, {
       attending: true,
-      equipmentIds: [],
       companionIds: [],
     });
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/signups/mine?eventId=${created.event.id}`);
@@ -7437,7 +7345,6 @@ test('GET /lista-wyjazdowa/events reports viewerSkladkaPaid for the caller', asy
     const event = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zlot', startDate: '2027-06-12' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${event.event.id}&personId=wojownik@gmail.com`, {
       attending: true,
-      equipmentIds: [],
       companionIds: [],
     });
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/events`);
@@ -7479,7 +7386,7 @@ test('PUT /lista-wyjazdowa/signups/skladka succeeds for accountant against an ex
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
     await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=wojownik@gmail.com`, {
-      attending: true, equipmentIds: [], companionIds: [],
+      attending: true, companionIds: [],
     });
     const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&personId=wojownik@gmail.com`, { paid: true });
     assert.equal(res.status, 200);
@@ -7497,7 +7404,7 @@ test('PUT /lista-wyjazdowa/wpisowe requires accountant', async () => {
 
 // Wpisowe is a club due, not a Lista Wyjazdowa feature: whether this member has ever filled in
 // "Mój profil" must not gate whether it can be marked paid. setWpisowePaid upserts a profile
-// document with empty weaponIds/equipment/companions rather than 404ing.
+// document with empty weaponIds/companions rather than 404ing.
 test('PUT /lista-wyjazdowa/wpisowe succeeds and creates a profile for a member with none yet', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const deps = makeDepsWithRole('accountant', firestore, {
@@ -7523,7 +7430,7 @@ test('PUT /lista-wyjazdowa/wpisowe succeeds for accountant against an existing p
     // makeDepsWithRole's caller (wojownik@gmail.com) is itself the accountant here, so it can
     // create its own listaWyjazdowaProfile via the self-service PUT before targeting that same
     // email with the accountant-only wpisowe toggle.
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], companions: [] });
     const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=wojownik@gmail.com', { paid: true });
     assert.equal(res.status, 200);
     assert.equal((await res.json()).profile.wpisowePaid, true);
@@ -7581,7 +7488,7 @@ test('new dues writes are canonical audit events (legacy dues audit-log endpoint
   const deps = makeDepsWithRole('accountant', firestore);
   await withServer(deps, async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Wojownik', sectionId: 'krakow' });
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], companions: [] });
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=wojownik@gmail.com', { paid: true });
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues?personId=wojownik@gmail.com&year=2027', { status: 'paid' });
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
@@ -7703,7 +7610,7 @@ test('GET /lista-wyjazdowa/roster includes wpisowePaid per member', async () => 
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore(), listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { fullName: 'Ala Kowalska', sectionId: 'krakow' });
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], companions: [] });
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/roster`);
     const body = await res.json();
     assert.equal(body.roster[0].wpisowePaid, false);
@@ -7744,7 +7651,7 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
     const signup = await putListaWyjazdowa(
       baseUrl,
       `/lista-wyjazdowa/signups?eventId=${event.id}&personId=wojownik@gmail.com`,
-      { attending: true, equipmentIds: [], companionIds: [] },
+      { attending: true, companionIds: [] },
     );
     assert.equal(signup.status, 200);
 
@@ -7755,7 +7662,7 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
     );
     assert.equal(paid.status, 200);
 
-    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], equipment: [], companions: [] });
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], companions: [] });
     const entryFee = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=wojownik@gmail.com', { paid: true });
     assert.equal(entryFee.status, 200);
 
@@ -7803,7 +7710,6 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
     assert.equal(byAction.get('signup.created')?.value, 'wojownik@gmail.com.attending=true');
     assert.deepEqual(byAction.get('signup.created')?.changes, [
       { field: 'attending', after: true, visibility: 'memberVisible' },
-      { field: 'equipmentCount', after: 0, visibility: 'memberVisible' },
     ]);
     assert.equal(byAction.get('dues.event_fee.changed')?.audience, 'adminOrAccountant');
     assert.equal(byAction.get('dues.entry_fee.changed')?.changes[0]?.field, 'paid');
@@ -7912,9 +7818,8 @@ test('GET /members/directory falls back to the raw sectionId when it has no matc
   });
 });
 
-// setWpisowePaid now upserts a profile with empty weaponIds/equipment/companions rather than
-// 404ing, so a signup for such a member still reads a real (empty) array from
-// targetProfile.equipment/companions instead of crashing.
+// setWpisowePaid now upserts a profile with empty weaponIds/companions rather than 404ing, so a
+// signup for such a member still succeeds instead of crashing.
 test('PUT /lista-wyjazdowa/signups still works for a member with no listaWyjazdowaProfile', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'bezprofilu@example.test');
@@ -7925,7 +7830,7 @@ test('PUT /lista-wyjazdowa/signups still works for a member with no listaWyjazdo
     const res = await putListaWyjazdowa(
       baseUrl,
       `/lista-wyjazdowa/signups?eventId=${created.event.id}&personId=bezprofilu@example.test`,
-      { attending: true, equipmentIds: [], companionIds: [] },
+      { attending: true, companionIds: [] },
     );
     assert.equal(res.status, 200);
   });
@@ -8756,4 +8661,174 @@ test('POST /internal/audit/reconcile: profile.photo_submission.created is unaffe
   assert.equal(outcome!.state, 'succeeded');
   assert.equal(outcome!.determinedBy, 'reconciler');
   assert.ok(outcome!.auditEventId);
+});
+
+// KRKG-0096: /equipment HTTP-route tests. Mirrors the /files route tests above (createInMemoryFirestoreClient
+// + makeDeps + withServer, jsonRequest-shaped fetch calls), covering the gaps the final-review flagged
+// rather than /files's full depth: auth gating, the "any member can edit anything" trust decision,
+// the PUT-unknown-id 404, and that a create actually emits an audit event with the right shape.
+function makeEquipmentFirestore() {
+  const firestore = makeFakeFirestore();
+  firestore.seed('lookupLists', 'equipmentCategories', {
+    items: [{ id: 'namiot', label: 'Namiot', retired: false }],
+  });
+  firestore.seed('lookupLists', 'sections', {
+    items: [{ id: 'krakow', label: 'Kraków', retired: false }],
+  });
+  return firestore;
+}
+
+test('GET /equipment rejects an unauthenticated caller', async () => {
+  const deps = makeDeps({
+    authenticate: async () => { throw new AuthError('Brak sesji.', 401); },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`);
+    assert.equal(res.status, 401);
+  });
+});
+
+// design.md's headline trust decision for this feature: unlike /files (owner-or-moderator), any
+// signed-in member may edit or delete any equipment item, private or team-owned - canEdit/canDelete
+// must come back true even for a private item belonging to somebody else.
+test('GET /equipment marks a private item owned by a different member as editable and deletable', async () => {
+  const firestore = makeEquipmentFirestore();
+  const listMemberEmails = async () => ['ala@example.test', 'bob@example.test'];
+  await withServer(
+    makeDeps({ firestore, listMemberEmails, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }),
+    async baseUrl => {
+      const postRes = await fetch(`${baseUrl}/equipment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Namiot Ali', belongsToPersonId: 'ala@example.test' }),
+      });
+      assert.equal(postRes.status, 200);
+    },
+  );
+  await withServer(
+    makeDeps({ firestore, listMemberEmails, authenticate: async () => fakeSessionClaims({ email: 'bob@example.test' }) }),
+    async baseUrl => {
+      const res = await fetch(`${baseUrl}/equipment`);
+      assert.equal(res.status, 200);
+      const { equipment } = (await res.json()) as { equipment: Array<{ belongsToPersonId: string | null; canEdit: boolean; canDelete: boolean }> };
+      assert.equal(equipment.length, 1);
+      assert.equal(equipment[0].belongsToPersonId, 'ala@example.test');
+      assert.equal(equipment[0].canEdit, true, 'any member may edit a private item they do not own');
+      assert.equal(equipment[0].canDelete, true, 'any member may delete a private item they do not own');
+    },
+  );
+});
+
+test('PUT /equipment returns 404 for an unknown id', async () => {
+  const deps = makeDeps({ firestore: makeEquipmentFirestore(), authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment?id=nie-ma-takiego`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'x', belongsToPersonId: null }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+test('POST /equipment records an equipment.added audit event with the resource key and created fields', async () => {
+  const firestore = makeEquipmentFirestore();
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  let equipmentId = '';
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Wiata drużynowa', belongsToPersonId: null }),
+    });
+    assert.equal(res.status, 200);
+    const { equipment } = (await res.json()) as { equipment: { id: string } };
+    equipmentId = equipment.id;
+  });
+
+  const events = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after?: unknown }> }>('auditEvents');
+  const addedEvent = events.map(e => e.data).find(e => e.action === 'equipment.added');
+  assert.ok(addedEvent, 'expected an equipment.added audit event');
+  assert.equal(addedEvent!.resource.key, `equipment:${equipmentId}`);
+  const changesByField = new Map(addedEvent!.changes.map(c => [c.field, c.after]));
+  assert.equal(changesByField.get('categoryId'), 'namiot');
+  assert.equal(changesByField.get('sectionId'), 'krakow');
+  assert.equal(changesByField.get('belongsToPersonId'), null);
+  assert.equal(changesByField.get('description'), 'Wiata drużynowa');
+});
+
+// KRKG-0096 final review, Finding 5: categoryId/sectionId/belongsToPersonId referential validation.
+// design.md §5 requires categoryId/sectionId to exist in their lookup lists, and belongsToPersonId
+// (when given) to resolve to a live member or a non-deleted person. These mirror the existing
+// requireKnownLookupId convention (parseMemberWritableFields/handleListaWyjazdowaPutProfile): a
+// never-valid id is rejected, but a retired id already in use on an existing item stays valid.
+test('POST /equipment rejects a categoryId that is not in lookupLists', async () => {
+  const deps = makeDeps({ firestore: makeEquipmentFirestore(), authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'nie-ma-takiej', sectionId: 'krakow', description: '', belongsToPersonId: null }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('POST /equipment rejects a sectionId that is not in lookupLists', async () => {
+  const deps = makeDeps({ firestore: makeEquipmentFirestore(), authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'nie-ma-takiej', description: '', belongsToPersonId: null }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('POST /equipment rejects a belongsToPersonId that resolves to neither a live member nor an existing person', async () => {
+  const deps = makeDeps({ firestore: makeEquipmentFirestore(), listMemberEmails: async () => [], authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: '', belongsToPersonId: 'nikt-taki@example.test' }),
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
+// The whole point of reusing requireKnownLookupId instead of a naive membership check: an item
+// that already carries a since-retired categoryId must still be editable (e.g. changing only its
+// description), not locked out because the category it already has is no longer offered for new
+// selection.
+test('PUT /equipment accepts a retired categoryId that the item already has', async () => {
+  const firestore = makeEquipmentFirestore();
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  let equipmentId = '';
+  await withServer(deps, async baseUrl => {
+    const postRes = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Stary namiot', belongsToPersonId: null }),
+    });
+    equipmentId = ((await postRes.json()) as { equipment: { id: string } }).equipment.id;
+  });
+
+  // Retire the category after the item was created, exactly like an admin editing lookupLists
+  // directly in Firestore (design.md - no admin UI for this list).
+  await firestore.setDoc('lookupLists', 'equipmentCategories', {
+    items: [{ id: 'namiot', label: 'Namiot', retired: true }],
+  });
+
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment?id=${equipmentId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Stary namiot, opisany na nowo', belongsToPersonId: null }),
+    });
+    assert.equal(res.status, 200, 'a retired categoryId already on the item must still be accepted');
+    const { equipment } = (await res.json()) as { equipment: { description: string } };
+    assert.equal(equipment.description, 'Stary namiot, opisany na nowo');
+  });
 });

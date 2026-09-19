@@ -41,13 +41,14 @@ test('action/category labels cover every registered action and category', () => 
     'gallery.photo.added', 'gallery.finalized', 'gallery.photo.contribution.finalized',
     'site.redirect.created', 'site.redirect.deleted', 'site.settings.updated', 'site.social_cache.refreshed',
     'file.added', 'file.deleted',
+    'equipment.added', 'equipment.updated', 'equipment.deleted',
   ];
   for (const action of registeredActions) {
     assert.notEqual(AuditView.actionLabel(action), action, `missing Polish label for ${action}`);
   }
   assert.equal(registeredActions.length, Object.keys(AuditView.ACTION_LABELS).length);
 
-  for (const category of ['permissions', 'membership', 'events', 'signups', 'dues', 'profile', 'session', 'application', 'gallery', 'site', 'files']) {
+  for (const category of ['permissions', 'membership', 'events', 'signups', 'dues', 'profile', 'session', 'application', 'gallery', 'site', 'files', 'equipment']) {
     assert.notEqual(AuditView.categoryLabel(category), category, `missing Polish label for ${category}`);
   }
 });
@@ -223,7 +224,7 @@ test('formatChangeLine: an explicit null after is rendered as the literal text "
 });
 
 test('MEMBER_VISIBLE_CATEGORIES only offers categories whose audience is "members" (implementation-contract.md)', () => {
-  assert.deepEqual(AuditView.MEMBER_VISIBLE_CATEGORIES, ['events', 'signups', 'gallery', 'files']);
+  assert.deepEqual(AuditView.MEMBER_VISIBLE_CATEGORIES, ['events', 'signups', 'gallery', 'files', 'equipment']);
 });
 
 test('ACTIONS_BY_CATEGORY has no action outside its declared category and covers every category', () => {

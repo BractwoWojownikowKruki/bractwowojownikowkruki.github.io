@@ -100,6 +100,9 @@
     'site.social_cache.refreshed': 'Odświeżenie cache',
     'file.added': 'Dodanie pliku',
     'file.deleted': 'Usunięcie pliku',
+    'equipment.added': 'Dodanie sprzętu',
+    'equipment.updated': 'Aktualizacja sprzętu',
+    'equipment.deleted': 'Usunięcie sprzętu',
   };
 
   const CATEGORY_LABELS = {
@@ -114,6 +117,7 @@
     gallery: 'Galerie',
     site: 'Strona',
     files: 'Pliki',
+    equipment: 'Sprzęt obozowy',
   };
 
   // Every category whose audience is 'members' in ACTION_REGISTRY (implementation-contract.md's
@@ -121,7 +125,7 @@
   // category's audience is admin/adminOrAccountant/adminOrModerator, so projectAuditEvent() on the
   // server always returns null for a member-scope query against them - offering them in the
   // member shell's category filter would just be a filter that structurally never returns a row).
-  const MEMBER_VISIBLE_CATEGORIES = ['events', 'signups', 'gallery', 'files'];
+  const MEMBER_VISIBLE_CATEGORIES = ['events', 'signups', 'gallery', 'files', 'equipment'];
 
   // action -> category, derived from ACTION_LABELS' keys against implementation-contract.md's
   // registry table, used to populate the category/action two-step filter control.
@@ -169,6 +173,7 @@
     ],
     site: ['site.redirect.created', 'site.redirect.deleted', 'site.settings.updated', 'site.social_cache.refreshed'],
     files: ['file.added', 'file.deleted'],
+    equipment: ['equipment.added', 'equipment.updated', 'equipment.deleted'],
   };
 
   function actionLabel(action) {

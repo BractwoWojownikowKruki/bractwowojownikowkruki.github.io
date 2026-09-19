@@ -69,6 +69,9 @@ export const GATED_PATH_PREFIXES = [
   // KRKG-0076: the Pliki page (public/pliki/) lists member-added file links and who added
   // them - same personal-data/member-only sensitivity class as /profil//czlonkowie//audyt/ above.
   '/pliki/',
+  // KRKG-0096: the camp-equipment inventory (public/sprzet-obozowy/) lists who a private item
+  // belongs to - same member-only sensitivity class as /profil//czlonkowie//audyt//pliki/ above.
+  '/sprzet-obozowy/',
   // KRKG-0080: the member dashboard (public/app/) surfaces personal data (dues status, admin
   // action queues) - same sensitivity class as /profil//czlonkowie/ above.
   '/app/',

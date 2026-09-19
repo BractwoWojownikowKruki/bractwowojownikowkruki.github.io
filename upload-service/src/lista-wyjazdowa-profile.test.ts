@@ -12,28 +12,22 @@ test('saveProfile creates a record with wpisowePaid defaulted to false', async (
   const client = createInMemoryFirestoreClient();
   const profile = await saveProfile(client, 'ala@example.test', {
     weaponIds: ['tarcza', 'wlocznia'],
-    equipment: [{ id: '', name: 'Namiot', description: '4-osobowy' }],
   });
   assert.deepEqual(profile.weaponIds, ['tarcza', 'wlocznia']);
   assert.equal(profile.wpisowePaid, false);
-  assert.equal(profile.equipment[0].name, 'Namiot');
-  assert.ok(profile.equipment[0].id.length > 0, 'a blank id must be generated');
 });
 
-test('saveProfile preserves existing equipment ids and wpisowePaid on update', async () => {
+test('saveProfile preserves wpisowePaid on update', async () => {
   const client = createInMemoryFirestoreClient();
   const created = await saveProfile(client, 'ala@example.test', {
     weaponIds: ['tarcza'],
-    equipment: [{ id: '', name: 'Namiot', description: '' }],
   });
   client.seed('listaWyjazdowaProfile', 'ala@example.test', { ...created, wpisowePaid: true });
 
   const updated = await saveProfile(client, 'ala@example.test', {
     weaponIds: ['tarcza', 'topor'],
-    equipment: [{ id: created.equipment[0].id, name: 'Namiot 6-osobowy', description: '' }],
   });
 
-  assert.equal(updated.equipment[0].id, created.equipment[0].id, 'existing id must be kept, not regenerated');
   assert.equal(updated.wpisowePaid, true, 'wpisowePaid must survive a self-service edit untouched');
 
   const stored = await getProfile(client, 'ala@example.test');
@@ -47,7 +41,6 @@ test('saveProfile leaves fields it does not know about untouched', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('listaWyjazdowaProfile', 'ala@example.test', {
     weaponIds: ['tarcza'],
-    equipment: [],
     companions: [],
     wpisowePaid: false,
     someAdminAddedField: 'ustawione ręcznie w konsoli',
@@ -55,7 +48,7 @@ test('saveProfile leaves fields it does not know about untouched', async () => {
     updatedBy: 'admin@example.test',
   });
 
-  await saveProfile(client, 'ala@example.test', { weaponIds: ['topor'], equipment: [] });
+  await saveProfile(client, 'ala@example.test', { weaponIds: ['topor'] });
 
   const stored = await client.getDoc<Record<string, unknown>>('listaWyjazdowaProfile', 'ala@example.test');
   assert.equal(stored?.someAdminAddedField, 'ustawione ręcznie w konsoli');
@@ -64,35 +57,32 @@ test('saveProfile leaves fields it does not know about untouched', async () => {
 
 // Wpisowe is a club due, not a Lista Wyjazdowa feature - whether a member has ever filled in "Mój
 // profil" must not gate whether they can be marked as having paid it.
-test('setWpisowePaid creates a profile with empty weaponIds/equipment when none exists', async () => {
+test('setWpisowePaid creates a profile with empty weaponIds when none exists', async () => {
   const client = createInMemoryFirestoreClient();
   const created = await setWpisowePaid(client, 'ala@example.test', true, 'accountant@example.test');
   assert.equal(created.wpisowePaid, true);
   assert.deepEqual(created.weaponIds, []);
-  assert.deepEqual(created.equipment, []);
   assert.equal(created.updatedBy, 'accountant@example.test');
 
   const stored = await getProfile(client, 'ala@example.test');
   assert.deepEqual(stored, created);
 });
 
-test('setWpisowePaid toggles paid, preserving weaponIds/equipment', async () => {
+test('setWpisowePaid toggles paid, preserving weaponIds', async () => {
   const client = createInMemoryFirestoreClient();
   await saveProfile(client, 'ala@example.test', {
     weaponIds: ['tarcza'],
-    equipment: [{ id: '', name: 'Namiot', description: '' }],
   });
   const updated = await setWpisowePaid(client, 'ala@example.test', true, 'accountant@example.test');
   assert.equal(updated?.wpisowePaid, true);
   assert.deepEqual(updated?.weaponIds, ['tarcza']);
-  assert.equal(updated?.equipment[0].name, 'Namiot');
   assert.equal(updated?.updatedBy, 'accountant@example.test');
 });
 
 test('listAllProfiles returns every profile with email populated from the doc id', async () => {
   const client = createInMemoryFirestoreClient();
-  await saveProfile(client, 'ala@example.test', { weaponIds: ['tarcza'], equipment: [] });
-  await saveProfile(client, 'basia@example.test', { weaponIds: ['topor'], equipment: [] });
+  await saveProfile(client, 'ala@example.test', { weaponIds: ['tarcza'] });
+  await saveProfile(client, 'basia@example.test', { weaponIds: ['topor'] });
 
   const all = await listAllProfiles(client);
   assert.equal(all.length, 2);

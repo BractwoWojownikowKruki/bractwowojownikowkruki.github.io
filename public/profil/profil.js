@@ -235,9 +235,10 @@ function renderDuesStatus(wpisowePaid, rocznaPaid) {
 
 // Same escapeHtml/escapeAttr pair as person-tile.js - the established pattern in this codebase
 // for interpolating user-controlled strings into an innerHTML template. Needed here because
-// equipment/companion name+description are member-entered free text, round-tripped straight back
-// into value="..." attributes on page load (initForm's prefill calls these same functions with
-// the member's own saved profile data) - unescaped, a stored `"><...` value becomes live markup.
+// companion identity fields (and equipment descriptions) are member-entered free text, round-
+// tripped straight back into value="..." attributes on page load (initForm's prefill calls these
+// same functions with the member's own saved profile data) - unescaped, a stored `"><...` value
+// becomes live markup.
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -287,32 +288,6 @@ function populateWeaponCheckboxes(container, weapons, currentWeaponIds) {
       return `<label><input type="checkbox" name="weaponIds" value="${escapeAttr(w.id)}" />${icon}<span>${escapeHtml(w.label)}</span></label>`;
     })
     .join('');
-}
-
-function addEquipmentRow(container, item = { id: '', name: '', description: '' }) {
-  const row = document.createElement('div');
-  row.className = 'equipment-row';
-  row.innerHTML = `
-    <input type="hidden" class="equipment-id" value="${escapeAttr(item.id)}" />
-    <input type="text" class="equipment-name" placeholder="Nazwa" value="${escapeAttr(item.name)}" />
-    <input type="text" class="equipment-description" placeholder="Opis" value="${escapeAttr(item.description)}" />
-    <button type="button" class="remove-row">Usuń</button>
-  `;
-  row.querySelector('.remove-row').addEventListener('click', () => row.remove());
-  container.appendChild(row);
-}
-
-// Rows left completely blank (added with "Dodaj sprzęt" and then abandoned) are
-// dropped rather than submitted: the server rejects a nameless entry with a 400, and failing the
-// whole save over an empty leftover row would be a poor trade for a form this long.
-function readEquipmentRows(container) {
-  return Array.from(container.querySelectorAll('.equipment-row'))
-    .map((row) => ({
-      id: row.querySelector('.equipment-id').value,
-      name: row.querySelector('.equipment-name').value,
-      description: row.querySelector('.equipment-description').value,
-    }))
-    .filter((item) => item.name.trim());
 }
 
 // ── Photo selection + crop modal (ported from wojownicy/wrzuc/wrzuc.js) ─────────────────────
@@ -465,9 +440,133 @@ function resetPhotoSelection() {
   renderPhotoPreview();
 }
 
-function fillRows(container, items, addRow) {
-  container.innerHTML = '';
-  for (const item of items) addRow(container, item);
+// ── Namioty i wiaty (KRKG-0096 batch 3) ──────────────────────────────────────────────────────
+//
+// Replaces the old free-text "Sprzęt obozowy" list (name+description rows only submitted with the
+// rest of the form) with a small per-person mini-list wired directly to the structured /equipment
+// API (Batch 1) - both the member's own section and each companion in addPersonRow get one. Unlike
+// the old system, every add/delete here is its own immediate POST/DELETE /equipment call via
+// MutationFeedback.confirmed (matching how /sprzet-obozowy/'s own add form already works), not
+// staged and submitted together with "Zapisz profil" - a deliberate UX difference, confirmed in
+// the plan (see task-3-brief.md Step 3).
+let equipmentItems = [];
+let equipmentCategories = [];
+let equipmentCategoryLabelById = new Map();
+
+// Pure filter (no DOM) so it can be unit-tested directly - same convention as
+// sprzet-obozowy.js's splitEquipmentByOwnership. belongsToPersonId is the canonical id space
+// shared across the app (member = lowercased e-mail, accountless person = personId/UUID).
+function equipmentForOwner(equipment, ownerId) {
+  return equipment.filter((item) => item.belongsToPersonId === ownerId);
+}
+
+function equipmentCategoryOptionsHtml() {
+  return selectableLookupItems(equipmentCategories, [])
+    .map((c) => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.label)}</option>`)
+    .join('');
+}
+
+function equipmentItemHtml(item) {
+  const categoryLabel = equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
+  const description = item.description ? ` – ${escapeHtml(item.description)}` : '';
+  const deleteButton = item.canDelete
+    ? `<button type="button" class="person-equipment-delete" data-equipment-id="${escapeAttr(item.id)}">Usuń</button>`
+    : '';
+  return `
+    <li class="person-equipment-item" data-equipment-id="${escapeAttr(item.id)}">
+      <span class="person-equipment-label">${escapeHtml(categoryLabel)}${description}</span>
+      ${deleteButton}
+    </li>
+  `;
+}
+
+function personEquipmentInnerHtml(items) {
+  const list = items.length
+    ? `<ul class="person-equipment-list">${items.map(equipmentItemHtml).join('')}</ul>`
+    : '<p class="lw-hint">Brak.</p>';
+  return `
+    ${list}
+    <div class="equipment-row person-equipment-add">
+      <select class="person-equipment-category" aria-label="Kategoria sprzętu">${equipmentCategoryOptionsHtml()}</select>
+      <input type="text" class="person-equipment-description" placeholder="Opis (opcjonalnie)" aria-label="Opis" />
+      <button type="button" class="person-equipment-add-btn">Dodaj</button>
+    </div>
+  `;
+}
+
+// `container` is the persistent `.person-equipment` element itself (only its innerHTML is
+// replaced, never the element), so a MutationFeedback.confirmed anchored/viewRoot'd on it stays
+// connected across re-renders - unlike anchoring on the clicked add/delete button, which this
+// re-render detaches (same reasoning as sprzet-obozowy.js's wireAddForm/wireTableActions comments).
+function renderPersonEquipment(container, ownerId) {
+  container.innerHTML = personEquipmentInnerHtml(equipmentForOwner(equipmentItems, ownerId));
+}
+
+async function addPersonEquipmentItem(container, ownerId, getSectionId, control) {
+  const categoryId = container.querySelector('.person-equipment-category').value;
+  const description = container.querySelector('.person-equipment-description').value.trim();
+  if (!categoryId) return;
+  await window.MutationFeedback.confirmed({
+    control,
+    anchor: container,
+    viewRoot: container,
+    execute: () => apiFetch(
+      '/equipment',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoryId, description, belongsToPersonId: ownerId, sectionId: getSectionId() }),
+      },
+      showReauth,
+      hideReauth,
+    ),
+    apply: ({ equipment: saved }) => {
+      // POST /equipment's response doesn't carry canEdit/canDelete (only the GET /equipment list
+      // handler synthesizes them, server.ts's handleListEquipment - always true on every item, see
+      // its own comment). Without this, a freshly-added item would render with no delete button
+      // until the page reloads, since equipmentItemHtml gates the button on item.canDelete.
+      equipmentItems.push({ ...saved, canEdit: true, canDelete: true });
+      renderPersonEquipment(container, ownerId);
+    },
+    refreshFragment: async () => renderPersonEquipment(container, ownerId),
+  });
+}
+
+async function deletePersonEquipmentItem(container, ownerId, itemId, control) {
+  await window.MutationFeedback.confirmed({
+    control,
+    anchor: container,
+    viewRoot: container,
+    execute: () => apiFetch(`/equipment?id=${encodeURIComponent(itemId)}`, { method: 'DELETE' }, showReauth, hideReauth),
+    apply: () => {
+      equipmentItems = equipmentItems.filter((item) => item.id !== itemId);
+      renderPersonEquipment(container, ownerId);
+    },
+    refreshFragment: async () => renderPersonEquipment(container, ownerId),
+  });
+}
+
+// `getSectionId` is a callback, not a captured value, so each call reads the owner's *current*
+// sectionId at the moment "Dodaj" is clicked (member.sectionId may change if the profile form is
+// re-saved; a companion row is entirely re-created by renderPersons/addPersonRow after every
+// person save, so its own closure is always fresh - see task-3-brief.md Step 3).
+function wireEquipmentMiniList(container, ownerId, getSectionId) {
+  container.addEventListener('click', (event) => {
+    const addBtn = event.target.closest('.person-equipment-add-btn');
+    if (addBtn) {
+      addPersonEquipmentItem(container, ownerId, getSectionId, addBtn).catch((err) => {
+        window.alert(`Nie udało się dodać sprzętu: ${err.message}`);
+      });
+      return;
+    }
+    const deleteBtn = event.target.closest('.person-equipment-delete');
+    if (deleteBtn) {
+      deletePersonEquipmentItem(container, ownerId, deleteBtn.dataset.equipmentId, deleteBtn).catch((err) => {
+        window.alert(`Nie udało się usunąć sprzętu: ${err.message}`);
+      });
+    }
+  });
+  renderPersonEquipment(container, ownerId);
 }
 
 // ── Osoby towarzyszące (KRKG-0087 design.md section B) ───────────────────────────────────────
@@ -546,6 +645,11 @@ function addPersonRow(container, person = null) {
       <select class="person-section" aria-label="Sekcja">${personOptionsHtml(personLookupLists.sections, person?.sectionId ?? ownerSectionId)}</select>
     </div>
     <div class="person-weapons lw-checkbox-grid">${personWeaponCheckboxesHtml(personLookupLists.weapons, person?.weaponIds ?? [])}</div>
+    ${person ? `
+    <div class="person-equipment-block">
+      <p class="person-equipment-heading">Namioty i wiaty</p>
+      <div class="person-equipment"></div>
+    </div>` : ''}
     <div class="person-row-actions">
       <button type="button" class="person-save add-album-submit">${person ? 'Zapisz' : 'Dodaj'}</button>
       ${person
@@ -555,6 +659,12 @@ function addPersonRow(container, person = null) {
   `;
   row.querySelector('.person-category').addEventListener('change', () => updatePersonWeaponState(row));
   updatePersonWeaponState(row);
+  // A brand-new (unsaved) row has no personId yet, so there is no belongsToPersonId identity to
+  // attach equipment to until the person is actually created - the mini-list only renders once
+  // `person` (an existing, already-saved companion) is truthy.
+  if (person) {
+    wireEquipmentMiniList(row.querySelector('.person-equipment'), person.personId, () => person.sectionId);
+  }
   row.querySelector('.person-save').addEventListener('click', (event) => {
     clearPersonsError();
     const fields = readPersonRow(row);
@@ -646,9 +756,9 @@ async function deletePerson(personId, control) {
 
 async function initForm(lookupLists) {
   const form = document.getElementById('profile-form');
-  const equipmentContainer = document.getElementById('equipment-rows');
-  document.getElementById('add-equipment-row').addEventListener('click', () => addEquipmentRow(equipmentContainer));
   personLookupLists = lookupLists;
+  equipmentCategories = lookupLists.equipmentCategories ?? [];
+  equipmentCategoryLabelById = new Map(equipmentCategories.map((c) => [c.id, c.label]));
   document.getElementById('add-person-row').addEventListener('click', () => addPersonRow(document.getElementById('persons-rows')));
 
   // Submit handling is wired unconditionally, before the member/profile prefetch below - so a
@@ -666,15 +776,15 @@ async function initForm(lookupLists) {
     progressEl.hidden = false;
     progressEl.textContent = 'Zapisywanie profilu...';
 
-    const applySavedProfile = ({ savedMember, savedProfile }) => {
-      // Re-seed the rows from the server's response so the ids it just generated for brand-new
-      // equipment items are carried by the form: without this, editing and re-saving would
-      // send blank ids again and mint a duplicate id for the same item on every save.
-      fillRows(equipmentContainer, savedProfile.equipment, addEquipmentRow);
+    const applySavedProfile = ({ savedMember }) => {
       // Reflect the server's fullName back into the field it may have just backfilled, so a
       // member who only typed Ksywa sees where their name came from, not a blank field.
       form.fullName.value = savedMember.fullName;
       form.nickname.value = savedMember.nickname ?? '';
+      // Keep the equipment mini-list's "current sectionId" in sync with a Sekcja change just
+      // saved here - the mini-list itself is unaffected by this submit (it saves independently,
+      // see wireEquipmentMiniList), but a fresh add right after this save must use the new value.
+      ownerSectionId = savedMember.sectionId;
       resetPhotoSelection();
 
       progressEl.hidden = true;
@@ -724,7 +834,6 @@ async function initForm(lookupLists) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             weaponIds,
-            equipment: readEquipmentRows(equipmentContainer),
           }),
         },
         showReauth,
@@ -798,16 +907,18 @@ async function initForm(lookupLists) {
   let roster = [];
   let loadError = null;
   try {
-    const [memberResponse, profileResponse, duesResponse, rosterResponse] = await Promise.all([
+    const [memberResponse, profileResponse, duesResponse, rosterResponse, equipmentResponse] = await Promise.all([
       apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
       apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
       apiFetch(`/lista-wyjazdowa/dues/mine?year=${CURRENT_YEAR}`, { method: 'GET' }, showReauth, hideReauth),
       apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
+      apiFetch('/equipment', { method: 'GET' }, showReauth, hideReauth),
     ]);
     member = memberResponse.member;
     profile = profileResponse.profile;
     dues = duesResponse.dues;
     roster = rosterResponse.roster;
+    equipmentItems = equipmentResponse.equipment;
   } catch (err) {
     loadError = err;
   }
@@ -833,11 +944,11 @@ async function initForm(lookupLists) {
     for (const cb of form.querySelectorAll('input[name="weaponIds"]')) {
       cb.checked = profile.weaponIds.includes(cb.value);
     }
-    fillRows(equipmentContainer, profile.equipment, addEquipmentRow);
   }
   if (!loadError) {
     renderDuesStatus(profile?.wpisowePaid ?? false, dues?.paid ?? false);
     renderPersons(roster);
+    wireEquipmentMiniList(document.getElementById('own-equipment'), viewerEmail.toLowerCase(), () => ownerSectionId);
   }
 
   if (loadError) {

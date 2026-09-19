@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sprzęt obozowy - Bractwo Wojowników Kruki</title>
+  <meta name="robots" content="noindex, nofollow" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Sprzęt obozowy - Bractwo Wojowników Kruki" />
+  <meta property="og:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+  <meta property="og:locale" content="pl_PL" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Sprzęt obozowy - Bractwo Wojowników Kruki" />
+  <meta name="twitter:image" content="https://www.kruki.org/banner-photos/tarcze.jpg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="../favicon.png" />
+  <link rel="apple-touch-icon" href="../favicon.png" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../member-area.css" />
+  <link rel="stylesheet" href="../shared/profile-panel.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <!-- PARTIAL:nav -->
+
+  <main class="main-content">
+    <div class="content-left">
+      <section class="content-section">
+        <p class="auth-checking busy-sticker-loader--feature" id="sprzet-checking" role="status"><span class="busy-sticker-aura busy-sticker-aura--feature" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--feature" alt=""></span><span class="busy-sticker-label">PLEASE HOLD THE LINE...</span></p>
+        <div class="upload-signin" id="signed-out-panel" hidden>
+          <p>Zaloguj się kontem Google, aby zobaczyć sprzęt obozowy.</p>
+          <div id="google-signin-button"></div>
+        </div>
+        <p class="upload-forbidden" id="forbidden-panel" hidden>
+          Brak uprawnień. Ta sekcja jest dostępna tylko dla członków Bractwa.
+        </p>
+
+        <div id="main-content" hidden>
+          <div class="pliki-header">
+            <div>
+              <h1>⛺ Sprzęt obozowy</h1>
+              <p style="color: var(--text-muted);">
+                Spis namiotów i wiat Bractwa - drużynowych oraz prywatnych, użyczonych na wyjazdy. Każdy członek może dodać, edytować i usunąć dowolną pozycję.
+              </p>
+            </div>
+            <div class="pliki-header-actions">
+              <a class="audyt-history-btn" href="/audyt/?category=equipment" title="Historia" aria-label="Historia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
+              <button type="button" class="btn-add-album" id="equipment-add-toggle">Dodaj</button>
+            </div>
+          </div>
+
+          <form id="equipment-add-form" class="pliki-add-form" hidden>
+            <input type="hidden" id="equipment-add-editing-id" value="" />
+            <label for="equipment-add-category">Kategoria</label>
+            <select id="equipment-add-category" name="categoryId" required></select>
+
+            <fieldset class="equipment-owner-mode-field">
+              <legend>Właściciel</legend>
+              <label>
+                <input type="radio" name="equipment-owner-mode" id="equipment-owner-mode-team" value="team" checked />
+                Drużyna
+              </label>
+              <label>
+                <input type="radio" name="equipment-owner-mode" id="equipment-owner-mode-private" value="private" />
+                Prywatny
+              </label>
+            </fieldset>
+
+            <div id="equipment-add-owner-wrap" hidden>
+              <label for="equipment-add-owner">Właściciel</label>
+              <input type="text" id="equipment-add-owner" name="owner" list="equipment-owner-datalist" autocomplete="off" placeholder="Zacznij pisać imię lub ksywkę…" />
+              <datalist id="equipment-owner-datalist"></datalist>
+            </div>
+
+            <label for="equipment-add-section">Sekcja</label>
+            <select id="equipment-add-section" name="sectionId" required></select>
+
+            <label for="equipment-add-description">Opis</label>
+            <textarea id="equipment-add-description" name="description" maxlength="500" rows="2" placeholder="Np. Namiot 4-osobowy, zielony"></textarea>
+
+            <div class="pliki-add-form-actions">
+              <button type="submit" class="btn-add-album" id="equipment-add-submit">Dodaj</button>
+              <button type="button" class="btn-cancel" id="equipment-add-cancel">Anuluj</button>
+            </div>
+            <p class="pliki-add-error" id="equipment-add-error" hidden></p>
+          </form>
+
+          <div id="equipment-tables">
+            <h2>Sprzęt drużynowy</h2>
+            <div class="czl-table-wrap">
+              <table class="czl-table" id="equipment-team-table">
+                <thead>
+                  <tr>
+                    <th scope="col" data-sort-key="categoryLabel" aria-sort="none"><button type="button">Kategoria</button></th>
+                    <th scope="col" class="czl-section-cell" data-sort-key="sectionLabel" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
+                    <th scope="col" data-sort-key="description" aria-sort="none"><button type="button">Opis</button></th>
+                    <th scope="col"></th>
+                  </tr>
+                </thead>
+                <tbody id="equipment-team-table-body"></tbody>
+              </table>
+            </div>
+
+            <h2>Sprzęt prywatny</h2>
+            <div class="czl-table-wrap">
+              <table class="czl-table" id="equipment-private-table">
+                <thead>
+                  <tr>
+                    <th scope="col" data-sort-key="categoryLabel" aria-sort="none"><button type="button">Kategoria</button></th>
+                    <th scope="col" class="czl-section-cell" data-sort-key="sectionLabel" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
+                    <th scope="col" data-sort-key="ownerName" aria-sort="none"><button type="button">Właściciel</button></th>
+                    <th scope="col" data-sort-key="description" aria-sort="none"><button type="button">Opis</button></th>
+                    <th scope="col"></th>
+                  </tr>
+                </thead>
+                <tbody id="equipment-private-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- PARTIAL:social_sidebar -->
+  </main>
+
+  <!-- PARTIAL:footer -->
+
+  <script src="../auth.js"></script>
+  <script src="../nav.js"></script>
+  <script src="../mutation-feedback.js"></script>
+  <script src="../shared/display-name.js"></script>
+  <script src="../shared/profile-panel.js"></script>
+  <script src="../shared/sortable-table.js"></script>
+  <script src="../shared/person-pill.js"></script>
+  <script src="sprzet-obozowy.js"></script>
+</body>
+</html>
