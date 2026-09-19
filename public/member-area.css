@@ -956,21 +956,19 @@ button.lw-skladka-icon:disabled {
   font-size: 0.85em;
 }
 
-/* Breathing room between the page's major sections (fee panel, summary, roster, equipment/
-   companions, audit log) - previously these all touched with no vertical rhythm at all. Kept
-   tight (not the more generous rhythm a lone spacer would get) since #summary-content's own
-   .lw-summary-columns already carries several of these panels' worth of lines. */
+/* Breathing room between the page's major sections (fee panel, summary, roster, audit log) -
+   previously these all touched with no vertical rhythm at all. Kept tight (not the more generous
+   rhythm a lone spacer would get) since #summary-content's own .lw-summary-columns already
+   carries several of these panels' worth of lines. */
 #skladka-fee-panel,
 #summary-panel,
 #roster-panel,
-#equipment-companions-panel,
 #skladki-content {
   margin-bottom: 1.25rem;
 }
 
 #summary-panel h2,
-#roster-panel h2,
-#equipment-companions-panel h2 {
+#roster-panel h2 {
   margin-bottom: 0.4rem;
   font-size: 20px;
   color: var(--text);

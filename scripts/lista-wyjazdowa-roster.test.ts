@@ -44,7 +44,7 @@ class Element {
 const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'main-content', 'lw-error',
   'skladka-fee-display', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
-  'skladka-fee-save', 'skladka-fee-remove', 'roster-panel', 'summary-content', 'equipment-companions-content',
+  'skladka-fee-save', 'skladka-fee-remove', 'roster-panel', 'summary-content',
   'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni',
   'event-title', 'event-meta',
   'cancel-event-btn', 'restore-event-btn', 'event-history-link', 'skladka-fee-history-link',
@@ -62,25 +62,25 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   let mutationError: Error | null = null;
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
   const roster = [
-    { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, fullName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
-    { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
-    { personId: 'other@example.com', email: 'other@example.com', accountless: false, fullName: 'Other', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, fullName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'other@example.com', email: 'other@example.com', accountless: false, fullName: 'Other', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
   ];
   // KRKG-0087: an accountless person already attached to the viewer but not signed up for this
   // trip - the roster's inline add panel offers them in its "istniejąca" dropdown.
-  const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: 'viewer@example.com', fullName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], equipment: [], duesStatus: 'unpaid', wpisowePaid: true };
+  const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: 'viewer@example.com', fullName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisowePaid: true };
   const currentRoster = options.withAttachedPerson ? [...roster, attachedPerson] : roster;
   // KRKG-0087: the event-scoped (historical) roster additionally carries a person who has since been
   // removed but was signed up for this trip. A person row has `email: null` and a UUID personId, so
   // it only renders correctly if the page keys rows by personId (the bug this batch fixes).
-  const removedPerson = { personId: 'gone-uuid-1', email: null, accountless: true, ownerPersonId: null, deleted: true, fullName: 'Cień Nowak', sectionId: null, categoryId: null, weaponIds: [], equipment: [], duesStatus: 'unpaid', wpisowePaid: true };
+  const removedPerson = { personId: 'gone-uuid-1', email: null, accountless: true, ownerPersonId: null, deleted: true, fullName: 'Cień Nowak', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'unpaid', wpisowePaid: true };
   const eventRoster = options.withRemovedPerson ? [...currentRoster, removedPerson] : currentRoster;
   const signups = [
-    { memberEmail: 'signed@example.com', attending: true, skladkaPaid: false, equipmentIds: [] },
-    ...(options.withRemovedPerson ? [{ memberEmail: 'gone-uuid-1', attending: true, skladkaPaid: false, equipmentIds: [] }] : []),
+    { memberEmail: 'signed@example.com', attending: true, skladkaPaid: false },
+    ...(options.withRemovedPerson ? [{ memberEmail: 'gone-uuid-1', attending: true, skladkaPaid: false }] : []),
     // KRKG-0089: an attached person already marked "nie jadę" (a signup with attending:false) must
     // still be offered in the add panel so they can be added back.
-    ...(options.attachedNotAttending ? [{ memberEmail: 'attached-uuid-1', attending: false, skladkaPaid: false, equipmentIds: [] }] : []),
+    ...(options.attachedNotAttending ? [{ memberEmail: 'attached-uuid-1', attending: false, skladkaPaid: false }] : []),
   ];
   const context: Record<string, unknown> = {
     URLSearchParams,
@@ -424,7 +424,7 @@ test('adding an existing attached person posts quick-add and applies the signup 
   harness.elements.get('lw-inline-existing-select')!.value = 'attached-uuid-1';
   harness.setMutationResult({
     person: { personId: 'attached-uuid-1', ksywka: 'Młody', firstName: '', lastName: '', categoryId: 'kandydat', sectionId: null, weaponIds: [], ownerPersonId: 'viewer@example.com' },
-    signup: { memberEmail: 'attached-uuid-1', attending: true, skladkaPaid: false, equipmentIds: [] },
+    signup: { memberEmail: 'attached-uuid-1', attending: true, skladkaPaid: false },
   });
 
   await roster.clickWith(clickTarget('.lw-inline-add-existing'));
@@ -445,7 +445,7 @@ test('adding a new person posts quick-add and appends the created row', async ()
   harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
   harness.setMutationResult({
     person: { personId: 'new-uuid-1', ksywka: 'Nowy', firstName: '', lastName: '', categoryId: 'kandydat', sectionId: 'bydgoszcz', weaponIds: [], ownerPersonId: 'viewer@example.com' },
-    signup: { memberEmail: 'new-uuid-1', attending: true, skladkaPaid: false, equipmentIds: [] },
+    signup: { memberEmail: 'new-uuid-1', attending: true, skladkaPaid: false },
   });
 
   await roster.clickWith(clickTarget('.lw-inline-add-new'));

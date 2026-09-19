@@ -1,6 +1,6 @@
 /**
  * Event detail page (Plan B, KRKG-0037). Reads ?eventId= from the URL. Roster/summary come from
- * a client-side join of GET /lista-wyjazdowa/roster (every member + their equipment/companions)
+ * a client-side join of GET /lista-wyjazdowa/roster (every member + their companions)
  * against GET /lista-wyjazdowa/signups?eventId= (who's attending this event and with what) -
  * mirrors design.md §5's "summaries computed on read, not stored" principle.
  *
@@ -275,9 +275,7 @@ async function toggleSkladkaPaid(personId, nextPaid, control) {
   }
 }
 
-// Both #summary-content (counts, near the top) and #equipment-companions-content (named lists,
-// near the bottom, per feedback on section order) are derived from the same attending/roster
-// join, so this computes both in one pass and writes each half to its own container.
+// #summary-content (counts) is derived from the attending/roster join.
 //
 // Wg broni counts each attendee exactly once, grouped by their *complete* weaponIds set (see
 // weaponGroupLabel/weaponGroupKey above) - unlike weaponSortLabel's roster-sort grouping (which
@@ -292,7 +290,6 @@ function renderSummary(roster, signups) {
   const bySection = new Map();
   const byWeaponGroup = new Map(); // weaponGroupKey -> { label, count }
   const byCategory = new Map();
-  const equipmentBearers = [];
   for (const s of attending) {
     const member = rosterByPersonId.get(s.memberEmail);
     if (!member) continue;
@@ -302,10 +299,6 @@ function renderSummary(roster, signups) {
     if (weaponGroup) weaponGroup.count += 1;
     else byWeaponGroup.set(weaponKey, { weaponIds: member.weaponIds, label: weaponGroupLabel(member.weaponIds), count: 1 });
     byCategory.set(member.categoryId, (byCategory.get(member.categoryId) ?? 0) + 1);
-    for (const eqId of s.equipmentIds) {
-      const item = member.equipment.find((e) => e.id === eqId);
-      if (item) equipmentBearers.push(`${escapeHtml(item.name)} — ${escapeHtml(displayName(member))}`);
-    }
   }
 
   const sortedKeys = (counts, labelFor) =>
@@ -350,11 +343,6 @@ function renderSummary(roster, signups) {
       <div><h3>Wg broni</h3><div class="lw-summary-chips">${weaponChips}</div></div>
       <div><h3>Wg statusu</h3><div class="lw-summary-chips">${categoryChips}</div></div>
     </div>
-  `;
-
-  document.getElementById('equipment-companions-content').innerHTML = `
-    <h3>Sprzęt</h3>
-    <ul>${equipmentBearers.map((l) => `<li>${l}</li>`).join('') || '<li>brak</li>'}</ul>
   `;
 }
 
@@ -479,7 +467,6 @@ function rosterEntryFromPerson(person) {
     sectionId: person.sectionId ?? null,
     categoryId: person.categoryId ?? null,
     weaponIds: person.weaponIds ?? [],
-    equipment: [],
     wpisowePaid: false,
     duesStatus: person.categoryId === EMERYT_CATEGORY_ID ? 'not_applicable' : 'unpaid',
   };
@@ -627,21 +614,8 @@ function renderSkladkaIcon(personIdAttr, paid) {
   return `<button type="button" class="lw-skladka-icon" data-person-id="${personIdAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
 }
 
-// The quick toggle has no equipment/companion picker of its own (dropped from this row - see
-// lista-wyjazdowa.js's own attend toggle, which never had one either), so it round-trips whatever
-// the existing signup already stored, filtered against the member's *current* profile the same
-// way lista-wyjazdowa.js's stillValidIds does: deleting an equipment/companion row on /profil/
-// drops its id entirely, and resubmitting a now-orphaned id verbatim would be rejected outright by
-// the server's referential check.
-function stillValidIds(ids, items) {
-  const valid = new Set((items ?? []).map((item) => item.id));
-  return (ids ?? []).filter((id) => valid.has(id));
-}
-
 async function toggleAttending(personId, nextAttending, control) {
   clearError();
-  const member = cachedRoster.find((m) => m.personId === personId);
-  const existing = cachedSignups.find((s) => s.memberEmail === personId);
   try {
     await confirmedEventMutation(control, () => apiFetch(
       `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(personId)}`,
@@ -650,7 +624,6 @@ async function toggleAttending(personId, nextAttending, control) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           attending: nextAttending,
-          equipmentIds: stillValidIds(existing?.equipmentIds, member?.equipment),
         }),
       },
       showReauth,

@@ -1,7 +1,7 @@
 /**
  * Lista wyjazdowa - events list (Plan B, KRKG-0037). Replaces the "coming soon" placeholder
  * shipped in Plan A. A member without a listaWyjazdowaProfile yet is routed to /profil/ instead
- * of the list - signing up needs equipment/companion choices that come from that profile
+ * of the list - signing up needs companion choices that come from that profile
  * (design.md §8).
  *
  * The caller's own email (needed for the PUT /lista-wyjazdowa/signups?personId= query param
@@ -144,19 +144,6 @@ async function loadEvents() {
   renderEvents();
 }
 
-// The quick toggle has no equipment/companion picker of its own (that's the event detail page's
-// job), so it round-trips whatever the existing signup already stored - but it must filter that
-// list against the member's *current* profile first. Deleting an equipment or companion row on
-// /profil/ drops its id entirely, leaving any signup that referenced it holding an orphaned id;
-// resubmitting it verbatim is then rejected outright by the server's referential check
-// ("Wybrany sprzęt nie należy do tego członka."), which would break this button permanently for
-// that member. Filtering here preserves the selections that are still real and quietly drops the
-// ones that aren't, so a normal profile edit self-heals instead of jamming the toggle.
-function stillValidIds(ids, items) {
-  const valid = new Set((items ?? []).map((item) => item.id));
-  return (ids ?? []).filter((id) => valid.has(id));
-}
-
 // KRKG-0094: quick-add a companion from the events list, reusing the trip detail page's endpoint
 // and local-apply pattern. `openAddPanelEventId` is still the event the panel was opened for when
 // this runs, so the new signup is recorded against it and the event's count bumps by one (the
@@ -296,25 +283,16 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
       // Anchor on the list container, not the button: apply re-renders the list (so the "+" appears
       // or disappears with the new attendance), which would detach a button anchor.
       anchor: document.getElementById('events-list'),
-      execute: async () => {
-    const [{ signup: mine }, { profile }] = await Promise.all([
-      apiFetch(`/lista-wyjazdowa/signups/mine?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
-      apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
-    ]);
-    await apiFetch(
-      `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(viewerEmail)}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          attending: nextAttending,
-          equipmentIds: stillValidIds(mine?.equipmentIds, profile?.equipment),
-        }),
-      },
-      showReauth,
-      hideReauth,
-    );
-      },
+      execute: () => apiFetch(
+        `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(viewerEmail)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attending: nextAttending }),
+        },
+        showReauth,
+        hideReauth,
+      ),
       // Patch the cached event and re-render, rather than rewriting btn.textContent: that used to
       // drop the toggle track and show "Wypisz się / Zapisz się" instead of the rendered "Jadę /
       // Nie jadę" label, and it could not reveal the companion "+" (KRKG-0094).
