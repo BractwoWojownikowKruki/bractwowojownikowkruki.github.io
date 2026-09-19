@@ -35,7 +35,7 @@ test('checked-in Firestore index manifest covers every supported audit primary s
 test('audit registry contains every required logical category and no unregistered action is accepted', () => {
   assert.deepEqual(
     [...new Set(Object.values(ACTION_REGISTRY).map(action => action.category))].sort(),
-    ['application', 'dues', 'events', 'files', 'gallery', 'membership', 'permissions', 'profile', 'session', 'signups', 'site'],
+    ['application', 'dues', 'equipment', 'events', 'files', 'gallery', 'membership', 'permissions', 'profile', 'session', 'signups', 'site'],
   );
   assert.equal(ACTION_REGISTRY['profile.photo_submission.created'].audience, 'adminOrModerator');
   assert.equal(ACTION_REGISTRY['gallery.created'].audience, 'members');

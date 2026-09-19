@@ -6,10 +6,10 @@ export interface LookupItem {
   retired: boolean;
 }
 
-export type LookupListName = 'sections' | 'categories' | 'weapons';
+export type LookupListName = 'sections' | 'categories' | 'weapons' | 'equipmentCategories';
 
 const COLLECTION = 'lookupLists';
-const LIST_NAMES: LookupListName[] = ['sections', 'categories', 'weapons'];
+const LIST_NAMES: LookupListName[] = ['sections', 'categories', 'weapons', 'equipmentCategories'];
 
 export async function getLookupList(client: FirestoreLikeClient, name: LookupListName): Promise<LookupItem[]> {
   const doc = await client.getDoc<{ items: LookupItem[] }>(COLLECTION, name);

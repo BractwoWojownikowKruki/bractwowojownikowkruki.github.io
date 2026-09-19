@@ -33,8 +33,14 @@ const weapons = [
   { id: 'dunczyk', label: 'Duńczyk (D)' },
 ].map((w) => ({ ...w, retired: false }));
 
+const equipmentCategories = [
+  { id: 'namiot', label: 'Namiot', retired: false },
+  { id: 'wiata', label: 'Wiata', retired: false },
+];
+
 await client.setDoc('lookupLists', 'sections', { items: sections });
 await client.setDoc('lookupLists', 'categories', { items: categories });
 await client.setDoc('lookupLists', 'weapons', { items: weapons });
+await client.setDoc('lookupLists', 'equipmentCategories', { items: equipmentCategories });
 
-console.log('Seeded lookupLists/{sections,categories,weapons}.');
+console.log('Seeded lookupLists/{sections,categories,weapons,equipmentCategories}.');

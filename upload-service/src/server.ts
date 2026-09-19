@@ -89,6 +89,16 @@ import {
 import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, createRoleAuthorizer } from './roles.ts';
 import { listDuesForYear, saveDues, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, type DuesYearFeeWritableFields, getDues, normalizeDuesStatus, effectiveDuesStatus } from './dues.ts';
 import { buildSharedFileDoc, saveFileInTransaction, deleteFileInTransaction, getFileInTransaction, listFiles, InvalidFileUrlError, type SharedFileDoc } from './files.ts';
+import {
+  buildEquipmentDoc,
+  InvalidEquipmentError,
+  saveEquipmentInTransaction,
+  updateEquipmentInTransaction,
+  deleteEquipmentInTransaction,
+  getEquipmentInTransaction,
+  listEquipment,
+  type EquipmentDoc,
+} from './equipment.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -242,6 +252,9 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   yearFee: auditedRoute('PUT', '/lista-wyjazdowa/dues/year-fee', ['dues.year_fee.changed']),
   filesAdd: auditedRoute('POST', '/files', ['file.added']),
   filesDelete: auditedRoute('DELETE', '/files', ['file.deleted']),
+  equipmentAdd: auditedRoute('POST', '/equipment', ['equipment.added']),
+  equipmentUpdate: auditedRoute('PUT', '/equipment', ['equipment.updated']),
+  equipmentDelete: auditedRoute('DELETE', '/equipment', ['equipment.deleted']),
 } as const;
 
 export const AUDITED_MEMBER_MUTATION_ROUTE_DESCRIPTORS = Object.values(AUDITED_MEMBER_MUTATION_ROUTES);
@@ -786,6 +799,117 @@ async function handleDeleteFile(req: IncomingMessage, res: ServerResponse, url: 
       };
     },
     async tx => deleteFileInTransaction(tx, id),
+  );
+  sendJson(res, 200, { ok: true });
+}
+
+// KRKG-0096: camp-equipment inventory (namiot/wiata). Every member may add, edit, or delete any
+// item (a shared club inventory, not a personal one) - canEdit/canDelete are always true on the
+// list response, kept as fields rather than a flat array so a later batch can tighten this per-role
+// without a response-shape change.
+async function handleListEquipment(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticate(req, res);
+  const equipment = await listEquipment(deps.firestore);
+  sendJson(res, 200, { equipment: equipment.map((item) => ({ ...item, canEdit: true, canDelete: true })) });
+}
+
+async function handleAddEquipment(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const categoryId = requireTrimmedString(body.categoryId, LW_MAX_NAME_LENGTH, 'Kategoria jest wymagana.');
+  const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
+  const description = optionalTrimmedString(body.description, LW_MAX_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 500 znaków.') ?? '';
+  const belongsToPersonId = body.belongsToPersonId == null ? null : requireTrimmedString(body.belongsToPersonId, LW_MAX_NAME_LENGTH, 'Nieprawidłowy właściciel.');
+  let doc: EquipmentDoc;
+  try {
+    doc = buildEquipmentDoc({ categoryId, sectionId, description, belongsToPersonId }, identity.email);
+  } catch (err) {
+    if (err instanceof InvalidEquipmentError) throw new AuthError(err.message, 400);
+    throw err;
+  }
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentAdd,
+    'equipment.added',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'equipment', key: `equipment:${doc.id}`, display: doc.description || doc.categoryId },
+      changes: [
+        { field: 'categoryId', after: doc.categoryId },
+        { field: 'sectionId', after: doc.sectionId },
+        { field: 'belongsToPersonId', after: doc.belongsToPersonId },
+        { field: 'description', after: doc.description },
+      ],
+    },
+    async (tx) => {
+      await saveEquipmentInTransaction(tx, doc);
+      return doc;
+    },
+  );
+  sendJson(res, 200, { equipment: result });
+}
+
+async function handleUpdateEquipment(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const id = url.searchParams.get('id');
+  if (!id) throw new AuthError('Brak id.', 400);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const categoryId = requireTrimmedString(body.categoryId, LW_MAX_NAME_LENGTH, 'Kategoria jest wymagana.');
+  const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
+  const description = optionalTrimmedString(body.description, LW_MAX_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 500 znaków.') ?? '';
+  const belongsToPersonId = body.belongsToPersonId == null ? null : requireTrimmedString(body.belongsToPersonId, LW_MAX_NAME_LENGTH, 'Nieprawidłowy właściciel.');
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentUpdate,
+    'equipment.updated',
+    {
+      // Which fields actually changed is only known after the write runs (same reasoning as
+      // handlePersonAccount's person.merged call, server.ts:3334-3363) - the mutation below returns
+      // both existing and updated so this factory can diff them without a second Firestore read.
+      afterResult: async (_tx, { existing, updated }: { existing: EquipmentDoc; updated: EquipmentDoc }) => ({
+        actor: { email: identity.email },
+        resource: { kind: 'equipment' as const, key: `equipment:${id}`, display: updated.description || updated.categoryId },
+        changes: [
+          { field: 'categoryId', before: existing.categoryId, after: updated.categoryId },
+          { field: 'sectionId', before: existing.sectionId, after: updated.sectionId },
+          { field: 'belongsToPersonId', before: existing.belongsToPersonId, after: updated.belongsToPersonId },
+          { field: 'description', before: existing.description, after: updated.description },
+        ],
+      }),
+    },
+    async (tx) => {
+      const existing = await getEquipmentInTransaction(tx, id);
+      if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+      const updated = await updateEquipmentInTransaction(tx, existing, { categoryId, sectionId, description, belongsToPersonId }, identity.email);
+      return { existing, updated };
+    },
+  );
+  sendJson(res, 200, { equipment: result.updated });
+}
+
+async function handleDeleteEquipment(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const id = url.searchParams.get('id');
+  if (!id) throw new AuthError('Brak id.', 400);
+  await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentDelete,
+    'equipment.deleted',
+    async (tx) => {
+      const existing = await getEquipmentInTransaction(tx, id);
+      if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'equipment', key: `equipment:${id}`, display: existing.description || existing.categoryId },
+        changes: [
+          { field: 'categoryId', before: existing.categoryId },
+          { field: 'sectionId', before: existing.sectionId },
+          { field: 'belongsToPersonId', before: existing.belongsToPersonId },
+          { field: 'description', before: existing.description },
+        ],
+      };
+    },
+    async (tx) => deleteEquipmentInTransaction(tx, id),
   );
   sendJson(res, 200, { ok: true });
 }
@@ -4387,6 +4511,14 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAddFile(req, res, deps);
       } else if (req.method === 'DELETE' && url.pathname === '/files') {
         await handleDeleteFile(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/equipment') {
+        await handleListEquipment(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/equipment') {
+        await handleAddEquipment(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/equipment') {
+        await handleUpdateEquipment(req, res, url, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/equipment') {
+        await handleDeleteEquipment(req, res, url, deps);
       } else if (req.method === 'POST' && url.pathname === '/internal/audit/reconcile') {
         await handleInternalAuditReconcile(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/redirects') {
