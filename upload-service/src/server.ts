@@ -2034,7 +2034,7 @@ const LW_MAX_NAME_LENGTH = 120;
 const LW_MAX_DESCRIPTION_LENGTH = 500;
 
 // The PUT bodies are untrusted JSON, not the typed shapes TypeScript's `Partial<...>` annotation
-// pretends they are: without these guards a `{"equipment": "x"}` reaches saveProfile's `.map()`
+// pretends they are: without these guards a `{"weaponIds": "x"}` reaches saveProfile's `.map()`
 // and surfaces as an uncaught 500 rather than a clean, Polish-language 400.
 function requireTrimmedString(value: unknown, maxLength: number, message: string): string {
   if (typeof value !== 'string') throw new AuthError(message, 400);
@@ -2048,17 +2048,12 @@ function optionalTrimmedString(value: unknown, maxLength: number, message: strin
   return requireTrimmedString(value, maxLength, message);
 }
 
-// Absent means "nothing of this kind", which is a legitimate profile (no weapons yet, no camp
-// equipment); anything present but non-array is a malformed request.
+// Absent means "nothing of this kind", which is a legitimate profile (no weapons yet); anything
+// present but non-array is a malformed request.
 function requireArray(value: unknown, message: string): unknown[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) throw new AuthError(message, 400);
   return value;
-}
-
-function requireObject(value: unknown, message: string): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new AuthError(message, 400);
-  return value as Record<string, unknown>;
 }
 
 // Referential integrity against lookupLists, which Firestore itself cannot enforce (no foreign
@@ -2531,23 +2526,6 @@ async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerR
     weaponIds: requireArray(body.weaponIds, 'Lista broni ma nieprawidłowy format.').map((id) =>
       requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista broni ma nieprawidłowy format.'),
     ),
-    equipment: requireArray(body.equipment, 'Lista sprzętu obozowego ma nieprawidłowy format.').map((raw) => {
-      const item = requireObject(raw, 'Lista sprzętu obozowego ma nieprawidłowy format.');
-      return {
-        id: optionalTrimmedString(item.id, LW_MAX_NAME_LENGTH, 'Lista sprzętu obozowego ma nieprawidłowy format.') ?? '',
-        name: requireTrimmedString(
-          item.name,
-          LW_MAX_NAME_LENGTH,
-          `Nazwa sprzętu jest wymagana (maks. ${LW_MAX_NAME_LENGTH} znaków).`,
-        ),
-        description:
-          optionalTrimmedString(
-            item.description,
-            LW_MAX_DESCRIPTION_LENGTH,
-            `Opis sprzętu może mieć najwyżej ${LW_MAX_DESCRIPTION_LENGTH} znaków.`,
-          ) ?? '',
-      };
-    }),
   };
   const lookupLists = await getAllLookupLists(deps.firestore);
   for (const weaponId of fields.weaponIds) {
@@ -2564,7 +2542,6 @@ async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerR
         resource: { kind: 'member', key: `member:${identity.email.toLowerCase()}`, display: 'member' },
         changes: [
           { field: 'weaponCount', ...(existing ? { before: existing.weaponIds.length } : {}), after: fields.weaponIds.length },
-          { field: 'equipmentCount', ...(existing ? { before: existing.equipment.length } : {}), after: fields.equipment.length },
         ],
       };
     },
@@ -2764,23 +2741,10 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
     if (!allowedEmails.includes(target.personId)) throw new AuthError('Nie znaleziono takiego członka.', 404);
   }
 
-  // The target need not have a Lista Wyjazdowa profile yet - "I'm coming, no gear listed yet" is a
-  // legitimate signup. A missing profile just means its equipment set is empty for the referential
-  // check below, so any *non-empty* equipmentIds on a profile-less target are rejected the same way
-  // an id that's simply not theirs would be - not via a separate "no profile" 400.
-  const targetProfile = await getProfile(deps.firestore, target.personId);
-
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   if (typeof body.attending !== 'boolean') throw new AuthError('Pole attending jest wymagane (true/false).', 400);
-  const equipmentIds = requireArray(body.equipmentIds, 'Lista sprzętu ma nieprawidłowy format.').map((id) =>
-    requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista sprzętu ma nieprawidłowy format.'),
-  );
-  const validEquipmentIds = new Set(targetProfile?.equipment.map((e) => e.id) ?? []);
-  for (const id of equipmentIds) {
-    if (!validEquipmentIds.has(id)) throw new AuthError('Wybrany sprzęt nie należy do tej osoby.', 400);
-  }
 
-  const fields: SignupWritableFields = { attending: body.attending, equipmentIds };
+  const fields: SignupWritableFields = { attending: body.attending };
   const existingSignup = await getSignup(deps.firestore, eventId, target.personId);
   const action = existingSignup ? 'signup.updated' : 'signup.created';
   const { result: signup } = await executeDeclaredAuditedMutation(
@@ -2794,7 +2758,6 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
         resource: { kind: 'signup', key: `signup:${eventId}:${target.personId}`, display: target.display },
         changes: [
           { field: 'attending', ...(existing ? { before: existing.attending } : {}), after: fields.attending },
-          { field: 'equipmentCount', ...(existing ? { before: existing.equipmentIds.length } : {}), after: equipmentIds.length },
         ],
       };
     },
@@ -2855,10 +2818,9 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       sectionId: member?.sectionId ?? null,
       categoryId: member?.categoryId ?? null,
       weaponIds: profile?.weaponIds ?? [],
-      equipment: profile?.equipment ?? [],
       // wpisowePaid is independent of whether the member has ever filled in "Mój profil" -
       // setWpisowePaid (lista-wyjazdowa-profile.ts) creates a profile document with empty
-      // weaponIds/equipment on first use if none exists yet, so there is no "no
+      // weaponIds on first use if none exists yet, so there is no "no
       // profile to record this on" case left to distinguish here.
       wpisowePaid: profile?.wpisowePaid ?? false,
       // Current-year składka roczna status (KRKG-0074, see the listDuesForYear fetch above) -
@@ -2896,7 +2858,6 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       sectionId: person.sectionId,
       categoryId: person.categoryId,
       weaponIds: person.weaponIds,
-      equipment: profile?.equipment ?? [],
       wpisowePaid: profile?.wpisowePaid ?? false,
       duesStatus: effectiveDuesStatus(duesByEmail.get(person.personId) ?? null, person.categoryId),
       approvedAt: null,
@@ -3072,7 +3033,7 @@ async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerR
   const paid = body.paid;
   // Wpisowe is a club due, not a Lista Wyjazdowa feature - whether this person has ever filled in
   // "Mój profil" must not gate whether they can be marked as having paid it (setWpisowePaid
-  // upserts a profile with empty weaponIds/equipment if none exists yet).
+  // upserts a profile with empty weaponIds if none exists yet).
   const { result: profile } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.entryFee,
@@ -3534,11 +3495,10 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
           resource: { kind: 'signup' as const, key: `signup:${eventId}:${person.personId}`, display: person.ksywka || person.personId },
           changes: [
             { field: 'attending', ...(before ? { before: before.attending } : {}), after: true },
-            { field: 'equipmentCount', ...(before ? { before: before.equipmentIds.length } : {}), after: 0 },
           ],
         };
       },
-      tx => saveSignup(tx, eventId, person.personId, { attending: true, equipmentIds: [] }, identity.email),
+      tx => saveSignup(tx, eventId, person.personId, { attending: true }, identity.email),
     );
     sendJson(res, 200, { person, signup });
     return;
@@ -3570,7 +3530,7 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
       {
         actor: { email: identity.email },
         resource: { kind: 'signup' as const, key: `signup:${eventId}:${personId}`, display: ksywka },
-        changes: [{ field: 'attending', after: true }, { field: 'equipmentCount', after: 0 }],
+        changes: [{ field: 'attending', after: true }],
       },
     ],
     async tx => {
@@ -3579,7 +3539,7 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
       // and the person second. createPerson is write-only, so this order keeps the transaction
       // valid; the reverse (person first) makes saveSignup's read a read-after-write and the
       // whole transaction is rejected by Firestore at commit (500).
-      const signup = await saveSignup(tx, eventId, personId, { attending: true, equipmentIds: [] }, identity.email);
+      const signup = await saveSignup(tx, eventId, personId, { attending: true }, identity.email);
       const person = await createPerson(tx, fields, ownerKey, identity.email, personId);
       return { person, signup };
     },

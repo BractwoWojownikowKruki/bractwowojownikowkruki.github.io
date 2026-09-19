@@ -244,7 +244,6 @@ export async function detachPerson(
 /** The profile fields the merge combines. Mirrors listaWyjazdowaProfile's shape without importing it. */
 interface PersonMergeProfile {
   weaponIds: string[];
-  equipment: Array<{ id: string; name: string; description: string }>;
   wpisowePaid: boolean;
 }
 
@@ -413,7 +412,6 @@ export async function applyPersonMerge(
     // The account wins wherever it has a value; the person only supplies what the account lacks.
     mergedProfile = {
       weaponIds: accountProfile?.weaponIds?.length ? accountProfile.weaponIds : (person.weaponIds ?? []),
-      equipment: accountProfile?.equipment?.length ? accountProfile.equipment : (personProfile?.equipment ?? []),
       wpisowePaid: accountProfile ? accountProfile.wpisowePaid : (personProfile?.wpisowePaid ?? false),
     };
   }
