@@ -251,7 +251,13 @@ function wireOwnerModeToggle() {
   privateRadio.addEventListener('change', applyMode);
 
   ownerInput.addEventListener('input', () => {
-    renderOwnerDatalistOptions(filterOwnerCandidates(rosterList, ownerInput.value));
+    // filterOwnerCandidates deliberately returns [] for an empty query (nothing to suggest until
+    // the member starts typing) - but that means clearing the field back to '' (e.g. backspacing
+    // to start over) would otherwise blank the datalist instead of restoring the browsable full
+    // roster it started with. Falls back to the full list here so the datalist never goes empty
+    // except when a genuine non-empty query has zero matches.
+    const query = ownerInput.value;
+    renderOwnerDatalistOptions(query.trim() ? filterOwnerCandidates(rosterList, query) : rosterList);
 
     const personId = resolveOwnerInput(ownerInput.value);
     const owner = personId ? personById.get(personId) : null;

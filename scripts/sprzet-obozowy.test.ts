@@ -266,6 +266,11 @@ test('switching the add form to Prywatny reveals the owner field, and picking a 
   assert.equal(sectionSelect.disabled, false, 'an unresolved owner re-enables Sekcja');
   assert.equal(datalist.innerHTML, '', 'no match narrows the datalist down to nothing');
 
+  ownerInput.value = '';
+  await ownerInput.input();
+  assert.match(datalist.innerHTML, /Młody/, 'clearing the field back to empty restores the full roster, not an empty datalist');
+  assert.match(datalist.innerHTML, /Ala Kowalska/, 'clearing the field restores every candidate, not just the last-matched one');
+
   teamRadio.checked = true;
   privateRadio.checked = false;
   await teamRadio.change();
