@@ -196,6 +196,12 @@ test('signing in loads both endpoints and splits equipment into the team and pri
   assert.doesNotMatch(teamBody.innerHTML, /Namiot 2-osobowy/);
   assert.match(privateBody.innerHTML, /Namiot 2-osobowy/);
   assert.doesNotMatch(privateBody.innerHTML, /Namiot 4-osobowy/);
+
+  // The <tr> itself must carry data-section (not just the abbreviation text) - member-area.css's
+  // [data-section="..."] rules color .czl-section-cell via inherited custom properties, same
+  // convention as every other member-zone table (czlonkowie.js, skladki.js, wyjazd.js).
+  assert.match(teamBody.innerHTML, /<tr data-equipment-id="eq-team-1" data-section="krakow">/, 'the team row carries data-section for CSS coloring');
+  assert.match(privateBody.innerHTML, /<tr data-equipment-id="eq-private-1" data-section="warszawa">/, 'the private row carries data-section for CSS coloring');
 });
 
 test('the private table renders the owner as a person pill wired to the shared profile panel, marking an accountless owner', async () => {

@@ -126,7 +126,7 @@ function equipmentRowHtml(item, { includeOwner }) {
   const sectionLabel = sectionLabelById.get(item.sectionId) ?? item.sectionId;
   const ownerCell = includeOwner ? `<td>${ownerCellHtml(item.belongsToPersonId)}</td>` : '';
   return `
-    <tr data-equipment-id="${escapeAttr(item.id)}">
+    <tr data-equipment-id="${escapeAttr(item.id)}" data-section="${escapeAttr(item.sectionId ?? '')}">
       <td>${escapeHtml(categoryLabel)}</td>
       <td class="czl-section-cell" title="${escapeAttr(sectionLabel ?? '')}">${item.sectionId ? escapeHtml(sectionAbbr(item.sectionId)) : ''}</td>
       ${ownerCell}
