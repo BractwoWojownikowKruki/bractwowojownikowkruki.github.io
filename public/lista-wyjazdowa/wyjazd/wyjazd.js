@@ -359,6 +359,7 @@ let showNotSignedUp = false;
 let showSignedUpAndMe = true;
 let cachedRoster = [];
 let cachedSignups = [];
+let cachedEventEquipment = [];
 // KRKG-0087: which account row's inline "add companion" panel is open, or null when none is. Only
 // one panel is open at a time, so its controls can carry fixed ids (lw-inline-*) - see
 // renderAddPanel. Reset on every loadAll so a stale owner can't leave a panel rendered.
@@ -374,7 +375,9 @@ let viewerPersonId = null;
 // no matching lookup entry shows as its own raw id rather than vanishing.
 let sectionLabelById = new Map();
 let categoryLabelById = new Map();
+let equipmentCategoryLabelById = new Map();
 let weaponLabelById = new Map();
+let personById = new Map();
 // The raw categories lookup (id + label, in seed order) for the "new person" <select> in the
 // inline add panel - a Map would lose the display order the endpoint already returns.
 let categoryOptions = [];
@@ -450,6 +453,60 @@ const rosterSortState = initSortableTable(document.getElementById('roster-table'
   defaultKey: 'section',
   onChange: () => renderRoster(cachedRoster, cachedSignups),
 });
+const eventEquipmentSortState = initSortableTable(document.getElementById('event-equipment-table'), {
+  defaultKey: 'section',
+  onChange: () => renderEventEquipment(cachedEventEquipment),
+});
+
+function ownerCellHtml(personId) {
+  if (!personId) return 'Drużynowy';
+  const person = personById.get(personId);
+  if (!person) return escapeHtml(personId);
+  const pill = personPillHtml({
+    name: displayName(person),
+    categoryId: person.categoryId,
+    categoryLabel: categoryLabelById.get(person.categoryId) ?? person.categoryId,
+    accountless: person.accountless === true,
+  });
+  const triggerAttr = person.accountless
+    ? `data-person-id="${escapeAttr(person.personId)}"`
+    : `data-email="${escapeAttr(person.email)}"`;
+  return `<button type="button" class="profile-trigger" ${triggerAttr}>${pill}</button>`;
+}
+
+function eventEquipmentSortValue(item) {
+  switch (eventEquipmentSortState.key) {
+    case 'category': return equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
+    case 'owner': return item.belongsToPersonId ? displayName(personById.get(item.belongsToPersonId) ?? {}) : 'Drużynowy';
+    case 'going': return item.going;
+    default: return sectionLabelById.get(item.sectionId) ?? item.sectionId;
+  }
+}
+
+function renderEventEquipment(items) {
+  const tbody = document.getElementById('event-equipment-content');
+  if (items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="czl-empty">Brak sprzętu obozowego.</td></tr>';
+    return;
+  }
+  const sorted = [...items].sort((a, b) => {
+    const comparison = compareValues(eventEquipmentSortValue(a), eventEquipmentSortValue(b), eventEquipmentSortState.dir);
+    return comparison || compareValues(a.description, b.description, 'asc');
+  });
+  tbody.innerHTML = sorted.map((item) => {
+    const going = item.going === true;
+    const stateLabel = going ? 'Jedzie' : 'Nie jedzie';
+    const category = equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
+    const section = sectionLabelById.get(item.sectionId) ?? item.sectionId;
+    return `<tr data-section="${escapeAttr(item.sectionId)}">
+      <td>${escapeHtml(section)}</td>
+      <td>${escapeHtml(category)}</td>
+      <td>${ownerCellHtml(item.belongsToPersonId)}</td>
+      <td>${escapeHtml(item.description)}</td>
+      <td><button type="button" class="lw-equipment-toggle" data-equipment-id="${escapeAttr(item.id)}" data-going="${going}" aria-pressed="${going}"><span class="lw-attend-toggle-track" aria-hidden="true"></span>${stateLabel}</button></td>
+    </tr>`;
+  }).join('');
+}
 
 // KRKG-0087: the roster endpoint's row shape for a freshly created person (see
 // handleListaWyjazdowaGetRoster), so a quick-added person renders without a full reload. duesStatus
@@ -641,6 +698,29 @@ async function toggleAttending(personId, nextAttending, control) {
   }
 }
 
+async function toggleEventEquipment(equipmentId, nextGoing, control) {
+  clearError();
+  try {
+    await confirmedEventMutation(control, () => apiFetch(
+      `/lista-wyjazdowa/event-equipment?eventId=${encodeURIComponent(eventId)}&equipmentId=${encodeURIComponent(equipmentId)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ going: nextGoing }),
+      },
+      showReauth,
+      hideReauth,
+    ), (result) => {
+      const item = cachedEventEquipment.find((equipment) => equipment.id === result.item.id);
+      if (item) Object.assign(item, result.item);
+      else cachedEventEquipment.push(result.item);
+      renderEventEquipment(cachedEventEquipment);
+    }, document.getElementById('event-equipment-panel'));
+  } catch (err) {
+    showError(`Nie udało się zapisać sprzętu: ${err.message}`);
+  }
+}
+
 // KRKG-0087: adding a companion from the roster (design.md section A). Both paths POST
 // /lista-wyjazdowa/signups/quick-add and apply the confirmed response locally; a failed call
 // changes nothing (the panel stays open, the row is untouched) and reports via showError.
@@ -734,18 +814,28 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
   }
 });
 
+document.getElementById('event-equipment-content').addEventListener('click', (e) => {
+  const equipmentBtn = e.target.closest('.lw-equipment-toggle');
+  if (!equipmentBtn) return;
+  equipmentBtn.disabled = true;
+  toggleEventEquipment(equipmentBtn.dataset.equipmentId, equipmentBtn.dataset.going !== 'true', equipmentBtn)
+    .finally(() => { equipmentBtn.disabled = false; });
+});
+
 async function loadAll() {
-  const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue, canManagePeople: peopleValue }, lookupLists] = await Promise.all([
+  const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue, canManagePeople: peopleValue }, lookupLists, { items: eventEquipmentItems }] = await Promise.all([
     apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/roster?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
+    apiFetch(`/lista-wyjazdowa/event-equipment?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
   ]);
   canManageSkladki = roleValue;
   canManagePeople = peopleValue === true;
   sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
   categoryLabelById = new Map((lookupLists.categories ?? []).map((c) => [c.id, c.label]));
+  equipmentCategoryLabelById = new Map((lookupLists.equipmentCategories ?? []).map((c) => [c.id, c.label]));
   weaponLabelById = new Map((lookupLists.weapons ?? []).map((w) => [w.id, w.label]));
   categoryOptions = lookupLists.categories ?? [];
   openAddPanelOwnerPersonId = null;
@@ -775,8 +865,11 @@ async function loadAll() {
 
   cachedRoster = roster;
   cachedSignups = signups;
+  cachedEventEquipment = eventEquipmentItems;
+  personById = new Map(roster.map((person) => [person.personId, person]));
   renderSummary(roster, signups);
   renderRoster(roster, signups);
+  renderEventEquipment(eventEquipmentItems);
 }
 
 async function setEventStatus(status, failureMessage, control) {
