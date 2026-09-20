@@ -6405,6 +6405,29 @@ test('PUT /lista-wyjazdowa/event-equipment rejects an unknown event without pers
   });
 });
 
+test('PUT /lista-wyjazdowa/event-equipment records the before/after state on a later toggle', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const route = `/lista-wyjazdowa/event-equipment?eventId=${created.event.id}&equipmentId=tent-1`;
+    assert.equal((await putListaWyjazdowa(baseUrl, route, { going: true })).status, 200);
+    assert.equal((await putListaWyjazdowa(baseUrl, route, { going: false })).status, 200);
+
+    const events = await firestore.listDocs<{
+      action: string;
+      eventId?: string;
+      changes: Array<{ field: string; before?: boolean; after?: boolean; visibility: string }>;
+    }>('auditEvents');
+    const toggles = events.filter(event => event.data.action === 'equipment.event_going.changed');
+    assert.equal(toggles.length, 2);
+    assert.equal(toggles[1].data.eventId, created.event.id);
+    assert.deepEqual(toggles[1].data.changes, [
+      { field: 'going', before: true, after: false, visibility: 'memberVisible' },
+    ]);
+  });
+});
+
 // Open-edit lets any member sign up any *other* member, but not an address that is nobody: such a
 // signup is counted by attendingCount on the events list yet invisible to the roster/per-section
 // breakdown on the event page, leaving the two pages disagreeing about the attendee total.
