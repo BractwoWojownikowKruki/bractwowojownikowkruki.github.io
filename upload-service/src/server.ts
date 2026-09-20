@@ -99,6 +99,11 @@ import {
   listEquipment,
   type EquipmentDoc,
 } from './equipment.ts';
+import {
+  getEventEquipment,
+  listEventEquipmentForEvent,
+  saveEventEquipment,
+} from './event-equipment.ts';
 
 // Long enough to cover a large gallery uploaded over a flaky connection across several
 // sittings, short enough that a lost/abandoned submission token doesn't stay valid forever.
@@ -238,6 +243,7 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   eventCreate: auditedRoute('POST', '/lista-wyjazdowa/events', ['event.created']),
   eventUpdate: auditedRoute('PUT', '/lista-wyjazdowa/events', ['event.updated', 'event.cancelled', 'dues.event_fee.changed']),
   signup: auditedRoute('PUT', '/lista-wyjazdowa/signups', ['signup.created', 'signup.updated']),
+  eventEquipment: auditedRoute('PUT', '/lista-wyjazdowa/event-equipment', ['equipment.event_going.changed']),
   // KRKG-0087: the accountless-person record routes.
   personCreate: auditedRoute('POST', '/lista-wyjazdowa/persons', ['person.created']),
   personUpdate: auditedRoute('PUT', '/lista-wyjazdowa/persons', ['person.updated']),
@@ -2795,6 +2801,48 @@ async function handleListaWyjazdowaPutSignup(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, { signup });
 }
 
+async function handleListaWyjazdowaGetEventEquipment(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req, res);
+  const eventId = url.searchParams.get('eventId');
+  if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
+
+  const [equipment, eventEquipment] = await Promise.all([
+    listEquipment(deps.firestore),
+    listEventEquipmentForEvent(deps.firestore, eventId),
+  ]);
+  const goingByEquipmentId = new Map(eventEquipment.map(item => [item.equipmentId, item.going]));
+  sendJson(res, 200, { items: equipment.map(item => ({ ...item, going: goingByEquipmentId.get(item.id) ?? false })) });
+}
+
+async function handleListaWyjazdowaPutEventEquipment(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const eventId = url.searchParams.get('eventId');
+  const equipmentId = url.searchParams.get('equipmentId');
+  if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
+  if (!equipmentId) throw new AuthError('Brak identyfikatora sprzętu.', 400);
+  if (!await getEvent(deps.firestore, eventId)) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  if (typeof body.going !== 'boolean') throw new AuthError('Pole going jest wymagane (true/false).', 400);
+  const going = body.going;
+
+  const { result: item } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.eventEquipment,
+    'equipment.event_going.changed',
+    async tx => {
+      const existing = await getEventEquipment(tx, eventId, equipmentId);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'eventEquipment', key: `eventEquipment:${eventId}:${equipmentId}`, display: equipmentId },
+        changes: [{ field: 'going', ...(existing ? { before: existing.going } : {}), after: going }],
+      };
+    },
+    tx => saveEventEquipment(tx, eventId, equipmentId, going, identity.email),
+  );
+  sendJson(res, 200, { item });
+}
+
 // Enumerates the live kruki Google Group allowlist (same as GET /members/directory, KRKG-0045),
 // not just members/{email} docs: a club member who never opened "Mój profil" still has to be
 // settable as attending/not-attending a trip, which is only possible if their row exists at all.
@@ -4578,6 +4626,10 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaPutSignup(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/roster') {
         await handleListaWyjazdowaGetRoster(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/event-equipment') {
+        await handleListaWyjazdowaGetEventEquipment(req, res, url, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/event-equipment') {
+        await handleListaWyjazdowaPutEventEquipment(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/person-profile') {
         await handleListaWyjazdowaGetPersonProfile(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/persons') {
