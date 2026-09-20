@@ -81,15 +81,17 @@ function createHarness(items: Array<Record<string, unknown>>) {
 test('Wyjazd page loads, renders and locally toggles event equipment', async () => {
   assert.match(html, /id="event-equipment-panel"/);
   assert.match(html, /id="event-equipment-table"/);
+  assert.match(html, /data-sort-key="going">Jedzie\?<\/th>[\s\S]*<th scope="col">Opis<\/th>/);
   const harness = createHarness([{
     id: 'tent-1', categoryId: 'tent', sectionId: 'krakow', belongsToPersonId: 'owner@example.com', description: 'Duży namiot', going: false,
   }]);
   await harness.signIn();
 
   const equipment = harness.elements.get('event-equipment-content')!;
-  assert.match(equipment.innerHTML, /Kraków/);
+  assert.match(equipment.innerHTML, /class="czl-section-cell"[^>]*>KRK<\/td>/);
   assert.match(equipment.innerHTML, /Namiot/);
   assert.match(equipment.innerHTML, /Właściciel/);
+  assert.match(equipment.innerHTML, /data-profile-trigger data-email="owner@example.com"/);
   assert.match(equipment.innerHTML, /Nie jedzie/);
   assert.ok(harness.calls.some(call => call.url.startsWith('/lista-wyjazdowa/event-equipment?eventId=e1')));
 
@@ -109,4 +111,14 @@ test('Wyjazd page shows an empty state when no equipment exists', async () => {
   const harness = createHarness([]);
   await harness.signIn();
   assert.match(harness.elements.get('event-equipment-content')!.innerHTML, /Brak sprzętu obozowego/);
+});
+
+test('Wyjazd equipment uses Kruki for team-owned items', async () => {
+  const harness = createHarness([{
+    id: 'team-tent', categoryId: 'tent', sectionId: 'krakow', belongsToPersonId: null,
+    description: 'Namiot drużynowy', going: true,
+  }]);
+  await harness.signIn();
+  const equipment = harness.elements.get('event-equipment-content')!;
+  assert.match(equipment.innerHTML, />Kruki<\/td>/);
 });

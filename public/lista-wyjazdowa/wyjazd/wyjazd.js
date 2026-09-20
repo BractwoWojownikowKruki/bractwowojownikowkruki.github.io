@@ -459,7 +459,7 @@ const eventEquipmentSortState = initSortableTable(document.getElementById('event
 });
 
 function ownerCellHtml(personId) {
-  if (!personId) return 'Drużynowy';
+  if (!personId) return 'Kruki';
   const person = personById.get(personId);
   if (!person) return escapeHtml(personId);
   const pill = personPillHtml({
@@ -471,13 +471,13 @@ function ownerCellHtml(personId) {
   const triggerAttr = person.accountless
     ? `data-person-id="${escapeAttr(person.personId)}"`
     : `data-email="${escapeAttr(person.email)}"`;
-  return `<button type="button" class="profile-trigger" ${triggerAttr}>${pill}</button>`;
+  return `<button type="button" class="profile-trigger" data-profile-trigger ${triggerAttr}>${pill}</button>`;
 }
 
 function eventEquipmentSortValue(item) {
   switch (eventEquipmentSortState.key) {
     case 'category': return equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
-    case 'owner': return item.belongsToPersonId ? displayName(personById.get(item.belongsToPersonId) ?? {}) : 'Drużynowy';
+    case 'owner': return item.belongsToPersonId ? displayName(personById.get(item.belongsToPersonId) ?? {}) : 'Kruki';
     case 'going': return item.going;
     default: return sectionLabelById.get(item.sectionId) ?? item.sectionId;
   }
@@ -499,11 +499,11 @@ function renderEventEquipment(items) {
     const category = equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
     const section = sectionLabelById.get(item.sectionId) ?? item.sectionId;
     return `<tr data-section="${escapeAttr(item.sectionId)}">
-      <td>${escapeHtml(section)}</td>
+      <td class="czl-section-cell" title="${escapeAttr(section)}">${escapeHtml(sectionAbbr(item.sectionId))}</td>
       <td>${escapeHtml(category)}</td>
       <td>${ownerCellHtml(item.belongsToPersonId)}</td>
-      <td>${escapeHtml(item.description)}</td>
       <td><button type="button" class="lw-equipment-toggle" data-equipment-id="${escapeAttr(item.id)}" data-going="${going}" aria-pressed="${going}"><span class="lw-attend-toggle-track" aria-hidden="true"></span>${stateLabel}</button></td>
+      <td>${escapeHtml(item.description)}</td>
     </tr>`;
   }).join('');
 }
