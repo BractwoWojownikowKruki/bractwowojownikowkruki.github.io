@@ -31,7 +31,8 @@ export type AuditResourceKind =
   | 'session'
   | 'application'
   | 'file'
-  | 'equipment';
+  | 'equipment'
+  | 'eventEquipment';
 
 export interface AuditActionDefinition {
   category: AuditCategory;
@@ -152,6 +153,11 @@ const equipmentFields = {
   belongsToPersonId: 'memberVisible',
   description: 'memberVisible',
 } as const;
+const eventEquipmentFields = {
+  eventId: 'memberVisible',
+  equipmentId: 'memberVisible',
+  going: 'memberVisible',
+} as const;
 
 function action(
   category: AuditCategory,
@@ -230,6 +236,7 @@ export const ACTION_REGISTRY = {
   'equipment.added': action('equipment', 'members', ['equipment'], equipmentFields),
   'equipment.updated': action('equipment', 'members', ['equipment'], equipmentFields),
   'equipment.deleted': action('equipment', 'members', ['equipment'], equipmentFields),
+  'equipment.event_going.changed': action('equipment', 'members', ['eventEquipment'], eventEquipmentFields),
 } as const satisfies Record<string, AuditActionDefinition>;
 
 export type AuditAction = keyof typeof ACTION_REGISTRY;
@@ -260,7 +267,7 @@ export function eventIdFromResource(resource: AuditResource): string | undefined
     const id = resource.key.slice(prefix.length);
     return id || undefined;
   }
-  if (resource.kind === 'signup') {
+  if (resource.kind === 'signup' || resource.kind === 'eventEquipment') {
     const id = resource.key.slice(prefix.length).split(':', 1)[0];
     return id || undefined;
   }

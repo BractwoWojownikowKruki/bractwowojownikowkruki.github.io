@@ -6357,6 +6357,77 @@ test('PUT /lista-wyjazdowa/signups accepts open-edit by a different member and r
   });
 });
 
+test('GET /lista-wyjazdowa/event-equipment joins all equipment with per-event going state', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('equipment', 'tent-1', {
+    id: 'tent-1', categoryId: 'tent', sectionId: 'krakow', belongsToPersonId: null,
+    description: 'Duży namiot', createdAt: '2026-01-01T00:00:00.000Z', createdBy: 'ala@example.test',
+  });
+  firestore.seed('equipment', 'shelter-1', {
+    id: 'shelter-1', categoryId: 'shelter', sectionId: 'warszawa', belongsToPersonId: null,
+    description: '', createdAt: '2026-01-02T00:00:00.000Z', createdBy: 'ala@example.test',
+  });
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const write = await putListaWyjazdowa(
+      baseUrl,
+      `/lista-wyjazdowa/event-equipment?eventId=${created.event.id}&equipmentId=tent-1`,
+      { going: true },
+    );
+    assert.equal(write.status, 200);
+
+    const response = await fetch(`${baseUrl}/lista-wyjazdowa/event-equipment?eventId=${created.event.id}`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.items.length, 2);
+    assert.equal(body.items.find((item: { id: string }) => item.id === 'tent-1').going, true);
+    assert.equal(body.items.find((item: { id: string }) => item.id === 'shelter-1').going, false);
+
+    const evidence = await firestore.listDocs<{ action: string; eventId?: string; resource: { key: string } }>('auditEvents');
+    const toggleAudit = evidence.find(entry => entry.data.action === 'equipment.event_going.changed');
+    assert.equal(toggleAudit?.data.eventId, created.event.id);
+    assert.equal(toggleAudit?.data.resource.key, `eventEquipment:${created.event.id}:tent-1`);
+  });
+});
+
+test('PUT /lista-wyjazdowa/event-equipment rejects an unknown event without persisting state', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const response = await putListaWyjazdowa(
+      baseUrl,
+      '/lista-wyjazdowa/event-equipment?eventId=missing&equipmentId=tent-1',
+      { going: true },
+    );
+    assert.equal(response.status, 404);
+    assert.deepEqual(await firestore.listDocs('eventEquipment'), []);
+  });
+});
+
+test('PUT /lista-wyjazdowa/event-equipment records the before/after state on a later toggle', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const route = `/lista-wyjazdowa/event-equipment?eventId=${created.event.id}&equipmentId=tent-1`;
+    assert.equal((await putListaWyjazdowa(baseUrl, route, { going: true })).status, 200);
+    assert.equal((await putListaWyjazdowa(baseUrl, route, { going: false })).status, 200);
+
+    const events = await firestore.listDocs<{
+      action: string;
+      eventId?: string;
+      changes: Array<{ field: string; before?: boolean; after?: boolean; visibility: string }>;
+    }>('auditEvents');
+    const toggles = events.filter(event => event.data.action === 'equipment.event_going.changed');
+    assert.equal(toggles.length, 2);
+    assert.equal(toggles[1].data.eventId, created.event.id);
+    assert.deepEqual(toggles[1].data.changes, [
+      { field: 'going', before: true, after: false, visibility: 'memberVisible' },
+    ]);
+  });
+});
+
 // Open-edit lets any member sign up any *other* member, but not an address that is nobody: such a
 // signup is counted by attendingCount on the events list yet invisible to the roster/per-section
 // breakdown on the event page, leaving the two pages disagreeing about the attendee total.

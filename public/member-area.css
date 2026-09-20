@@ -617,7 +617,8 @@
    whose only state cue was its text - the on/off state now reads at a glance the way a settings
    switch does everywhere else. Built from a <button aria-pressed> (see lista-wyjazdowa.js), so
    the state that matters for styling and assistive tech alike is the aria-pressed attribute. */
-.lw-attend-toggle {
+.lw-attend-toggle,
+.lw-equipment-toggle {
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
@@ -654,11 +655,13 @@
   transition: transform 0.15s ease, background-color 0.15s;
 }
 
-.lw-attend-toggle[aria-pressed="true"] {
+.lw-attend-toggle[aria-pressed="true"],
+.lw-equipment-toggle[aria-pressed="true"] {
   color: var(--gold);
 }
 
-.lw-attend-toggle[aria-pressed="true"] .lw-attend-toggle-track {
+.lw-attend-toggle[aria-pressed="true"] .lw-attend-toggle-track,
+.lw-equipment-toggle[aria-pressed="true"] .lw-attend-toggle-track {
   background: color-mix(in srgb, var(--gold) 25%, var(--surface-deep));
   border-color: var(--gold);
 }
@@ -668,14 +671,16 @@
   transform: translateX(1.1rem);
 }
 
-.lw-attend-toggle:disabled {
+.lw-attend-toggle:disabled,
+.lw-equipment-toggle:disabled {
   opacity: 0.6;
   cursor: default;
 }
 
 /* Roster table's Status cell (KRKG-0053): label stacks under the toggle track, not beside it.
    Scoped to .czl-table - lista-wyjazdowa.js reuses .lw-attend-toggle inline, side-by-side. */
-.czl-table .lw-attend-toggle {
+.czl-table .lw-attend-toggle,
+.czl-table .lw-equipment-toggle {
   flex-direction: column;
   gap: 0.2rem;
   font-size: 12px;

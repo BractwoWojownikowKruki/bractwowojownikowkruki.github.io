@@ -483,10 +483,11 @@ test('queryAuditEvents: category, category+action, actor, and resourceKey select
   assert.deepEqual(resourcePage2.rows.map(r => r.id), ['evt-created']);
 });
 
-test('eventIdFromResource derives the trip id for event/eventFee/signup and nothing else', () => {
+test('eventIdFromResource derives the trip id for event/eventFee/signup/eventEquipment and nothing else', () => {
   assert.equal(eventIdFromResource({ kind: 'event', key: 'event:evt-1', display: 'Zlot' }), 'evt-1');
   assert.equal(eventIdFromResource({ kind: 'eventFee', key: 'eventFee:evt-1', display: 'Zlot' }), 'evt-1');
   assert.equal(eventIdFromResource({ kind: 'signup', key: 'signup:evt-1:ula@example.test', display: 'ula@example.test' }), 'evt-1');
+  assert.equal(eventIdFromResource({ kind: 'eventEquipment', key: 'eventEquipment:evt-1:tent-1', display: 'Namiot' }), 'evt-1');
   assert.equal(eventIdFromResource({ kind: 'due', key: 'due:ula@example.test:2026', display: 'Ula 2026' }), undefined);
   assert.equal(eventIdFromResource({ kind: 'member', key: 'member:ula@example.test', display: 'Ula' }), undefined);
   assert.equal(eventIdFromResource({ kind: 'event', key: 'event:', display: 'Puste' }), undefined);

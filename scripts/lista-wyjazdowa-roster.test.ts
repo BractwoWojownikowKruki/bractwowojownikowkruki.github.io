@@ -49,6 +49,7 @@ const elementIds = [
   'event-title', 'event-meta',
   'cancel-event-btn', 'restore-event-btn', 'event-history-link', 'skladka-fee-history-link',
   'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-category',
+  'event-equipment-panel', 'event-equipment-table', 'event-equipment-content',
 ];
 
 function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean } = {}) {
@@ -126,6 +127,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
       if (url === '/lista-wyjazdowa/roster') return { roster: currentRoster };
       if (url.startsWith('/lista-wyjazdowa/roster?eventId=')) return { roster: eventRoster };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups };
+      if (url.startsWith('/lista-wyjazdowa/event-equipment?')) return { items: [] };
       if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki, canManagePeople };
       if (url === '/lista-wyjazdowa/lookup-lists') {
         return {

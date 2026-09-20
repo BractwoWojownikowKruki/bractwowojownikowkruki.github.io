@@ -14,7 +14,7 @@ table into this file in the same change. If you forget, this test will keep pass
 stale copy while the real contract document silently diverges - exactly the failure mode this
 fixture exists to prevent.
 
-Last synced with implementation-contract.md: 2026-09-19 (KRKG-0096: added POST/PUT/DELETE /equipment, actions equipment.added/updated/deleted; KRKG-0091: added DELETE /lista-wyjazdowa/persons/permanent, action person.purged; KRKG-0087 added the accountless-person record routes POST/PUT/DELETE /lista-wyjazdowa/persons, PUT /lista-wyjazdowa/persons/owner, PUT /lista-wyjazdowa/persons/account and POST /lista-wyjazdowa/signups/quick-add, actions person.created/updated/deleted/detached/merged).
+Last synced with implementation-contract.md: 2026-09-20 (KRKG-0098: added PUT /lista-wyjazdowa/event-equipment, action equipment.event_going.changed; KRKG-0096: added POST/PUT/DELETE /equipment, actions equipment.added/updated/deleted; KRKG-0091: added DELETE /lista-wyjazdowa/persons/permanent, action person.purged; KRKG-0087 added the accountless-person record routes POST/PUT/DELETE /lista-wyjazdowa/persons, PUT /lista-wyjazdowa/persons/owner, PUT /lista-wyjazdowa/persons/account and POST /lista-wyjazdowa/signups/quick-add, actions person.created/updated/deleted/detached/merged).
 -->
 
 | Method and route | Classification and action | Resource and side effect | Execution |
@@ -49,6 +49,7 @@ Last synced with implementation-contract.md: 2026-09-19 (KRKG-0096: added POST/P
 | POST `/lista-wyjazdowa/events` | businessWrite — `event.created` | event; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/events` | businessWrite — `event.updated` / `event.cancelled`, plus `dues.event_fee.changed` only when its fee changes | event and optional eventFee; Firestore; two independent effects emit two events in one transaction | requestAwaited |
 | PUT `/lista-wyjazdowa/signups` | businessWrite — data-resolved `signup.created` / `signup.updated` | signup; Firestore | requestAwaited |
+| PUT `/lista-wyjazdowa/event-equipment` | businessWrite — `equipment.event_going.changed` | eventEquipment; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/signups/skladka` | businessWrite — `dues.event_fee.changed` | eventFee; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/wpisowe` | businessWrite — `dues.entry_fee.changed` | due; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/dues` | businessWrite — `dues.annual.changed` | due; Firestore | requestAwaited |

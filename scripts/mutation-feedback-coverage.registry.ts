@@ -75,6 +75,7 @@ const mutationFeedbackWiredRoutes = new Set([
   'POST /lista-wyjazdowa/events',
   'PUT /lista-wyjazdowa/events',
   'PUT /lista-wyjazdowa/signups',
+  'PUT /lista-wyjazdowa/event-equipment',
   'PUT /lista-wyjazdowa/signups/skladka',
   'PUT /lista-wyjazdowa/wpisowe',
   'PUT /lista-wyjazdowa/dues',
@@ -104,8 +105,7 @@ const mutationFeedbackWiredRoutes = new Set([
  * gate stay exact while a later story's frontend catches up. The gate fails for any planned route
  * not named here.
  */
-export const mutationFeedbackPendingRoutes = new Set<string>([
-]);
+export const mutationFeedbackPendingRoutes = new Set<string>();
 
 /** Parses and expands method-and-route rows from the checked-in canonical Mutation inventory table. */
 export function parseMutationInventoryRoutes(source: string): string[] {
