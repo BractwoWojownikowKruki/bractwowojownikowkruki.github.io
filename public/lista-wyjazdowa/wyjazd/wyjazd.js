@@ -23,8 +23,8 @@ function escapeAttr(str) {
 
 // Weapon icons (KRKG-0054, art assets added later): keyed by lookupLists/weapons' fixed 3-item id
 // set (see upload-service/scripts/seed-lookup-lists.ts) via its ASCII item-name (see
-// WEAPON_ICON_KEYS below), pointing at the hand-drawn PNGs in /icons. A member holding two weapons
-// gets the matching two-item combo PNG rather than two icons side by side - see
+// WEAPON_ICON_KEYS below), pointing at the hand-drawn PNGs in /icons. A member holding two or three
+// weapons gets the matching combo PNG rather than several icons side by side - see
 // weaponGroupIconFile below, which builds the same combo key weaponGroupLabel uses for its text.
 const WEAPON_ICON_KEYS = {
   tarczownik: 'tarcza',
@@ -32,8 +32,25 @@ const WEAPON_ICON_KEYS = {
   dunczyk: 'topor',
 };
 
+// KRKG-0100: one-letter codes for the roster's tiny caption under the weapon icon - tarcza (T),
+// włócznia (W), topór/DUN (D). Joined in WEAPON_DISPLAY_ORDER, so the same set always reads the same
+// way ("TW", "TD", "TWD", "WD").
+const WEAPON_LETTERS = {
+  tarczownik: 'T',
+  wlocznik: 'W',
+  dunczyk: 'D',
+};
+
+function weaponLetterCode(weaponIds) {
+  return [...weaponIds]
+    .sort((a, b) => WEAPON_DISPLAY_ORDER.indexOf(a) - WEAPON_DISPLAY_ORDER.indexOf(b))
+    .map((id) => WEAPON_LETTERS[id])
+    .filter(Boolean)
+    .join('');
+}
+
 function weaponGroupIconFile(weaponIds) {
-  if (weaponIds.length === 0 || weaponIds.length > 2) return null;
+  if (weaponIds.length === 0 || weaponIds.length > 3) return null;
   const keys = [...weaponIds]
     .sort((a, b) => WEAPON_DISPLAY_ORDER.indexOf(a) - WEAPON_DISPLAY_ORDER.indexOf(b))
     .map((id) => WEAPON_ICON_KEYS[id]);
@@ -49,23 +66,26 @@ function weaponGroupIconHtml(weaponIds, label) {
   return `<span class="lw-weapon-group">${icon}<span class="lw-weapon-group-label">${escapeHtml(label)}</span></span>`;
 }
 
-// Icon only, no visible caption - the roster table has no room to spare (especially on phones), so
-// its Broń column shows just the icon(s), with the full label as a hover/a11y title instead. Falls
-// back to one icon per weapon when the set has no matching combo PNG (weaponGroupIconFile only
-// covers 1-2 weapons; nobody is expected to hold all three, but this still degrades sanely).
+// Icon plus a tiny one/two/three-letter caption (KRKG-0100) - the roster table has no room for the
+// full label, but an icon-only mark needed a hover just to read which weapon it was, so the Broń
+// column stacks the icon over its WEAPON_LETTERS code ("T", "TW", "TWD", ...), keeping the full
+// label in the hover/a11y title. Falls back to one icon per weapon when the set has no matching combo
+// PNG (weaponGroupIconFile covers 1-3 weapons; an unknown id still degrades sanely).
 function weaponIconsOnlyHtml(weaponIds, title) {
   const groupFile = weaponGroupIconFile(weaponIds);
-  if (groupFile) {
-    return `<img class="lw-weapon-icon" src="${groupFile}" alt="${escapeAttr(title)}" title="${escapeAttr(title)}" width="20" height="20">`;
-  }
-  return weaponIds
-    .map((id) => {
-      const file = weaponGroupIconFile([id]);
-      return file
-        ? `<img class="lw-weapon-icon" src="${file}" alt="${escapeAttr(weaponLabelFor(id))}" title="${escapeAttr(weaponLabelFor(id))}" width="20" height="20">`
-        : '';
-    })
-    .join('');
+  const icon = groupFile
+    ? `<img class="lw-weapon-icon" src="${groupFile}" alt="${escapeAttr(title)}" title="${escapeAttr(title)}" width="20" height="20">`
+    : weaponIds
+        .map((id) => {
+          const file = weaponGroupIconFile([id]);
+          return file
+            ? `<img class="lw-weapon-icon" src="${file}" alt="${escapeAttr(weaponLabelFor(id))}" title="${escapeAttr(weaponLabelFor(id))}" width="20" height="20">`
+            : '';
+        })
+        .join('');
+  const code = weaponLetterCode(weaponIds);
+  const caption = code ? `<span class="lw-weapon-code">${escapeHtml(code)}</span>` : '';
+  return `<span class="lw-weapon-badge">${icon}${caption}</span>`;
 }
 
 // 3-letter Sekcja abbreviations (KRKG-0063) for the compact, sticky first column - a display-only

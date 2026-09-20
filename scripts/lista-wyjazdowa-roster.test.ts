@@ -52,7 +52,7 @@ const elementIds = [
   'event-equipment-panel', 'event-equipment-table', 'event-equipment-content',
 ];
 
-function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean } = {}) {
+function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]> } = {}) {
   const canManageSkladki = options.canManageSkladki ?? true;
   const canManagePeople = options.canManagePeople ?? false;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
@@ -66,7 +66,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, fullName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
     { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
     { personId: 'other@example.com', email: 'other@example.com', accountless: false, fullName: 'Other', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
-  ];
+  ].map((member) => (options.memberWeapons?.[member.personId] ? { ...member, weaponIds: options.memberWeapons[member.personId] } : member));
   // KRKG-0087: an accountless person already attached to the viewer but not signed up for this
   // trip - the roster's inline add panel offers them in its "istniejąca" dropdown.
   const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: 'viewer@example.com', fullName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisowePaid: true };
@@ -209,6 +209,27 @@ test('roster checkboxes filter locally and preserve the signed-in viewer', async
   assert.doesNotMatch(roster.innerHTML, /other@example\.com/);
 
   assert.equal(harness.apiCalls.length, requestsBeforeToggle);
+});
+
+test('roster shows one combo icon and a T/W/D letter caption for multi-weapon members', async () => {
+  const harness = createHarness(event(null), {
+    memberWeapons: {
+      'signed@example.com': ['tarczownik', 'wlocznik', 'dunczyk'],
+      'viewer@example.com': ['wlocznik', 'dunczyk'],
+    },
+  });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!.innerHTML;
+
+  // All three weapons -> the three-weapon combo PNG (not three separate icons), captioned "TWD".
+  assert.match(roster, /icons\/bron-tarcza-wlocznia-topor\.png/);
+  assert.match(roster, /lw-weapon-code">TWD</);
+  // Two weapons -> the matching combo PNG, captioned with their two letters.
+  assert.match(roster, /icons\/bron-wlocznia-topor\.png/);
+  assert.match(roster, /lw-weapon-code">WD</);
+  // The single-weapon PNGs are not used for these members.
+  assert.doesNotMatch(roster, /icons\/bron-tarcza\.png/);
+  assert.doesNotMatch(roster, /icons\/bron-topor\.png/);
 });
 
 test('blank fee values hide payment icons while a confirmed event update re-renders them', async () => {

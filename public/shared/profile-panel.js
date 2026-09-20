@@ -26,7 +26,8 @@
   // reads as broken when printed as plain text - so Broń renders the same icon + short item-name
   // pair the roster and "Wg broni" chips use (see wyjazd.js's WEAPON_ICON_KEYS/WEAPON_ITEM_NAMES,
   // duplicated per-file by the same established convention). weaponGroupIconFile mirrors
-  // wyjazd.js's of the same name: one combo PNG for a member holding two weapons.
+  // wyjazd.js's of the same name: one combo PNG for a member holding two or three weapons
+  // (KRKG-0100 added the three-weapon combo).
   const WEAPON_ICON_KEYS = {
     tarczownik: 'tarcza',
     wlocznik: 'wlocznia',
@@ -40,7 +41,7 @@
   const WEAPON_DISPLAY_ORDER = ['tarczownik', 'wlocznik', 'dunczyk'];
 
   function weaponGroupIconFile(weaponIds) {
-    if (weaponIds.length === 0 || weaponIds.length > 2) return null;
+    if (weaponIds.length === 0 || weaponIds.length > 3) return null;
     const keys = [...weaponIds]
       .sort((a, b) => WEAPON_DISPLAY_ORDER.indexOf(a) - WEAPON_DISPLAY_ORDER.indexOf(b))
       .map((id) => WEAPON_ICON_KEYS[id]);

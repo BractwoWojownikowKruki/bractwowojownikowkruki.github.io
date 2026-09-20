@@ -396,6 +396,25 @@
   height: 1.7rem;
 }
 
+/* KRKG-0100: the roster's Broń column stacks the icon over a tiny one/two/three-letter code
+   (wyjazd.js's WEAPON_LETTERS) - just enough to tell T from TW/TWD without a hover, and still far
+   narrower than the full weaponGroupLabel. Scoped by its own class so the summary chips / profile
+   drawer, which show the full label, are unaffected. */
+.lw-weapon-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  line-height: 1;
+}
+
+.lw-weapon-code {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
 /* KRKG-0074: tiny club-dues badges in the event roster's name cell (wyjazd.js's renderRoster) -
    what's still unpaid *outside* this event. The cell splits into two rows: the name pill + person
    icon on top, and this badge row (block-level flex, so it sits on its own line) only while
