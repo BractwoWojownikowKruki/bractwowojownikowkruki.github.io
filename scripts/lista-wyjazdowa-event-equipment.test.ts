@@ -64,7 +64,7 @@ function createHarness(items: Array<Record<string, unknown>>) {
     personPillHtml: ({ name }: { name: string }) => `<span>${name}</span>`,
     apiFetch: async (url: string, options: Record<string, unknown>) => {
       calls.push({ url, options });
-      if (options.method === 'PUT') return { item: { id: 'tent-1', going: true } };
+      if (options.method === 'PUT') return { item: { eventId: 'e1', equipmentId: 'tent-1', going: true, lastChangedBy: 'viewer@example.com', lastChangedAt: '2026-09-20T20:00:00.000Z' } };
       if (url === '/lista-wyjazdowa/events') return { events: [{ id: 'e1', name: 'Wyjazd', startDate: '2026-10-10', status: 'active' }] };
       if (url.startsWith('/lista-wyjazdowa/roster?')) return { roster: [{ personId: 'owner@example.com', email: 'owner@example.com', fullName: 'Właściciel', accountless: false, sectionId: 'krakow', categoryId: 'kandydat', weaponIds: [], duesStatus: 'paid', wpisowePaid: true }] };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups: [] };
@@ -81,6 +81,7 @@ function createHarness(items: Array<Record<string, unknown>>) {
 test('Wyjazd page loads, renders and locally toggles event equipment', async () => {
   assert.match(html, /id="event-equipment-panel"/);
   assert.match(html, /id="event-equipment-table"/);
+  assert.match(html, /<th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S<\/button><\/th>/);
   assert.match(html, /data-sort-key="going">Jedzie\?<\/th>[\s\S]*<th scope="col">Opis<\/th>/);
   const harness = createHarness([{
     id: 'tent-1', categoryId: 'tent', sectionId: 'krakow', belongsToPersonId: 'owner@example.com', description: 'Duży namiot', going: false,
@@ -100,11 +101,14 @@ test('Wyjazd page loads, renders and locally toggles event equipment', async () 
     closest: (selector: string) => selector === '.lw-equipment-toggle' ? button : null,
   };
   await equipment.clickWith(button);
-  await Promise.resolve();
+  await new Promise(resolve => setTimeout(resolve, 0));
   const put = harness.calls.find(call => call.options.method === 'PUT');
   assert.equal(put?.url, '/lista-wyjazdowa/event-equipment?eventId=e1&equipmentId=tent-1');
   assert.deepEqual(JSON.parse(String(put?.options.body)), { going: true });
   assert.match(equipment.innerHTML, /Jedzie/);
+  assert.match(equipment.innerHTML, /Namiot/);
+  assert.match(equipment.innerHTML, /Właściciel/);
+  assert.match(equipment.innerHTML, /Duży namiot/);
 });
 
 test('Wyjazd page shows an empty state when no equipment exists', async () => {

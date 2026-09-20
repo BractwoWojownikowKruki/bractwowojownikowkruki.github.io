@@ -711,9 +711,8 @@ async function toggleEventEquipment(equipmentId, nextGoing, control) {
       showReauth,
       hideReauth,
     ), (result) => {
-      const item = cachedEventEquipment.find((equipment) => equipment.id === result.item.id);
-      if (item) Object.assign(item, result.item);
-      else cachedEventEquipment.push(result.item);
+      const item = cachedEventEquipment.find((equipment) => equipment.id === result.item.equipmentId);
+      if (item) item.going = result.item.going;
       renderEventEquipment(cachedEventEquipment);
     }, document.getElementById('event-equipment-panel'));
   } catch (err) {
