@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tester — Szczegóły wyjazdu</title>
+  <link rel="stylesheet" href="../public/style.css">
+  <link rel="stylesheet" href="../public/member-area.css">
+  <link rel="stylesheet" href="../public/shared/profile-panel.css">
+</head>
+<body>
+  <main class="main-content">
+    <div class="content-left">
+      <section class="content-section">
+        <nav class="lw-subnav">
+          <a href="#" class="lw-subnav-link" onclick="return false">Lista wyjazdów</a>
+          <a href="#" class="lw-subnav-link" onclick="return false">Dodaj wyjazd</a>
+          <a href="#" class="lw-subnav-link" onclick="return false">Składki</a>
+        </nav>
+
+        <h1 id="event-title">Wyjazd Sokoli</h1>
+        <p id="event-meta">01.01.2027 · 9 zapisanych</p>
+
+        <div id="skladka-fee-panel">
+          <div class="lw-fee-summary">
+            <span id="skladka-fee-display">Składka: 120 zł, termin do 15.12.2026</span>
+          </div>
+        </div>
+
+        <section id="summary-panel">
+          <h2>Podsumowanie</h2>
+          <div id="summary-content">
+            <div class="lw-summary-columns">
+              <div>
+                <h3>Sekcja</h3>
+                <div class="lw-summary-chips">
+                  <span class="section-pill lw-summary-chip" data-section="krakow" title="Kraków">KRK<span class="lw-summary-badge lw-summary-badge--ok">3</span></span>
+                  <span class="section-pill lw-summary-chip" data-section="warszawa" title="Warszawa">WAW<span class="lw-summary-badge">1</span></span>
+                  <span class="section-pill lw-summary-chip" data-section="wroclaw" title="Wrocław">WRO<span class="lw-summary-badge">1</span></span>
+                </div>
+              </div>
+              <div>
+                <h3>Typ</h3>
+                <div class="lw-summary-chips">
+                  <span class="category-name-pill lw-summary-chip" data-category="brokul" title="Brokuł">Brokuł<span class="lw-summary-badge lw-summary-badge--ok">4</span></span>
+                  <span class="category-name-pill lw-summary-chip" data-category="kandydat" title="Kandydat">Kandydat<span class="lw-summary-badge">2</span></span>
+                  <span class="category-name-pill lw-summary-chip" data-category="thing" title="Thing">Thing<span class="lw-summary-badge">1</span></span>
+                </div>
+              </div>
+              <div>
+                <h3>Wg broni</h3>
+                <div class="lw-summary-chips">
+                  <span class="lw-summary-chip"><span class="lw-weapon-group"><img class="lw-weapon-icon" src="../public/icons/bron-tarcza.png" alt="" width="20" height="20"><span class="lw-weapon-group-label">tarcza</span></span><span class="lw-summary-badge lw-summary-badge--ok">2</span></span>
+                  <span class="lw-summary-chip"><span class="lw-weapon-group"><img class="lw-weapon-icon" src="../public/icons/bron-tarcza-wlocznia.png" alt="" width="20" height="20"><span class="lw-weapon-group-label">tarcza / włócznia</span></span><span class="lw-summary-badge">1</span></span>
+                  <span class="lw-summary-chip"><span class="lw-weapon-group"><img class="lw-weapon-icon" src="../public/icons/bron-tarcza-topor.png" alt="" width="20" height="20"><span class="lw-weapon-group-label">tarcza / dun</span></span><span class="lw-summary-badge">1</span></span>
+                  <span class="lw-summary-chip"><span class="lw-weapon-group"><img class="lw-weapon-icon" src="../public/icons/bron-tarcza-wlocznia-topor.png" alt="" width="20" height="20"><span class="lw-weapon-group-label">tarcza / włócznia / dun</span></span><span class="lw-summary-badge">1</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <p class="add-album-error" id="lw-error" hidden></p>
+
+        <section id="roster-panel">
+          <h2>Lista</h2>
+          <div class="lw-roster-controls">
+            <span class="lw-roster-filter-heading">Pokaż:</span>
+            <label class="lw-filter-check">
+              <input type="checkbox" id="roster-filter-niezgloszeni" checked>
+              <span>Niezgłoszeni</span>
+            </label>
+            <label class="lw-filter-check">
+              <input type="checkbox" id="roster-filter-zgloszeni" checked>
+              <span>Zgłoszeni + ja</span>
+            </label>
+          </div>
+          <div class="czl-table-wrap">
+            <table class="czl-table" id="roster-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="czl-section-cell" title="Sekcja">S</th>
+                  <th scope="col" class="lw-roster-name-cell">Imię i nazwisko</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Broń</th>
+                  <th scope="col">Zmiana</th>
+                </tr>
+              </thead>
+              <tbody id="roster-content"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </div>
+  </main>
+
+  <script src="../public/shared/display-name.js"></script>
+  <script src="../public/shared/person-pill.js"></script>
+  <script src="../public/shared/companion-add.js"></script>
+  <script>
+    const EMPTY = '—';
+    const viewerPersonId = 'viewer@example.com';
+
+    const categories = [
+      { id: 'kandydat', label: 'Kandydat' },
+      { id: 'brokul', label: 'Brokuł' },
+      { id: 'bobo', label: 'Bobo' },
+      { id: 'niewiasta', label: 'Niewiasta' },
+      { id: 'thing', label: 'Thing' },
+      { id: 'blacha', label: 'Blacha' },
+      { id: 'emeryt', label: 'Emeryt' },
+    ];
+
+    const weapons = {
+      T: { file: 'bron-tarcza.png', code: 'T', title: 'Tarcza' },
+      W: { file: 'bron-wlocznia.png', code: 'W', title: 'Włócznia' },
+      TW: { file: 'bron-tarcza-wlocznia.png', code: 'TW', title: 'Tarcza + włócznia' },
+      TD: { file: 'bron-tarcza-topor.png', code: 'TD', title: 'Tarcza + dun' },
+      TWD: { file: 'bron-tarcza-wlocznia-topor.png', code: 'TWD', title: 'Tarcza + włócznia + dun' },
+    };
+
+    const people = [
+      { section: 'bydgoszcz', sectionLabel: 'Bydgoszcz', name: 'Bartosz Kowalski', display: 'Borsuk', category: 'brokul', accountless: false, canAdd: true, attending: true, fee: true, paid: true, wpisowePaid: true, dues: 'not_applicable', weapon: 'TWD', changed: '18.09.2026 14:31' },
+      { section: 'bydgoszcz', sectionLabel: 'Bydgoszcz', name: 'Antek Kowalski', display: 'Antek', category: 'bobo', accountless: true, attending: true, fee: true, paid: false, wpisowePaid: false, dues: 'unpaid', weapon: 'T', changed: '18.09.2026 14:32' },
+      { section: 'bydgoszcz', sectionLabel: 'Bydgoszcz', name: 'Zosia Kowalska', display: 'Zoja', category: 'kandydat', accountless: true, attending: false, wpisowePaid: false, dues: 'unpaid', weapon: 'W', changed: '' },
+      { section: 'krakow', sectionLabel: 'Kraków', name: 'Anna Nowak', display: 'Wiedźma', category: 'niewiasta', accountless: false, canAdd: true, attending: true, fee: true, paid: false, wpisowePaid: true, dues: 'unpaid', weapon: 'W', changed: '12.09.2026 09:04' },
+      { section: 'warszawa', sectionLabel: 'Warszawa', name: 'Piotr Zieliński', display: 'Zielony', category: 'thing', accountless: false, attending: false, wpisowePaid: false, dues: 'not_applicable', weapon: 'TD', changed: '' },
+      { section: 'poznan', sectionLabel: 'Poznań', name: 'Marek Wiśniewski', display: 'Emeryt', category: 'emeryt', accountless: false, attending: true, fee: true, paid: true, wpisowePaid: true, dues: 'not_applicable', weapon: null, changed: '02.09.2026 20:15' },
+      { section: 'wroclaw', sectionLabel: 'Wrocław', name: 'Kasia Lewandowska', display: 'Blacha', category: 'blacha', accountless: false, attending: false, fee: true, paid: false, wpisowePaid: true, dues: 'unpaid', weapon: 'TW', changed: '30.08.2026 11:47' },
+      { section: 'krakow', sectionLabel: 'Kraków', name: 'Tomasz Kaczmarek', display: 'Kruk', category: 'brokul', accountless: false, attending: true, fee: false, paid: false, wpisowePaid: true, dues: 'not_applicable', weapon: 'TWD', changed: '28.08.2026 17:02' },
+      { section: 'czukcze', sectionLabel: 'Czukcze', name: 'Rafał Deaktywowany', display: 'Cichy', category: 'brokul', accountless: false, deleted: true, attending: true, wpisowePaid: false, dues: 'unpaid', weapon: 'T', changed: '01.08.2026 08:00' },
+    ];
+
+    function duesBadgesHtml(person) {
+      if (person.dues !== 'unpaid' && person.wpisowePaid) return '';
+      const wpisowe = !person.wpisowePaid ? '<span class="lw-dues-badge lw-dues-badge--wpisowe" title="Wpisowe nieopłacone">💰<span>wpisowe</span></span>' : '';
+      const roczna = person.dues === 'unpaid' ? '<span class="lw-dues-badge lw-dues-badge--roczna" title="Składka roczna nieopłacona">💰<span>roczna</span></span>' : '';
+      return '<span class="lw-dues-badges">' + wpisowe + roczna + '</span>';
+    }
+
+    function weaponHtml(person) {
+      if (!person.weapon) return EMPTY;
+      const w = weapons[person.weapon];
+      return '<span class="lw-weapon-badge"><img class="lw-weapon-icon" src="../public/icons/' + w.file + '" alt="' + w.title + '" title="' + w.title + '" width="20" height="20"><span class="lw-weapon-code">' + w.code + '</span></span>';
+    }
+
+    function nameCellHtml(person) {
+      const label = categories.find((c) => c.id === person.category)?.label ?? person.category;
+      const pill = personPillHtml({ name: person.display, categoryId: person.category, categoryLabel: label, accountless: person.accountless === true });
+      if (person.deleted) return pill;
+      if (person.accountless) {
+        return '<button type="button" class="profile-trigger" data-person-id="' + person.name + '">' + pill + '</button>';
+      }
+      return '<button type="button" class="profile-trigger" data-email="' + person.name + '">' + pill + '</button>'
+        + '<button type="button" class="profile-trigger profile-trigger--icon-inline" aria-label="Pokaż profil" title="Pokaż profil">'
+        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>'
+        + '</button>';
+    }
+
+    function statusCellHtml(person) {
+      if (person.deleted) {
+        return '<span class="lw-attend-static" title="Osoba deaktywowana">' + (person.attending ? 'Jadę' : 'Nie jadę') + '</span>';
+      }
+      const toggle = '<button type="button" class="lw-attend-toggle" data-attending="' + person.attending + '" aria-pressed="' + person.attending + '">'
+        + '<span class="lw-attend-toggle-track" aria-hidden="true"></span>'
+        + (person.attending ? 'Jadę' : 'Nie jadę')
+        + '</button>';
+      const skladka = person.attending && person.fee
+        ? '<button type="button" class="lw-skladka-icon" data-paid="' + person.paid + '" title="Składka ' + (person.paid ? 'opłacona' : 'nieopłacona') + ' — kliknij, aby zmienić">💰</button>'
+        : '';
+      return toggle + skladka;
+    }
+
+    document.getElementById('roster-content').innerHTML = people.map((person) => {
+      const sectionAbbr = { bydgoszcz: 'BDG', czukcze: 'CZU', krakow: 'KRK', poznan: 'POZ', warszawa: 'WAW', wroclaw: 'WRO' }[person.section] ?? '';
+      const addCompanion = person.canAdd
+        ? window.CompanionAdd.buttonHtml({ ownerPersonId: viewerPersonId, expanded: false })
+        : '';
+      return '<tr data-section="' + person.section + '">'
+        + '<td class="czl-section-cell" title="' + person.sectionLabel + '">' + sectionAbbr + '</td>'
+        + '<td class="lw-roster-name-cell">' + nameCellHtml(person) + addCompanion + duesBadgesHtml(person) + '</td>'
+        + '<td>' + statusCellHtml(person) + (person.attending && person.fee && person.deleted ? '<span class="lw-skladka-icon" data-paid="' + person.paid + '" title="Składka">💰</span>' : '') + '</td>'
+        + '<td class="' + (person.weapon ? '' : 'czl-empty') + '">' + weaponHtml(person) + '</td>'
+        + '<td class="lw-status-changed-cell">' + person.changed + '</td>'
+        + '</tr>';
+    }).join('');
+  </script>
+</body>
+</html>

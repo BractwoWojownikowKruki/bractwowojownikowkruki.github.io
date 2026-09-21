@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tester — Paleta Typów</title>
+  <link rel="stylesheet" href="../public/style.css">
+  <link rel="stylesheet" href="../public/member-area.css">
+  <style>
+    .paleta-intro { max-width: 720px; font-size: 13px; line-height: 1.6; color: var(--text-muted); }
+    .paleta-intro code { color: var(--gold); }
+    .paleta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin-top: 1rem; }
+    .cat-card { padding: 0.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    .cat-title { font-weight: 700; font-size: 14px; }
+    .cat-id { color: var(--text-muted); font-size: 12px; }
+    .cat-preview { display: flex; align-items: center; gap: 0.75rem; margin: 0.6rem 0; flex-wrap: wrap; }
+    .cat-preview .czl-table { width: auto; font-size: 0.85rem; }
+    .cat-preview .czl-table td { padding: 0.2rem 0.5rem; }
+    .cat-controls { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+    .cat-controls label { display: flex; align-items: center; gap: 0.3rem; font-size: 11px; color: var(--text-muted); }
+    .cat-controls input[type="color"] { width: 34px; height: 24px; padding: 0; border: 1px solid var(--border); background: none; }
+    .cat-css {
+      width: 100%; margin-top: 0.6rem; height: 84px; resize: vertical;
+      font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--text); background: var(--surface-deep); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.4rem 0.5rem;
+    }
+    .cat-copy { margin-top: 0.35rem; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; padding: 0.2rem 0.6rem; border: 1px solid var(--gold); border-radius: 4px; background: var(--gold); color: #241d05; }
+  </style>
+</head>
+<body>
+  <main class="main-content">
+    <div class="content-left">
+      <section class="content-section">
+        <h1>Paleta Typów</h1>
+        <p class="paleta-intro">
+          Każdy Typ steruje trzema zmiennymi: <code>--category-c</code> (akcent: tło komórki Typ, obramowanie
+          <code>&lt;select&gt;</code>, focus), <code>--category-bg</code> (tło plakietki) i <code>--category-fg</code>
+          (kolor tekstu plakietki). Gdy <code>--category-bg</code>/<code>--category-fg</code> nie są ustawione, plakietka
+          liczy je z akcentu przez <code>color-mix</code> — dlatego kolor „z palety” wychodzi przygaszony. Ustaw oba
+          na płaskie kolory, żeby mieć pełną kontrolę. Pobaw się suwakami i skopiuj gotowy blok do
+          <code>member-area.css</code>.
+        </p>
+        <div class="paleta-grid" id="grid"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const CATEGORIES = [
+      ['brokul', 'Brokuł'],
+      ['niewiasta', 'Niewiasta'],
+      ['thing', 'Thing'],
+      ['blacha', 'Blacha'],
+      ['kandydat', 'Kandydat'],
+      ['bobo', 'Bobo'],
+      ['emeryt', 'Emeryt'],
+    ];
+    const VARS = ['--category-c', '--category-bg', '--category-fg'];
+
+    function toHex(rgb) {
+      const match = String(rgb).match(/rgba?\(([^)]+)\)/);
+      if (!match) return String(rgb).trim();
+      const [r, g, b] = match[1].split(',').map((part) => Math.round(parseFloat(part)));
+      return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+    }
+
+    document.getElementById('grid').innerHTML = CATEGORIES.map(([id, label]) => `
+      <div class="cat-card" data-cat="${id}">
+        <div><span class="cat-title">${label}</span> <span class="cat-id">${id}</span></div>
+        <div class="cat-preview">
+          <span class="category-name-pill" data-category="${id}">${label}</span>
+          <table class="czl-table"><tbody><tr><td data-category="${id}">Typ</td></tr></tbody></table>
+        </div>
+        <div class="cat-controls">
+          <label>Akcent <input type="color" data-var="--category-c"></label>
+          <label>Tło <input type="color" data-var="--category-bg"></label>
+          <label>Tekst <input type="color" data-var="--category-fg"></label>
+        </div>
+        <textarea class="cat-css" readonly spellcheck="false"></textarea>
+        <button type="button" class="cat-copy">Kopiuj CSS</button>
+      </div>`).join('');
+
+    document.querySelectorAll('.cat-card').forEach((card) => {
+      const id = card.dataset.cat;
+      const pill = card.querySelector('.category-name-pill');
+      const cell = card.querySelector('td[data-category]');
+      const accent = toHex(getComputedStyle(pill).getPropertyValue('--category-c').trim());
+      const fill = toHex(getComputedStyle(pill).backgroundColor);
+      const text = toHex(getComputedStyle(pill).color);
+      const initial = { '--category-c': accent, '--category-bg': fill, '--category-fg': text };
+
+      card.querySelectorAll('input[type="color"]').forEach((input) => {
+        input.value = initial[input.dataset.var];
+        input.addEventListener('input', render);
+      });
+
+      function render() {
+        const values = {};
+        card.querySelectorAll('input[type="color"]').forEach((input) => {
+          values[input.dataset.var] = input.value;
+          pill.style.setProperty(input.dataset.var, input.value);
+          cell.style.setProperty(input.dataset.var, input.value);
+        });
+        card.querySelector('.cat-css').value =
+          `[data-category="${id}"] {\n`
+          + VARS.map((name) => `  ${name}: ${values[name]};`).join('\n')
+          + `\n}`;
+      }
+      render();
+
+      card.querySelector('.cat-copy').addEventListener('click', async () => {
+        const area = card.querySelector('.cat-css');
+        try {
+          await navigator.clipboard.writeText(area.value);
+          card.querySelector('.cat-copy').textContent = 'Skopiowano!';
+        } catch {
+          area.select();
+        }
+        setTimeout(() => { card.querySelector('.cat-copy').textContent = 'Kopiuj CSS'; }, 1200);
+      });
+    });
+  </script>
+</body>
+</html>

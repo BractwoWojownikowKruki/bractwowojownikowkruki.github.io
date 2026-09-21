@@ -228,3 +228,22 @@ test('the events list page loads the shared companion scripts and styles its inl
   assert.match(css, /\.lw-event-row \.lw-inline-form\s*\{[^}]*flex:\s*1 1 100%/);
   assert.match(css, /\.lw-event-row \.lw-inline-form-inner\s*\{[^}]*padding-left:\s*0/);
 });
+
+test('KRKG-0101: the toggle and companion control share an action strip on mobile', () => {
+  // The toggle + companion button are wrapped in .lw-event-actions in lista-wyjazdowa.js, so the
+  // row's mobile column layout keeps the two controls on one line.
+  assert.match(
+    source,
+    /<div class="lw-event-actions">\s*<button type="button" class="lw-attend-toggle"[\s\S]*?\$\{addCompanionHtml\}\s*<\/div>/,
+  );
+  assert.match(css, /\.lw-event-actions\s*\{[^}]*display:\s*flex/);
+  // On the all-events list the mobile label is shown again (the base rule hides it for the roster).
+  assert.match(css, /@media \(max-width: 760px\)\s*\{[\s\S]*?\.lw-event-row \.lw-add-companion-label\s*\{[^}]*display:\s*inline/);
+});
+
+test('KRKG-0101: plus/figure and figure/name gaps are pulled tight', () => {
+  assert.match(css, /\.lw-add-companion\s*\{[^}]*gap:\s*0;/);
+  assert.match(css, /\.lw-add-companion-icon\s*\{[^}]*margin-left:\s*-0\.18rem/);
+  assert.match(css, /\.lw-add-companion-label\s*\{[^}]*margin-left:\s*-0\.14rem/);
+  assert.match(css, /\.person-pill-icon\s*\{[^}]*margin-right:\s*-0\.08rem/);
+});
