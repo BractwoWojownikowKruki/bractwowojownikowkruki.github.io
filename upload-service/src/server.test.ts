@@ -150,6 +150,7 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     drive: makeFakeDrive(),
     github: makeFakeGithub(),
     firestore: overrides.firestore ?? makeFakeFirestore(),
+    fetchImpl: nodeFetch,
     authenticate: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
     authenticateWithStepUp: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
     authenticateAdmin: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),

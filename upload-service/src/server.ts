@@ -119,6 +119,10 @@ export interface ServerDeps {
   // since these routes read/write structured per-member records (member profile, equipment,
   // lookup lists) keyed by email, not a flat list a human edits directly.
   firestore: FirestoreLikeClient;
+  // Keep request-scoped outbound HTTP calls injectable so tests cannot race with another test's
+  // temporary global fetch mock. Production passes the platform fetch implementation once at
+  // startup; routes never read a mutable global while a request is in flight.
+  fetchImpl: typeof fetch;
   // Cookie-based (verifySessionRequest under the hood, KRKG-0036 Phase 1 cutover): verifies the
   // session cookie, re-checks the live general-kruki allowlist, and renews the cookie on `res`
   // if the sliding window is due. Returns the full SessionClaims (a superset of the old
@@ -739,7 +743,7 @@ async function handleAddFile(req: IncomingMessage, res: ServerResponse, deps: Se
   const description = optionalTrimmedString(body.description, 2000, 'Opis może mieć najwyżej 2000 znaków.') ?? '';
   let doc: SharedFileDoc;
   try {
-    doc = await buildSharedFileDoc({ url: body.url.trim(), description }, identity.email);
+    doc = await buildSharedFileDoc({ url: body.url.trim(), description }, identity.email, deps.fetchImpl);
   } catch (err) {
     if (err instanceof InvalidFileUrlError) throw new AuthError(err.message, 400);
     throw err;
@@ -4776,6 +4780,7 @@ async function startProductionServer(): Promise<void> {
     drive: createDriveClient(driveDeps, docsDriveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
     firestore: firestoreClient,
+    fetchImpl: fetch,
     authenticate: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, memberAuthorizer),
     authenticateWithStepUp: withStepUp(memberAuthorizer),
     authenticateAdmin: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, adminAuthorizer),

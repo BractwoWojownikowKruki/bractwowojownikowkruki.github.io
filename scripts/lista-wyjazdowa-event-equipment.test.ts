@@ -82,7 +82,9 @@ test('Wyjazd page loads, renders and locally toggles event equipment', async () 
   assert.match(html, /id="event-equipment-panel"/);
   assert.match(html, /id="event-equipment-table"/);
   assert.match(html, /<th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S<\/button><\/th>/);
-  assert.match(html, /data-sort-key="going">Jedzie\?<\/th>[\s\S]*<th scope="col">Opis<\/th>/);
+  assert.match(html, /<th scope="col" data-sort-key="category" aria-sort="none"><button type="button">Kategoria<\/button><\/th>/);
+  assert.match(html, /<th scope="col" data-sort-key="owner" aria-sort="none"><button type="button">Właściciel<\/button><\/th>/);
+  assert.match(html, /<th scope="col" data-sort-key="going" aria-sort="none"><button type="button">Jedzie\?<\/button><\/th>[\s\S]*<th scope="col">Opis<\/th>/);
   const harness = createHarness([{
     id: 'tent-1', categoryId: 'tent', sectionId: 'krakow', belongsToPersonId: 'owner@example.com', description: 'Duży namiot', going: false,
   }]);
@@ -93,19 +95,24 @@ test('Wyjazd page loads, renders and locally toggles event equipment', async () 
   assert.match(equipment.innerHTML, /Namiot/);
   assert.match(equipment.innerHTML, /Właściciel/);
   assert.match(equipment.innerHTML, /data-profile-trigger data-email="owner@example.com"/);
+  assert.match(equipment.innerHTML, /class="lw-attend-toggle"/);
   assert.match(equipment.innerHTML, /Nie jedzie/);
   assert.ok(harness.calls.some(call => call.url.startsWith('/lista-wyjazdowa/event-equipment?eventId=e1')));
 
   const button = {
     dataset: { equipmentId: 'tent-1', going: 'false' }, disabled: false,
-    closest: (selector: string) => selector === '.lw-equipment-toggle' ? button : null,
+    innerHTML: '<span class="lw-attend-toggle-track" aria-hidden="true"></span>Nie jedzie',
+    setAttribute: (name: string, value: string) => { (button as any)[name] = value; },
+    closest: (selector: string) => selector === '.lw-attend-toggle' ? button : null,
   };
   await equipment.clickWith(button);
   await new Promise(resolve => setTimeout(resolve, 0));
   const put = harness.calls.find(call => call.options.method === 'PUT');
   assert.equal(put?.url, '/lista-wyjazdowa/event-equipment?eventId=e1&equipmentId=tent-1');
   assert.deepEqual(JSON.parse(String(put?.options.body)), { going: true });
-  assert.match(equipment.innerHTML, /Jedzie/);
+  assert.match(button.innerHTML, /Jedzie/);
+  assert.equal(button['aria-pressed'], 'true');
+  assert.equal(button.dataset.going, 'true');
   assert.match(equipment.innerHTML, /Namiot/);
   assert.match(equipment.innerHTML, /Właściciel/);
   assert.match(equipment.innerHTML, /Duży namiot/);

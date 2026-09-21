@@ -522,10 +522,16 @@ function renderEventEquipment(items) {
       <td class="czl-section-cell" title="${escapeAttr(section)}">${escapeHtml(sectionAbbr(item.sectionId))}</td>
       <td>${escapeHtml(category)}</td>
       <td>${ownerCellHtml(item.belongsToPersonId)}</td>
-      <td><button type="button" class="lw-equipment-toggle" data-equipment-id="${escapeAttr(item.id)}" data-going="${going}" aria-pressed="${going}"><span class="lw-attend-toggle-track" aria-hidden="true"></span>${stateLabel}</button></td>
+      <td><button type="button" class="lw-attend-toggle" data-equipment-id="${escapeAttr(item.id)}" data-going="${going}" aria-pressed="${going}"><span class="lw-attend-toggle-track" aria-hidden="true"></span>${stateLabel}</button></td>
       <td>${escapeHtml(item.description)}</td>
     </tr>`;
   }).join('');
+}
+
+function updateEventEquipmentToggle(control, going) {
+  control.dataset.going = String(going);
+  control.setAttribute('aria-pressed', String(going));
+  control.innerHTML = `<span class="lw-attend-toggle-track" aria-hidden="true"></span>${going ? 'Jedzie' : 'Nie jedzie'}`;
 }
 
 // KRKG-0087: the roster endpoint's row shape for a freshly created person (see
@@ -732,9 +738,11 @@ async function toggleEventEquipment(equipmentId, nextGoing, control) {
       hideReauth,
     ), (result) => {
       const item = cachedEventEquipment.find((equipment) => equipment.id === result.item.equipmentId);
-      if (item) item.going = result.item.going;
-      renderEventEquipment(cachedEventEquipment);
-    }, document.getElementById('event-equipment-panel'));
+      if (item) {
+        item.going = result.item.going;
+        updateEventEquipmentToggle(control, item.going);
+      }
+    });
   } catch (err) {
     showError(`Nie udało się zapisać sprzętu: ${err.message}`);
   }
@@ -834,7 +842,7 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
 });
 
 document.getElementById('event-equipment-content').addEventListener('click', (e) => {
-  const equipmentBtn = e.target.closest('.lw-equipment-toggle');
+  const equipmentBtn = e.target.closest('.lw-attend-toggle');
   if (!equipmentBtn) return;
   equipmentBtn.disabled = true;
   toggleEventEquipment(equipmentBtn.dataset.equipmentId, equipmentBtn.dataset.going !== 'true', equipmentBtn)

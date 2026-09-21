@@ -142,6 +142,7 @@ export async function detectDocTypeAndFetchTitle(
   // waiting out the real timeout (round-2 delegated review, finding #6 - the pre-round-2 version
   // had no seam to test the timeout path at all).
   timeoutMs: number = TITLE_FETCH_TIMEOUT_MS,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<{ docType: SharedFileDocType; title: string | null }> {
   const url = parseAllowedUrl(rawUrl);
   const docType = detectDocType(url);
@@ -156,7 +157,7 @@ export async function detectDocTypeAndFetchTitle(
     try {
       let response: Response;
       try {
-        response = await fetch(currentUrl, { signal: controller.signal, redirect: 'manual' });
+        response = await fetchImpl(currentUrl, { signal: controller.signal, redirect: 'manual' });
       } catch {
         return { docType, title: null };
       }
@@ -205,9 +206,13 @@ export async function detectDocTypeAndFetchTitle(
   return { docType, title: null };
 }
 
-export async function buildSharedFileDoc(input: { url: string; description: string }, addedByEmail: string): Promise<SharedFileDoc> {
+export async function buildSharedFileDoc(
+  input: { url: string; description: string },
+  addedByEmail: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<SharedFileDoc> {
   parseAllowedUrl(input.url); // throws InvalidFileUrlError before any fetch or write is attempted
-  const { docType, title } = await detectDocTypeAndFetchTitle(input.url);
+  const { docType, title } = await detectDocTypeAndFetchTitle(input.url, undefined, fetchImpl);
   return {
     id: randomUUID(),
     url: input.url,
