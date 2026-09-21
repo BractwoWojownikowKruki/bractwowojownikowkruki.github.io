@@ -560,13 +560,13 @@ function updateEventEquipmentToggle(control, going) {
 // mirrors effectiveDuesStatus's default for a person with no record: an Emeryt owes nothing,
 // everyone else starts unpaid.
 function rosterEntryFromPerson(person) {
-  const fullName = [person.firstName, person.lastName].filter((part) => (part ?? '').trim()).join(' ') || null;
   return {
     personId: person.personId,
     accountless: true,
     ownerPersonId: person.ownerPersonId ?? null,
     email: null,
-    fullName,
+    lastName: person.lastName ?? null,
+    firstName: person.firstName ?? null,
     nickname: person.ksywka || null,
     sectionId: person.sectionId ?? null,
     categoryId: person.categoryId ?? null,
@@ -790,8 +790,8 @@ async function quickAddExisting(ownerPersonId, personId, control) {
   await quickAddCompanion({ eventId, ownerPersonId, mode: 'existing', personId }, control);
 }
 
-async function quickAddNew(ownerPersonId, ksywka, categoryId, control) {
-  await quickAddCompanion({ eventId, ownerPersonId, mode: 'new', ksywka, categoryId }, control);
+async function quickAddNew(ownerPersonId, ksywka, lastName, firstName, categoryId, control) {
+  await quickAddCompanion({ eventId, ownerPersonId, mode: 'new', ksywka, lastName, firstName, categoryId }, control);
 }
 
 // The filter is purely local: both boxes are read straight from the DOM on every change, so the
@@ -839,13 +839,15 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
   const addNewBtn = e.target.closest('.lw-inline-add-new');
   if (addNewBtn) {
     const ksywka = document.getElementById('lw-inline-new-name')?.value.trim() ?? '';
+    const lastName = document.getElementById('lw-inline-new-last-name')?.value.trim() ?? '';
+    const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
     const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
-    if (!ksywka || !categoryId) {
-      showError('Podaj ksywkę i kategorię nowej osoby.');
+    if (!ksywka || !lastName || !firstName || !categoryId) {
+      showError('Podaj ksywkę, nazwisko, imię i kategorię nowej osoby.');
       return;
     }
     addNewBtn.disabled = true;
-    return quickAddNew(openAddPanelOwnerPersonId, ksywka, categoryId, addNewBtn).finally(() => { addNewBtn.disabled = false; });
+    return quickAddNew(openAddPanelOwnerPersonId, ksywka, lastName, firstName, categoryId, addNewBtn).finally(() => { addNewBtn.disabled = false; });
   }
 
   const attendBtn = e.target.closest('.lw-attend-toggle');

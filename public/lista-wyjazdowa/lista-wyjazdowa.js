@@ -208,8 +208,8 @@ async function quickAddExisting(eventId, ownerPersonId, personId, control) {
   await quickAddCompanion({ eventId, ownerPersonId, mode: 'existing', personId }, control);
 }
 
-async function quickAddNew(eventId, ownerPersonId, ksywka, categoryId, control) {
-  await quickAddCompanion({ eventId, ownerPersonId, mode: 'new', ksywka, categoryId }, control);
+async function quickAddNew(eventId, ownerPersonId, ksywka, lastName, firstName, categoryId, control) {
+  await quickAddCompanion({ eventId, ownerPersonId, mode: 'new', ksywka, lastName, firstName, categoryId }, control);
 }
 
 // KRKG-0102: saves the per-row edit panel's Nazwa/Data/Opis (diff-only body, same contract as the
@@ -378,15 +378,17 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
   const addNewBtn = e.target.closest('.lw-inline-add-new');
   if (addNewBtn) {
     const ksywka = document.getElementById('lw-inline-new-name')?.value.trim() ?? '';
+    const lastName = document.getElementById('lw-inline-new-last-name')?.value.trim() ?? '';
+    const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
     const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
-    if (!ksywka || !categoryId) {
-      errorEl.textContent = 'Podaj ksywkę i kategorię nowej osoby.';
+    if (!ksywka || !lastName || !firstName || !categoryId) {
+      errorEl.textContent = 'Podaj ksywkę, nazwisko, imię i kategorię nowej osoby.';
       errorEl.hidden = false;
       return;
     }
     addNewBtn.disabled = true;
     try {
-      await quickAddNew(openAddPanelEventId, viewerPersonId, ksywka, categoryId, addNewBtn);
+      await quickAddNew(openAddPanelEventId, viewerPersonId, ksywka, lastName, firstName, categoryId, addNewBtn);
     } finally {
       addNewBtn.disabled = false;
     }

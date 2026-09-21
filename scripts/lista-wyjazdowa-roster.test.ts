@@ -49,7 +49,7 @@ const elementIds = [
   'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni',
   'event-title', 'event-meta',
   'event-edit-toggle', 'event-edit-panel', 'event-history-link', 'skladka-fee-history-link',
-  'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-category',
+  'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category',
   'event-equipment-panel', 'event-equipment-table', 'event-equipment-content',
 ];
 
@@ -416,6 +416,8 @@ test("opening the add panel lists the member's attached people and a new-person 
   assert.match(roster.innerHTML, /id="lw-inline-existing-select"/);
   assert.match(roster.innerHTML, /value="attached-uuid-1"/);
   assert.match(roster.innerHTML, /id="lw-inline-new-name"/);
+  assert.match(roster.innerHTML, /id="lw-inline-new-last-name"/);
+  assert.match(roster.innerHTML, /id="lw-inline-new-first-name"/);
   assert.match(roster.innerHTML, /id="lw-inline-new-category"/);
   assert.match(roster.innerHTML, /Kandydat/);
   assert.match(roster.innerHTML, /aria-expanded="true"/);
@@ -462,22 +464,41 @@ test('adding an existing attached person posts quick-add and applies the signup 
   assert.doesNotMatch(roster.innerHTML, /class="lw-inline-form"/, 'the panel closes after a successful add');
 });
 
-test('adding a new person posts quick-add and appends the created row', async () => {
+test('a blank Nazwisko/Imię on the new-person form is rejected before posting', async () => {
+  const harness = createHarness(event(null));
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+  const requestsBefore = harness.apiCalls.length;
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+
+  await roster.clickWith(clickTarget('.lw-inline-add-new'));
+
+  assert.equal(harness.apiCalls.length, requestsBefore, 'a blank Nazwisko/Imię must not reach the server');
+  assert.match(harness.elements.get('lw-error')!.textContent, /Podaj ksywkę, nazwisko, imię/);
+});
+
+test('adding a new person posts quick-add with ksywka+lastName+firstName+categoryId and appends the created row', async () => {
   const harness = createHarness(event(null));
   await harness.signIn();
   const roster = harness.elements.get('roster-content')!;
   await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
   harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Kowalski';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Jan';
   harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
   harness.setMutationResult({
-    person: { personId: 'new-uuid-1', ksywka: 'Nowy', firstName: '', lastName: '', categoryId: 'kandydat', sectionId: 'bydgoszcz', weaponIds: [], ownerPersonId: 'viewer@example.com' },
+    person: { personId: 'new-uuid-1', ksywka: 'Nowy', firstName: 'Jan', lastName: 'Kowalski', categoryId: 'kandydat', sectionId: 'bydgoszcz', weaponIds: [], ownerPersonId: 'viewer@example.com' },
     signup: { memberEmail: 'new-uuid-1', attending: true, skladkaPaid: false },
   });
 
   await roster.clickWith(clickTarget('.lw-inline-add-new'));
 
   const post = harness.apiCalls.find((call) => call.url === '/lista-wyjazdowa/signups/quick-add');
-  assert.deepEqual(JSON.parse(String(post?.options.body)), { eventId: 'e1', ownerPersonId: 'viewer@example.com', mode: 'new', ksywka: 'Nowy', categoryId: 'kandydat' });
+  assert.deepEqual(JSON.parse(String(post?.options.body)), {
+    eventId: 'e1', ownerPersonId: 'viewer@example.com', mode: 'new', ksywka: 'Nowy', lastName: 'Kowalski', firstName: 'Jan', categoryId: 'kandydat',
+  });
   assert.match(roster.innerHTML, /data-person-id="new-uuid-1"/);
   assert.match(roster.innerHTML, /person-pill-icon/);
   assert.doesNotMatch(roster.innerHTML, /class="lw-inline-form"/);

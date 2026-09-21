@@ -62,7 +62,7 @@ const elementIds = [
   'lw-page-title', 'add-event-form', 'add-event-error',
   // Rendered into #events-list's innerHTML in the real DOM; the stub can't parse that, so the
   // panel's controls are looked up directly by id.
-  'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-category',
+  'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category',
 ];
 
 interface HarnessOptions {
@@ -83,9 +83,9 @@ function createHarness(options: HarnessOptions = {}) {
     { id: 'e1', name: 'Wyjazd Letni', startDate: '2027-05-01', status: 'active', viewerAttending, attendingCount: 2 },
   ];
   const roster = [
-    { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [] },
+    { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, lastName: 'Viewer', firstName: '', sectionId: null, categoryId: null, weaponIds: [] },
     ...(options.withAttachedPerson
-      ? [{ personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: 'viewer@example.com', fullName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [] }]
+      ? [{ personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: 'viewer@example.com', lastName: 'Młody', firstName: '', sectionId: null, categoryId: 'kandydat', weaponIds: [] }]
       : []),
   ];
 
@@ -205,6 +205,50 @@ test('adding an existing companion posts quick-add, closes the panel and bumps t
   const post = harness.apiCalls.find((call) => call.url === '/lista-wyjazdowa/signups/quick-add');
   assert.equal(post?.options.method, 'POST');
   assert.deepEqual(JSON.parse(String(post?.options.body)), { eventId: 'e1', ownerPersonId: 'viewer@example.com', mode: 'existing', personId: 'attached-uuid-1' });
+  assert.doesNotMatch(list.innerHTML, /lw-inline-form/);
+  assert.match(list.innerHTML, /3 os\./);
+});
+
+// KRKG-0103: quick-add's "new person" path now requires Nazwisko/Imię alongside Ksywka - it used
+// to create a person with only a ksywka.
+test('adding a new companion requires ksywka, nazwisko, imię and kategoria before posting', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const list = harness.elements.get('events-list')!;
+  await list.clickWith(clickTarget('.lw-add-companion', { eventId: 'e1', ownerPersonId: 'viewer@example.com' }));
+  const requestsBefore = harness.apiCalls.length;
+
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-last-name')!.value = '';
+  harness.elements.get('lw-inline-new-first-name')!.value = '';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  await list.clickWith(clickTarget('.lw-inline-add-new'));
+
+  assert.equal(harness.apiCalls.length, requestsBefore, 'a blank Nazwisko/Imię must not reach the server');
+  assert.match(harness.elements.get('events-error')!.textContent, /Podaj ksywkę, nazwisko, imię/);
+});
+
+test('adding a new companion posts quick-add with ksywka+lastName+firstName+categoryId', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const list = harness.elements.get('events-list')!;
+  await list.clickWith(clickTarget('.lw-add-companion', { eventId: 'e1', ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Kowalski';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Jan';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  harness.setMutationResult({
+    person: { personId: 'new-uuid-1', ksywka: 'Nowy', lastName: 'Kowalski', firstName: 'Jan', categoryId: 'kandydat', sectionId: null, weaponIds: [], ownerPersonId: 'viewer@example.com' },
+    signup: { memberEmail: 'new-uuid-1', attending: true, skladkaPaid: false },
+  });
+
+  await list.clickWith(clickTarget('.lw-inline-add-new'));
+
+  const post = harness.apiCalls.find((call) => call.url === '/lista-wyjazdowa/signups/quick-add');
+  assert.equal(post?.options.method, 'POST');
+  assert.deepEqual(JSON.parse(String(post?.options.body)), {
+    eventId: 'e1', ownerPersonId: 'viewer@example.com', mode: 'new', ksywka: 'Nowy', lastName: 'Kowalski', firstName: 'Jan', categoryId: 'kandydat',
+  });
   assert.doesNotMatch(list.innerHTML, /lw-inline-form/);
   assert.match(list.innerHTML, /3 os\./);
 });
