@@ -445,7 +445,7 @@ initGoogleSignIn({
     wireAddForm();
     wireTableActions();
     try {
-      // GET /lista-wyjazdowa/persons is staff-only (skladki access or admin/moderator - see
+      // GET /lista-wyjazdowa/persons is staff-only (skladki access or admin/hovding - see
       // isPersonStaff in server.ts), so it cannot resolve owners for this page, which every
       // member uses. GET /lista-wyjazdowa/roster is the member-open equivalent: it already
       // unions members + accountless persons into one list (same source czlonkowie.js's own

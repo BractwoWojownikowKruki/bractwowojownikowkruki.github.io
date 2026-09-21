@@ -13,7 +13,7 @@ test('migratedEventId is deterministic from (collection, documentId) alone', () 
 test('preflight reports one ok row per well-formed legacy document across all three collections', async () => {
   const firestore = createInMemoryFirestoreClient();
   firestore.seed('rolesAuditLog', 'r1', {
-    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['moderator'],
+    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['hovding'],
     changedBy: 'admin@example.test', changedAt: '2025-01-01T00:00:00.000Z', changeSummary: 'x',
   });
   firestore.seed('signupAuditLog', 's1', {
@@ -63,7 +63,7 @@ test('preflight aborts on a document whose data is an array (multi-entry shape t
 test('dry-run migration reports "would_create" for every ok row and writes nothing', async () => {
   const firestore = createInMemoryFirestoreClient();
   firestore.seed('rolesAuditLog', 'r1', {
-    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['moderator'],
+    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['hovding'],
     changedBy: 'admin@example.test', changedAt: '2025-01-01T00:00:00.000Z', changeSummary: 'x',
   });
   const report = await migrateAuditLogs(firestore, { dryRun: true });
@@ -76,7 +76,7 @@ test('dry-run migration reports "would_create" for every ok row and writes nothi
 test('a real (non-dry-run) migration creates one canonical event per legacy document, preserving the historical timestamp', async () => {
   const firestore = createInMemoryFirestoreClient();
   firestore.seed('rolesAuditLog', 'r1', {
-    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['moderator'],
+    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['hovding'],
     changedBy: 'admin@example.test', changedAt: '2025-01-01T00:00:00.000Z', changeSummary: 'x',
   });
   const report = await migrateAuditLogs(firestore, { dryRun: false });
@@ -93,7 +93,7 @@ test('a real (non-dry-run) migration creates one canonical event per legacy docu
 test('migration is idempotent: running it twice against the same source data creates nothing the second time', async () => {
   const firestore = createInMemoryFirestoreClient();
   firestore.seed('rolesAuditLog', 'r1', {
-    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['moderator'],
+    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['hovding'],
     changedBy: 'admin@example.test', changedAt: '2025-01-01T00:00:00.000Z', changeSummary: 'x',
   });
   const first = await migrateAuditLogs(firestore, { dryRun: false });
@@ -107,7 +107,7 @@ test('migration is idempotent: running it twice against the same source data cre
 test('a full run migrates a realistic mixed batch across all three legacy collections in one pass, with correct deterministic ids, and a second run is a true no-op', async () => {
   const firestore = createInMemoryFirestoreClient();
   firestore.seed('rolesAuditLog', 'r1', {
-    targetEmail: 'ula@example.test', previousRoles: ['moderator'], newRoles: ['moderator', 'accountant'],
+    targetEmail: 'ula@example.test', previousRoles: ['hovding'], newRoles: ['hovding', 'accountant'],
     changedBy: 'admin@example.test', changedAt: '2025-02-01T10:00:00.000Z', changeSummary: 'x',
   });
   firestore.seed('rolesAuditLog', 'r2', {
@@ -201,7 +201,7 @@ test('migration leaves a missing legacy diff absent rather than fabricating a be
 test('an all-or-nothing preflight abort holds even when most documents in the batch are well-formed', async () => {
   const firestore = createInMemoryFirestoreClient();
   firestore.seed('rolesAuditLog', 'r-good', {
-    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['moderator'],
+    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['hovding'],
     changedBy: 'admin@example.test', changedAt: '2025-01-01T00:00:00.000Z', changeSummary: 'x',
   });
   firestore.seed('duesAuditLog', 'd-good', {
@@ -289,7 +289,7 @@ test('I2: a legacy "Wycofano zgłoszenie udziału" withdrawal entry parses to si
 test('I2: a full migration run across all three legacy collections, including a legacy participation row, no longer aborts', async () => {
   const firestore = createInMemoryFirestoreClient();
   firestore.seed('rolesAuditLog', 'r1', {
-    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['moderator'],
+    targetEmail: 'ula@example.test', previousRoles: [], newRoles: ['hovding'],
     changedBy: 'admin@example.test', changedAt: '2025-01-01T00:00:00.000Z', changeSummary: 'x',
   });
   firestore.seed('signupAuditLog', 's-join', {

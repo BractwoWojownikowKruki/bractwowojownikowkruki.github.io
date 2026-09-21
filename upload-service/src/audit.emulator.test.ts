@@ -75,7 +75,7 @@ import { createCanonicalAuditEvent, queryAuditEvents, type AuditViewer, type Can
 const EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST;
 const AUDIT_EVENTS_COLLECTION = 'auditEvents';
 
-const ADMIN_VIEWER: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: true, isModerator: true };
+const ADMIN_VIEWER: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: true, isHovding: true };
 
 /** Deletes every document in `auditEvents` - the emulator persists state across test files/runs
  * within one running instance, so each run of this file must start from a clean collection. */

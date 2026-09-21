@@ -156,8 +156,8 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     authenticateAdmin: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
     authenticateAdminWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'wojownik-1', email: 'wojownik@gmail.com' }),
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@gmail.com' }),
     authenticateSessionLogin: async () => ({ sub: 'sub-1', email: 'alice@gmail.com' }),
     authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'alice@gmail.com' }),
     sessionSigningKeys: [{ v: 'v1', secret: 'test-session-secret' }],
@@ -903,22 +903,22 @@ test('anyOf rejects if every authorizer rejects, surfacing the last error', asyn
   );
 });
 
-// End-to-end proof that a moderator (Firestore userRoles role only, not on the admin allowlist)
+// End-to-end proof that a hovding (Firestore userRoles role only, not on the admin allowlist)
 // is actually let through by the real anyOf(adminAuthorizer, createRoleAuthorizer(...)) wiring -
-// every other test in this file mocks authenticateAdminOrModerator directly, which only proves
+// every other test in this file mocks authenticateAdminOrHovding directly, which only proves
 // the route calls the right dep, not that the dep's own logic is correct.
-test('anyOf(fromAllowlist(admin), createRoleAuthorizer(moderator)) lets a Firestore-only moderator through', async () => {
+test('anyOf(fromAllowlist(admin), createRoleAuthorizer(hovding)) lets a Firestore-only hovding through', async () => {
   const client = createInMemoryFirestoreClient();
-  client.seed('userRoles', 'mod@example.test', { roles: ['moderator'] });
+  client.seed('userRoles', 'mod@example.test', { roles: ['hovding'] });
   const adminAllowlist: SheetAllowlist = { getEmails: async () => ['admin@example.test'] };
-  const authorizer = anyOf(fromAllowlist(adminAllowlist), createRoleAuthorizer(client, 'moderator'));
+  const authorizer = anyOf(fromAllowlist(adminAllowlist), createRoleAuthorizer(client, 'hovding'));
   await authorizer.authorize({ sub: 's1', email: 'mod@example.test' });
   await assert.rejects(() => authorizer.authorize({ sub: 's2', email: 'nobody@example.test' }));
 });
 
 test('GET /admin/members/whoami reports isAdmin: true for an admin-allowlist caller', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'a1', email: 'admin@gmail.com' }),
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'a1', email: 'admin@gmail.com' }),
     authenticateAdmin: async () => fakeSessionClaims({ sub: 'a1', email: 'admin@gmail.com' }),
   });
   await withServer(deps, async baseUrl => {
@@ -928,9 +928,9 @@ test('GET /admin/members/whoami reports isAdmin: true for an admin-allowlist cal
   });
 });
 
-test('GET /admin/members/whoami reports isAdmin: false for a Firestore-role-only moderator', async () => {
+test('GET /admin/members/whoami reports isAdmin: false for a Firestore-role-only hovding', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@gmail.com' }),
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@gmail.com' }),
     authenticateAdmin: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
@@ -938,13 +938,13 @@ test('GET /admin/members/whoami reports isAdmin: false for a Firestore-role-only
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/whoami`);
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { email: 'moderator@gmail.com', isAdmin: false });
+    assert.deepEqual(await res.json(), { email: 'hovding@gmail.com', isAdmin: false });
   });
 });
 
-test('GET /admin/members/whoami rejects a caller who is neither admin nor moderator', async () => {
+test('GET /admin/members/whoami rejects a caller who is neither admin nor hovding', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
   });
@@ -1110,12 +1110,12 @@ test('GET /admin/people lists people for a category (same shape as public endpoi
 // KRKG bugfix: Zarządzanie ludźmi's loadDriveFolderOptions() calls this GET inside the same
 // Promise.all as the member list itself - before this fix it stayed authenticateAdmin-only while
 // every sibling route on that page (list/transition/drive-folder/profile/lookup-lists) moved to
-// authenticateAdminOrModerator under KRKG-0049, so a Firestore-role-only moderator's whole table
+// authenticateAdminOrHovding under KRKG-0049, so a Firestore-role-only hovding's whole table
 // load 403'd even though the page itself let them in.
-test('GET /admin/people is accessible to a Firestore-role-only moderator, not just the admin allowlist', async () => {
+test('GET /admin/people is accessible to a Firestore-role-only hovding, not just the admin allowlist', async () => {
   resetAboutUsBootstrapForTests();
   const deps = makeDeps({
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@gmail.com' }),
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@gmail.com' }),
     authenticateAdmin: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
@@ -2468,7 +2468,7 @@ test('GET /admin/members includes a member marked hidden - the one listing allow
 // KRKG bugfix: the Broń column on Zarządzanie ludźmi reads weaponIds straight off this response
 // (joined from listaWyjazdowaProfile, not MemberDoc) rather than a separate fetch, since the
 // roster route it could otherwise reuse (GET /lista-wyjazdowa/roster) requires live kruki Google
-// Group membership that a moderator/admin-allowlist account isn't guaranteed to have.
+// Group membership that a hovding/admin-allowlist account isn't guaranteed to have.
 test('GET /admin/members includes weaponIds joined from listaWyjazdowaProfile', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('members', 'zbrojny@example.com', {
@@ -2506,7 +2506,7 @@ test('GET /admin/members rejects an unknown status value', async () => {
 
 test('GET /admin/members rejects an unauthenticated caller', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
     },
   });
@@ -2516,7 +2516,7 @@ test('GET /admin/members rejects an unauthenticated caller', async () => {
   });
 });
 
-test('POST /admin/members/transition approves a pending member via authenticateAdminOrModeratorWithStepUp', async () => {
+test('POST /admin/members/transition approves a pending member via authenticateAdminOrHovdingWithStepUp', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('members', 'pending@example.com', {
     email: 'pending@example.com', fullName: 'P', nickname: null, sectionId: 's',
@@ -2525,7 +2525,7 @@ test('POST /admin/members/transition approves a pending member via authenticateA
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/transition`, {
@@ -2554,7 +2554,7 @@ test('POST /admin/members/transition rejects an unknown transition value', async
 
 test('POST /admin/members/transition requires step-up freshness (rejects a stale reauthAt)', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModeratorWithStepUp: async () => {
+    authenticateAdminOrHovdingWithStepUp: async () => {
       throw new AuthError('Wymagane ponowne logowanie.', 401);
     },
   });
@@ -2581,7 +2581,7 @@ test('POST /admin/members/transition reports sheetSyncStatus and includes the fu
   let syncedEmails: string[] = [];
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
     sheetsClient: {
       syncAllMembers: async members => {
         syncedEmails = members.map((m: { email: string }) => m.email);
@@ -2610,7 +2610,7 @@ test('C2: POST /admin/members/transition audits the Sheets mirror as a correlate
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
     sheetsClient: { syncAllMembers: async () => 'ok' },
   });
   await withServer(deps, async baseUrl => {
@@ -2642,7 +2642,7 @@ test('POST /admin/members/transition still returns 200 (Firestore succeeded) eve
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
     sheetsClient: { syncAllMembers: async () => 'failed' },
   });
   await withServer(deps, async baseUrl => {
@@ -2666,7 +2666,7 @@ test('PUT /admin/members/drive-folder links an existing member to a Drive folder
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
@@ -2690,7 +2690,7 @@ test('PUT /admin/members/drive-folder can clear a member\'s folder link by passi
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
@@ -2706,7 +2706,7 @@ test('PUT /admin/members/drive-folder can clear a member\'s folder link by passi
 
 test('PUT /admin/members/drive-folder 404s for an unknown member', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
@@ -2720,7 +2720,7 @@ test('PUT /admin/members/drive-folder 404s for an unknown member', async () => {
 
 test('PUT /admin/members/drive-folder rejects a missing email', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
@@ -2734,7 +2734,7 @@ test('PUT /admin/members/drive-folder rejects a missing email', async () => {
 
 test('PUT /admin/members/drive-folder requires step-up freshness (rejects a stale reauthAt)', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModeratorWithStepUp: async () => {
+    authenticateAdminOrHovdingWithStepUp: async () => {
       throw new AuthError('Wymagane ponowne logowanie.', 401);
     },
   });
@@ -2757,7 +2757,7 @@ test('PUT /admin/members/profile updates fullName/nickname/sectionId for an exis
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2783,7 +2783,7 @@ test('PUT /admin/members/profile sets categoryId when present in the body', asyn
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2808,7 +2808,7 @@ test('PUT /admin/members/profile can clear categoryId back to null', async () =>
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2831,7 +2831,7 @@ test('PUT /admin/members/profile leaves categoryId untouched when omitted from t
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2855,7 +2855,7 @@ test('PUT /admin/members/profile rejects an unknown categoryId', async () => {
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2876,7 +2876,7 @@ test('PUT /admin/members/profile sets hidden when present in the body', async ()
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2900,7 +2900,7 @@ test('PUT /admin/members/profile setting hidden alone does not require fullName/
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2923,7 +2923,7 @@ test('PUT /admin/members/profile can clear hidden back to false', async () => {
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2946,7 +2946,7 @@ test('PUT /admin/members/profile leaves hidden untouched when omitted from the b
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2968,7 +2968,7 @@ test('PUT /admin/members/profile rejects a non-boolean hidden value', async () =
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -2988,7 +2988,7 @@ test('PUT /admin/members/profile with no mutable field remains a no-op and emits
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -3006,7 +3006,7 @@ test('PUT /admin/members/profile 404s for an unknown member', async () => {
   client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -3027,7 +3027,7 @@ test('PUT /admin/members/profile rejects an unknown sectionId', async () => {
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -3041,7 +3041,7 @@ test('PUT /admin/members/profile rejects an unknown sectionId', async () => {
 
 test('PUT /admin/members/profile rejects a missing email', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/profile`, {
@@ -3055,7 +3055,7 @@ test('PUT /admin/members/profile rejects a missing email', async () => {
 
 test('PUT /admin/members/profile requires step-up freshness (rejects a stale reauthAt)', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModeratorWithStepUp: async () => {
+    authenticateAdminOrHovdingWithStepUp: async () => {
       throw new AuthError('Wymagane ponowne logowanie.', 401);
     },
   });
@@ -3069,7 +3069,7 @@ test('PUT /admin/members/profile requires step-up freshness (rejects a stale rea
   });
 });
 
-// KRKG bugfix: Zarządzanie ludźmi's own Broń column, editable by admin AND moderator - writes the
+// KRKG bugfix: Zarządzanie ludźmi's own Broń column, editable by admin AND hovding - writes the
 // same listaWyjazdowaProfile the member's own "Mój profil" (PUT /lista-wyjazdowa/profile) does,
 // but keyed to an arbitrary member (?email=/body.email) rather than the caller, same split as
 // PUT /lista-wyjazdowa/wpisowe.
@@ -3082,7 +3082,7 @@ test('PUT /admin/members/weapons sets weaponIds on an existing member, creating 
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'mod-1', email: 'moderator@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'mod-1', email: 'hovding@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/weapons`, {
@@ -3110,7 +3110,7 @@ test('PUT /admin/members/weapons can clear weaponIds back to empty', async () =>
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/weapons`, {
@@ -3133,7 +3133,7 @@ test('PUT /admin/members/weapons rejects a weaponId that is not in lookupLists',
   });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/weapons`, {
@@ -3150,7 +3150,7 @@ test('PUT /admin/members/weapons 404s for an unknown member', async () => {
   client.seed('lookupLists', 'weapons', { items: [{ id: 'miecz', label: 'Miecz', retired: false }] });
   const deps = makeDeps({
     firestore: client,
-    authenticateAdminOrModeratorWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/members/weapons`, {
@@ -3164,7 +3164,7 @@ test('PUT /admin/members/weapons 404s for an unknown member', async () => {
 
 test('PUT /admin/members/weapons requires step-up freshness (rejects a stale reauthAt)', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModeratorWithStepUp: async () => {
+    authenticateAdminOrHovdingWithStepUp: async () => {
       throw new AuthError('Wymagane ponowne logowanie.', 401);
     },
   });
@@ -3192,7 +3192,7 @@ test('GET /admin/lookup-lists returns sections/categories/weapons', async () => 
 
 test('GET /admin/lookup-lists rejects an unauthenticated caller', async () => {
   const deps = makeDeps({
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak nagłówka Authorization: Bearer <token>.', 401);
     },
   });
@@ -3385,9 +3385,9 @@ test('POST /admin/members/synchronize rejects a stale admin session', async () =
   });
 });
 
-// Admin-only (not authenticateAdminOrModerator, unlike the rest of Zarządzanie ludźmi) - a
-// moderator can manage member records but must not trigger the Sheets backup sync.
-test('POST /admin/members/synchronize rejects a Firestore-role-only moderator', async () => {
+// Admin-only (not authenticateAdminOrHovding, unlike the rest of Zarządzanie ludźmi) - a
+// hovding can manage member records but must not trigger the Sheets backup sync.
+test('POST /admin/members/synchronize rejects a Firestore-role-only hovding', async () => {
   const deps = makeDeps({
     authenticateAdminWithStepUp: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
@@ -3444,9 +3444,9 @@ test('GET /admin/members/group-sync rejects a caller who is not an admin', async
   });
 });
 
-// Admin-only (not authenticateAdminOrModerator, unlike the rest of Zarządzanie ludźmi) - a
-// moderator can manage member records but must not run the Google Group drift check.
-test('GET /admin/members/group-sync rejects a Firestore-role-only moderator', async () => {
+// Admin-only (not authenticateAdminOrHovding, unlike the rest of Zarządzanie ludźmi) - a
+// hovding can manage member records but must not run the Google Group drift check.
+test('GET /admin/members/group-sync rejects a Firestore-role-only hovding', async () => {
   const deps = makeDeps({
     authenticateAdmin: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
@@ -3647,7 +3647,7 @@ test('GET /files marks another member\'s file as not deletable for a plain membe
   });
 });
 
-test('GET /files marks every file deletable for a moderator', async () => {
+test('GET /files marks every file deletable for a hovding', async () => {
   const firestore = createInMemoryFirestoreClient();
   await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }), async baseUrl => {
     await fetch(`${baseUrl}/files`, {
@@ -3656,7 +3656,7 @@ test('GET /files marks every file deletable for a moderator', async () => {
       body: JSON.stringify({ url: 'https://example.com/x', description: 'Plik Ali' }),
     });
   });
-  firestore.seed('userRoles', 'mod@example.test', { roles: ['moderator'] });
+  firestore.seed('userRoles', 'mod@example.test', { roles: ['hovding'] });
   await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'mod@example.test' }) }), async baseUrl => {
     const res = await fetch(`${baseUrl}/files`);
     const { files } = (await res.json()) as { files: Array<{ canDelete: boolean }> };
@@ -3751,7 +3751,7 @@ test('DELETE /files rejects a different plain member deleting someone else\'s fi
   assert.ok(await getFile(firestore, fileId));
 });
 
-test('DELETE /files lets a moderator delete someone else\'s file', async () => {
+test('DELETE /files lets a hovding delete someone else\'s file', async () => {
   const firestore = createInMemoryFirestoreClient();
   let fileId = '';
   await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) }), async baseUrl => {
@@ -3762,7 +3762,7 @@ test('DELETE /files lets a moderator delete someone else\'s file', async () => {
     });
     fileId = ((await postRes.json()) as { file: { id: string } }).file.id;
   });
-  firestore.seed('userRoles', 'mod@example.test', { roles: ['moderator'] });
+  firestore.seed('userRoles', 'mod@example.test', { roles: ['hovding'] });
   await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'mod@example.test' }) }), async baseUrl => {
     const res = await fetch(`${baseUrl}/files?id=${fileId}`, { method: 'DELETE' });
     assert.equal(res.status, 200);
@@ -3780,7 +3780,7 @@ test('DELETE /files returns 404 for an unknown id', async () => {
 
 // KRKG-0076 P2 (external delegated review, Codex gpt-5.6-terra): an earlier version of this test
 // asserted the old handler's actual behavior - two truly concurrent DELETEs of the same file both
-// returning 200 - because the file read and owner/moderator decision ran BEFORE the transaction,
+// returning 200 - because the file read and owner/hovding decision ran BEFORE the transaction,
 // so the race loser's tx.deleteDoc was an indistinguishable no-op that still got a full,
 // unconditional file.deleted audit event committed alongside it: a false audit record for a
 // deletion that never actually happened on that request. That review flagged this as a real
@@ -3848,7 +3848,7 @@ test('/delete-drive-gallery rejects an unauthenticated caller before touching Dr
 // KRKG-0049: an ordinary allowlisted kruki-group member (passes the general `authenticate`,
 // used elsewhere for upload/register) must NOT be able to delete a gallery just by being on
 // that broader list - only someone the admin allowlist accepts can (KRKG-0027's separate
-// moderator-group gate was dropped - it was never actually configured in production).
+// hovding-group gate was dropped - it was never actually configured in production).
 test('/delete-drive-gallery rejects a caller who passes the general allowlist but not the admin one', async () => {
   let driveCalled = false;
   const deps = makeDeps({
@@ -5427,10 +5427,10 @@ test('POST /lista-wyjazdowa/profile/photo/main fails the request and records a f
   assert.ok(outcomes.some(o => o.state === 'failed'), 'an inconsistent postcondition must be recorded as a failed audited operation, never silently reported as success');
 });
 
-// Every "plain member" test below explicitly overrides authenticateAdminOrModerator to throw -
+// Every "plain member" test below explicitly overrides authenticateAdminOrHovding to throw -
 // makeDeps' own default resolves it as a successful admin identity (server.test.ts:167), which
-// would otherwise silently take the admin/moderator code path and skip the allowlist/hidden
-// checks these tests exist to exercise. Only the dedicated admin/moderator tests near the bottom
+// would otherwise silently take the admin/hovding code path and skip the allowlist/hidden
+// checks these tests exist to exercise. Only the dedicated admin/hovding tests near the bottom
 // rely on that default.
 
 test('GET /member-profile returns basic fields, no photos, no description when the member has no driveFolderId', async () => {
@@ -5457,7 +5457,7 @@ test('GET /member-profile returns basic fields, no photos, no description when t
     firestore,
     listMemberEmails: async () => ['ktos@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
   });
@@ -5498,7 +5498,7 @@ test('GET /member-profile includes wpisowePaid and the current year\'s składka 
     firestore,
     listMemberEmails: async () => ['ktos@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
   });
@@ -5520,7 +5520,7 @@ test('GET /member-profile defaults an Emeryt with no dues record for the year to
     firestore,
     listMemberEmails: async () => ['emeryt@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
   });
@@ -5538,7 +5538,7 @@ test('GET /member-profile defaults wpisowePaid to false and duesStatus to unpaid
     firestore,
     listMemberEmails: async () => ['bezprofilu@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
   });
@@ -5559,7 +5559,7 @@ test('GET /member-profile returns pendingPhotos alongside a published profile wh
     firestore,
     listMemberEmails: async () => ['ktos@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
     drive: makeFakeDrive({
@@ -5592,7 +5592,7 @@ test('GET /member-profile returns photos and description when driveFolderId is u
     firestore,
     listMemberEmails: async () => ['ktos@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
     drive: makeFakeDrive({
@@ -5629,7 +5629,7 @@ test('GET /member-profile returns pendingPhotos with no description when the mem
     firestore,
     listMemberEmails: async () => ['ktos@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
     drive: makeFakeDrive({
@@ -5660,7 +5660,7 @@ test('GET /member-profile reads no Drive images and stays unpublished when drive
     firestore,
     listMemberEmails: async () => ['ktos@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
     drive: makeFakeDrive({
@@ -5687,7 +5687,7 @@ test('GET /member-profile returns a minimal profile (name from email) when the t
     firestore,
     listMemberEmails: async () => ['bezprofilu@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
   });
@@ -5712,7 +5712,7 @@ test('GET /member-profile returns 404 for an email not on the active allowlist, 
     firestore,
     listMemberEmails: async () => [],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
   });
@@ -5730,7 +5730,7 @@ test('GET /member-profile returns 404 for a hidden member when the caller is a p
     firestore,
     listMemberEmails: async () => ['ukryty@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
   });
@@ -5746,7 +5746,7 @@ test('GET /member-profile rejects a plain caller who is not an active member', a
     authenticateWojownicyUpload: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
   });
@@ -5756,22 +5756,22 @@ test('GET /member-profile rejects a plain caller who is not an active member', a
   });
 });
 
-// --- Admin/moderator path: relies on makeDeps' default authenticateAdminOrModerator (succeeds
+// --- Admin/hovding path: relies on makeDeps' default authenticateAdminOrHovding (succeeds
 // as an admin identity) and deliberately makes authenticateWojownicyUpload fail, to prove the
-// admin/moderator branch never calls it - an admin/moderator need not be an active club member
+// admin/hovding branch never calls it - an admin/hovding need not be an active club member
 // themselves, matching handleAdminListMembers's own gate (server.ts:888-895).
 
-test('GET /member-profile returns the full profile for a suspended member when the caller is admin/moderator but not an active member', async () => {
+test('GET /member-profile returns the full profile for a suspended member when the caller is admin/hovding but not an active member', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
   await firestore.setDoc('members', 'zawieszony@gmail.com', seedMemberDoc({ status: 'suspended', fullName: 'Zawieszony Nowak' }));
   const deps = makeDeps({
     firestore,
-    listMemberEmails: async () => [], // not on the active allowlist - must not matter for admin/moderator
+    listMemberEmails: async () => [], // not on the active allowlist - must not matter for admin/hovding
     authenticateWojownicyUpload: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
-    // authenticateAdminOrModerator uses makeDeps' default (succeeds as admin@gmail.com).
+    // authenticateAdminOrHovding uses makeDeps' default (succeeds as admin@gmail.com).
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/member-profile?email=zawieszony@gmail.com`);
@@ -5781,7 +5781,7 @@ test('GET /member-profile returns the full profile for a suspended member when t
   });
 });
 
-test('GET /member-profile returns the full profile for a hidden member when the caller is admin/moderator but not an active member', async () => {
+test('GET /member-profile returns the full profile for a hidden member when the caller is admin/hovding but not an active member', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
   await firestore.setDoc('members', 'ukryty@gmail.com', seedMemberDoc({ hidden: true, fullName: 'Ukryty Kowalski' }));
@@ -5791,7 +5791,7 @@ test('GET /member-profile returns the full profile for a hidden member when the 
     authenticateWojownicyUpload: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
-    // authenticateAdminOrModerator uses makeDeps' default (succeeds as admin@gmail.com).
+    // authenticateAdminOrHovding uses makeDeps' default (succeeds as admin@gmail.com).
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/member-profile?email=ukryty@gmail.com`);
@@ -5801,7 +5801,7 @@ test('GET /member-profile returns the full profile for a hidden member when the 
   });
 });
 
-test('GET /member-profile returns 404 for an admin/moderator caller querying an arbitrary email with no members document', async () => {
+test('GET /member-profile returns 404 for an admin/hovding caller querying an arbitrary email with no members document', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
@@ -5810,7 +5810,7 @@ test('GET /member-profile returns 404 for an admin/moderator caller querying an 
     authenticateWojownicyUpload: async () => {
       throw new AuthError('Ten adres e-mail nie ma uprawnień do wykonania tej operacji.', 403);
     },
-    // authenticateAdminOrModerator uses makeDeps' default (succeeds as admin@gmail.com).
+    // authenticateAdminOrHovding uses makeDeps' default (succeeds as admin@gmail.com).
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/member-profile?email=nieistnieje@gmail.com`);
@@ -5826,7 +5826,7 @@ test('GET /member-profile normalizes email case before comparing against the all
     firestore,
     listMemberEmails: async () => ['ktos@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
-    authenticateAdminOrModerator: async () => {
+    authenticateAdminOrHovding: async () => {
       throw new AuthError('Brak uprawnień administracyjnych.', 403);
     },
   });
@@ -5926,7 +5926,7 @@ test('/wojownicy-upload/photo without isMain keeps the original filename', async
 });
 
 // KRKG-0036 Phase 1 cutover audit: design-v2.md requires reauthAt step-up on every
-// authenticateAdmin/authenticateAdminOrModerator-gated *mutation*, plus the one member-level case
+// authenticateAdmin/authenticateAdminOrHovding-gated *mutation*, plus the one member-level case
 // (adding photos to a gallery the caller didn't create) - "enumerate all of them in the test,
 // not a sample". Every handler checks auth before touching the request body/query/any service
 // (an established, consistently-followed pattern in this file, confirmed by grep against
@@ -5950,10 +5950,10 @@ const STEP_UP_GATED_ROUTES: { method: string; path: string; stepUpDep: keyof Ser
   { method: 'POST', path: '/delete-drive-gallery', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'POST', path: '/unregister', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'POST', path: '/gallery-photos/start', stepUpDep: 'authenticateWithStepUp' },
-  { method: 'POST', path: '/admin/members/transition', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
-  { method: 'PUT', path: '/admin/members/drive-folder', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
-  { method: 'PUT', path: '/admin/members/profile', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
-  { method: 'PUT', path: '/admin/members/weapons', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'POST', path: '/admin/members/transition', stepUpDep: 'authenticateAdminOrHovdingWithStepUp' },
+  { method: 'PUT', path: '/admin/members/drive-folder', stepUpDep: 'authenticateAdminOrHovdingWithStepUp' },
+  { method: 'PUT', path: '/admin/members/profile', stepUpDep: 'authenticateAdminOrHovdingWithStepUp' },
+  { method: 'PUT', path: '/admin/members/weapons', stepUpDep: 'authenticateAdminOrHovdingWithStepUp' },
   { method: 'POST', path: '/admin/members/synchronize', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'PUT', path: '/admin/roles', stepUpDep: 'authenticateAdminWithStepUp' },
 ];
@@ -5963,11 +5963,11 @@ const STEP_UP_GATED_ROUTES: { method: string; path: string; stepUpDep: keyof Ser
 const READ_ONLY_ROUTES_SHARING_A_ROLE: { method: string; path: string; stepUpDep: keyof ServerDeps }[] = [
   { method: 'GET', path: '/admin/whoami', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'GET', path: '/admin/redirects', stepUpDep: 'authenticateAdminWithStepUp' },
-  { method: 'GET', path: '/admin/people', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'GET', path: '/admin/people', stepUpDep: 'authenticateAdminOrHovdingWithStepUp' },
   { method: 'GET', path: '/admin/settings', stepUpDep: 'authenticateAdminWithStepUp' },
-  { method: 'GET', path: '/admin/members?status=active', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
-  { method: 'GET', path: '/admin/members/whoami', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
-  { method: 'GET', path: '/admin/lookup-lists', stepUpDep: 'authenticateAdminOrModeratorWithStepUp' },
+  { method: 'GET', path: '/admin/members?status=active', stepUpDep: 'authenticateAdminOrHovdingWithStepUp' },
+  { method: 'GET', path: '/admin/members/whoami', stepUpDep: 'authenticateAdminOrHovdingWithStepUp' },
+  { method: 'GET', path: '/admin/lookup-lists', stepUpDep: 'authenticateAdminOrHovdingWithStepUp' },
   { method: 'GET', path: '/admin/roles', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'GET', path: '/admin/members/group-sync', stepUpDep: 'authenticateAdminWithStepUp' },
 ];
@@ -6667,7 +6667,7 @@ test('GET /lista-wyjazdowa/roster?eventId= still omits a tombstoned person with 
   });
 });
 
-// KRKG-0087: the accountless-person record routes. Staff (admin/moderator/accountant) manage any
+// KRKG-0087: the accountless-person record routes. Staff (admin/hovding/accountant) manage any
 // person; a plain member only their own attached person; merging with an account is admin-only.
 const personBody = {
   ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski',
@@ -6689,7 +6689,7 @@ function memberDeps(firestore: ReturnType<typeof makeListaWyjazdowaFirestore>, e
     listMemberEmails: async () => [email.toLowerCase()],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'w1', email }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
   });
 }
 
@@ -6709,13 +6709,13 @@ function seedPerson(
   });
 }
 
-test('POST /lista-wyjazdowa/persons lets a moderator create a person for anyone and audits it', async () => {
+test('POST /lista-wyjazdowa/persons lets a hovding create a person for anyone and audits it', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const deps = makeDeps({
     firestore,
-    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'wojownik@gmail.com' });
@@ -6795,9 +6795,9 @@ test('GET /lista-wyjazdowa/persons is staff-only and lists deactivated people wi
 
   const deps = makeDeps({
     firestore,
-    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/persons`)).json();
@@ -6820,9 +6820,9 @@ test('DELETE /lista-wyjazdowa/persons/permanent purges the person, profile, sign
 
   const deps = makeDeps({
     firestore,
-    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     const res = await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons/permanent', { personId: 'p1' });
@@ -6845,9 +6845,9 @@ test('DELETE /lista-wyjazdowa/persons/permanent is staff-only and 404s an unknow
   });
   const deps = makeDeps({
     firestore,
-    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
   });
   await withServer(deps, async baseUrl => {
     assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons/permanent', { personId: 'nie-ma' })).status, 404);
@@ -6866,14 +6866,14 @@ test('PUT /lista-wyjazdowa/persons/owner detaches and requires ownerPersonId nul
   });
 });
 
-test('PUT /lista-wyjazdowa/persons/account merges for an admin, rejects a moderator, and refuses a second merge', async () => {
+test('PUT /lista-wyjazdowa/persons/account merges for an admin, rejects a hovding, and refuses a second merge', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedPerson(firestore, 'p1', 'wojownik@gmail.com');
   seedMember(firestore, 'nowak@gmail.com');
   firestore.seed('signups', 'event-1_p1', { eventId: 'event-1', memberEmail: 'p1', attending: true, skladkaPaid: false });
 
-  const moderator = makeDeps({ firestore, authenticateAdminWithStepUp: async () => { throw new AuthError('Brak uprawnień.', 403); } });
-  await withServer(moderator, async baseUrl => {
+  const hovding = makeDeps({ firestore, authenticateAdminWithStepUp: async () => { throw new AuthError('Brak uprawnień.', 403); } });
+  await withServer(hovding, async baseUrl => {
     assert.equal(
       (await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/account', { personId: 'p1', accountEmail: 'nowak@gmail.com' })).status,
       403,
@@ -6923,7 +6923,7 @@ test('an accountant is staff on the person routes', async () => {
     firestore,
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'k1', email: 'ksiegowa@example.com' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
   });
   await withServer(deps, async baseUrl => {
     const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'wojownik@gmail.com' });
@@ -7020,7 +7020,7 @@ test('POST /lista-wyjazdowa/signups/quick-add enforces the owner and attachment 
     listMemberEmails: async () => ['wojownik@gmail.com', 'ktos@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'w1', email: 'wojownik@gmail.com' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
   });
   await withServer(deps, async baseUrl => {
     assert.equal(
@@ -7099,16 +7099,16 @@ test('POST /lista-wyjazdowa/signups/quick-add lets staff quick-add for someone e
   await run(makeDeps({
     firestore,
     listMemberEmails: async () => ['ktos@gmail.com'],
-    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'm1', email: 'moderator@example.com' }),
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
   }));
   await run(makeDeps({
     firestore,
     listMemberEmails: async () => ['ktos@gmail.com'],
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'k1', email: 'ksiegowa@example.com' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
   }));
   await run(makeDeps({ firestore, listMemberEmails: async () => ['ktos@gmail.com'] }));
 });
@@ -7315,9 +7315,9 @@ function makeDepsWithRole(
 test('GET /lista-wyjazdowa/my-role reflects granted roles', async () => {
   await withServer(makeDeps({
     firestore: makeListaWyjazdowaFirestore(),
-    // Plain member: no userRoles grant, and not on the env admin allowlist or a moderator either.
+    // Plain member: no userRoles grant, and not on the env admin allowlist or a hovding either.
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
   }), async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
     assert.deepEqual(await res.json(), { canManageSkladki: false, canManagePeople: false });
@@ -7330,7 +7330,7 @@ test('GET /lista-wyjazdowa/my-role reflects granted roles', async () => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
     assert.deepEqual(await res.json(), { canManageSkladki: true, canManagePeople: true });
   });
-  // A moderator (authenticateAdminOrModerator, no składki grant) still manages people, so the
+  // A hovding (authenticateAdminOrHovding, no składki grant) still manages people, so the
   // event page can offer them the "+" control on every account row.
   await withServer(makeDeps({
     firestore: makeListaWyjazdowaFirestore(),
@@ -8047,7 +8047,7 @@ test('GET /audyt/events (member-zone) never exposes actor and hides an admin-onl
   });
 });
 
-test('GET /admin/audyt list and detail give a Firestore-only moderator full audit access, an accountant-only viewer dues-category-only access, and reject an ordinary member', async () => {
+test('GET /admin/audyt list and detail give a Firestore-only hovding full audit access, an accountant-only viewer dues-category-only access, and reject an ordinary member', async () => {
   const firestore = createInMemoryFirestoreClient();
   await executeAuditedFirestoreMutation(
     firestore,
@@ -8057,27 +8057,27 @@ test('GET /admin/audyt list and detail give a Firestore-only moderator full audi
   );
   await executeAuditedFirestoreMutation(
     firestore,
-    { action: 'role.replaced', actor: { email: 'admin@example.test' }, resource: { kind: 'member', key: 'member:ula@example.test', display: 'Ula' }, changes: [{ field: 'roles', after: 'Moderator' }] },
+    { action: 'role.replaced', actor: { email: 'admin@example.test' }, resource: { kind: 'member', key: 'member:ula@example.test', display: 'Ula' }, changes: [{ field: 'roles', after: 'Hovding' }] },
     async () => {},
     { createId: () => 'evt-roles', now: () => new Date('2026-01-01T00:01:00.000Z') },
   );
-  await firestore.setDoc('userRoles', 'wojownik@gmail.com', { roles: ['moderator'] });
-  const moderatorDeps = makeDeps({
+  await firestore.setDoc('userRoles', 'wojownik@gmail.com', { roles: ['hovding'] });
+  const hovdingDeps = makeDeps({
     firestore,
-    // The audit shell reaches its reader through the admin-or-moderator boundary. A moderator
+    // The audit shell reaches its reader through the admin-or-hovding boundary. A hovding
     // need not be an active member, so the general member gate is deliberately rejecting here.
     authenticate: async () => { throw new AuthError('Brak uprawnień.', 403); },
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ sub: 'mod-1', email: 'wojownik@gmail.com' }),
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'mod-1', email: 'wojownik@gmail.com' }),
   });
-  await withServer(moderatorDeps, async baseUrl => {
+  await withServer(hovdingDeps, async baseUrl => {
     const list = await fetch(`${baseUrl}/admin/audyt/events`);
     assert.equal(list.status, 200);
     const rows = (await list.json()).rows;
     assert.deepEqual(rows.map((row: { id: string }) => row.id), ['evt-roles', 'evt-dues']);
     assert.equal(rows[0].actor.email, 'admin@example.test');
     assert.equal(rows[0].changes[0].field, 'roles');
-    assert.equal(rows[0].changes[0].after, 'Moderator');
+    assert.equal(rows[0].changes[0].after, 'Hovding');
 
     const detail = await fetch(`${baseUrl}/admin/audyt/event?id=evt-dues`);
     assert.equal(detail.status, 200);
@@ -8087,7 +8087,7 @@ test('GET /admin/audyt list and detail give a Firestore-only moderator full audi
     assert.equal(event.changes[0].after, true);
   });
 
-  // Accountant-only: fails the admin-or-moderator gate entirely, but resolveAdminAuditAuth's
+  // Accountant-only: fails the admin-or-hovding gate entirely, but resolveAdminAuditAuth's
   // fallback branch still authenticates them through deps.authenticate and grants dues-category-
   // only access - the one category their role covers (viewerCanSeeCategory). They see the dues
   // event but not the permissions one, and its detail 404s (projectAuditEvent returns null for an
@@ -8097,7 +8097,7 @@ test('GET /admin/audyt list and detail give a Firestore-only moderator full audi
     firestore,
     authenticate: async () => fakeSessionClaims({ email: 'accountant@example.test' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
   });
   await withServer(accountantDeps, async baseUrl => {
     const list = await fetch(`${baseUrl}/admin/audyt/events`);
@@ -8109,25 +8109,25 @@ test('GET /admin/audyt list and detail give a Firestore-only moderator full audi
     assert.equal((await fetch(`${baseUrl}/admin/audyt/event?id=evt-roles`)).status, 404);
   });
 
-  // Plain member: neither admin-or-moderator nor accountant - rejected by both branches.
+  // Plain member: neither admin-or-hovding nor accountant - rejected by both branches.
   await firestore.setDoc('userRoles', 'member@example.test', { roles: [] });
   const memberDeps = makeDeps({
     firestore,
     authenticate: async () => fakeSessionClaims({ email: 'member@example.test' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
   });
   await withServer(memberDeps, async baseUrl => {
     assert.equal((await fetch(`${baseUrl}/admin/audyt/events`)).status, 403);
     assert.equal((await fetch(`${baseUrl}/admin/audyt/event?id=evt-dues`)).status, 403);
   });
 
-  await firestore.setDoc('userRoles', 'combined@example.test', { roles: ['accountant', 'moderator'] });
+  await firestore.setDoc('userRoles', 'combined@example.test', { roles: ['accountant', 'hovding'] });
   const combinedDeps = makeDeps({
     firestore,
     authenticate: async () => fakeSessionClaims({ email: 'combined@example.test' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
-    authenticateAdminOrModerator: async () => fakeSessionClaims({ email: 'combined@example.test' }),
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ email: 'combined@example.test' }),
   });
   await withServer(combinedDeps, async baseUrl => {
     assert.equal((await fetch(`${baseUrl}/admin/audyt/events`)).status, 200);
@@ -8137,7 +8137,7 @@ test('GET /admin/audyt list and detail give a Firestore-only moderator full audi
   const unauthenticatedDeps = makeDeps({
     firestore,
     authenticate: async () => { throw new AuthError('Brak sesji.', 401); },
-    authenticateAdminOrModerator: async () => { throw new AuthError('Brak sesji.', 401); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak sesji.', 401); },
   });
   await withServer(unauthenticatedDeps, async baseUrl => {
     assert.equal((await fetch(`${baseUrl}/admin/audyt/events`)).status, 401);
@@ -8178,13 +8178,13 @@ test('GET /admin/audyt/diagnostics is administrator-only and filters by correlat
     assert.equal(res.status, 403);
   });
 
-  const moderatorDeps = makeDeps({
+  const hovdingDeps = makeDeps({
     firestore,
-    authenticate: async () => fakeSessionClaims({ sub: 'mod-1', email: 'moderator@example.test' }),
+    authenticate: async () => fakeSessionClaims({ sub: 'mod-1', email: 'hovding@example.test' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
   });
-  await firestore.setDoc('userRoles', 'moderator@example.test', { roles: ['moderator'] });
-  await withServer(moderatorDeps, async baseUrl => {
+  await firestore.setDoc('userRoles', 'hovding@example.test', { roles: ['hovding'] });
+  await withServer(hovdingDeps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/audyt/diagnostics`);
     assert.equal(res.status, 403);
   });
@@ -8760,7 +8760,7 @@ test('GET /equipment rejects an unauthenticated caller', async () => {
   });
 });
 
-// design.md's headline trust decision for this feature: unlike /files (owner-or-moderator), any
+// design.md's headline trust decision for this feature: unlike /files (owner-or-hovding), any
 // signed-in member may edit or delete any equipment item, private or team-owned - canEdit/canDelete
 // must come back true even for a private item belonging to somebody else.
 test('GET /equipment marks a private item owned by a different member as editable and deletable', async () => {

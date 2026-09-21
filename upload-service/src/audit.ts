@@ -15,7 +15,7 @@ export type AuditCategory =
   | 'files'
   | 'equipment';
 
-export type AuditAudience = 'admin' | 'adminOrAccountant' | 'adminOrModerator' | 'members';
+export type AuditAudience = 'admin' | 'adminOrAccountant' | 'adminOrHovding' | 'members';
 export type AuditFieldVisibility = 'memberVisible' | 'roleRestricted';
 export type AuditResourceKind =
   | 'member'
@@ -192,31 +192,31 @@ export const ACTION_REGISTRY = {
   'dues.entry_fee.changed': action('dues', 'adminOrAccountant', ['due'], duesFields),
   'dues.event_fee.changed': action('dues', 'adminOrAccountant', ['eventFee', 'signup'], duesFields),
   'dues.year_fee.changed': action('dues', 'adminOrAccountant', ['due'], duesFields),
-  'profile.member.updated': action('profile', 'adminOrModerator', ['member'], profileFields),
-  'profile.drive_folder.changed': action('profile', 'adminOrModerator', ['member'], profileFields),
-  'profile.person.created': action('profile', 'adminOrModerator', ['person'], profileFields),
-  'profile.person.description.updated': action('profile', 'adminOrModerator', ['person'], profileFields),
-  'profile.person.order.updated': action('profile', 'adminOrModerator', ['person'], profileFields),
-  'profile.person.category.changed': action('profile', 'adminOrModerator', ['person'], profileFields),
-  'profile.person.deleted': action('profile', 'adminOrModerator', ['person'], profileFields),
-  'profile.person.photo.added': action('profile', 'adminOrModerator', ['person'], profileFields),
-  'profile.person.photo.deleted': action('profile', 'adminOrModerator', ['person'], profileFields),
-  'profile.person.photo.main.changed': action('profile', 'adminOrModerator', ['person'], profileFields),
-  'profile.person.photo.transferred': action('profile', 'adminOrModerator', ['person'], profileFields),
-  'profile.person.in_memoriam.changed': action('profile', 'adminOrModerator', ['person'], profileFields),
-  'profile.photo_submission.created': action('profile', 'adminOrModerator', ['memberSubmission'], profileFields),
-  'profile.photo_submission.photo_added': action('profile', 'adminOrModerator', ['memberSubmission'], profileFields),
-  'profile.photo_submission.photo_deleted': action('profile', 'adminOrModerator', ['memberSubmission'], profileFields),
+  'profile.member.updated': action('profile', 'adminOrHovding', ['member'], profileFields),
+  'profile.drive_folder.changed': action('profile', 'adminOrHovding', ['member'], profileFields),
+  'profile.person.created': action('profile', 'adminOrHovding', ['person'], profileFields),
+  'profile.person.description.updated': action('profile', 'adminOrHovding', ['person'], profileFields),
+  'profile.person.order.updated': action('profile', 'adminOrHovding', ['person'], profileFields),
+  'profile.person.category.changed': action('profile', 'adminOrHovding', ['person'], profileFields),
+  'profile.person.deleted': action('profile', 'adminOrHovding', ['person'], profileFields),
+  'profile.person.photo.added': action('profile', 'adminOrHovding', ['person'], profileFields),
+  'profile.person.photo.deleted': action('profile', 'adminOrHovding', ['person'], profileFields),
+  'profile.person.photo.main.changed': action('profile', 'adminOrHovding', ['person'], profileFields),
+  'profile.person.photo.transferred': action('profile', 'adminOrHovding', ['person'], profileFields),
+  'profile.person.in_memoriam.changed': action('profile', 'adminOrHovding', ['person'], profileFields),
+  'profile.photo_submission.created': action('profile', 'adminOrHovding', ['memberSubmission'], profileFields),
+  'profile.photo_submission.photo_added': action('profile', 'adminOrHovding', ['memberSubmission'], profileFields),
+  'profile.photo_submission.photo_deleted': action('profile', 'adminOrHovding', ['memberSubmission'], profileFields),
   // KRKG-0087: accountless-person record actions. Created/updated/deleted/detached are staff
-  // (admin/moderator) visible like the other profile-category actions; the account merge is an
+  // (admin/hovding) visible like the other profile-category actions; the account merge is an
   // administrator-only operation (design "Uprawnienia": "Scalanie konta — wyłącznie administrator").
-  'person.created': action('profile', 'adminOrModerator', ['person'], personFields),
-  'person.updated': action('profile', 'adminOrModerator', ['person'], personFields),
-  'person.deleted': action('profile', 'adminOrModerator', ['person'], personFields),
-  'person.detached': action('profile', 'adminOrModerator', ['person'], personFields),
+  'person.created': action('profile', 'adminOrHovding', ['person'], personFields),
+  'person.updated': action('profile', 'adminOrHovding', ['person'], personFields),
+  'person.deleted': action('profile', 'adminOrHovding', ['person'], personFields),
+  'person.detached': action('profile', 'adminOrHovding', ['person'], personFields),
   // KRKG-0091: permanent removal (person record + profile + signups + dues). Staff-only; the
   // immutable audit events themselves are never removed, so the action stays traceable.
-  'person.purged': action('profile', 'adminOrModerator', ['person'], personFields),
+  'person.purged': action('profile', 'adminOrHovding', ['person'], personFields),
   'person.merged': action('profile', 'admin', ['person'], personFields),
   'session.login.succeeded': action('session', 'admin', ['session'], sessionFields),
   'application.pwa.installation_reported': action('application', 'admin', ['application'], applicationFields),
@@ -970,18 +970,18 @@ function buildFirestoreFilter(selector: AuditPrimarySelector): FirestoreQueryFil
 /**
  * Who is asking, for server-side field/category redaction (implementation-contract.md
  * "Per-action stored-field allowlists" and its role-visibility rules). `admin` scope is used for
- * every authenticated administrator/moderator audit query (`/admin/audyt`); diagnostics remain
+ * every authenticated administrator/hovding audit query (`/admin/audyt`); diagnostics remain
  * administrator-only.
  * `member` scope is the protected member-zone contextual page, which is never given elevated
  * flags regardless of the caller's actual roles - it always gets the public projection.
  */
 export type AuditViewer =
-  | { scope: 'admin'; isAdmin: boolean; isAccountant: boolean; isModerator: boolean }
+  | { scope: 'admin'; isAdmin: boolean; isAccountant: boolean; isHovding: boolean }
   | { scope: 'member' };
 
 function viewerCanSeeCategory(viewer: AuditViewer, category: AuditCategory): boolean {
   if (viewer.scope === 'member') return false; // member scope is gated on audience below, not category
-  if (viewer.isAdmin || viewer.isModerator) return true;
+  if (viewer.isAdmin || viewer.isHovding) return true;
   if (category === 'dues') return viewer.isAccountant;
   return false;
 }
@@ -1007,7 +1007,7 @@ export interface AuditEventRow {
  * calls out "actor email" as `roleRestricted` for every audience-`members` category (events,
  * signups, gallery), so an ordinary signed-in member sees the public value fields but never who
  * performed the action. Every admin-scope viewer permitted to see a category at all sees its
- * actor, since administrator/moderator viewers are privileged, authenticated roles, not the
+ * actor, since administrator/hovding viewers are privileged, authenticated roles, not the
  * general public this restriction targets.
  */
 export function projectAuditEvent(event: CanonicalAuditEvent, viewer: AuditViewer): AuditEventRow | null {

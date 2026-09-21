@@ -76,9 +76,9 @@ export async function setWpisowePaid(
 }
 
 /**
- * Admin/moderator write of another member's weaponIds, from Zarządzanie ludźmi's own weapon
+ * Admin/hovding write of another member's weaponIds, from Zarządzanie ludźmi's own weapon
  * checkboxes - unlike weaponIds via saveProfile above (self-service, the member's own "Mój
- * profil"), this lets an admin/moderator correct or set it on someone else's behalf, e.g. for a
+ * profil"), this lets an admin/hovding correct or set it on someone else's behalf, e.g. for a
  * member who hasn't filled in their profile yet. Same upsert shape as setWpisowePaid: creates a
  * document with empty defaults if the member has none yet.
  */

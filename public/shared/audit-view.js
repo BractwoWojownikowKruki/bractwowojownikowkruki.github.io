@@ -122,7 +122,7 @@
 
   // Every category whose audience is 'members' in ACTION_REGISTRY (implementation-contract.md's
   // Action registry table: events/signups/gallery are "all signed-in members"; every other
-  // category's audience is admin/adminOrAccountant/adminOrModerator, so projectAuditEvent() on the
+  // category's audience is admin/adminOrAccountant/adminOrHovding, so projectAuditEvent() on the
   // server always returns null for a member-scope query against them - offering them in the
   // member shell's category filter would just be a filter that structurally never returns a row).
   const MEMBER_VISIBLE_CATEGORIES = ['events', 'signups', 'gallery', 'files', 'equipment'];
@@ -306,7 +306,7 @@
 
   /**
    * The "User" column value for one row. Admin-scope rows always carry `actor` (per
-   * implementation-contract.md, even for accountant/moderator-only viewers) and use it directly.
+   * implementation-contract.md, even for accountant/hovding-only viewers) and use it directly.
    * Member-scope rows never carry `actor` at all (deliberately withheld - see this module's file
    * header and implementation-contract.md's role-visibility rules), so this looks for the best
    * available identity-shaped field inside `changes` instead, falling back to an em dash when the

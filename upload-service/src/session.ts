@@ -158,7 +158,7 @@ export function maybeRenewSessionToken(
   return { token: signClaims(renewed, key.secret), exp: cappedExp };
 }
 
-// Step-up freshness for privileged routes (authenticateAdmin/authenticateModerator, and the
+// Step-up freshness for privileged routes (authenticateAdmin/authenticateHovding, and the
 // member "upload to a gallery I don't own" action) - see design-v2.md Phase 1 point 9. This is
 // deliberately NOT the same check as session validity: it proves a *recent real Google sign-in*
 // (reauthAt), not just recent activity, since sliding renewal alone would let a stolen cookie

@@ -4,13 +4,13 @@ import type { Authorizer } from './server.ts';
 
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
 
-// 'moderator' (KRKG-0049) replaces the old Google-Group-backed moderator mechanism (KRKG-0027,
+// 'hovding' (KRKG-0049) replaces the old Google-Group-backed hovding mechanism (KRKG-0027,
 // which gated gallery deletion and was never actually configured in production - see the removed
-// moderatorGroupUrl/authenticateModerator in server.ts/config.ts). It's scoped to people
+// hovdingGroupUrl/authenticateHovding in server.ts/config.ts). It's scoped to people
 // management - admin-like powers over the Zarządzanie ludźmi page (member status/profile/Drive-
 // folder, not galleries), deliberately excluding role assignment itself (see ASSIGNABLE_ROLES in
-// server.ts - only an admin can grant/revoke any role, including 'moderator').
-export type AccessRole = 'member' | 'accountant' | 'moderator' | 'admin';
+// server.ts - only an admin can grant/revoke any role, including 'hovding').
+export type AccessRole = 'member' | 'accountant' | 'hovding' | 'admin';
 
 interface UserRolesDoc {
   roles: string[];
@@ -49,7 +49,7 @@ export async function listAllGrantedRoles(client: FirestoreLikeClient): Promise<
 export function satisfiesRole(grantedRoles: string[], required: AccessRole): boolean {
   if (required === 'member') return true;
   if (required === 'accountant') return grantedRoles.includes('accountant') || grantedRoles.includes('admin');
-  if (required === 'moderator') return grantedRoles.includes('moderator') || grantedRoles.includes('admin');
+  if (required === 'hovding') return grantedRoles.includes('hovding') || grantedRoles.includes('admin');
   return grantedRoles.includes('admin');
 }
 
@@ -65,7 +65,7 @@ export async function requireRole(
 }
 
 // An Authorizer (server.ts) backed by a Firestore userRoles doc, for composing into
-// authenticateAdminOrModerator alongside the admin-allowlist Authorizer via server.ts's anyOf() -
+// authenticateAdminOrHovding alongside the admin-allowlist Authorizer via server.ts's anyOf() -
 // same role check as requireRole above, wrapped to fit the Authorizer shape verifySessionRequest
 // expects.
 export function createRoleAuthorizer(client: FirestoreLikeClient, required: AccessRole): Authorizer {

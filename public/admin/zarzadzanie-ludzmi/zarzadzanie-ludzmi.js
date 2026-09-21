@@ -3,13 +3,13 @@
 // original single-page admin.js. showReauth/hideReauth/escapeHtml/escapeAttr/
 // sheetSyncStatusMessage/formatDateTime come from ../admin-shared.js, loaded before this file.
 // whoamiPath is this page's own /admin/members/whoami (not /admin/whoami like the other 3 admin
-// pages) - it also accepts a Firestore 'moderator'/'admin' role, not just the admin allowlist, and
-// reports isAdmin so a plain moderator never triggers the role-assignment-only fetches below
+// pages) - it also accepts a Firestore 'hovding'/'admin' role, not just the admin allowlist, and
+// reports isAdmin so a plain hovding never triggers the role-assignment-only fetches below
 // (GET /admin/roles is still admin-only and would 403 for them).
 let isAdminCaller = false;
 // Wpisowe management needs requireSkladkiAccess (accountant/Firestore-admin role, or the env admin
-// allowlist), same as the Lista Wyjazdowa Składki page - a plain moderator with neither must not
-// see or use the new Wpisowe column, even though this page's own admin-or-moderator gate lets them
+// allowlist), same as the Lista Wyjazdowa Składki page - a plain hovding with neither must not
+// see or use the new Wpisowe column, even though this page's own admin-or-hovding gate lets them
 // in. Also requires the live kruki Google Group membership GET /lista-wyjazdowa/my-role itself
 // gates on - an admin-allowlist account that isn't a club member gets caught by the try/catch
 // below and simply doesn't see the column, same as it can't reach the Składki page either.
@@ -24,7 +24,7 @@ initGoogleSignIn({
     document.getElementById('admin-panel').hidden = false;
     isAdminCaller = payload.isAdmin === true;
     document.getElementById('membership-role-header').hidden = !isAdminCaller;
-    // Admin-only (KRKG bugfix): a moderator manages member records but must not trigger the
+    // Admin-only (KRKG bugfix): a hovding manages member records but must not trigger the
     // Sheets backup sync or the Google Group drift check - both now also 403 server-side
     // (handleAdminMembersSynchronize/handleAdminMembersGroupSync use authenticateAdmin), this
     // just keeps the buttons from being shown at all.
@@ -165,7 +165,7 @@ function loadDriveFolderOptions() {
 // fetch per row. Re-fetched on every loadMembershipMembers() call (unlike driveFolderOptions
 // above) since role changes happen on this same page and must show up on the next status-filter
 // switch or reload - a Map from email to that member's roles array. Admin-only endpoint (role
-// assignment is more sensitive than plain people-management) - skipped entirely for a moderator,
+// assignment is more sensitive than plain people-management) - skipped entirely for a hovding,
 // who would just get a 403 that would otherwise fail the whole Promise.all in loadMembershipMembers.
 async function loadRolesByEmail() {
   if (!isAdminCaller) return new Map();
@@ -199,7 +199,7 @@ function loadLookupLists() {
 function loadSections() {
   return loadLookupLists().then(data => data.sections ?? []);
 }
-// "Typ członka" (KRKG-0050, shown to the admin/moderator as "Status" - see the Status <th>'s
+// "Typ członka" (KRKG-0050, shown to the admin/hovding as "Status" - see the Status <th>'s
 // comment in index.html; the unrelated account-state filter above is labeled "Konto" precisely so
 // it doesn't collide with this) - lookupLists/categories, "Rola" in the original sheet; a different,
 // unrelated taxonomy from the public About-Us Drive folder categories (Blachowi/Niewiasty/
@@ -209,7 +209,7 @@ function loadCategories() {
 }
 // lookupLists/weapons - same list "Mój profil" (profil.js's populateWeaponCheckboxes) offers a
 // member for their own listaWyjazdowaProfile.weaponIds; the Broń column here lets an
-// admin/moderator set or correct it on someone else's behalf (see weaponCheckboxesHtml below).
+// admin/hovding set or correct it on someone else's behalf (see weaponCheckboxesHtml below).
 function loadWeapons() {
   return loadLookupLists().then(data => data.weapons ?? []);
 }
@@ -280,12 +280,12 @@ function categoryCellAttrs(categoryId, categories) {
 
 // A member can hold more than one of these at once (e.g. accountant + admin), so the Rola column
 // is a checkbox per role rather than a single-choice dropdown - see roleCheckboxesHtml below.
-// Only rendered for an admin caller (see roleCheckboxesHtml/isAdminCaller) - a moderator can see
+// Only rendered for an admin caller (see roleCheckboxesHtml/isAdminCaller) - a hovding can see
 // and edit member profiles/status/Drive-folder on this page, but not grant roles, including
-// 'moderator' itself.
+// 'hovding' itself.
 const ASSIGNABLE_ROLES = [
   { value: 'accountant', label: 'Księgowy' },
-  { value: 'moderator', label: 'Moderator' },
+  { value: 'hovding', label: 'Hovding' },
   { value: 'admin', label: 'Admin' },
 ];
 const ROLE_LABELS = Object.fromEntries(ASSIGNABLE_ROLES.map(r => [r.value, r.label]));
@@ -521,7 +521,7 @@ async function saveMemberProfileField(row, email, control) {
   }
 }
 
-// KRKG-0060: hidden is admin/moderator-owned like categoryId, but sent on its own rather than
+// KRKG-0060: hidden is admin/hovding-owned like categoryId, but sent on its own rather than
 // through saveMemberProfileField's combined write - toggling it shouldn't require (or risk
 // clobbering) the name/section/category fields also present in that same row.
 async function saveMemberHidden(email, hidden, control) {
@@ -548,7 +548,7 @@ async function saveMemberHidden(email, hidden, control) {
   }
 }
 
-// Broń (KRKG bugfix): admin/moderator-editable, unlike Rola/Wpisowe above - writes the same
+// Broń (KRKG bugfix): admin/hovding-editable, unlike Rola/Wpisowe above - writes the same
 // listaWyjazdowaProfile.weaponIds a member sets themselves on "Mój profil", via
 // PUT /admin/members/weapons. Sends the whole checked set on every change, same shape as the role
 // checkboxes (a member can hold more than one weapon at once).

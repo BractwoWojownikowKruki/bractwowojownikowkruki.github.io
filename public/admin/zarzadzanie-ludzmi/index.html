@@ -94,12 +94,12 @@
                 <th scope="col" data-sort-key="email" aria-sort="none"><button type="button">Email</button></th>
                 <th scope="col" data-sort-key="lastLogin" aria-sort="none"><button type="button">Ostatnie logowanie</button></th>
                 <th scope="col">Folder na Dysku</th>
-                <!-- Admin AND moderator-editable (KRKG bugfix), unlike Rola/Wpisowe below - writes
+                <!-- Admin AND hovding-editable (KRKG bugfix), unlike Rola/Wpisowe below - writes
                      the same listaWyjazdowaProfile.weaponIds a member sets themselves on "Mój
                      profil", via PUT /admin/members/weapons. Not sortable - a checkbox-per-weapon
                      cell has no single value to sort by, same reasoning as Rola/Akcje below. -->
                 <th scope="col">Broń</th>
-                <!-- Admin/moderator-only column (KRKG-0049) - shown/hidden by
+                <!-- Admin/hovding-only column (KRKG-0049) - shown/hidden by
                      zarzadzanie-ludzmi.js based on payload.isAdmin from /admin/members/whoami. -->
                 <th scope="col" id="membership-role-header" hidden>Rola</th>
                 <!-- Accountant/admin-only (KRKG-0047 follow-up), same requireSkladkiAccess gate as
@@ -170,7 +170,7 @@
       </section>
 
       <!-- Admin-only (KRKG bugfix) - shown/hidden by zarzadzanie-ludzmi.js based on isAdminCaller,
-           same gate as the Rola column above. A moderator manages member records but
+           same gate as the Rola column above. A hovding manages member records but
            must not trigger the Sheets backup sync. -->
       <section id="membership-sheet-sync-section" style="margin-bottom: 2rem;" hidden>
         <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Backup w arkuszu Google Sheets</h2>

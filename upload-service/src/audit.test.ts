@@ -37,7 +37,7 @@ test('audit registry contains every required logical category and no unregistere
     [...new Set(Object.values(ACTION_REGISTRY).map(action => action.category))].sort(),
     ['application', 'dues', 'equipment', 'events', 'files', 'gallery', 'membership', 'permissions', 'profile', 'session', 'signups', 'site'],
   );
-  assert.equal(ACTION_REGISTRY['profile.photo_submission.created'].audience, 'adminOrModerator');
+  assert.equal(ACTION_REGISTRY['profile.photo_submission.created'].audience, 'adminOrHovding');
   assert.equal(ACTION_REGISTRY['gallery.created'].audience, 'members');
   assert.throws(
     () =>
@@ -311,7 +311,7 @@ test('search tokens: "wol" matches Wolin via a stored prefix, "oli" (an interior
     async tx => { await tx.setDoc('events', 'wolin-2020', { name: 'Wolin' }); },
     { createId: () => 'evt-wolin', now: () => new Date('2026-01-01T00:00:00.000Z') },
   );
-  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isModerator: false };
+  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isHovding: false };
 
   const matchWol = await queryAuditEvents(firestore, { selector: { kind: 'search', term: 'wol' } }, admin);
   assert.equal(matchWol.rows.length, 1);
@@ -323,7 +323,7 @@ test('search tokens: "wol" matches Wolin via a stored prefix, "oli" (an interior
 
 test('queryAuditEvents rejects an unsupported/multi-term search selector deterministically (400-mapped)', () => {
   const firestore = createInMemoryFirestoreClient();
-  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isModerator: false };
+  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isHovding: false };
   assert.rejects(() => queryAuditEvents(firestore, { selector: { kind: 'search', term: 'jan kowalski' } }, admin), AuditQueryError);
   assert.rejects(() => queryAuditEvents(firestore, { selector: { kind: 'none' }, from: 'not-a-date' }, admin), AuditQueryError);
   assert.rejects(() => queryAuditEvents(firestore, { selector: { kind: 'none' }, cursor: 'not-base64-json' }, admin), AuditQueryError);
@@ -344,7 +344,7 @@ test('queryAuditEvents caps at 100 rows and paginates with a stable cursor', asy
       { createId: () => `evt-${i}`, now: () => new Date(`2026-01-0${i + 1}T00:00:00.000Z`) },
     );
   }
-  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isModerator: false };
+  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isHovding: false };
   const page1 = await queryAuditEvents(firestore, { selector: { kind: 'none' }, limit: 2 }, admin);
   assert.equal(page1.rows.length, 2);
   assert.equal(page1.rows[0].id, 'evt-4'); // newest first
@@ -368,7 +368,7 @@ test('queryAuditEvents caps at 100 rows and paginates with a stable cursor', asy
  */
 test('queryAuditEvents keeps nextCursor and reaches later rows when a page fills before its Firestore batch is fully consumed', async () => {
   const firestore = createInMemoryFirestoreClient();
-  const accountant: AuditViewer = { scope: 'admin', isAdmin: false, isAccountant: true, isModerator: false };
+  const accountant: AuditViewer = { scope: 'admin', isAdmin: false, isAccountant: true, isHovding: false };
 
   // Newest to oldest: dues(A), profile(hidden to accountant), dues(B), dues(C), dues(D).
   // limit=3 -> fetchLimit=6 on the first iteration; only 5 docs exist in total (< fetchLimit),
@@ -444,7 +444,7 @@ test('queryAuditEvents: category, category+action, actor, and resourceKey select
     async () => {},
     { createId: () => 'evt-other-actor-resource', now: () => new Date('2026-01-03T00:00:00.000Z') },
   );
-  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isModerator: false };
+  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isHovding: false };
 
   // category alone (no action): matches every "events" category row regardless of action.
   const byCategory = await queryAuditEvents(firestore, { selector: { kind: 'categoryAction', category: 'events' } }, admin);
@@ -521,7 +521,7 @@ test('queryAuditEvents: the event selector returns every resource kind tied to o
   await seed({ action: 'signup.created', actor: { email: 'maja@example.test' }, resource: { kind: 'signup', key: 'signup:evt-1:ula@example.test', display: 'ula@example.test' }, changes: [{ field: 'attending', after: true }] }, 'e3', '2026-01-03T00:00:00.000Z');
   await seed({ action: 'event.created', actor: { email: 'maja@example.test' }, resource: { kind: 'event', key: 'event:evt-2', display: 'Inny' }, changes: [{ field: 'name', after: 'Inny' }] }, 'e4', '2026-01-04T00:00:00.000Z');
 
-  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isModerator: false };
+  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isHovding: false };
   const page = await queryAuditEvents(firestore, { selector: { kind: 'event', eventId: 'evt-1' } }, admin);
   assert.deepEqual(page.rows.map(r => r.id), ['e3', 'e2', 'e1']);
   // Member scope still gets the members-audience rows tied to the trip, never the dues ones.
@@ -559,7 +559,7 @@ test('dues.event_fee.changed accepts a dueDate field', () => {
   assert.equal(event.changes[0].field, 'dueDate');
 });
 
-test('projectAuditEvent: admin-scope moderator sees actor and every field; member never sees actor', () => {
+test('projectAuditEvent: admin-scope hovding sees actor and every field; member never sees actor', () => {
   const duesEvent = createCanonicalAuditEvent(
     {
       action: 'dues.annual.changed',
@@ -569,12 +569,12 @@ test('projectAuditEvent: admin-scope moderator sees actor and every field; membe
     },
     { createId: () => 'due-1', now: () => new Date('2026-01-01T00:00:00.000Z') },
   );
-  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isModerator: false };
-  const moderatorOnly: AuditViewer = { scope: 'admin', isAdmin: false, isAccountant: false, isModerator: true };
+  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isHovding: false };
+  const hovdingOnly: AuditViewer = { scope: 'admin', isAdmin: false, isAccountant: false, isHovding: true };
 
   assert.equal(projectAuditEvent(duesEvent, admin)?.actor?.email, 'skarbnik@example.test');
-  assert.equal(projectAuditEvent(duesEvent, moderatorOnly)?.actor?.email, 'skarbnik@example.test');
-  assert.equal(projectAuditEvent(duesEvent, moderatorOnly)?.changes[0]?.after, true);
+  assert.equal(projectAuditEvent(duesEvent, hovdingOnly)?.actor?.email, 'skarbnik@example.test');
+  assert.equal(projectAuditEvent(duesEvent, hovdingOnly)?.changes[0]?.after, true);
 
   const galleryEvent = createCanonicalAuditEvent(
     {
@@ -594,7 +594,7 @@ test('projectAuditEvent: admin-scope moderator sees actor and every field; membe
   assert.equal(projectAuditEvent(duesEvent, member), null);
 });
 
-test('getAuditEventDetail gives an admin-scope moderator the same full projection as list rows', async () => {
+test('getAuditEventDetail gives an admin-scope hovding the same full projection as list rows', async () => {
   const firestore = createInMemoryFirestoreClient();
   await executeAuditedFirestoreMutation(
     firestore,
@@ -607,9 +607,9 @@ test('getAuditEventDetail gives an admin-scope moderator the same full projectio
     async tx => { await tx.setDoc('members', 'ula@example.test', { name: 'Ula' }); },
     { createId: () => 'profile-1', now: () => new Date('2026-01-01T00:00:00.000Z') },
   );
-  const moderator: AuditViewer = { scope: 'admin', isAdmin: false, isAccountant: false, isModerator: true };
-  assert.ok(await getAuditEventDetail(firestore, 'profile-1', moderator));
-  assert.equal(await getAuditEventDetail(firestore, 'does-not-exist', moderator), null);
+  const hovding: AuditViewer = { scope: 'admin', isAdmin: false, isAccountant: false, isHovding: true };
+  assert.ok(await getAuditEventDetail(firestore, 'profile-1', hovding));
+  assert.equal(await getAuditEventDetail(firestore, 'does-not-exist', hovding), null);
 });
 
 test('completeExternalOperation is single-winner: a concurrent second completion never creates a duplicate audit event', async () => {

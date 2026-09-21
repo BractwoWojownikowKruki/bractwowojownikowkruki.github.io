@@ -181,7 +181,7 @@ function confirmedEventMutation(control, execute, apply, anchor = control, rollb
 // read-only text - the server re-checks the role on every mutation regardless, this only
 // controls what the UI offers.
 let canManageSkladki = false;
-// KRKG-0087: staff (admin/moderator/accountant) may add a companion to any account row; everyone
+// KRKG-0087: staff (admin/hovding/accountant) may add a companion to any account row; everyone
 // else only to their own. Same "server re-checks anyway" contract as canManageSkladki above.
 let canManagePeople = false;
 let cachedEvent = null;

@@ -114,26 +114,26 @@ const MEMBERS_ZONE_MENU = [
   { href: '/discord', label: 'Forum/Discord', icon: 'chat', external: true },
 ];
 // KRKG-0049 split the single /admin/ page into 4, so "Zarządzanie" (né "Panel admina" -
-// KRKG-0073 renamed it because a moderator, who only ever sees 2 of its 5 items, legitimately
+// KRKG-0073 renamed it because a hovding, who only ever sees 2 of its 5 items, legitimately
 // belongs in this group too - "Panel admina" wrongly implied it was admin-exclusive) becomes a
 // collapsible group (same mechanism as "Do przeczytania" below) instead of one flat link.
 // KRKG-0073: each item's `gate` says which zoneState flag (below) must be `true` before that
 // item exists in the DOM at all - "Zarządzanie ludźmi" and "Audyt" are reachable by a
-// Firestore-role moderator too (gated server-side via /admin/members/whoami ->
-// isAdminOrModerator), the other three stay admin-allowlist-only (isAdmin). The toggle itself
-// gates on the broader `isAdminOrModerator` (see reconcileAdminSection below) so it reveals for
+// Firestore-role hovding too (gated server-side via /admin/members/whoami ->
+// isAdminOrHovding), the other three stay admin-allowlist-only (isAdmin). The toggle itself
+// gates on the broader `isAdminOrHovding` (see reconcileAdminSection below) so it reveals for
 // either audience - never the OR of two independently-resolved flags, which would let one
 // resolve while the other is still unknown and either flash the toggle briefly for a plain
-// member (before the narrower check catches up) or hide it a moment too long for a moderator.
+// member (before the narrower check catches up) or hide it a moment too long for a hovding.
 const ADMIN_ZONE_MENU = {
   label: 'Zarządzanie',
   icon: 'tool',
   items: [
     { href: '/admin/', label: 'Ogólne', icon: 'tool', gate: 'isAdmin' },
     { href: '/admin/zgloszenia/', label: 'Zgłoszenia', icon: 'scroll', gate: 'isAdmin' },
-    { href: '/admin/zarzadzanie-ludzmi/', label: 'Zarządzanie ludźmi', icon: 'users', gate: 'isAdminOrModerator' },
+    { href: '/admin/zarzadzanie-ludzmi/', label: 'Zarządzanie ludźmi', icon: 'users', gate: 'isAdminOrHovding' },
     { href: '/admin/publiczne-wizytowki/', label: 'Publiczne wizytówki', icon: 'user', gate: 'isAdmin' },
-    { href: '/admin/audyt/', label: 'Audyt', icon: 'history', gate: 'isAdminOrModerator' },
+    { href: '/admin/audyt/', label: 'Audyt', icon: 'history', gate: 'isAdminOrHovding' },
   ],
 };
 
@@ -142,7 +142,7 @@ const ADMIN_ZONE_MENU = {
 // `false`, i.e. nothing gated renders. Shared, page-wide state: the whole point of this refactor
 // is that DOM presence for every member/admin-only nav element is driven from here, never from
 // `hidden`/CSS.
-const zoneState = { isMember: null, isAdmin: null, isAdminOrModerator: null };
+const zoneState = { isMember: null, isAdmin: null, isAdminOrHovding: null };
 
 // KRKG-0073: which verification round the state above currently reflects (see
 // verificationGeneration in auth.js). Every onSignedIn/onSignedOut/onForbidden callback below
@@ -238,10 +238,10 @@ function buildMountContent(mount) {
     if (link) memberNodes.push(link);
   });
 
-  // "Zarządzanie" section: toggle gated on isAdminOrModerator (broadest - see ADMIN_ZONE_MENU's
+  // "Zarządzanie" section: toggle gated on isAdminOrHovding (broadest - see ADMIN_ZONE_MENU's
   // comment above), each item gated independently on its OWN `gate` - reconcileAdminSection
   // inserts/removes each of these on its own, in ADMIN_ZONE_MENU.items order, regardless of
-  // which of isAdmin/isAdminOrModerator resolves first or how much later than the other.
+  // which of isAdmin/isAdminOrHovding resolves first or how much later than the other.
   const { toggle: adminToggle, sublist: adminSublist } = makeGroupToggleAndSublist(ADMIN_ZONE_MENU);
   const adminItems = ADMIN_ZONE_MENU.items
     .map(item => ({ el: makeLink(item, nestedClass), gate: item.gate }))
@@ -290,7 +290,7 @@ function reconcileAdminSection(mount) {
   if (!build) return;
   const { adminToggle, adminSublist, adminItems } = build;
 
-  const toggleShouldShow = zoneState.isAdminOrModerator === true;
+  const toggleShouldShow = zoneState.isAdminOrHovding === true;
   if (toggleShouldShow && !adminToggle.isConnected) {
     mount.append(adminToggle, adminSublist);
   } else if (!toggleShouldShow && adminToggle.isConnected) {
@@ -463,7 +463,7 @@ document.addEventListener('DOMContentLoaded', () => {
     acceptedGeneration = generation;
     zoneState.isMember = null;
     zoneState.isAdmin = null;
-    zoneState.isAdminOrModerator = null;
+    zoneState.isAdminOrHovding = null;
     renderAvatar(null);
     reconcileAllMounts();
   }
@@ -517,7 +517,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }),
   });
 
-  // KRKG-0049: separate from the /admin/whoami listener above - a Firestore-role moderator
+  // KRKG-0049: separate from the /admin/whoami listener above - a Firestore-role hovding
   // passes /admin/members/whoami but not /admin/whoami, and vice versa isn't true (an admin
   // passes both). Each listener only ever sets its OWN zoneState flag, never the other one, so
   // the two checks can't race against each other - see ADMIN_ZONE_MENU's and
@@ -526,15 +526,15 @@ document.addEventListener('DOMContentLoaded', () => {
     buttonIds: [],
     whoamiPath: '/admin/members/whoami',
     onSignedIn: (_identity, generation) => ifCurrentRound(generation, () => {
-      zoneState.isAdminOrModerator = true;
+      zoneState.isAdminOrHovding = true;
       reconcileAllMounts();
     }),
     onSignedOut: generation => ifCurrentRound(generation, () => {
-      zoneState.isAdminOrModerator = false;
+      zoneState.isAdminOrHovding = false;
       reconcileAllMounts();
     }),
     onForbidden: generation => ifCurrentRound(generation, () => {
-      zoneState.isAdminOrModerator = false;
+      zoneState.isAdminOrHovding = false;
       reconcileAllMounts();
     }),
   });

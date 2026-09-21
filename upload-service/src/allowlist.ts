@@ -91,8 +91,8 @@ export function createAppsScriptAllowlist(options: SheetAllowlistOptions): Sheet
 }
 
 // Always-empty, no-network allowlist - the fail-closed default for a gate whose real source
-// (a Google Group URL) hasn't been configured/created yet (see KRKG-0027's moderator group:
-// the group doesn't exist yet, so every caller is denied until MODERATOR_GROUP_URL is set,
+// (a Google Group URL) hasn't been configured/created yet (see KRKG-0027's hovding group:
+// the group doesn't exist yet, so every caller is denied until HOVDING_GROUP_URL is set,
 // rather than either blocking deploys on a not-yet-real secret or silently falling open).
 export function createEmptyAllowlist(): SheetAllowlist {
   return { async getEmails() { return []; } };

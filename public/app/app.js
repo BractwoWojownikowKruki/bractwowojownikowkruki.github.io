@@ -364,7 +364,7 @@ function renderAdminPanel(pendingCount, uploadPendingCount) {
 // only a fixed-position slot - not prepend-call order - can guarantee design.md §3's required
 // "admin panel first" placement. No DOM element or network request for this panel exists
 // unless/until this call's own onSignedIn fires; a plain member never triggers either.
-// Deliberately isAdmin-only (not isAdminOrModerator) - both queues below are isAdmin-only in
+// Deliberately isAdmin-only (not isAdminOrHovding) - both queues below are isAdmin-only in
 // nav.js's own ADMIN_ZONE_MENU (design.md §4, round-2 advisory #7). Note: nav.js itself (loaded
 // by every page, including this one) always makes its own separate /admin/whoami call regardless
 // of what this file does - a plain member on /app/ will see that one 403 in the Network tab; it

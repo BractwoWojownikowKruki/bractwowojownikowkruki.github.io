@@ -1,6 +1,6 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* Security-relevant: nav.js (and other scripts) gate visibility of member/moderator/admin-only
+/* Security-relevant: nav.js (and other scripts) gate visibility of member/hovding/admin-only
    links purely via the `hidden` attribute (e.g. Panel admina's links and its own toggle button).
    The UA stylesheet's `[hidden] { display: none }` is lowest-priority origin, so ANY normal
    author rule that sets `display` unconditionally on a matching class (.nav-subitem, .mz-group-

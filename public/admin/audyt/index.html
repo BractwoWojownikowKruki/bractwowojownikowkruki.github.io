@@ -52,7 +52,7 @@
             <div id="audyt-container"></div>
           </section>
 
-          <!-- Administrator-only (GET /admin/audyt/diagnostics 403s for accountant/moderator-only
+          <!-- Administrator-only (GET /admin/audyt/diagnostics 403s for accountant/hovding-only
                viewers) - hidden entirely rather than shown with an error, per the task brief. No
                retry/resolve control by design (plan-addendum.md "Diagnostics remediation path" -
                v1 has none; remediation is re-doing the normal action on the resource's own page). -->
@@ -99,7 +99,7 @@
     // showReauth/hideReauth/escapeHtml/formatDateTime come from ../admin-shared.js.
     //
     // /admin/audyt/whoami gates this shell - its own endpoint, not /admin/members/whoami (which
-    // is admin-or-moderator only and gates the very different, broader Zarządzanie ludźmi page):
+    // is admin-or-hovding only and gates the very different, broader Zarządzanie ludźmi page):
     // an accountant-only viewer must pass this gate to reach the page at all, restricted server-
     // side to the 'dues' category once they're in (resolveAdminAuditAuth, server.ts).
     function resourceHref(resource) {
@@ -139,8 +139,8 @@
               .join('')
           : '<tr><td colspan="7" class="czl-empty">Brak operacji do przejrzenia.</td></tr>';
       } catch (err) {
-        // The audit shell admits administrators and moderators, while diagnostics are
-        // administrator-only. Hide this panel when a moderator receives its expected 403.
+        // The audit shell admits administrators and hovdings, while diagnostics are
+        // administrator-only. Hide this panel when a hovding receives its expected 403.
         panel.hidden = true;
       }
     }
