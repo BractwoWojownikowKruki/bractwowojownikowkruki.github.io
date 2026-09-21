@@ -975,6 +975,17 @@ button.lw-skladka-icon:disabled {
   padding-left: 0;
 }
 
+/* KRKG-0102: the events list's per-row edit panel (Nazwa/Data/Opis/Odwołaj wyjazd) is a full-width
+   child of the same flex-wrap .lw-event-row card as the add-companion panel above, for the same
+   reason - it wraps onto its own line instead of becoming a detached box. It already has its own
+   background/border card look (.lw-event-edit-form, above), so unlike .lw-inline-form it keeps
+   that instead of a bare dashed top border. */
+.lw-event-row .lw-event-edit-form {
+  flex: 1 1 100%;
+  width: 100%;
+  margin: 0.5rem 0 0;
+}
+
 /* Filter controls above the event page's roster. Two independent checkboxes ("Niezgłoszeni" /
    "Zgłoszeni + ja") replace the single toggle: the roster can now be read as any combination of
    the two groups, including an intentionally empty selection. Native checkboxes keep the
@@ -1246,6 +1257,15 @@ button.lw-edit-toggle svg {
   width: 0.95rem;
   height: 0.95rem;
   pointer-events: none;
+}
+
+/* Icon-only variant (KRKG-0102) for the events list, where every row needs its own compact
+   trigger - same square footprint as a.audyt-history-btn rather than the label button's auto
+   width, so a row of pills/toggles doesn't grow a wide "Edytuj" label per event. */
+button.lw-edit-toggle.lw-edit-toggle--icon {
+  width: 1.8rem;
+  padding: 0;
+  justify-content: center;
 }
 
 /* Collapsible "edit this event" panel opened by the meta row's Edytuj toggle - reuses the shared

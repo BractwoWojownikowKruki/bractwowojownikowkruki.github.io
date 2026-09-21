@@ -50,21 +50,33 @@
           </nav>
 
           <h1 id="event-title">Wyjazd</h1>
-          <p id="event-meta"></p>
-          <div id="event-actions">
-            <button type="button" id="cancel-event-btn" class="btn-cancel">Odwołaj wyjazd</button>
-            <button type="button" id="restore-event-btn" class="btn-cancel" hidden>Przywróć wyjazd</button>
-            <a id="event-history-link" class="audyt-history-btn" href="/audyt/" title="Historia" aria-label="Historia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
+
+          <!-- KRKG-0102: the always-visible Odwołaj/Przywróć wyjazd button moved inside the
+               Edytuj panel below (#event-edit-panel), next to Nazwa/Data/Opis - one place to
+               manage the event instead of a permanent action row under the title. The Edytuj
+               toggle and Historia link stay in this meta row, Edytuj first so the pair reads as
+               "act, then look back" left to right. -->
+          <div class="lw-meta-row">
+            <p id="event-meta"></p>
+            <div class="lw-meta-actions">
+              <button type="button" id="event-edit-toggle" class="lw-edit-toggle" aria-expanded="false" aria-controls="event-edit-panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>Edytuj</span></button>
+              <a id="event-history-link" class="audyt-history-btn" href="/audyt/" title="Historia" aria-label="Historia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
+            </div>
           </div>
 
-          <!-- Fee display is always rendered; the edit controls and Historia link are only
+          <!-- Filled by wyjazd.js (window.EventEditForm.panelHtml) once the event has loaded, so
+               its fields can be pre-populated with the real name/startDate/description. -->
+          <div id="event-edit-panel" hidden></div>
+
+          <!-- Fee display is always rendered; the Edytuj toggle and Historia link are only
                unhidden when the signed-in member's role (fetched via /lista-wyjazdowa/my-role)
                grants canManageSkladki - dues.event_fee.changed is adminOrAccountant-audience
                only (ACTION_REGISTRY), so a plain member has no page that could show them this
-               history anyway. -->
+               history anyway, and no button to open an edit form they cannot save. -->
           <div id="skladka-fee-panel">
             <div class="lw-fee-summary">
               <span id="skladka-fee-display"></span>
+              <button type="button" id="skladka-fee-edit-toggle" class="lw-edit-toggle" aria-expanded="false" aria-controls="skladka-fee-edit" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>Edytuj</span></button>
               <a id="skladka-fee-history-link" class="audyt-history-btn" href="/admin/audyt/" title="Historia" aria-label="Historia składki" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
             </div>
             <div id="skladka-fee-edit" class="lw-fee-edit" hidden>
@@ -157,6 +169,7 @@
   <script src="../../shared/sortable-table.js"></script>
   <script src="../../shared/profile-panel.js"></script>
   <script src="../../shared/companion-add.js"></script>
+  <script src="../../shared/event-edit-form.js"></script>
   <script src="wyjazd.js"></script>
 </body>
 </html>

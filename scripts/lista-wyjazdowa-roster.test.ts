@@ -6,6 +6,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8');
 const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 const companionAddSource = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
+const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-form.js', import.meta.url), 'utf8');
 
 class Element {
   id: string;
@@ -43,11 +44,11 @@ class Element {
 
 const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'main-content', 'lw-error',
-  'skladka-fee-display', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
+  'skladka-fee-display', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
   'skladka-fee-save', 'skladka-fee-remove', 'roster-panel', 'summary-content',
   'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni',
   'event-title', 'event-meta',
-  'cancel-event-btn', 'restore-event-btn', 'event-history-link', 'skladka-fee-history-link',
+  'event-edit-toggle', 'event-edit-panel', 'event-history-link', 'skladka-fee-history-link',
   'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-category',
   'event-equipment-panel', 'event-equipment-table', 'event-equipment-content',
 ];
@@ -141,6 +142,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   };
   vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
   vm.runInNewContext(companionAddSource, context, { filename: 'companion-add.js' });
+  vm.runInNewContext(eventEditFormSource, context, { filename: 'event-edit-form.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   return {
     elements,

@@ -73,6 +73,10 @@
               <label for="new-event-date">Data rozpoczęcia</label>
               <input type="date" id="new-event-date" name="startDate" required />
             </div>
+            <div class="field">
+              <label for="new-event-description">Opis</label>
+              <textarea id="new-event-description" name="description" rows="4" placeholder="Informacje o wyjeździe: miejsce, linki, co zabrać..."></textarea>
+            </div>
             <p class="add-album-error" id="add-event-error" hidden></p>
             <button type="submit" class="add-album-submit">Utwórz wyjazd</button>
           </form>
@@ -98,6 +102,7 @@
   <script src="../youtube-feed.js"></script>
   <script src="../shared/display-name.js"></script>
   <script src="../shared/companion-add.js"></script>
+  <script src="../shared/event-edit-form.js"></script>
   <script src="lista-wyjazdowa.js"></script>
 </body>
 </html>

@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/index.html', import.meta.url), 'utf8');
+const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-form.js', import.meta.url), 'utf8');
 
 class Element {
   hidden = false;
@@ -29,10 +30,10 @@ class Element {
 
 const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'main-content', 'lw-error',
-  'skladka-fee-display', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
+  'skladka-fee-display', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
   'skladka-fee-save', 'skladka-fee-remove', 'summary-content', 'roster-panel', 'roster-table',
   'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni', 'event-title',
-  'event-meta', 'cancel-event-btn', 'restore-event-btn', 'event-history-link',
+  'event-meta', 'event-edit-toggle', 'event-edit-panel', 'event-history-link',
   'skladka-fee-history-link', 'lw-inline-existing-select', 'lw-inline-new-name',
   'lw-inline-new-category', 'event-equipment-panel', 'event-equipment-table',
   'event-equipment-content',
@@ -74,6 +75,7 @@ function createHarness(items: Array<Record<string, unknown>>) {
       throw new Error(`unexpected request: ${url}`);
     },
   };
+  vm.runInNewContext(eventEditFormSource, context, { filename: 'event-edit-form.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   return { elements, calls, signIn: async () => signIn?.({ email: 'viewer@example.com' }) };
 }

@@ -2071,6 +2071,9 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
 // renderable.
 const LW_MAX_NAME_LENGTH = 120;
 const LW_MAX_DESCRIPTION_LENGTH = 500;
+// Event descriptions hold logistics prose (meeting point, links, what to bring) rather than the
+// one-line captions LW_MAX_DESCRIPTION_LENGTH bounds elsewhere, so they get their own, larger cap.
+const LW_MAX_EVENT_DESCRIPTION_LENGTH = 2000;
 
 // The PUT bodies are untrusted JSON, not the typed shapes TypeScript's `Partial<...>` annotation
 // pretends they are: without these guards a `{"weaponIds": "x"}` reaches saveProfile's `.map()`
@@ -2635,6 +2638,7 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const name = requireTrimmedString(body.name, LW_MAX_NAME_LENGTH, 'Nazwa wyjazdu jest wymagana.');
   const startDate = requireDateString(body.startDate, 'Data rozpoczęcia jest wymagana (RRRR-MM-DD).');
+  const description = optionalTrimmedString(body.description, LW_MAX_EVENT_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 2000 znaków.');
   const eventId = randomUUID();
   const { result: event } = await executeDeclaredAuditedMutation(
     deps,
@@ -2643,9 +2647,14 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
     {
       actor: { email: identity.email },
       resource: { kind: 'event', key: `event:${eventId}`, display: name },
-      changes: [{ field: 'name', after: name }, { field: 'startDate', after: startDate }, { field: 'status', after: 'active' }],
+      changes: [
+        { field: 'name', after: name },
+        { field: 'startDate', after: startDate },
+        { field: 'status', after: 'active' },
+        ...(description !== null ? [{ field: 'description', after: description }] : []),
+      ],
     },
-    tx => createEvent(tx, { name, startDate }, identity.email, eventId),
+    tx => createEvent(tx, { name, startDate, description }, identity.email, eventId),
   );
   sendJson(res, 200, { event });
 }
@@ -2658,6 +2667,9 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
   const fields: EventWritableFields = {};
   if (body.name !== undefined) fields.name = requireTrimmedString(body.name, LW_MAX_NAME_LENGTH, 'Nazwa wyjazdu nie może być pusta.');
   if (body.startDate !== undefined) fields.startDate = requireDateString(body.startDate, 'Data rozpoczęcia jest nieprawidłowa (RRRR-MM-DD).');
+  if (body.description !== undefined) {
+    fields.description = body.description === null ? null : optionalTrimmedString(body.description, LW_MAX_EVENT_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 2000 znaków.');
+  }
   if (body.status !== undefined) {
     if (body.status !== 'active' && body.status !== 'cancelled') throw new AuthError('Nieprawidłowy status wyjazdu.', 400);
     fields.status = body.status;
@@ -2670,7 +2682,7 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
     await requireSkladkiAccess(req, res, deps, identity.email);
     fields.dueDate = body.dueDate === null ? null : requireDateString(body.dueDate, 'Nieprawidłowy termin płatności (RRRR-MM-DD).');
   }
-  const eventFieldCount = Number(fields.name !== undefined) + Number(fields.startDate !== undefined) + Number(fields.status !== undefined);
+  const eventFieldCount = Number(fields.name !== undefined) + Number(fields.startDate !== undefined) + Number(fields.status !== undefined) + Number(fields.description !== undefined);
   const feeFieldCount = Number(fields.skladkaFee !== undefined) + Number(fields.dueDate !== undefined);
   if (eventFieldCount === 0 && feeFieldCount === 0) {
     throw new AuthError('Podaj co najmniej jedno pole wyjazdu do zmiany.', 400);
@@ -2695,6 +2707,7 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
           ...(fields.name !== undefined ? [{ field: 'name', before: existing.name, after: fields.name }] : []),
           ...(fields.startDate !== undefined ? [{ field: 'startDate', before: existing.startDate, after: fields.startDate }] : []),
           ...(fields.status !== undefined ? [{ field: 'status', before: existing.status, after: fields.status }] : []),
+          ...(fields.description !== undefined ? [{ field: 'description', before: existing.description ?? null, after: fields.description }] : []),
         ],
       };
       if (feeFieldCount === 0) return metadataInput;

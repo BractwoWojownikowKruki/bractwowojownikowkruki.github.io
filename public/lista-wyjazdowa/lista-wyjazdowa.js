@@ -56,6 +56,11 @@ let panelSignups = [];
 let openAddPanelEventId = null;
 let companionDataPromise = null;
 
+// KRKG-0102: which event's edit panel (Nazwa/Data/Opis/Odwołaj wyjazd) is open on the list, if
+// any - same single-panel-open convention as openAddPanelEventId above, and mutually exclusive
+// with it (opening one closes the other) so a row never shows both panels stacked.
+let openEditPanelEventId = null;
+
 function ensureCompanionData() {
   if (!companionDataPromise) {
     companionDataPromise = Promise.all([
@@ -121,6 +126,14 @@ function renderEvents() {
             categories: categoryOptions,
           })}</div>`
         : '';
+      // KRKG-0102: icon-only Edytuj toggle (no "Edytuj" label - the row is dense enough already)
+      // opening the same Nazwa/Data/Opis/Odwołaj-wyjazd panel the detail page offers, via the
+      // shared EventEditForm module. idPrefix is per-event so the one open panel's field ids never
+      // collide with a previously-rendered (now closed) one still cached in cachedEvents.
+      const editToggleHtml = window.EventEditForm.toggleButtonHtml({ eventId: e.id, expanded: openEditPanelEventId === e.id, withLabel: false });
+      const editPanelHtml = openEditPanelEventId === e.id
+        ? window.EventEditForm.panelHtml(e, { idPrefix: `lw-event-edit-${e.id}` })
+        : '';
       return `
         <div class="lw-event-row">
           <a href="wyjazd/?eventId=${encodeURIComponent(e.id)}" class="lw-event-name">${escapeHtml(e.name)}${statusLabel}</a>
@@ -132,8 +145,10 @@ function renderEvents() {
               ${e.viewerAttending ? 'Jadę' : 'Nie jadę'}
             </button>
             ${addCompanionHtml}
+            ${editToggleHtml}
           </div>
           ${panelHtml}
+          ${editPanelHtml}
         </div>
       `;
     })
@@ -197,6 +212,76 @@ async function quickAddNew(eventId, ownerPersonId, ksywka, categoryId, control) 
   await quickAddCompanion({ eventId, ownerPersonId, mode: 'new', ksywka, categoryId }, control);
 }
 
+// KRKG-0102: saves the per-row edit panel's Nazwa/Data/Opis (diff-only body, same contract as the
+// detail page's saveEventDetails) and closes the panel on success. `event` is patched in place via
+// Object.assign rather than replaced outright, so attendingCount/viewerAttending/viewerSkladkaPaid
+// (summary fields the PUT response does not return) survive the update.
+async function saveEventEdit(eventId, idPrefix, control) {
+  const errorEl = document.getElementById('events-error');
+  errorEl.hidden = true;
+  const event = cachedEvents.find((item) => item.id === eventId);
+  if (!event) return;
+  const formValues = window.EventEditForm.readForm(idPrefix);
+  const body = window.EventEditForm.buildUpdateBody(event, formValues);
+  if (Object.keys(body).length === 0) {
+    openEditPanelEventId = null;
+    renderEvents();
+    return;
+  }
+  try {
+    await window.MutationFeedback.confirmed({
+      control,
+      anchor: document.getElementById('events-list'),
+      execute: () => apiFetch(
+        `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: (result) => {
+        Object.assign(event, result.event);
+        openEditPanelEventId = null;
+        renderEvents();
+      },
+      viewRoot: document.getElementById('events-panel'),
+      refreshFragment: loadEvents,
+    });
+  } catch (err) {
+    errorEl.textContent = `Nie udało się zapisać zmian wyjazdu: ${err.message}`;
+    errorEl.hidden = false;
+  }
+}
+
+// KRKG-0102: the edit panel's Odwołaj/Przywróć wyjazd button - same PUT {status} the detail page's
+// setEventStatus sends, just from the list row instead.
+async function setEventStatusFromList(eventId, status, control) {
+  const errorEl = document.getElementById('events-error');
+  errorEl.hidden = true;
+  try {
+    await window.MutationFeedback.confirmed({
+      control,
+      anchor: document.getElementById('events-list'),
+      execute: () => apiFetch(
+        `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: (result) => {
+        const event = cachedEvents.find((item) => item.id === eventId);
+        if (event) Object.assign(event, result.event);
+        openEditPanelEventId = null;
+        renderEvents();
+      },
+      viewRoot: document.getElementById('events-panel'),
+      refreshFragment: loadEvents,
+    });
+  } catch (err) {
+    errorEl.textContent = `Nie udało się zmienić statusu wyjazdu: ${err.message}`;
+    errorEl.hidden = false;
+  }
+}
+
 document.getElementById('events-list').addEventListener('click', async (e) => {
   const errorEl = document.getElementById('events-error');
 
@@ -239,6 +324,41 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
   if (e.target.closest('.lw-inline-cancel')) {
     openAddPanelEventId = null;
     renderEvents();
+    return;
+  }
+
+  // KRKG-0102: the per-row Edytuj toggle. Mutually exclusive with the add-companion panel (same
+  // "one panel open per row" reasoning as openAddPanelEventId's own toggle above) - opening either
+  // one closes the other.
+  const editToggleBtn = e.target.closest('.lw-event-edit-toggle');
+  if (editToggleBtn) {
+    const targetEventId = editToggleBtn.dataset.eventId;
+    openEditPanelEventId = openEditPanelEventId === targetEventId ? null : targetEventId;
+    openAddPanelEventId = null;
+    renderEvents();
+    return;
+  }
+
+  const editCancelBtn = e.target.closest('.lw-event-edit-cancel');
+  if (editCancelBtn) {
+    openEditPanelEventId = null;
+    renderEvents();
+    return;
+  }
+
+  const editSaveBtn = e.target.closest('.lw-event-edit-save');
+  if (editSaveBtn) {
+    editSaveBtn.disabled = true;
+    saveEventEdit(openEditPanelEventId, editSaveBtn.dataset.idPrefix, editSaveBtn).finally(() => { editSaveBtn.disabled = false; });
+    return;
+  }
+
+  const editStatusBtn = e.target.closest('.lw-event-edit-toggle-status');
+  if (editStatusBtn) {
+    const nextStatus = editStatusBtn.dataset.nextStatus;
+    if (nextStatus === 'cancelled' && !window.confirm('Czy na pewno odwołać ten wyjazd?')) return;
+    editStatusBtn.disabled = true;
+    setEventStatusFromList(openEditPanelEventId, nextStatus, editStatusBtn).finally(() => { editStatusBtn.disabled = false; });
     return;
   }
 
@@ -385,7 +505,7 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name.value, startDate: form.startDate.value }),
+        body: JSON.stringify({ name: form.name.value, startDate: form.startDate.value, description: form.description.value.trim() || undefined }),
       },
       showReauth,
       hideReauth,

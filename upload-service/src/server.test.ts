@@ -6295,6 +6295,37 @@ test('POST /lista-wyjazdowa/events rejects a malformed startDate with 400', asyn
   });
 });
 
+test('POST /lista-wyjazdowa/events accepts an optional description', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01', description: 'Zbiórka o 9:00' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.event.description, 'Zbiórka o 9:00');
+  });
+});
+
+test('POST /lista-wyjazdowa/events rejects a description over the length cap with 400', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const res = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01', description: 'x'.repeat(2001) });
+    assert.equal(res.status, 400);
+  });
+});
+
+test('PUT /lista-wyjazdowa/events?eventId= can set and clear description, open to any member (no skladki role required)', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); } });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const withDescription = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { description: 'Nowy opis' });
+    assert.equal(withDescription.status, 200);
+    assert.equal((await withDescription.json()).event.description, 'Nowy opis');
+    const cleared = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${created.event.id}`, { description: null });
+    assert.equal((await cleared.json()).event.description, null);
+  });
+});
+
 test('GET /lista-wyjazdowa/events includes attendingCount and the caller\'s own viewerAttending', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'wojownik@gmail.com');

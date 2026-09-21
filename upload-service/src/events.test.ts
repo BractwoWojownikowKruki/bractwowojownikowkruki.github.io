@@ -47,6 +47,24 @@ test('createEvent defaults skladkaFee to null', async () => {
   assert.equal(event.skladkaFee, null);
 });
 
+test('createEvent defaults description to null, or stores it when given', async () => {
+  const client = createInMemoryFirestoreClient();
+  const bare = await createEvent(client, { name: 'Zjazd', startDate: '2027-05-01' }, 'organizer@example.test');
+  assert.equal(bare.description, null);
+  const withDescription = await createEvent(client, { name: 'Zlot', startDate: '2027-06-01', description: 'Zbiórka o 9:00, link: https://example.test' }, 'organizer@example.test');
+  assert.equal(withDescription.description, 'Zbiórka o 9:00, link: https://example.test');
+});
+
+test('updateEvent can set and clear description without touching other fields', async () => {
+  const client = createInMemoryFirestoreClient();
+  const created = await createEvent(client, { name: 'Zjazd', startDate: '2027-05-01' }, 'organizer@example.test');
+  const withDescription = await updateEvent(client, created.id, { description: 'Nowy opis' });
+  assert.equal(withDescription?.description, 'Nowy opis');
+  assert.equal(withDescription?.name, 'Zjazd');
+  const cleared = await updateEvent(client, created.id, { description: null });
+  assert.equal(cleared?.description, null);
+});
+
 test('updateEvent can set and clear skladkaFee without touching other fields', async () => {
   const client = createInMemoryFirestoreClient();
   const created = await createEvent(client, { name: 'Zjazd', startDate: '2027-05-01' }, 'organizer@example.test');

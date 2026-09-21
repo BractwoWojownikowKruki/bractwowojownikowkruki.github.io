@@ -9,6 +9,7 @@ export interface EventDoc {
   status: 'active' | 'cancelled';
   createdBy: string;
   createdAt: string;
+  description: string | null; // free-text trip info (location, links, what to bring) - KRKG-0102
   skladkaFee: string | null; // free-text fee description, accountant/admin-set — see server.ts's role check
   dueDate: string | null; // YYYY-MM-DD, accountant/admin-set payment deadline for skladkaFee (KRKG-0080)
 }
@@ -21,6 +22,7 @@ export interface EventWritableFields {
   name?: string;
   startDate?: string;
   status?: 'active' | 'cancelled';
+  description?: string | null;
   skladkaFee?: string | null;
   dueDate?: string | null;
 }
@@ -39,7 +41,7 @@ export async function getEvent(client: FirestoreLikeClient, eventId: string): Pr
 
 export async function createEvent(
   client: FirestoreWriteContext,
-  fields: { name: string; startDate: string },
+  fields: { name: string; startDate: string; description?: string | null },
   createdBy: string,
   id = randomUUID(),
 ): Promise<EventWithId> {
@@ -49,6 +51,7 @@ export async function createEvent(
     status: 'active',
     createdBy,
     createdAt: new Date().toISOString(),
+    description: fields.description ?? null,
     skladkaFee: null,
     dueDate: null,
   };

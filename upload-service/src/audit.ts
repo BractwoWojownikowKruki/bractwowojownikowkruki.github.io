@@ -48,6 +48,7 @@ const eventFields = {
   startDate: 'memberVisible',
   endDate: 'memberVisible',
   status: 'memberVisible',
+  description: 'memberVisible',
 } as const;
 const signupFields = {
   memberEmail: 'memberVisible',

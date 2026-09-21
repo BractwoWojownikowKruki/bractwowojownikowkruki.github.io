@@ -186,6 +186,13 @@ let canManageSkladki = false;
 let canManagePeople = false;
 let cachedEvent = null;
 
+// KRKG-0102: the fee edit form and the event edit form (name/date/description/cancel) are both
+// collapsed by default behind an Edytuj toggle - these track whether each is currently open, so a
+// re-render (after a save, or loadAll's refresh) can restore the same open/closed state instead of
+// always resetting to collapsed.
+let skladkaEditOpen = false;
+let eventEditOpen = false;
+
 // Tracks the dueDate last loaded/rendered into the edit input, so saveSkladkaFee can tell whether
 // the organizer actually changed the date (vs. only the fee text) and skip sending dueDate in the
 // PUT body when it's unchanged - the backend logs an audit row for any dueDate present in the
@@ -206,6 +213,7 @@ function normalizeSkladkaDueDate(value) {
 // above it in loadAll().
 function renderSkladkaFee(event) {
   const display = document.getElementById('skladka-fee-display');
+  const editToggle = document.getElementById('skladka-fee-edit-toggle');
   const editPanel = document.getElementById('skladka-fee-edit');
   const fee = normalizeSkladkaFee(event.skladkaFee);
   const dueDate = normalizeSkladkaDueDate(event.dueDate);
@@ -213,7 +221,12 @@ function renderSkladkaFee(event) {
   // A due date only ever exists alongside a fee (see updateSkladkaFeeFormState), so it is never
   // shown on its own even for legacy data that still carries an orphaned date.
   if (fee && dueDate) display.textContent += ` (termin: ${formatDate(dueDate)})`;
-  editPanel.hidden = !canManageSkladki;
+  // KRKG-0102: the Edytuj toggle only exists for members who can actually save a change (server
+  // re-checks anyway) - the form itself stays collapsed by default even for them, tracked by
+  // skladkaEditOpen, instead of always being shown the moment they have the role.
+  editToggle.hidden = !canManageSkladki;
+  editToggle.setAttribute('aria-expanded', String(skladkaEditOpen));
+  editPanel.hidden = !(canManageSkladki && skladkaEditOpen);
   if (canManageSkladki) {
     document.getElementById('skladka-fee-input').value = fee;
     document.getElementById('skladka-fee-duedate-input').value = dueDate ?? '';
@@ -221,6 +234,11 @@ function renderSkladkaFee(event) {
     updateSkladkaFeeFormState();
   }
 }
+
+document.getElementById('skladka-fee-edit-toggle').addEventListener('click', () => {
+  skladkaEditOpen = !skladkaEditOpen;
+  renderSkladkaFee(cachedEvent);
+});
 
 // The due-date field follows the fee field: it is only meaningful with a fee, so an empty fee
 // clears and disables it, and "Usuń składkę" is only offered while there is a fee to remove.
@@ -253,6 +271,7 @@ async function saveSkladkaFee(control = document.getElementById('skladka-fee-sav
       hideReauth,
     ), (result) => {
       cachedEvent = result.event;
+      skladkaEditOpen = false;
       renderSkladkaFee(cachedEvent);
       renderRoster(cachedRoster, cachedSignups);
     }, control, rollback);
@@ -875,8 +894,7 @@ async function loadAll() {
   cachedEvent = event;
   document.getElementById('event-title').textContent = event.name;
   document.getElementById('event-meta').textContent = `${formatDate(event.startDate)}${event.status === 'cancelled' ? ' — odwołany' : ''}`;
-  document.getElementById('cancel-event-btn').hidden = event.status === 'cancelled';
-  document.getElementById('restore-event-btn').hidden = event.status !== 'cancelled';
+  renderEventEditPanel();
   // Historia deep links (KRKG-0050 batch 5/6, event-wide in KRKG-0086). The top clock opens the
   // whole trip history via the `eventId` selector - event metadata, the event fee, every member's
   // signup and per-member skladka payment all carry that eventId. Privileged viewers (admin/
@@ -900,6 +918,50 @@ async function loadAll() {
   renderEventEquipment(eventEquipmentItems);
 }
 
+// KRKG-0102: renders (or re-renders) the Nazwa/Data/Opis/Odwołaj-wyjazd panel into
+// #event-edit-panel from the current cachedEvent, and syncs the Edytuj toggle's aria-expanded /
+// the panel's hidden state to eventEditOpen. Called on every loadAll() (so a fresh page load - or
+// a resync after a failed save - reflects the server's state) and after a successful save/status
+// change (so the fields shown match what was just persisted).
+function renderEventEditPanel() {
+  if (!cachedEvent) return;
+  document.getElementById('event-edit-panel').innerHTML = window.EventEditForm.panelHtml(cachedEvent, { idPrefix: 'event-edit' });
+  document.getElementById('event-edit-panel').hidden = !eventEditOpen;
+  document.getElementById('event-edit-toggle').setAttribute('aria-expanded', String(eventEditOpen));
+}
+
+document.getElementById('event-edit-toggle').addEventListener('click', () => {
+  eventEditOpen = !eventEditOpen;
+  renderEventEditPanel();
+});
+
+async function saveEventDetails(control) {
+  clearError();
+  try {
+    const formValues = window.EventEditForm.readForm('event-edit');
+    const body = window.EventEditForm.buildUpdateBody(cachedEvent, formValues);
+    if (Object.keys(body).length === 0) {
+      eventEditOpen = false;
+      renderEventEditPanel();
+      return;
+    }
+    await confirmedEventMutation(control, () => apiFetch(
+      `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      showReauth,
+      hideReauth,
+    ), (result) => {
+      cachedEvent = result.event;
+      document.getElementById('event-title').textContent = cachedEvent.name;
+      document.getElementById('event-meta').textContent = `${formatDate(cachedEvent.startDate)}${cachedEvent.status === 'cancelled' ? ' — odwołany' : ''}`;
+      eventEditOpen = false;
+      renderEventEditPanel();
+    }, control);
+  } catch (err) {
+    showError(`Nie udało się zapisać zmian wyjazdu: ${err.message}`);
+  }
+}
+
 async function setEventStatus(status, failureMessage, control) {
   clearError();
   try {
@@ -908,24 +970,45 @@ async function setEventStatus(status, failureMessage, control) {
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) },
       showReauth,
       hideReauth,
-    ), () => {
+    ), (result) => {
+      cachedEvent = result.event;
       const meta = document.getElementById('event-meta');
       meta.textContent = meta.textContent.replace(/ — odwołany$/, '') + (status === 'cancelled' ? ' — odwołany' : '');
-      document.getElementById('cancel-event-btn').hidden = status === 'cancelled';
-      document.getElementById('restore-event-btn').hidden = status !== 'cancelled';
-    }, document.getElementById('event-meta'));
+      eventEditOpen = false;
+      renderEventEditPanel();
+    }, control);
   } catch (err) {
     showError(`${failureMessage}: ${err.message}`);
   }
 }
 
-document.getElementById('cancel-event-btn').addEventListener('click', () => {
-  if (!window.confirm('Czy na pewno odwołać ten wyjazd?')) return;
-  setEventStatus('cancelled', 'Nie udało się odwołać wyjazdu', document.getElementById('cancel-event-btn'));
-});
-
-document.getElementById('restore-event-btn').addEventListener('click', () => {
-  setEventStatus('active', 'Nie udało się przywrócić wyjazdu', document.getElementById('restore-event-btn'));
+// Delegated: #event-edit-panel's content is (re)rendered wholesale by renderEventEditPanel, so a
+// fixed listener on individual buttons would be torn out on every render - same reasoning as the
+// roster table's click delegation below.
+document.getElementById('event-edit-panel').addEventListener('click', (e) => {
+  const saveBtn = e.target.closest('.lw-event-edit-save');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveEventDetails(saveBtn).finally(() => { saveBtn.disabled = false; });
+    return;
+  }
+  const cancelBtn = e.target.closest('.lw-event-edit-cancel');
+  if (cancelBtn) {
+    eventEditOpen = false;
+    renderEventEditPanel();
+    return;
+  }
+  const statusBtn = e.target.closest('.lw-event-edit-toggle-status');
+  if (statusBtn) {
+    const nextStatus = statusBtn.dataset.nextStatus;
+    if (nextStatus === 'cancelled' && !window.confirm('Czy na pewno odwołać ten wyjazd?')) return;
+    statusBtn.disabled = true;
+    setEventStatus(
+      nextStatus,
+      nextStatus === 'cancelled' ? 'Nie udało się odwołać wyjazdu' : 'Nie udało się przywrócić wyjazdu',
+      statusBtn,
+    ).finally(() => { statusBtn.disabled = false; });
+  }
 });
 
 initGoogleSignIn({
