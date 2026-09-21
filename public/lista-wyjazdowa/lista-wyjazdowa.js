@@ -496,22 +496,23 @@ function closeAddEventForm() {
 // rebuilt on every renderLwNav() call, so listeners live on the persistent container instead of
 // the elements it renders - same reasoning as the #events-list delegated handler below.
 document.getElementById('lw-nav-container').addEventListener('click', (e) => {
-  const toggleBtn = e.target.closest('.lw-nav-toggle');
-  if (toggleBtn) {
-    lwNavOpen = !lwNavOpen;
-    renderLwNav();
-    return;
-  }
-  const addLink = e.target.closest('#lw-nav-add');
-  if (addLink) {
-    e.preventDefault();
-    lwNavOpen = false;
-    const form = document.getElementById('add-event-form');
-    if (form.hidden) {
-      openAddEventForm();
-    } else {
-      closeAddEventForm();
-    }
+  if (!e.target.closest('.lw-nav-toggle')) return;
+  lwNavOpen = !lwNavOpen;
+  renderLwNav();
+});
+
+// "Dodaj wyjazd" is its own standalone button next to the dropdown (not one of its items - it's an
+// action, not a place to navigate to), so it's static markup with a plain listener, same as
+// #toggle-past-events below. Its href ("?new=1") still works as a normal navigation from the trip
+// detail page; this only intercepts it here to avoid a pointless full reload for something this
+// page can just reveal in place.
+document.getElementById('lw-nav-add').addEventListener('click', (e) => {
+  e.preventDefault();
+  const form = document.getElementById('add-event-form');
+  if (form.hidden) {
+    openAddEventForm();
+  } else {
+    closeAddEventForm();
   }
 });
 

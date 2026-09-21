@@ -522,10 +522,17 @@ test('a failed quick-add changes nothing and reports the error', async () => {
   assert.match(harness.elements.get('lw-error')!.textContent, /Nie udało się dodać osoby/);
 });
 
-test('the old lw-subnav pill row is gone, replaced by the shared dropdown', () => {
+test('the old lw-subnav pill row is gone, replaced by the shared sticky top bar', () => {
   assert.doesNotMatch(page, /lw-subnav/);
+  assert.match(page, /class="lw-topbar"/);
   assert.match(page, /id="lw-nav-container"/);
   assert.match(page, /shared\/lw-nav\.js/);
+  assert.match(page, /shared\/lw-topbar\.js/);
+});
+
+test('"Dodaj wyjazd" is a standalone button next to the dropdown, not one of its items', () => {
+  assert.doesNotMatch(page, /lw-nav-item--add/);
+  assert.match(page, /<a href="\/lista-wyjazdowa\/\?new=1" class="lw-nav-add" id="lw-nav-add">\+ Dodaj wyjazd<\/a>/);
 });
 
 test('the trip detail page renders the shared dropdown with the open trip highlighted, not "Wszystkie"', async () => {
@@ -534,8 +541,9 @@ test('the trip detail page renders the shared dropdown with the open trip highli
   const nav = harness.elements.get('lw-nav-container')!.innerHTML;
   assert.match(nav, /class="lw-nav-item lw-nav-item--active" role="menuitem">Wyjazd/);
   assert.doesNotMatch(nav, /lw-nav-item--all lw-nav-item--active/);
-  // "Wszystkie" keeps its permanent underline even though it isn't the active item here.
+  // "Wszystkie" stays first even though it isn't the active item here.
   assert.match(nav, /class="lw-nav-item lw-nav-item--all"[^>]*>Wszystkie/);
+  assert.doesNotMatch(nav, /Dodaj wyjazd/);
 });
 
 test('clicking the dropdown toggle on the trip detail page opens and closes the menu', async () => {

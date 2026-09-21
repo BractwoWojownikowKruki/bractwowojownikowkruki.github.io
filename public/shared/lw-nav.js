@@ -1,14 +1,16 @@
 // KRKG: shared top-level nav for the Lista Wyjazdowa pages (events list, event detail). Replaces
 // the old lw-subnav pill row ("Lista wyjazdów" / "Dodaj wyjazd" / "Składki") with a single
-// dropdown: "Wszystkie" (permanently underlined as the "no specific trip" marker) followed by
-// every not-yet-past trip in chronological order - the trip currently open, if any, highlighted in
-// place - then "Dodaj wyjazd" as a trailing action. Składki dropped entirely: it is already a
-// top-level link in the site nav (public/nav.js), so it never belonged in this trip-scoped menu.
+// dropdown: "Wszystkie" (first, set apart from the trip list by a divider rather than an
+// underline) followed by every not-yet-past trip in chronological order, the trip currently open
+// (if any) highlighted in place. Składki dropped entirely: it is already a top-level link in the
+// site nav (public/nav.js), so it never belonged in this trip-scoped menu. "Dodaj wyjazd" is NOT
+// part of this dropdown - it is its own standalone button next to it (see .lw-topbar in both
+// index.html files), since it is an action, not a place to navigate to.
 //
 // Pure HTML-string generator, same pattern as shared/event-edit-form.js: the caller owns the
 // open/closed state (a module-level boolean, re-rendered through its own render function) and
-// wires up the `.lw-nav-toggle` / `#lw-nav-add` clicks itself via its own delegated listener -
-// this module never touches the DOM directly.
+// wires up the `.lw-nav-toggle` click itself via its own delegated listener - this module never
+// touches the DOM directly.
 (function () {
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -74,7 +76,6 @@
         <div class="lw-nav-menu" role="menu"${open ? '' : ' hidden'}>
           <a href="/lista-wyjazdowa/" class="lw-nav-item lw-nav-item--all${!currentEventId ? ' lw-nav-item--active' : ''}" role="menuitem">Wszystkie</a>
           ${itemsHtml}
-          <a href="/lista-wyjazdowa/?new=1" class="lw-nav-item lw-nav-item--add" id="lw-nav-add" role="menuitem">+ Dodaj wyjazd</a>
         </div>
       </div>
     `;

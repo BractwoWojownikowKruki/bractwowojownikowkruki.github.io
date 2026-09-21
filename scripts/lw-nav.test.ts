@@ -25,7 +25,7 @@ const events = [
   { id: 'earlier-upcoming', name: 'Wyjazd Wiosenny', startDate: '2026-07-01', status: 'active' },
 ];
 
-test('"Wszystkie" is always first and permanently underlined, regardless of which trip is open', () => {
+test('"Wszystkie" is always first, regardless of which trip is open', () => {
   const { html } = loadLwNav('2026-06-15');
   const menu = html({ events, currentEventId: 'current', open: true });
   const wszystkieIndex = menu.indexOf('Wszystkie');
@@ -66,12 +66,11 @@ test('the toggle label follows the current view: "Wszystkie" or the open trip\'s
   assert.match(html({ events, currentEventId: 'current', open: false }), /<span>Wyjazd Letni<\/span>/);
 });
 
-test('"Dodaj wyjazd" is always the trailing item, linking to ?new=1', () => {
+test('"Dodaj wyjazd" is not one of the dropdown items - it is a standalone button elsewhere on the page', () => {
   const { html } = loadLwNav('2026-06-15');
   const menu = html({ events, currentEventId: null, open: true });
-  const addIndex = menu.indexOf('id="lw-nav-add"');
-  assert.ok(addIndex > menu.indexOf('Wyjazd Jesienny'));
-  assert.match(menu, /<a href="\/lista-wyjazdowa\/\?new=1" class="lw-nav-item lw-nav-item--add" id="lw-nav-add" role="menuitem">\+ Dodaj wyjazd<\/a>/);
+  assert.doesNotMatch(menu, /Dodaj wyjazd/);
+  assert.doesNotMatch(menu, /lw-nav-add/);
 });
 
 test('the menu is hidden when closed and shown when open', () => {

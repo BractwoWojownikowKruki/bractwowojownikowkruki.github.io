@@ -52,15 +52,19 @@
         </div>
 
         <div id="events-panel" hidden>
-          <!-- Same shared top-level dropdown (shared/lw-nav.js) as wyjazd/index.html - "this is an
-               app within the site" means every view inside it keeps quick access back to the
-               list and to creating a new event, not just the page you happened to land on.
-               lista-wyjazdowa.js intercepts a click on its "+ Dodaj wyjazd" item to reveal the
-               inline form below in place (see openAddEventForm()) rather than navigating, since
-               the form already lives on this page; the detail page has no such form, so there the
-               same item's href (/lista-wyjazdowa/?new=1) just navigates here, which this page's
-               own load logic detects and opens the same way. -->
-          <div id="lw-nav-container"></div>
+          <!-- Same shared sticky top bar (shared/lw-nav.js + shared/lw-topbar.js) as
+               wyjazd/index.html - "this is an app within the site" means every view inside it
+               keeps quick access back to the list and to creating a new event, not just the page
+               you happened to land on. "Dodaj wyjazd" is a standalone button, not a dropdown item
+               (it's an action, not a place to navigate to); lista-wyjazdowa.js intercepts its
+               click to reveal the inline form below in place (see openAddEventForm()) rather than
+               navigating, since the form already lives on this page - the detail page has no such
+               form, so there the same button's href (/lista-wyjazdowa/?new=1) just navigates here,
+               which this page's own load logic detects and opens the same way. -->
+          <div class="lw-topbar">
+            <div id="lw-nav-container"></div>
+            <a href="?new=1" class="lw-nav-add" id="lw-nav-add">+ Dodaj wyjazd</a>
+          </div>
           <form id="add-event-form" hidden>
             <div class="field">
               <label for="new-event-name">Nazwa</label>
@@ -101,6 +105,7 @@
   <script src="../shared/companion-add.js"></script>
   <script src="../shared/event-edit-form.js"></script>
   <script src="../shared/lw-nav.js"></script>
+  <script src="../shared/lw-topbar.js"></script>
   <script src="lista-wyjazdowa.js"></script>
 </body>
 </html>

@@ -59,7 +59,7 @@ function clickTarget(selector: string, dataset: Record<string, string> = {}) {
 
 const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'no-profile-panel', 'events-panel',
-  'events-list', 'toggle-past-events', 'events-error', 'lw-nav-container',
+  'events-list', 'toggle-past-events', 'events-error', 'lw-nav-container', 'lw-nav-add',
   'lw-page-title', 'add-event-form', 'add-event-error',
   // Rendered into #events-list's innerHTML in the real DOM; the stub can't parse that, so the
   // panel's controls are looked up directly by id.
@@ -330,10 +330,17 @@ test('a newly created event shows 0 os. instead of undefined os. before the next
   assert.doesNotMatch(listHtml, /undefined os\./);
 });
 
-test('the old lw-subnav pill row is gone, replaced by the shared dropdown', () => {
+test('the old lw-subnav pill row is gone, replaced by the shared sticky top bar', () => {
   assert.doesNotMatch(page, /lw-subnav/);
+  assert.match(page, /class="lw-topbar"/);
   assert.match(page, /id="lw-nav-container"/);
   assert.match(page, /shared\/lw-nav\.js/);
+  assert.match(page, /shared\/lw-topbar\.js/);
+});
+
+test('"Dodaj wyjazd" is a standalone button next to the dropdown, not one of its items', () => {
+  assert.doesNotMatch(page, /lw-nav-item--add/);
+  assert.match(page, /<a href="\?new=1" class="lw-nav-add" id="lw-nav-add">\+ Dodaj wyjazd<\/a>/);
 });
 
 test('signing in renders the dropdown with "Wszystkie" active and no specific trip open', async () => {
@@ -342,6 +349,7 @@ test('signing in renders the dropdown with "Wszystkie" active and no specific tr
   const nav = harness.elements.get('lw-nav-container')!.innerHTML;
   assert.match(nav, /class="lw-nav-item lw-nav-item--all lw-nav-item--active"[^>]*>Wszystkie/);
   assert.match(nav, /Wyjazd Letni/);
+  assert.doesNotMatch(nav, /Dodaj wyjazd/);
 });
 
 test('clicking the dropdown toggle opens the menu and toggles it back closed', async () => {
@@ -357,19 +365,16 @@ test('clicking the dropdown toggle opens the menu and toggles it back closed', a
   assert.match(nav.innerHTML, /class="lw-nav-menu" role="menu" hidden>/);
 });
 
-test('clicking "+ Dodaj wyjazd" in the dropdown reveals the inline form in place, no navigation', async () => {
+test('clicking the standalone "+ Dodaj wyjazd" button reveals the inline form in place, no navigation', async () => {
   const harness = createHarness();
   await harness.signIn();
-  const nav = harness.elements.get('lw-nav-container')!;
+  const addBtn = harness.elements.get('lw-nav-add')!;
   const form = harness.elements.get('add-event-form')!;
   const title = harness.elements.get('lw-page-title')!;
   form.hidden = true; // matches the real markup's default `hidden` attribute
 
   let defaultPrevented = false;
-  await nav.clickWith(
-    { closest: (q: string) => (q === '#lw-nav-add' ? {} : null) },
-    { preventDefault: () => { defaultPrevented = true; } },
-  );
+  await addBtn.clickWith(addBtn, { preventDefault: () => { defaultPrevented = true; } });
 
   assert.equal(defaultPrevented, true);
   assert.equal(form.hidden, false);

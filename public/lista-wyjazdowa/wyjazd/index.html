@@ -40,11 +40,15 @@
         </p>
 
         <div id="main-content" hidden>
-          <!-- Same shared top-level dropdown (shared/lw-nav.js) on every Lista Wyjazdowa page -
-               its "+ Dodaj wyjazd" item links to the events list with ?new=1, which that page's
-               own load logic detects and opens the add-event form automatically, since this page
-               has no form of its own to reveal in place. -->
-          <div id="lw-nav-container"></div>
+          <!-- Same shared sticky top bar (shared/lw-nav.js + shared/lw-topbar.js) on every Lista
+               Wyjazdowa page. "Dodaj wyjazd" is a standalone button, not a dropdown item (it's an
+               action, not a place to navigate to) - it links to the events list with ?new=1,
+               which that page's own load logic detects and opens the add-event form
+               automatically, since this page has no form of its own to reveal in place. -->
+          <div class="lw-topbar">
+            <div id="lw-nav-container"></div>
+            <a href="/lista-wyjazdowa/?new=1" class="lw-nav-add" id="lw-nav-add">+ Dodaj wyjazd</a>
+          </div>
 
           <h1 id="event-title">Wyjazd</h1>
 
@@ -168,6 +172,7 @@
   <script src="../../shared/companion-add.js"></script>
   <script src="../../shared/event-edit-form.js"></script>
   <script src="../../shared/lw-nav.js"></script>
+  <script src="../../shared/lw-topbar.js"></script>
   <script src="wyjazd.js"></script>
 </body>
 </html>
