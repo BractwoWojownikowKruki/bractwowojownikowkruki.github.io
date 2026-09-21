@@ -87,7 +87,7 @@ function renderTable() {
   const filtered = !needle
     ? members
     : members.filter((m) =>
-        [m.fullName, m.nickname, m.sectionLabel, m.categoryLabel, m.email].some((v) =>
+        [m.lastName, m.firstName, m.nickname, m.sectionLabel, m.categoryLabel, m.email].some((v) =>
           (v ?? '').toString().toLocaleLowerCase('pl').includes(needle),
         ),
       );
@@ -116,6 +116,7 @@ function renderTable() {
       categoryLabel: m.categoryLabel,
       accountless: m.accountless === true,
       extraClass: displayName(m) ? undefined : 'czl-empty',
+      subline: personSubline(m),
     });
     // KRKG-0087: an accountless person has no e-mail, so their pill opens the shared drawer
     // through the person-keyed endpoint (data-person-id); a member's opens it by e-mail.
@@ -192,7 +193,8 @@ initGoogleSignIn({
           personId: person.personId,
           email: null,
           accountless: true,
-          fullName: person.fullName,
+          lastName: person.lastName,
+          firstName: person.firstName,
           nickname: person.nickname,
           sectionId: person.sectionId,
           sectionLabel: person.sectionId ? (sectionLabelById.get(person.sectionId) ?? person.sectionId) : null,

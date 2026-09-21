@@ -64,18 +64,18 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   let mutationError: Error | null = null;
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
   const roster = [
-    { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, fullName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
-    { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, fullName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
-    { personId: 'other@example.com', email: 'other@example.com', accountless: false, fullName: 'Other', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, lastName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, lastName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'other@example.com', email: 'other@example.com', accountless: false, lastName: 'Other', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
   ].map((member) => (options.memberWeapons?.[member.personId] ? { ...member, weaponIds: options.memberWeapons[member.personId] } : member));
   // KRKG-0087: an accountless person already attached to the viewer but not signed up for this
   // trip - the roster's inline add panel offers them in its "istniejąca" dropdown.
-  const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: 'viewer@example.com', fullName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisowePaid: true };
+  const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: 'viewer@example.com', lastName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisowePaid: true };
   const currentRoster = options.withAttachedPerson ? [...roster, attachedPerson] : roster;
   // KRKG-0087: the event-scoped (historical) roster additionally carries a person who has since been
   // removed but was signed up for this trip. A person row has `email: null` and a UUID personId, so
   // it only renders correctly if the page keys rows by personId (the bug this batch fixes).
-  const removedPerson = { personId: 'gone-uuid-1', email: null, accountless: true, ownerPersonId: null, deleted: true, fullName: 'Cień Nowak', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'unpaid', wpisowePaid: true };
+  const removedPerson = { personId: 'gone-uuid-1', email: null, accountless: true, ownerPersonId: null, deleted: true, lastName: 'Cień Nowak', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'unpaid', wpisowePaid: true };
   const eventRoster = options.withRemovedPerson ? [...currentRoster, removedPerson] : currentRoster;
   const signups = [
     { memberEmail: 'signed@example.com', attending: true, skladkaPaid: false },
@@ -116,7 +116,8 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     initSortableTable: () => ({ key: 'section', dir: 'asc' }),
     compareValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     compareDateValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
-    displayName: (member: { fullName: string }) => member.fullName,
+    displayName: (member: { lastName: string }) => member.lastName,
+    personSubline: () => null,
     initGoogleSignIn: (config: { onSignedIn: (identity: { email: string }) => Promise<void> }) => { signIn = config.onSignedIn; },
     apiFetch: async (url: string, options: Record<string, unknown>) => {
       apiCalls.push({ url, options });

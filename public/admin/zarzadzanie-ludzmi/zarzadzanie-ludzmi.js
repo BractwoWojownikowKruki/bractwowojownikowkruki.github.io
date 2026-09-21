@@ -845,7 +845,7 @@ function renderAccountless(persons) {
   } else {
     tbody.innerHTML = persons.map((person) => {
       const categoryLabel = person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : null;
-      const namePill = personPillHtml({ name: accountlessDisplayName(person), categoryId: person.categoryId, categoryLabel, accountless: true });
+      const namePill = personPillHtml({ name: accountlessDisplayName(person), categoryId: person.categoryId, categoryLabel, accountless: true, subline: personSubline(person) });
       // A deactivated person's drawer 404s, so their pill is plain text; an active one opens it.
       const nameCell = person.deleted
         ? namePill

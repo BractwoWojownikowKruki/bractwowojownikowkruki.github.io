@@ -78,6 +78,7 @@ function nameCellHtml(member, personIdAttr, categoryLabel) {
     categoryId: member.categoryId,
     categoryLabel,
     accountless: member.accountless === true,
+    subline: personSubline(member),
   });
   if (member.accountless) {
     return `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}">

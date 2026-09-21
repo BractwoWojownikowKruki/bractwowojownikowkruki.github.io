@@ -507,6 +507,7 @@ function ownerCellHtml(personId) {
     categoryId: person.categoryId,
     categoryLabel: categoryLabelById.get(person.categoryId) ?? person.categoryId,
     accountless: person.accountless === true,
+    subline: personSubline(person),
   });
   const triggerAttr = person.accountless
     ? `data-person-id="${escapeAttr(person.personId)}"`
@@ -664,7 +665,7 @@ function renderRoster(roster, signups) {
       // so their pill opens the same drawer through the person-keyed endpoint (data-person-id).
       // KRKG-0091: a deactivated person is read-only here - the drawer and the write routes both
       // reject a tombstone, so their pill is plain text (no trigger) and the row has no controls.
-      const namePill = personPillHtml({ name: displayName(member), categoryId: member.categoryId, categoryLabel, accountless: member.accountless === true });
+      const namePill = personPillHtml({ name: displayName(member), categoryId: member.categoryId, categoryLabel, accountless: member.accountless === true, subline: personSubline(member) });
       const nameCellHtml = member.deleted
         ? namePill
         : member.accountless

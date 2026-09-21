@@ -110,6 +110,7 @@ function ownerCellHtml(personId) {
     categoryId: person.categoryId,
     categoryLabel: categoryLabelById.get(person.categoryId) ?? person.categoryId,
     accountless: person.accountless === true,
+    subline: personSubline(person),
   });
   const triggerAttr = person.accountless
     ? `data-person-id="${escapeAttr(person.personId)}"`

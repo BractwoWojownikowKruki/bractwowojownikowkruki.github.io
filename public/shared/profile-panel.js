@@ -283,6 +283,7 @@
       ${galleryHtml}
       <h3>${profile.accountless ? PERSON_MARKER_ICON : ''}${escapeHtml(shownName)}</h3>
       <dl class="profile-fields">
+        ${(profile.lastName || profile.firstName) ? `<dt>Nazwisko i imię</dt><dd>${escapeHtml([profile.lastName, profile.firstName].filter(Boolean).join(', '))}</dd>` : ''}
         ${profile.nickname ? `<dt>Ksywka</dt><dd>${escapeHtml(profile.nickname)}</dd>` : ''}
         ${profile.sectionLabel ? `<dt>Sekcja</dt><dd><span class="section-pill" data-section="${escapeHtml(profile.sectionId ?? '')}">${escapeHtml(profile.sectionLabel)}</span></dd>` : ''}
         ${profile.categoryLabel ? `<dt>Status</dt><dd><span class="category-name-pill" data-category="${escapeHtml(profile.categoryId ?? '')}" title="${escapeHtml(profile.categoryLabel)}">${categoryPillBroccoliIconHtml(profile.categoryId, 'category-label')}${escapeHtml(profile.categoryLabel)}</span></dd>` : ''}

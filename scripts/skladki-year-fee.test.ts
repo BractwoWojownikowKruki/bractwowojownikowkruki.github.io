@@ -63,7 +63,7 @@ function createHarness(yearFee: Record<string, unknown> | null, options: { roste
   let mutationError: Error | null = null;
   let signIn: (() => Promise<void>) | undefined;
   const roster = options.roster ?? [
-    { personId: 'member@example.com', email: 'member@example.com', accountless: false, fullName: 'Member', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'member@example.com', email: 'member@example.com', accountless: false, lastName: 'Member', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
   ];
   // Captured here because apiFetch's own `options` parameter (the fetch options) would shadow the
   // harness options inside the closure below.
@@ -104,7 +104,8 @@ function createHarness(yearFee: Record<string, unknown> | null, options: { roste
     initSortableTable: () => ({ key: 'section', dir: 'asc', reset() {}, refresh() {} }),
     compareValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     compareDateValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
-    displayName: (member: { fullName: string }) => member.fullName,
+    displayName: (member: { lastName: string }) => member.lastName,
+    personSubline: () => null,
     initGoogleSignIn: (config: { onSignedIn: () => Promise<void> }) => { signIn = config.onSignedIn; },
     apiFetch: async (url: string, options: Record<string, unknown>) => {
       apiCalls.push({ url, options });
@@ -186,8 +187,8 @@ test('year fee: a failed removal restores the form from the last loaded fee', as
 test('an accountless person renders with the marker, no e-mail trigger, and its stored personId-keyed due', async () => {
   const harness = createHarness(null, {
     roster: [
-      { personId: 'member@example.com', email: 'member@example.com', accountless: false, fullName: 'Member', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'unpaid', wpisowePaid: true },
-      { personId: 'person-uuid-1', email: null, accountless: true, fullName: 'Osoba Bez Konta', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: false },
+      { personId: 'member@example.com', email: 'member@example.com', accountless: false, lastName: 'Member', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'unpaid', wpisowePaid: true },
+      { personId: 'person-uuid-1', email: null, accountless: true, lastName: 'Osoba Bez Konta', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: false },
     ],
     dues: [{ email: 'person-uuid-1', personId: 'person-uuid-1', status: 'paid' }],
   });
