@@ -40,7 +40,7 @@
    * The panel body (the .lw-inline-form-inner block). Fixed control ids are safe because only one
    * panel is open at a time on either page.
    *
-   * @param {{personId: string, nickname?: string|null, fullName?: string|null, email?: string|null}} member
+   * @param {{personId: string, nickname?: string|null, lastName?: string|null, firstName?: string|null, email?: string|null}} member
    * @param {{roster: unknown[], signups: unknown[], categories: Array<{id: string, label: string}>}} context
    */
   function panelHtml(member, { roster, signups, categories }) {

@@ -86,7 +86,7 @@ function scrollToHashedTile() {
   setTimeout(() => target.classList.remove('pliki-tile--highlight'), 2000);
 }
 
-// Populated once per sign-in from GET /members/directory (email -> {nickname, fullName, email}),
+// Populated once per sign-in from GET /members/directory (email -> {nickname, lastName, firstName, email}),
 // the same roster endpoint czlonkowie.js uses - GET /files only returns addedByEmail, not a
 // display name, so the badge needs this to show a real name (nickname/imię i nazwisko) instead of
 // a raw email fragment, matching every other member badge on the site (display-name.js's
