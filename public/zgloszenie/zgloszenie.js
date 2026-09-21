@@ -79,7 +79,7 @@ async function showForm(previousStatus) {
           anchor: panels.pending,
           execute: () => apiFetch('/membership/apply', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fullName: form.fullName.value || null, nickname: form.nickname.value || null, sectionId: form.sectionId.value }),
+            body: JSON.stringify({ lastName: form.lastName.value, firstName: form.firstName.value, nickname: form.nickname.value || null, sectionId: form.sectionId.value }),
           }),
           apply: () => showOnly(panels.pending),
           viewRoot: panels.form,

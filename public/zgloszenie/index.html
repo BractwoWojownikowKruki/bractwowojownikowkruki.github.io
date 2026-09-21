@@ -52,14 +52,18 @@
         <p class="add-album-section-intro" id="zg-form-note" hidden></p>
         <form id="zg-form" novalidate>
           <div class="field">
-            <label for="zg-full-name">Imię i nazwisko</label>
-            <input type="text" id="zg-full-name" name="fullName" />
+            <label for="zg-last-name">Nazwisko</label>
+            <input type="text" id="zg-last-name" name="lastName" required />
           </div>
           <div class="field">
-            <label for="zg-nickname">Ksywa</label>
+            <label for="zg-first-name">Imię</label>
+            <input type="text" id="zg-first-name" name="firstName" required />
+          </div>
+          <p class="lw-hint">Podaj imię i nazwisko takie, jak na koncie bankowym, z którego będą opłacane składki (dla ułatwienia życia księgowej).</p>
+          <div class="field">
+            <label for="zg-nickname">Ksywa (opcjonalnie)</label>
             <input type="text" id="zg-nickname" name="nickname" />
           </div>
-          <p class="lw-hint">Podaj przynajmniej jedno z: Imię i nazwisko lub Ksywa.</p>
           <div class="field">
             <label for="zg-section">Sekcja</label>
             <select id="zg-section" name="sectionId" required></select>

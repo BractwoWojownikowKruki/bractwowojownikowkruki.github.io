@@ -766,9 +766,8 @@ async function initForm(lookupLists) {
     progressEl.textContent = 'Zapisywanie profilu...';
 
     const applySavedProfile = ({ savedMember }) => {
-      // Reflect the server's fullName back into the field it may have just backfilled, so a
-      // member who only typed Ksywa sees where their name came from, not a blank field.
-      form.fullName.value = savedMember.fullName;
+      form.lastName.value = savedMember.lastName;
+      form.firstName.value = savedMember.firstName;
       form.nickname.value = savedMember.nickname ?? '';
       // Keep the equipment mini-list's "current sectionId" in sync with a Sekcja change just
       // saved here - the mini-list itself is unaffected by this submit (it saves independently,
@@ -796,18 +795,18 @@ async function initForm(lookupLists) {
         viewRoot: form,
         refreshFragment: refreshProfileFragment,
         execute: async () => {
-      // Imię i nazwisko and Ksywa are both optional (server enforces "at least one of the
-      // two"): sending '' rather than omitting the key lets the server tell an intentionally
-      // blank field apart from a field that was never touched, and it backfills fullName from
-      // nickname itself when fullName is blank - so `savedMember.fullName` below may differ
-      // from what was actually typed here.
+      // KRKG-0103: Nazwisko and Imię are both required (the form's own `required` attribute
+      // catches an empty submit before this ever runs); Ksywa stays optional, sent as '' rather
+      // than omitted so the server can tell an intentionally blank Ksywa apart from one that was
+      // never touched.
       const { member: savedMember } = await apiFetch(
         '/lista-wyjazdowa/member',
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            fullName: form.fullName.value || null,
+            lastName: form.lastName.value,
+            firstName: form.firstName.value,
             nickname: form.nickname.value || null,
             sectionId: form.sectionId.value,
           }),
@@ -842,14 +841,15 @@ async function initForm(lookupLists) {
       const mainEntry = photoEntries[0];
       const extraEntries = photoEntries.slice(1).filter(Boolean);
       if (mainEntry || extraEntries.length) {
-        // savedMember.fullName, not form.fullName.value: if only Ksywa was given, the server
-        // already backfilled fullName from it, and that's the name the Drive folder should use.
+        // KRKG-0103: name has no bearing on identity/folder-reuse (that's keyed by e-mail alone,
+        // see server.ts's findReusableSubmissionFolder) - it's purely cosmetic folder-title text,
+        // always both fields now, both required.
         const { folderId, submissionToken } = await apiFetch(
           '/wojownicy-upload/submit',
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: savedMember.fullName }),
+            body: JSON.stringify({ name: `${savedMember.lastName} ${savedMember.firstName}`.trim() }),
           },
           showReauth,
           hideReauth,
@@ -923,7 +923,8 @@ async function initForm(lookupLists) {
   // always be able to come back and fix a typo, change section/weapons, or add equipment
   // (design.md §8 point 4) - this page replaced the always-editable /wojownicy/wrzuc/.
   if (member) {
-    form.fullName.value = member.fullName;
+    form.lastName.value = member.lastName;
+    form.firstName.value = member.firstName;
     form.nickname.value = member.nickname ?? '';
     form.sectionId.value = member.sectionId;
     document.getElementById('category-readout').textContent =

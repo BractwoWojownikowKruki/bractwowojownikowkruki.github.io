@@ -71,14 +71,18 @@
             <div id="lw-dues-status" class="lw-dues-status" hidden></div>
 
             <div class="field">
-              <label for="lw-full-name">Imię i nazwisko</label>
-              <input type="text" id="lw-full-name" name="fullName" />
+              <label for="lw-last-name">Nazwisko</label>
+              <input type="text" id="lw-last-name" name="lastName" required />
             </div>
             <div class="field">
-              <label for="lw-nickname">Ksywa</label>
+              <label for="lw-first-name">Imię</label>
+              <input type="text" id="lw-first-name" name="firstName" required />
+            </div>
+            <p class="lw-hint">Podaj imię i nazwisko takie, jak na koncie bankowym, z którego będą opłacane składki (dla ułatwienia życia księgowej).</p>
+            <div class="field">
+              <label for="lw-nickname">Ksywa (opcjonalnie)</label>
               <input type="text" id="lw-nickname" name="nickname" />
             </div>
-            <p class="lw-hint">Podaj przynajmniej jedno z: Imię i nazwisko lub Ksywa pod jaką jesteś znany w Bractwie.</p>
             <div class="field">
               <label for="lw-section">Sekcja</label>
               <select id="lw-section" name="sectionId" required></select>
