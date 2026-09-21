@@ -20,6 +20,7 @@ class Element {
   disabled = false;
   checked = false;
   dataset: Record<string, string> = {};
+  classList = { toggle: () => {} };
   private listeners = new Map<string, Array<(event: any) => unknown>>();
 
   constructor(id: string) { this.id = id; }
@@ -32,7 +33,21 @@ class Element {
   async clickWith(target: unknown) {
     await Promise.all((this.listeners.get('click') ?? []).map((listener) => listener({ target })));
   }
+  async dispatch(type: string, event: Record<string, unknown> = {}) {
+    await Promise.all((this.listeners.get(type) ?? []).map((listener) => listener({ preventDefault: () => {}, target: this, ...event })));
+  }
   scrollIntoView() {}
+}
+
+// add-event-form's submit handler reads form.name/startDate/description.value and
+// form.querySelector('button[type="submit"]'), and calls form.reset() - a plain Element stub
+// doesn't offer any of that, so this narrow subclass adds just enough to drive it.
+class FormElement extends Element {
+  name = { value: '' };
+  startDate = { value: '' };
+  description = { value: '' };
+  reset() { this.name.value = ''; this.startDate.value = ''; this.description.value = ''; }
+  querySelector(selector: string) { return selector === 'button[type="submit"]' ? new Element('submit-btn') : null; }
 }
 
 // The page's delegated click handler only reads closest(...) + dataset off the event target, so a
@@ -58,7 +73,7 @@ interface HarnessOptions {
 
 function createHarness(options: HarnessOptions = {}) {
   const viewerAttending = options.viewerAttending ?? true;
-  const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
+  const elements = new Map(elementIds.map((id) => [id, id === 'add-event-form' ? new FormElement(id) : new Element(id)]));
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   let mutationResult: unknown = null;
   let mutationError: Error | null = null;
@@ -248,4 +263,23 @@ test('KRKG-0101: plus/figure and figure/name gaps are pulled tight', () => {
   assert.match(css, /\.lw-add-companion-icon\s*\{[^}]*margin-left:\s*-0\.18rem/);
   assert.match(css, /\.lw-add-companion-label\s*\{[^}]*margin-left:\s*-0\.14rem/);
   assert.match(css, /\.person-pill-icon\s*\{[^}]*margin-right:\s*-0\.08rem/);
+});
+
+test('a newly created event shows 0 os. instead of undefined os. before the next reload', async () => {
+  // POST /lista-wyjazdowa/events returns the bare event doc - no attendingCount/viewerAttending/
+  // viewerSkladkaPaid, since those are only computed by the GET /events join against signups.
+  const harness = createHarness();
+  await harness.signIn();
+  harness.setMutationResult({ event: { id: 'e2', name: 'Nowy wyjazd', startDate: '2027-09-01', status: 'active', createdBy: 'viewer@example.com', createdAt: '2027-01-01T00:00:00.000Z', description: null, skladkaFee: null, dueDate: null } });
+
+  const form = harness.elements.get('add-event-form')!;
+  await form.dispatch('submit');
+  if (!harness.elements.get('add-event-error')!.hidden) {
+    throw new Error(`submit failed: ${harness.elements.get('add-event-error')!.textContent}`);
+  }
+
+  const listHtml = harness.elements.get('events-list')!.innerHTML;
+  assert.match(listHtml, /Nowy wyjazd/);
+  assert.match(listHtml, /0 os\./);
+  assert.doesNotMatch(listHtml, /undefined os\./);
 });

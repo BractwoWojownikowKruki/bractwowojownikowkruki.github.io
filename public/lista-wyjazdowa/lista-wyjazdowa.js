@@ -511,7 +511,11 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
       hideReauth,
     ),
       apply: ({ event: created }) => {
-        cachedEvents.push(created);
+        // POST /lista-wyjazdowa/events returns the bare event doc (no summary fields - those are
+        // only computed by the GET /events join against signups), so a brand-new event has none
+        // signed up yet: fill them in here rather than rendering `undefined os.` until the next
+        // loadEvents.
+        cachedEvents.push({ ...created, attendingCount: 0, viewerAttending: false, viewerSkladkaPaid: false });
         form.reset();
         form.hidden = true;
         setListVisible(true);
