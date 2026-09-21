@@ -31,7 +31,15 @@
    custom-property pattern as Sekcja above, keyed by lookupLists/categories' id. Kept independent
    of whether a Typ <select>/column also exists (Zarządzanie ludźmi keeps both) - the name
    element's own data-category is the single source of truth, synced to the dropdown's value on
-   change where one exists. */
+   change where one exists.
+
+   KRKG-0101: a category sets three independent custom properties in its [data-category="..."]
+   block, so a color no longer has to go through the same dimming mix for every category:
+     --category-c   accent - Typ cell tint, <select> border, focus ring
+     --category-bg  pill fill (optional; defaults to a dim mix of the accent)
+     --category-fg  pill text (optional; defaults to a light mix of the accent)
+   Only --category-c is required; --category-bg/--category-fg are opt-in per category (Bobo below
+   is the worked example). Set all three to a flat color to bypass the mixes entirely. */
 :root {
   --category-color-brokul:    #639f09;
   --category-color-niewiasta: #d93fa8;
@@ -48,8 +56,14 @@
 [data-category="thing"]     { --category-c: var(--category-color-thing); }
 [data-category="blacha"]    { --category-c: var(--category-color-blacha); }
 [data-category="kandydat"]  { --category-c: var(--category-color-kandydat); }
-[data-category="bobo"]      { --category-c: var(--category-color-bobo); }
 [data-category="emeryt"]    { --category-c: var(--category-color-emeryt); }
+/* Bobo is the inverse of Niewiasta's pill - a light pink fill with dark pink text instead of
+   Niewiasta's dark fill + light text - and is the worked example of setting all three variables. */
+[data-category="bobo"] {
+  --category-c: var(--category-color-bobo);
+  --category-bg: color-mix(in srgb, #f90081 50%, white);
+  --category-fg: color-mix(in srgb, var(--category-color-bobo) 48%, #000000);
+}
 
 /* KRKG-0061: filled background (like .section-pill below), not just an outline - a plain outline
    read too close to a form-field border and didn't carry enough weight as its own signal. */
@@ -59,16 +73,8 @@
   padding: 0.15rem 0.65rem;
   border-radius: 0;
   border: none;
-  background: color-mix(in srgb, var(--category-c, var(--category-color-default)) 27%, var(--surface-deep));
-  color: color-mix(in srgb, var(--category-c, var(--category-color-default)) 70%, white);
-}
-
-/* KRKG-0101: Bobo's pill is the inverse of Niewiasta's - a light pink fill with dark pink text,
-   instead of Niewiasta's dark fill + light text - so the two pink-family categories stay
-   distinguishable at a glance while reading as a matched pair. */
-.category-name-pill[data-category="bobo"] {
-  background: color-mix(in srgb, #f90081 50%, white);
-  color: color-mix(in srgb, var(--category-color-bobo) 48%, #000000);
+  background: var(--category-bg, color-mix(in srgb, var(--category-c, var(--category-color-default)) 27%, var(--surface-deep)));
+  color: var(--category-fg, color-mix(in srgb, var(--category-c, var(--category-color-default)) 70%, white));
 }
 
 /* Overrides .czl-field's own border/radius/background on the editable fullName <input>
@@ -77,8 +83,8 @@
 .czl-table td input.czl-field.category-name-pill {
   border: none;
   border-radius: 0;
-  background: color-mix(in srgb, var(--category-c, var(--category-color-default)) 20%, var(--surface-deep));
-  color: color-mix(in srgb, var(--category-c, var(--category-color-default)) 70%, white);
+  background: var(--category-bg, color-mix(in srgb, var(--category-c, var(--category-color-default)) 20%, var(--surface-deep)));
+  color: var(--category-fg, color-mix(in srgb, var(--category-c, var(--category-color-default)) 70%, white));
 }
 
 .czl-table td input.czl-field.category-name-pill:focus {
