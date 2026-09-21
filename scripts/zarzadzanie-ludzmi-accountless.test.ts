@@ -5,6 +5,13 @@ import assert from 'node:assert/strict';
 const page = readFileSync(new URL('../public/admin/zarzadzanie-ludzmi/index.html', import.meta.url), 'utf8');
 const script = readFileSync(new URL('../public/admin/zarzadzanie-ludzmi/zarzadzanie-ludzmi.js', import.meta.url), 'utf8');
 
+test('member table keeps Sekcja first and places the profile trigger in Ksywa', () => {
+  assert.match(page, /<tr>\s*\n\s*<th scope="col" class="czl-section-cell"/);
+  assert.doesNotMatch(page, /<tr>\s*\n\s*<th scope="col"><\/th>\s*\n\s*<th scope="col" class="czl-section-cell"/);
+  assert.match(script, /<td class="czl-section-cell"[\s\S]*?<td class="czl-name-cell"[\s\S]*?<td class="czl-nickname-cell">[\s\S]*?profile-trigger profile-trigger--icon/);
+  assert.doesNotMatch(script, /<tr class="membership-member[\s\S]*?<td>\s*\n\s*<button type="button" class="profile-trigger profile-trigger--icon"/);
+});
+
 test('Zarządzanie ludźmi has an Osoby bez konta section with add form, table and merge controls', () => {
   assert.match(page, /<section id="accountless-section"/);
   assert.match(page, /id="accountless-add-toggle"[^>]*>Dodaj osobę bez konta</);

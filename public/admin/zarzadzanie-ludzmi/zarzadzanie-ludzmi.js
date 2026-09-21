@@ -422,11 +422,6 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       const isFlagged = (!m.sectionId || m.sectionId === 'nieznana') && !m.categoryId;
       return `
     <tr class="membership-member${isFlagged ? ' membership-member--flagged' : ''}" data-email="${escapeAttr(m.email)}" data-section="${escapeAttr(m.sectionId ?? '')}">
-      <td>
-        <button type="button" class="profile-trigger profile-trigger--icon" data-profile-trigger data-email="${escapeAttr(m.email)}" aria-label="Pokaż profil" title="Pokaż profil">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-        </button>
-      </td>
       <td class="czl-section-cell" title="${escapeAttr(sectionLabel(m.sectionId) || 'Brak sekcji')}"><select id="${memberFocusId(m.email, 'section')}" class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
       <td class="czl-name-cell">
         <div class="czl-name-stack">
@@ -434,7 +429,14 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
           <input id="${memberFocusId(m.email, 'first-name')}" type="text" class="czl-field" data-field="firstName" value="${escapeAttr(m.firstName ?? '')}" placeholder="Imię" />
         </div>
       </td>
-      <td><input id="${memberFocusId(m.email, 'nickname')}" type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" /></td>
+      <td class="czl-nickname-cell">
+        <div class="czl-nickname-with-profile">
+          <input id="${memberFocusId(m.email, 'nickname')}" type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" />
+          <button type="button" class="profile-trigger profile-trigger--icon" data-profile-trigger data-email="${escapeAttr(m.email)}" aria-label="Pokaż profil" title="Pokaż profil">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          </button>
+        </div>
+      </td>
       <td ${categoryCellAttrs(m.categoryId, categories)}><select id="${memberFocusId(m.email, 'category')}" class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>
       <td><input id="${memberFocusId(m.email, 'hidden')}" type="checkbox" class="member-hidden-checkbox" data-field="hidden" ${m.hidden ? 'checked' : ''} /></td>
       <td>${escapeHtml(m.email)}</td>

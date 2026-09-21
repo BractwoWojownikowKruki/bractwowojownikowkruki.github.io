@@ -396,6 +396,27 @@
   font-size: 0.85em;
 }
 
+/* KRKG-0103: the profile action belongs to the editable Ksywa field, so Sekcja remains the
+   table's absolute first column without spending a separate column on a single icon. */
+.czl-nickname-cell {
+  white-space: normal;
+}
+
+.czl-nickname-with-profile {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.czl-nickname-with-profile input.czl-field {
+  flex: 1 1 auto;
+  min-width: 100px;
+}
+
+.czl-nickname-with-profile .profile-trigger--icon {
+  flex: 0 0 auto;
+}
+
 /* Zarządzanie ludźmi's Rola column (KRKG-0049/KRKG-0051) - a checkbox per assignable role, since a
    member can hold more than one at once. white-space:normal overrides .czl-table td's nowrap so
    the labels stack instead of forcing the column wide. */
