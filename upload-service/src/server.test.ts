@@ -761,6 +761,31 @@ test('POST /membership/apply ignores admin-owned fields present in the request b
   });
 });
 
+// KRKG-0103: lastName and firstName are both required, independently - see the equivalent table
+// of PUT /lista-wyjazdowa/member cases further down for the same rule on the self-service edit.
+for (const [label, body] of [
+  ['a missing lastName', { firstName: 'Jan', sectionId: 'krakow' }],
+  ['a missing firstName', { lastName: 'New', sectionId: 'krakow' }],
+  ['a whitespace-only lastName', { lastName: '   ', firstName: 'Jan', sectionId: 'krakow' }],
+  ['a whitespace-only firstName', { lastName: 'New', firstName: '   ', sectionId: 'krakow' }],
+] as const) {
+  test(`POST /membership/apply rejects ${label} with 400`, async () => {
+    const client = makeListaWyjazdowaFirestore();
+    const deps = makeDeps({
+      firestore: client,
+      authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'new@example.com' }),
+    });
+    await withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/membership/apply`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+        body: JSON.stringify(body),
+      });
+      assert.equal(res.status, 400);
+    });
+  });
+}
+
 // Login-CSRF: a cross-origin POST with a CORS-safelisted Content-Type (e.g. text/plain) never
 // triggers a preflight, so CORS alone would not stop an attacker's page from POSTing their own
 // valid idToken and having it silently accepted, setting the *attacker's* session in the
@@ -2748,7 +2773,7 @@ test('PUT /admin/members/drive-folder requires step-up freshness (rejects a stal
   });
 });
 
-test('PUT /admin/members/profile updates fullName/nickname/sectionId for an existing member', async () => {
+test('PUT /admin/members/profile updates lastName/firstName/nickname/sectionId for an existing member', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('lookupLists', 'sections', { items: [{ id: 'krakow', label: 'Kraków', retired: false }] });
   client.seed('members', 'ala@example.com', {
@@ -2892,7 +2917,7 @@ test('PUT /admin/members/profile sets hidden when present in the body', async ()
   assert.equal(stored?.hidden, true);
 });
 
-test('PUT /admin/members/profile setting hidden alone does not require fullName/nickname/sectionId', async () => {
+test('PUT /admin/members/profile setting hidden alone does not require lastName/firstName/nickname/sectionId', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('members', 'ala@example.com', {
     email: 'ala@example.com', lastName: 'Ala', firstName: '', nickname: null, sectionId: 'krakow',
@@ -6549,8 +6574,8 @@ test('GET /lista-wyjazdowa/roster unions members with people who have no account
     const person = body.roster.find((r: { personId: string }) => r.personId === 'person-uuid-1');
     assert.equal(person.accountless, true, 'a person without an account must be flagged');
     assert.equal(person.email, null, 'a person without an account has no e-mail');
-    assert.equal(person.fullName, 'Jan Kowalski');
-    // KRKG-0087: the separate name parts are exposed too, so Mój profil can edit them individually.
+    // KRKG-0103: no fullName key any more - firstName/lastName are the separate name parts so
+    // Mój profil can edit them individually.
     assert.equal(person.firstName, 'Jan');
     assert.equal(person.lastName, 'Kowalski');
     assert.equal(person.nickname, 'Wilk');
@@ -6605,7 +6630,8 @@ test('GET /lista-wyjazdowa/person-profile returns an accountless person and 404s
     assert.equal(res.status, 200);
     const { profile } = await res.json();
     assert.equal(profile.accountless, true);
-    assert.equal(profile.fullName, 'Jan Kowalski');
+    assert.equal(profile.firstName, 'Jan');
+    assert.equal(profile.lastName, 'Kowalski');
     assert.equal(profile.nickname, 'Wilk');
     assert.equal(profile.sectionId, 'krakow');
     assert.equal(profile.categoryId, 'thing');
@@ -6640,7 +6666,8 @@ test('GET /lista-wyjazdowa/roster?eventId= keeps a tombstoned person who signed 
     assert.equal(historical.roster.length, 1, 'the removed person must still count on the trip they attended');
     assert.equal(historical.roster[0].personId, 'person-uuid-3');
     assert.equal(historical.roster[0].accountless, true);
-    assert.equal(historical.roster[0].fullName, 'Jan Kowalski');
+    assert.equal(historical.roster[0].firstName, 'Jan');
+    assert.equal(historical.roster[0].lastName, 'Kowalski');
   });
 });
 
@@ -6674,7 +6701,8 @@ test('GET /lista-wyjazdowa/roster?eventId= returns the live roster plus the elig
 
     const gone = historical.roster.find((r: { personId: string }) => r.personId === 'person-gone');
     assert.ok(gone, 'the tombstoned person signed up for this trip must be kept');
-    assert.equal(gone.fullName, 'Anna Nowak');
+    assert.equal(gone.firstName, 'Anna');
+    assert.equal(gone.lastName, 'Nowak');
     assert.equal(gone.nickname, 'Cień');
     assert.equal(gone.sectionId, 'warszawa');
     assert.equal(gone.categoryId, 'emeryt');
@@ -7027,6 +7055,23 @@ test('POST /lista-wyjazdowa/signups/quick-add mode=new creates an attached perso
     assert.ok(events.some((d) => d.data.action === 'signup.created'));
   });
 });
+
+// KRKG-0103: the quick-add handler used to hardcode empty firstName/lastName - now it requires
+// them from the request body, same as every other person-creating route.
+for (const [label, body] of [
+  ['a missing firstName', { eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'new', ksywka: 'Wilk', lastName: 'Kowalski', categoryId: 'thing' }],
+  ['a missing lastName', { eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'new', ksywka: 'Wilk', firstName: 'Jan', categoryId: 'thing' }],
+] as const) {
+  test(`POST /lista-wyjazdowa/signups/quick-add mode=new rejects ${label} with 400`, async () => {
+    const firestore = makeListaWyjazdowaFirestore();
+    seedMember(firestore, 'wojownik@gmail.com');
+    seedEvent(firestore, 'event-1');
+    await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+      const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', body);
+      assert.equal(res.status, 400);
+    });
+  });
+}
 
 test('POST /lista-wyjazdowa/signups/quick-add mode=existing signs up an attached person and is idempotent', async () => {
   const firestore = makeListaWyjazdowaFirestore();

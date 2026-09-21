@@ -2933,12 +2933,11 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       accountless: true,
       ownerPersonId: person.ownerPersonId,
       email: null,
-      fullName: personDisplayName(person),
       // KRKG-0091: a tombstoned person still resolves in a historical read (they were signed up for
       // that trip); the client renders their row read-only instead of offering a toggle that 404s.
       deleted: Boolean(person.deletedAt),
-      // KRKG-0087: the separate name parts too, so Mój profil can edit them individually (the
-      // joined fullName alone can't be split back apart).
+      // KRKG-0103: no `fullName` here - firstName/lastName are the source of truth, same as a
+      // member row; the frontend's displayName()/personSubline() read those directly.
       firstName: person.firstName,
       lastName: person.lastName,
       nickname: person.ksywka || null,
@@ -2982,7 +2981,10 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
       accountless: true,
       ownerPersonId: person.ownerPersonId ?? null,
       ownerName,
-      fullName: personDisplayName(person),
+      // KRKG-0103: no `fullName` here - lastName/firstName are the source of truth, matching
+      // every other person/member response shape.
+      lastName: person.lastName,
+      firstName: person.firstName,
       nickname: person.ksywka || null,
       sectionId: person.sectionId,
       sectionLabel: lookupLists.sections.find((s) => s.id === person.sectionId)?.label ?? person.sectionId,

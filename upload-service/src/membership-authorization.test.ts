@@ -5,7 +5,7 @@ import { AuthError } from './auth.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
 
 function seedMember(client: ReturnType<typeof createInMemoryFirestoreClient>, email: string, status: string) {
-  client.seed('members', email, { email, status, fullName: 'X', nickname: null, sectionId: 's', categoryId: null, driveFolderId: null, appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x' });
+  client.seed('members', email, { email, status, lastName: 'X', firstName: '', nickname: null, sectionId: 's', categoryId: null, driveFolderId: null, appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x' });
 }
 
 test('createFirestoreMemberAuthorizer allows an active member', async () => {
