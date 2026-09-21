@@ -38,12 +38,12 @@
      --category-c   accent - Typ cell tint, <select> border, focus ring
      --category-bg  pill fill (optional; defaults to a dim mix of the accent)
      --category-fg  pill text (optional; defaults to a light mix of the accent)
-   Only --category-c is required; --category-bg/--category-fg are opt-in per category (Bobo below
-   is the worked example). Set all three to a flat color to bypass the mixes entirely. */
+   Only --category-c is required; --category-bg/--category-fg are opt-in per category (thing/bobo/
+   emeryt below are the examples). Set all three to a flat color to bypass the mixes entirely. */
 :root {
   --category-color-brokul:    #639f09;
   --category-color-niewiasta: #d93fa8;
-  --category-color-thing:     #d4af37;
+  --category-color-thing:     #ffcc00;
   --category-color-blacha:    #427bff;
   --category-color-kandydat:  #639f09;
   --category-color-bobo:      #f06bb0;
@@ -53,16 +53,26 @@
 
 [data-category="brokul"]    { --category-c: var(--category-color-brokul); }
 [data-category="niewiasta"] { --category-c: var(--category-color-niewiasta); }
-[data-category="thing"]     { --category-c: var(--category-color-thing); }
 [data-category="blacha"]    { --category-c: var(--category-color-blacha); }
 [data-category="kandydat"]  { --category-c: var(--category-color-kandydat); }
-[data-category="emeryt"]    { --category-c: var(--category-color-emeryt); }
-/* Bobo is the inverse of Niewiasta's pill - a light pink fill with dark pink text instead of
-   Niewiasta's dark fill + light text - and is the worked example of setting all three variables. */
+
+/* These three set all three properties explicitly, so their pill colors are not derived from the
+   accent through the dimming mix. Thing is gold, Bobo is the inverse of Niewiasta (light pink fill
+   + dark pink text), Emeryt is a neutral grey. */
+[data-category="thing"] {
+  --category-c: #ffcc00;
+  --category-bg: #ffbb00;
+  --category-fg: #000000;
+}
 [data-category="bobo"] {
-  --category-c: var(--category-color-bobo);
-  --category-bg: color-mix(in srgb, #f90081 50%, white);
-  --category-fg: color-mix(in srgb, var(--category-color-bobo) 48%, #000000);
+  --category-c: #f06bb0;
+  --category-bg: #fb98cb;
+  --category-fg: #3a0e24;
+}
+[data-category="emeryt"] {
+  --category-c: #94a3b8;
+  --category-bg: #999999;
+  --category-fg: #212121;
 }
 
 /* KRKG-0061: filled background (like .section-pill below), not just an outline - a plain outline

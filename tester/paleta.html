@@ -57,7 +57,6 @@
       ['emeryt', 'Emeryt'],
     ];
     const VARS = ['--category-c', '--category-bg', '--category-fg'];
-    const rootStyle = getComputedStyle(document.documentElement);
 
     function toHex(rgb) {
       const match = String(rgb).match(/rgba?\(([^)]+)\)/);
@@ -86,7 +85,7 @@
       const id = card.dataset.cat;
       const pill = card.querySelector('.category-name-pill');
       const cell = card.querySelector('td[data-category]');
-      const accent = toHex(rootStyle.getPropertyValue('--category-color-' + id).trim());
+      const accent = toHex(getComputedStyle(pill).getPropertyValue('--category-c').trim());
       const fill = toHex(getComputedStyle(pill).backgroundColor);
       const text = toHex(getComputedStyle(pill).color);
       const initial = { '--category-c': accent, '--category-bg': fill, '--category-fg': text };
