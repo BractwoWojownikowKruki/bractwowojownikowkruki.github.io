@@ -428,9 +428,11 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
         </button>
       </td>
       <td class="czl-section-cell" title="${escapeAttr(sectionLabel(m.sectionId) || 'Brak sekcji')}"><select id="${memberFocusId(m.email, 'section')}" class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
-      <td>
-        <input id="${memberFocusId(m.email, 'last-name')}" type="text" class="czl-field" data-field="lastName" value="${escapeAttr(m.lastName ?? '')}" placeholder="Nazwisko" />
-        <input id="${memberFocusId(m.email, 'first-name')}" type="text" class="czl-field" data-field="firstName" value="${escapeAttr(m.firstName ?? '')}" placeholder="Imię" />
+      <td class="czl-name-cell">
+        <div class="czl-name-stack">
+          <input id="${memberFocusId(m.email, 'last-name')}" type="text" class="czl-field" data-field="lastName" value="${escapeAttr(m.lastName ?? '')}" placeholder="Nazwisko" />
+          <input id="${memberFocusId(m.email, 'first-name')}" type="text" class="czl-field" data-field="firstName" value="${escapeAttr(m.firstName ?? '')}" placeholder="Imię" />
+        </div>
       </td>
       <td><input id="${memberFocusId(m.email, 'nickname')}" type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" /></td>
       <td ${categoryCellAttrs(m.categoryId, categories)}><select id="${memberFocusId(m.email, 'category')}" class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>

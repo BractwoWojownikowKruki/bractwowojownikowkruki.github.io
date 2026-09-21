@@ -375,6 +375,27 @@
   outline: none;
 }
 
+/* KRKG-0103: Nazwisko/Imię as two inputs in Zarządzanie ludźmi's member table - side by side in
+   the cell's nowrap flow silently broke the layout (each input's own width:100% above fights the
+   other for space, so Imię ended up invisible off the edge of the cell). Stacked vertically
+   instead, with slightly tighter padding/font on just these two so the row doesn't grow as much
+   as two full-size inputs would. */
+.czl-name-cell {
+  white-space: normal;
+}
+
+.czl-name-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 100px;
+}
+
+.czl-name-stack input.czl-field {
+  padding: 0.15rem 0.4rem;
+  font-size: 0.85em;
+}
+
 /* Zarządzanie ludźmi's Rola column (KRKG-0049/KRKG-0051) - a checkbox per assignable role, since a
    member can hold more than one at once. white-space:normal overrides .czl-table td's nowrap so
    the labels stack instead of forcing the column wide. */
