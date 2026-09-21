@@ -319,7 +319,7 @@ function filterMembershipMembers(members) {
   const needle = document.getElementById('membership-members-filter').value.trim().toLocaleLowerCase('pl');
   if (!needle) return members;
   return members.filter(m =>
-    [m.fullName, m.nickname, m.email, m.sectionId].some(v => (v ?? '').toString().toLocaleLowerCase('pl').includes(needle)),
+    [m.lastName, m.firstName, m.nickname, m.email, m.sectionId].some(v => (v ?? '').toString().toLocaleLowerCase('pl').includes(needle)),
   );
 }
 
@@ -388,7 +388,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
   const categoryLabel = categoryId => (categoryId ? (categoryLabelById.get(categoryId) ?? categoryId) : '');
   const sortValue = (member) => {
     switch (membershipSortState.key) {
-      case 'name': return member.fullName ?? '';
+      case 'name': return displayName(member);
       case 'nickname': return member.nickname ?? '';
       case 'status': return categoryLabel(member.categoryId);
       case 'hidden': return member.hidden === true;
@@ -401,7 +401,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
   members = [...members].sort((a, b) => {
     const cmp = compareValues(sortValue(a), sortValue(b), membershipSortState.dir);
     if (cmp !== 0) return cmp;
-    return compareValues(a.fullName ?? '', b.fullName ?? '', 'asc');
+    return compareValues(displayName(a), displayName(b), 'asc');
   });
   const actions = MEMBERSHIP_ACTIONS_BY_STATUS[status] ?? [];
   const labelByFolderId = new Map(driveFolderOptions.map(o => [o.folderId, o.label]));
@@ -428,7 +428,10 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
         </button>
       </td>
       <td class="czl-section-cell" title="${escapeAttr(sectionLabel(m.sectionId) || 'Brak sekcji')}"><select id="${memberFocusId(m.email, 'section')}" class="czl-field" data-field="sectionId">${sectionOptions(sections, m.sectionId)}</select></td>
-      <td><input id="${memberFocusId(m.email, 'full-name')}" type="text" class="czl-field" data-field="fullName" value="${escapeAttr(m.fullName ?? '')}" placeholder="Imię i nazwisko" /></td>
+      <td>
+        <input id="${memberFocusId(m.email, 'last-name')}" type="text" class="czl-field" data-field="lastName" value="${escapeAttr(m.lastName ?? '')}" placeholder="Nazwisko" />
+        <input id="${memberFocusId(m.email, 'first-name')}" type="text" class="czl-field" data-field="firstName" value="${escapeAttr(m.firstName ?? '')}" placeholder="Imię" />
+      </td>
       <td><input id="${memberFocusId(m.email, 'nickname')}" type="text" class="czl-field" data-field="nickname" value="${escapeAttr(m.nickname ?? '')}" placeholder="Ksywa" /></td>
       <td ${categoryCellAttrs(m.categoryId, categories)}><select id="${memberFocusId(m.email, 'category')}" class="czl-field" data-field="categoryId">${categoryOptions(categories, m.categoryId)}</select></td>
       <td><input id="${memberFocusId(m.email, 'hidden')}" type="checkbox" class="member-hidden-checkbox" data-field="hidden" ${m.hidden ? 'checked' : ''} /></td>
@@ -454,21 +457,27 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
     .join('');
 }
 
-// Saves fullName/nickname/sectionId together (one PUT, not per-field) using each field's
-// *current* DOM value - mirrors czlonkowie.js's saveMemberField. Doesn't call
+// Saves lastName/firstName/nickname/sectionId together (one PUT, not per-field) using each
+// field's *current* DOM value - mirrors czlonkowie.js's saveMemberField. Doesn't call
 // loadMembershipMembers()/renderMembershipMembers() on success: re-rendering would resort/refilter
 // the list out from under whichever field the admin is about to edit next, so `members` is
 // patched in place instead and the DOM is left exactly as shown.
+//
+// KRKG-0103: lastName/firstName are both required now, so every save of this row's bundle
+// (including a plain Sekcja/Typ change, since they're sent together) fails validation until a
+// legacy member's Imię has been split out of Nazwisko - intentional, see design.md.
 async function saveMemberProfileField(row, email, control) {
-  const fullNameInput = row.querySelector('[data-field="fullName"]');
+  const lastNameInput = row.querySelector('[data-field="lastName"]');
+  const firstNameInput = row.querySelector('[data-field="firstName"]');
   const nicknameInput = row.querySelector('[data-field="nickname"]');
   const sectionSelect = row.querySelector('[data-field="sectionId"]');
   const categorySelect = row.querySelector('[data-field="categoryId"]');
-  const fullName = fullNameInput.value.trim();
+  const lastName = lastNameInput.value.trim();
+  const firstName = firstNameInput.value.trim();
   const nickname = nicknameInput.value.trim();
   const sectionId = sectionSelect.value;
   const categoryId = categorySelect.value || null;
-  control ??= fullNameInput;
+  control ??= lastNameInput;
   const previousMember = membershipMembersCache.members.find(member => member.email === email);
   try {
     await window.MutationFeedback.confirmed({
@@ -478,7 +487,7 @@ async function saveMemberProfileField(row, email, control) {
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, fullName: fullName || null, nickname: nickname || null, sectionId, categoryId }),
+          body: JSON.stringify({ email, lastName, firstName, nickname: nickname || null, sectionId, categoryId }),
         },
         showReauth,
         hideReauth,
@@ -486,7 +495,8 @@ async function saveMemberProfileField(row, email, control) {
       apply: () => {
         const member = membershipMembersCache.members.find(candidate => candidate.email === email);
         if (member) {
-          member.fullName = fullName || null;
+          member.lastName = lastName;
+          member.firstName = firstName;
           member.nickname = nickname || null;
           member.sectionId = sectionId;
           member.categoryId = categoryId;
@@ -510,7 +520,8 @@ async function saveMemberProfileField(row, email, control) {
       refreshFragment: loadMembershipMembers,
       rollback: () => {
         if (!previousMember) return;
-        fullNameInput.value = previousMember.fullName ?? '';
+        lastNameInput.value = previousMember.lastName ?? '';
+        firstNameInput.value = previousMember.firstName ?? '';
         nicknameInput.value = previousMember.nickname ?? '';
         sectionSelect.value = previousMember.sectionId ?? '';
         categorySelect.value = previousMember.categoryId ?? '';

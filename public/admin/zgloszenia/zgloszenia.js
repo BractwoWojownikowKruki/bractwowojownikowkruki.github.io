@@ -72,7 +72,7 @@ function renderMembershipApplications(members) {
       m => `
     <div class="membership-application" data-email="${escapeAttr(m.email)}" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; padding:0.5rem 0; border-bottom:1px solid var(--border);">
       <div style="flex:1; min-width:200px;">
-        <strong>${escapeHtml(m.fullName)}</strong>${m.nickname ? ` (${escapeHtml(m.nickname)})` : ''}
+        <strong>${escapeHtml(m.lastName)}, ${escapeHtml(m.firstName)}</strong>${m.nickname ? ` (${escapeHtml(m.nickname)})` : ''}
         <br><span style="color:var(--text-muted);">${escapeHtml(m.email)} - ${escapeHtml(m.sectionId)}</span>
       </div>
       <button id="${applicationFocusId(m.email, 'approve')}" class="approve-application" style="color:var(--gold);">Zatwierdź</button>
