@@ -13,6 +13,6 @@ test('Brokuł emoji has its own compact text geometry and Candidates share the g
 
 test('KRKG-0101: Bobo is a light-pink inverse of Niewiasta\'s dark-pink pill', () => {
   assert.match(css, /--category-color-bobo:\s*#f06bb0;/);
-  assert.match(css, /\.category-name-pill\[data-category="bobo"\]\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--category-color-bobo\)\s*32%,\s*white\)/);
-  assert.match(css, /\.category-name-pill\[data-category="bobo"\]\s*\{[^}]*color:\s*color-mix\(in srgb, var\(--category-color-bobo\)\s*68%,\s*black\)/);
+  assert.match(css, /\.category-name-pill\[data-category="bobo"\]\s*\{[^}]*background:\s*color-mix\(in srgb, #f90081 50%, white\)/);
+  assert.match(css, /\.category-name-pill\[data-category="bobo"\]\s*\{[^}]*color:\s*color-mix\(in srgb, var\(--category-color-bobo\) 48%, #000000\)/);
 });

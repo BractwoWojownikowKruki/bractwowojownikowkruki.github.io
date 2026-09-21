@@ -35,7 +35,7 @@
 :root {
   --category-color-brokul:    #639f09;
   --category-color-niewiasta: #d93fa8;
-  --category-color-thing:     #e8642e;
+  --category-color-thing:     #d4af37;
   --category-color-blacha:    #427bff;
   --category-color-kandydat:  #639f09;
   --category-color-bobo:      #f06bb0;
@@ -67,8 +67,8 @@
    instead of Niewiasta's dark fill + light text - so the two pink-family categories stay
    distinguishable at a glance while reading as a matched pair. */
 .category-name-pill[data-category="bobo"] {
-  background: color-mix(in srgb, var(--category-color-bobo) 32%, white);
-  color: color-mix(in srgb, var(--category-color-bobo) 68%, black);
+  background: color-mix(in srgb, #f90081 50%, white);
+  color: color-mix(in srgb, var(--category-color-bobo) 48%, #000000);
 }
 
 /* Overrides .czl-field's own border/radius/background on the editable fullName <input>
