@@ -956,7 +956,12 @@ async function saveEventDetails(control) {
       document.getElementById('event-meta').textContent = `${formatDate(cachedEvent.startDate)}${cachedEvent.status === 'cancelled' ? ' — odwołany' : ''}`;
       eventEditOpen = false;
       renderEventEditPanel();
-    }, control);
+      // `control` (the Zapisz button just clicked) does not survive renderEventEditPanel's
+      // innerHTML rebuild - MutationFeedback.confirmed anchors its "saved" checkmark on this 4th
+      // argument, and a disconnected anchor after apply() is treated as a failure (KRKG-0102 bug:
+      // the save actually succeeded but the checkmark's connectivity check threw). Anchor on the
+      // Edytuj toggle instead - it lives in the meta row, outside the panel this rebuilds.
+    }, document.getElementById('event-edit-toggle'));
   } catch (err) {
     showError(`Nie udało się zapisać zmian wyjazdu: ${err.message}`);
   }
@@ -976,7 +981,9 @@ async function setEventStatus(status, failureMessage, control) {
       meta.textContent = meta.textContent.replace(/ — odwołany$/, '') + (status === 'cancelled' ? ' — odwołany' : '');
       eventEditOpen = false;
       renderEventEditPanel();
-    }, control);
+      // Same disconnected-anchor issue as saveEventDetails above - `control` is the
+      // Odwołaj/Przywróć button inside the panel renderEventEditPanel just rebuilt.
+    }, document.getElementById('event-edit-toggle'));
   } catch (err) {
     showError(`${failureMessage}: ${err.message}`);
   }
