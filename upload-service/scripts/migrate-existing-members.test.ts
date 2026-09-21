@@ -25,20 +25,20 @@ test('migrateActiveMembers creates a new active doc using the given fullName, no
   assert.equal(result.created, 1);
   const doc = await client.getDoc('members', 'new@example.com') as Record<string, unknown>;
   assert.equal(doc.status, 'active');
-  assert.equal(doc.fullName, 'Nowy Członek');
+  assert.equal(doc.lastName, 'Nowy Członek');
 });
 
 test('migrateActiveMembers falls back to the email as fullName when none is given', async () => {
   const client = createInMemoryFirestoreClient();
   await migrateActiveMembers(client, [{ email: 'new@example.com', fullName: 'new@example.com' }], { dryRun: false });
   const doc = await client.getDoc('members', 'new@example.com') as Record<string, unknown>;
-  assert.equal(doc.fullName, 'new@example.com');
+  assert.equal(doc.lastName, 'new@example.com');
 });
 
 test('migrateActiveMembers only sets status/fullName on an existing self-service profile doc, preserving other fields, and never touches fullName written by a real member', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('members', 'existing@example.com', {
-    email: 'existing@example.com', fullName: 'Real Person Name', nickname: 'Ex', sectionId: 'sekcja-3',
+    email: 'existing@example.com', lastName: 'Real Person Name', firstName: '', nickname: 'Ex', sectionId: 'sekcja-3',
     categoryId: null, driveFolderId: null, status: 'pending', appliedAt: 'old', approvedAt: null, approvedBy: null,
     updatedAt: 'old', updatedBy: 'existing@example.com',
   });
@@ -47,7 +47,7 @@ test('migrateActiveMembers only sets status/fullName on an existing self-service
   assert.equal(result.created, 0);
   const doc = await client.getDoc('members', 'existing@example.com') as Record<string, unknown>;
   assert.equal(doc.status, 'active');
-  assert.equal(doc.fullName, 'Real Person Name', 'a real self-service edit must never be overwritten by the migration');
+  assert.equal(doc.lastName, 'Real Person Name', 'a real self-service edit must never be overwritten by the migration');
   assert.equal(doc.sectionId, 'sekcja-3');
 });
 
@@ -57,7 +57,7 @@ test('migrateActiveMembers corrects a fullName it previously set itself when re-
   const corrected = await migrateActiveMembers(client, [{ email: 'a@example.com', fullName: 'Prawdziwe Imię' }], { dryRun: false });
   assert.equal(corrected.updated, 1);
   const doc = await client.getDoc('members', 'a@example.com') as Record<string, unknown>;
-  assert.equal(doc.fullName, 'Prawdziwe Imię');
+  assert.equal(doc.lastName, 'Prawdziwe Imię');
   assert.equal(doc.updatedBy, 'migration-script');
 });
 
@@ -71,13 +71,13 @@ test('migrateActiveMembers corrects a fullName it previously set itself when re-
 test('migrateActiveMembers never overwrites a real fullName just because updatedBy says "migration-script"', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('members', 'real@example.com', {
-    email: 'real@example.com', fullName: 'Bartias', nickname: 'Bartias', sectionId: 'bydgoszcz',
+    email: 'real@example.com', lastName: 'Bartias', firstName: '', nickname: 'Bartias', sectionId: 'bydgoszcz',
     categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x',
     approvedBy: 'migration-script', updatedAt: 'x', updatedBy: 'migration-script',
   });
   await migrateActiveMembers(client, [{ email: 'real@example.com', fullName: 'real@example.com' }], { dryRun: false });
   const doc = await client.getDoc('members', 'real@example.com') as Record<string, unknown>;
-  assert.equal(doc.fullName, 'Bartias');
+  assert.equal(doc.lastName, 'Bartias');
 });
 
 test('migrateActiveMembers is idempotent - running twice with the same input produces the same end state', async () => {

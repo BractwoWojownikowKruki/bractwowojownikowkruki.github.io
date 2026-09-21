@@ -80,11 +80,11 @@ function createHarness() {
   let signIn: (() => Promise<void>) | undefined;
 
   const members = [
-    { email: 'ala@example.com', fullName: 'Ala Kowalska', nickname: null, sectionId: 'krakow', sectionLabel: 'Kraków', categoryId: 'wojownik', categoryLabel: 'Wojownik' },
+    { email: 'ala@example.com', lastName: 'Kowalska', firstName: 'Ala', nickname: null, sectionId: 'krakow', sectionLabel: 'Kraków', categoryId: 'wojownik', categoryLabel: 'Wojownik' },
   ];
   const roster = [
-    { personId: 'ala@example.com', accountless: false, email: 'ala@example.com', fullName: 'Ala Kowalska', nickname: null, sectionId: 'krakow', categoryId: 'wojownik' },
-    { personId: 'person-uuid-1', accountless: true, email: null, fullName: 'Młody', nickname: null, sectionId: 'warszawa', categoryId: 'kandydat' },
+    { personId: 'ala@example.com', accountless: false, email: 'ala@example.com', lastName: 'Kowalska', firstName: 'Ala', nickname: null, sectionId: 'krakow', categoryId: 'wojownik' },
+    { personId: 'person-uuid-1', accountless: true, email: null, lastName: 'Młody', firstName: '', nickname: null, sectionId: 'warszawa', categoryId: 'kandydat' },
   ];
 
   const context: Record<string, unknown> = {
@@ -175,8 +175,8 @@ test('filterOwnerCandidates matches by displayName substring, case- and locale-i
   const harness = createHarness();
   const filterOwnerCandidates = harness.context.filterOwnerCandidates as (roster: unknown[], query: string) => unknown[];
   const roster = [
-    { fullName: 'Ala Kowalska', nickname: null, email: 'ala@example.com' },
-    { fullName: 'Młody', nickname: null, email: null },
+    { lastName: 'Kowalska', firstName: 'Ala', nickname: null, email: 'ala@example.com' },
+    { lastName: 'Młody', firstName: '', nickname: null, email: null },
   ];
   // Same cross-realm caveat as above: compare by length, not against a host-realm [] literal.
   assert.equal(filterOwnerCandidates(roster, '').length, 0);
@@ -275,7 +275,9 @@ test('switching the add form to Prywatny reveals the owner field, and picking a 
   ownerInput.value = '';
   await ownerInput.input();
   assert.match(datalist.innerHTML, /Młody/, 'clearing the field back to empty restores the full roster, not an empty datalist');
-  assert.match(datalist.innerHTML, /Ala Kowalska/, 'clearing the field restores every candidate, not just the last-matched one');
+  // KRKG-0103: the datalist option value is displayName() (ksywka/imię), not the full name - Ala
+  // has no ksywka, so her option is her first name alone.
+  assert.match(datalist.innerHTML, /value="Ala"/, 'clearing the field restores every candidate, not just the last-matched one');
 
   teamRadio.checked = true;
   privateRadio.checked = false;

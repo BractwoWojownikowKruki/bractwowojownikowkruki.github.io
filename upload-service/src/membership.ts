@@ -5,7 +5,8 @@ import { listAllMembers, type MemberDoc, type MembershipStatus } from './members
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
 
 export interface ApplyFields {
-  fullName: string;
+  lastName: string;
+  firstName: string;
   nickname: string | null;
   sectionId: string;
 }
@@ -47,7 +48,8 @@ export async function applyForMembershipInTransaction(
   const appliedAt = existing?.status === 'pending' ? existing.appliedAt : now;
   const record: MemberDoc = {
     email: id,
-    fullName: fields.fullName,
+    lastName: fields.lastName,
+    firstName: fields.firstName,
     nickname: fields.nickname,
     sectionId: fields.sectionId,
     categoryId: existing?.categoryId ?? null,

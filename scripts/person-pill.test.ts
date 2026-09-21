@@ -59,6 +59,25 @@ test('personPillHtml distinguishes announced Brokuł people from decorative Brok
   assert.doesNotMatch(candidate, /🥦/);
 });
 
+test('personPillHtml is byte-identical to before when no subline is given (regression guard for every non-name pill)', () => {
+  const { personPillHtml } = loadHelper();
+  const html = personPillHtml({ name: 'Wilk', categoryId: 'thing', categoryLabel: 'Thing', accountless: false });
+  assert.doesNotMatch(html, /person-pill-cell/);
+  assert.doesNotMatch(html, /person-pill-subline/);
+  assert.match(html, /^<span class="category-name-pill"/);
+});
+
+test('personPillHtml wraps the pill and renders an escaped subline when one is given (KRKG-0103)', () => {
+  const { personPillHtml } = loadHelper();
+  const html = personPillHtml({ name: 'Wilk', categoryId: 'thing', categoryLabel: 'Thing', accountless: false, subline: 'Kowalski, Jan' });
+  assert.match(html, /^<span class="person-pill-cell">/);
+  assert.match(html, /<span class="category-name-pill"/);
+  assert.match(html, /<span class="person-pill-subline">Kowalski, Jan<\/span>/);
+
+  const escaped = personPillHtml({ name: 'Wilk', categoryId: null, categoryLabel: null, subline: '<b>x</b>, y' });
+  assert.match(escaped, /<span class="person-pill-subline">&lt;b&gt;x&lt;\/b&gt;, y<\/span>/);
+});
+
 test('the event page renders pills through the shared helper, keys rows by personId and fetches the historical roster', () => {
   assert.match(wyjazdSource, /personPillHtml\(/);
   assert.doesNotMatch(wyjazdSource, /categoryNamePillAttrs/);

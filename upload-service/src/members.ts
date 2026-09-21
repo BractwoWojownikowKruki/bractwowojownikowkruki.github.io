@@ -6,7 +6,8 @@ export type MembershipStatus = 'pending' | 'active' | 'suspended' | 'removed' | 
 
 export interface MemberDoc {
   email: string;
-  fullName: string;
+  lastName: string;
+  firstName: string;
   nickname: string | null;
   sectionId: string;
   categoryId: string | null;
@@ -36,7 +37,8 @@ export interface MemberDoc {
 }
 
 export interface MemberWritableFields {
-  fullName: string;
+  lastName: string;
+  firstName: string;
   nickname: string | null;
   sectionId: string;
 }
@@ -70,7 +72,8 @@ export async function saveMember(
   const existing = preloaded !== undefined ? preloaded : await client.getDoc<MemberDoc>(COLLECTION, id);
   const now = new Date().toISOString();
   const writable = {
-    fullName: fields.fullName,
+    lastName: fields.lastName,
+    firstName: fields.firstName,
     nickname: fields.nickname,
     sectionId: fields.sectionId,
     updatedAt: now,

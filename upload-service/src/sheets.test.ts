@@ -2,10 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSheetsClient, createDisabledSheetsClient } from './sheets.ts';
 
-function fakeMember(overrides: Partial<{ email: string; fullName: string; nickname: string | null; sectionId: string; status: string }> = {}) {
+function fakeMember(overrides: Partial<{ email: string; lastName: string; firstName: string; nickname: string | null; sectionId: string; status: string }> = {}) {
   return {
     email: 'a@example.com',
-    fullName: 'A',
+    lastName: 'A',
+    firstName: '',
     nickname: null,
     sectionId: 's1',
     status: 'active',

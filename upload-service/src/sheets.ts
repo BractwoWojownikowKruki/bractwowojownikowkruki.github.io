@@ -32,7 +32,7 @@ const SYNC_ROW_COUNT = 500;
 const SYNC_COLUMN_COUNT = 5;
 
 function memberRow(m: MemberDoc & { email: string }): string[] {
-  return [m.email, m.fullName, m.nickname ?? '', m.sectionId, m.status];
+  return [m.email, `${m.lastName} ${m.firstName}`.trim(), m.nickname ?? '', m.sectionId, m.status];
 }
 
 // Mirrors drive.ts's getAccessToken pattern exactly: manual refresh-token exchange, cached

@@ -70,17 +70,17 @@ export function weaponAllowedForCategory(categoryId: string): boolean {
 }
 
 /**
- * Runtime validation of the fields the model requires (KRKG-0087 plan, batch 1 step 1): a person
- * always has a category and a section. TypeScript's required properties do not stop a request body
- * from carrying empty strings, so this is checked at runtime, not just in the type.
- *
- * Whether a name is required, and in which combination (ksywka alone vs first+last), is still an
- * open question in the design, so names are deliberately not validated here. Callers that render
- * a person's name must therefore tolerate a missing one (see `personDisplayName`).
+ * Runtime validation of the fields the model requires: a person always has a category, a section,
+ * and (KRKG-0103) a first and last name - ksywka stays optional. TypeScript's required properties
+ * do not stop a request body from carrying empty strings, so this is checked at runtime, not just
+ * in the type. This applies to every write path, including the roster's quick-add shortcut
+ * (server.ts's handleListaWyjazdowaPostQuickAdd), which used to hardcode empty names.
  */
 export function validatePersonFields(fields: PersonWritableFields): void {
   if (!fields.categoryId?.trim()) throw new AuthError('Kategoria osoby jest wymagana.', 400);
   if (!fields.sectionId?.trim()) throw new AuthError('Sekcja osoby jest wymagana.', 400);
+  if (!fields.firstName?.trim()) throw new AuthError('Imię osoby jest wymagane.', 400);
+  if (!fields.lastName?.trim()) throw new AuthError('Nazwisko osoby jest wymagane.', 400);
 }
 
 /** Applies the category/weapon rule to a writable field set. */
@@ -258,7 +258,7 @@ export interface PersonMergeDocMove {
 }
 
 /** The member identity fields a merge may fill from the person; a value the account already has wins. */
-export type MemberIdentityFills = Partial<Pick<MemberDoc, 'fullName' | 'nickname' | 'sectionId' | 'categoryId'>>;
+export type MemberIdentityFills = Partial<Pick<MemberDoc, 'firstName' | 'lastName' | 'nickname' | 'sectionId' | 'categoryId'>>;
 
 export interface PersonMergePlan {
   personId: string;
@@ -398,8 +398,8 @@ export async function applyPersonMerge(
   // callback after contention) or a concurrent account edit must never let the person overwrite a
   // newer account value, so "the account wins" has to be decided against the current state.
   const memberFills: MemberIdentityFills = {};
-  const personName = personDisplayName(person);
-  if (isBlank(member.fullName) && personName) memberFills.fullName = personName;
+  if (isBlank(member.firstName) && person.firstName?.trim()) memberFills.firstName = person.firstName;
+  if (isBlank(member.lastName) && person.lastName?.trim()) memberFills.lastName = person.lastName;
   if (isBlank(member.nickname) && person.ksywka?.trim()) memberFills.nickname = person.ksywka;
   if (isBlank(member.sectionId) && person.sectionId?.trim()) memberFills.sectionId = person.sectionId;
   if (member.categoryId == null && person.categoryId) memberFills.categoryId = person.categoryId;

@@ -35,7 +35,8 @@ function seedAccount(
 ): void {
   client.seed('members', accountEmail, {
     email: accountEmail,
-    fullName: 'Kasia Nowak',
+    lastName: 'Nowak',
+    firstName: 'Kasia',
     nickname: 'Kasia',
     sectionId: 'warszawa',
     categoryId: 'thing',
@@ -64,9 +65,20 @@ test('validatePersonFields rejects a missing category or section at runtime', ()
   assert.doesNotThrow(() => validatePersonFields(baseFields));
 });
 
-test('createPerson and updatePerson both enforce the category/section rule', async () => {
+// KRKG-0103: firstName/lastName are now required on every person, the same as category/section.
+test('validatePersonFields rejects a missing first or last name at runtime', () => {
+  assert.throws(() => validatePersonFields({ ...baseFields, firstName: '' }), /Imię osoby jest wymagane/);
+  assert.throws(() => validatePersonFields({ ...baseFields, firstName: '   ' }), /Imię osoby jest wymagane/);
+  assert.throws(() => validatePersonFields({ ...baseFields, lastName: '' }), /Nazwisko osoby jest wymagane/);
+  assert.throws(() => validatePersonFields({ ...baseFields, lastName: '   ' }), /Nazwisko osoby jest wymagane/);
+  assert.doesNotThrow(() => validatePersonFields(baseFields));
+});
+
+test('createPerson and updatePerson both enforce the category/section/name rule', async () => {
   const client = createInMemoryFirestoreClient();
   await assert.rejects(() => createPerson(client, { ...baseFields, sectionId: '' }, null, 'admin@example.test'), /Sekcja/);
+  await assert.rejects(() => createPerson(client, { ...baseFields, firstName: '' }, null, 'admin@example.test'), /Imię/);
+  await assert.rejects(() => createPerson(client, { ...baseFields, lastName: '' }, null, 'admin@example.test'), /Nazwisko/);
 
   const person = await createPerson(client, baseFields, null, 'admin@example.test');
   await assert.rejects(() => updatePerson(client, person.personId, { ...baseFields, categoryId: '' }, 'admin@example.test'), /Kategoria/);
@@ -161,7 +173,7 @@ test('resolvePersonId: an unknown value falls to the account branch, which the c
 
 test('merge: the person becomes a normal member keyed by the account e-mail', async () => {
   const client = createInMemoryFirestoreClient();
-  seedAccount(client, { fullName: '', nickname: null, sectionId: '', categoryId: null });
+  seedAccount(client, { lastName: '', firstName: '', nickname: null, sectionId: '', categoryId: null });
   const person = await createPerson(client, baseFields, 'opiekun@example.test', 'admin@example.test');
   const eventId = 'event-1';
 
@@ -184,7 +196,8 @@ test('merge: the person becomes a normal member keyed by the account e-mail', as
   assert.equal(merged?.ownerPersonId, null, 'a member never keeps an owner');
 
   const member = await client.getDoc<Record<string, unknown>>('members', accountEmail);
-  assert.equal(member?.fullName, 'Jan Kowalski', 'the person fills the account name when it is empty');
+  assert.equal(member?.firstName, 'Jan', 'the person fills the account first name when it is empty');
+  assert.equal(member?.lastName, 'Kowalski', 'the person fills the account last name when it is empty');
   assert.equal(member?.nickname, 'Wilk');
   assert.equal(member?.sectionId, 'krakow');
   assert.equal(member?.categoryId, 'wojownik');
@@ -230,7 +243,8 @@ test('merge: the account wins every conflict and only has blanks filled', async 
   assert.deepEqual(result.outcome.memberFilled, [], 'a fully populated account has no blanks to fill');
 
   const member = await client.getDoc<Record<string, unknown>>('members', accountEmail);
-  assert.equal(member?.fullName, 'Kasia Nowak', 'the account identity is never overwritten');
+  assert.equal(member?.firstName, 'Kasia', 'the account identity is never overwritten');
+  assert.equal(member?.lastName, 'Nowak', 'the account identity is never overwritten');
   assert.equal(member?.sectionId, 'warszawa');
 
   const signup = await client.getDoc<{ attending: boolean }>('signups', `${eventId}_${accountEmail}`);
@@ -249,7 +263,7 @@ test('merge: the account wins every conflict and only has blanks filled', async 
 
 test('merge recomputes blanks and the profile at apply time, so a newer account value is never overwritten', async () => {
   const client = createInMemoryFirestoreClient();
-  seedAccount(client, { fullName: '', nickname: null, sectionId: '', categoryId: null });
+  seedAccount(client, { lastName: '', firstName: '', nickname: null, sectionId: '', categoryId: null });
   const person = await createPerson(client, baseFields, 'opiekun@example.test', 'admin@example.test');
   client.seed('listaWyjazdowaProfile', person.personId, { weaponIds: ['tarcza'], wpisowePaid: false });
 
@@ -259,7 +273,7 @@ test('merge recomputes blanks and the profile at apply time, so a newer account 
 
   // The account fills its own identity and weapons after planning, but before the merge is applied
   // (the same window a transaction retry opens up). Those newer values must survive.
-  await client.setDoc('members', accountEmail, { fullName: 'Kasia Nowak', nickname: 'Kasia', sectionId: 'warszawa', categoryId: 'thing' });
+  await client.setDoc('members', accountEmail, { lastName: 'Nowak', firstName: 'Kasia', nickname: 'Kasia', sectionId: 'warszawa', categoryId: 'thing' });
   await client.setDoc('listaWyjazdowaProfile', accountEmail, { weaponIds: ['miecz'], wpisowePaid: false });
 
   const applied = await client.runTransaction((tx) => applyPersonMerge(tx, planned.plan, 'admin@example.test'));
@@ -268,7 +282,8 @@ test('merge recomputes blanks and the profile at apply time, so a newer account 
   assert.deepEqual(applied.outcome.memberFilled, [], 'a now-populated account has no blanks left to fill');
 
   const member = await client.getDoc<Record<string, unknown>>('members', accountEmail);
-  assert.equal(member?.fullName, 'Kasia Nowak', 'the newer account name must survive');
+  assert.equal(member?.firstName, 'Kasia', 'the newer account name must survive');
+  assert.equal(member?.lastName, 'Nowak', 'the newer account name must survive');
   assert.equal(member?.sectionId, 'warszawa');
 
   const profile = await client.getDoc<{ weaponIds: string[] }>('listaWyjazdowaProfile', accountEmail);

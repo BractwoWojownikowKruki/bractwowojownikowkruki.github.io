@@ -37,13 +37,22 @@ function categoryPillBroccoliIconHtml(categoryId, mode = 'person') {
     : '<span class="brokul-pill-icon" role="img" aria-label="Brokuł">🥦</span>';
 }
 
+// KRKG-0103: the small "Nazwisko, Imię" line under a name pill - see personSubline() in
+// display-name.js for how the string itself is computed. Kept as its own span rather than baked
+// into the pill's own <span>, so the pill markup stays identical to before when no subline is given.
+function personPillSublineHtml(subline) {
+  return subline ? `<span class="person-pill-subline">${personPillEscapeHtml(subline)}</span>` : '';
+}
+
 /**
  * Renders a person's name as the shared colored category pill.
  *
- * @param {{ name: string, categoryId?: string|null, categoryLabel?: string|null, accountless?: boolean, extraClass?: string, mode?: 'person'|'category-label' }} person
+ * @param {{ name: string, categoryId?: string|null, categoryLabel?: string|null, accountless?: boolean, extraClass?: string, mode?: 'person'|'category-label', subline?: string|null }} person
  *   `name` is the already-computed display name; `categoryLabel` is the resolved label (the caller
  *   owns the lookup-list map), defaulting to the raw id or "Brak statusu"; `extraClass` appends an
- *   extra class (e.g. a summary chip) without duplicating the class attribute.
+ *   extra class (e.g. a summary chip) without duplicating the class attribute. `subline`, when given
+ *   (KRKG-0103, see personSubline() in display-name.js), wraps the pill in an extra block so a small
+ *   "Nazwisko, Imię" line renders underneath it; omitted, the output is unchanged from before.
  */
 function personPillHtml(person) {
   const categoryId = person.categoryId ?? null;
@@ -54,5 +63,7 @@ function personPillHtml(person) {
     : ` title="${personPillEscapeAttr(label)}"`;
   const accountlessIcon = person.accountless ? personPillIconHtml() : '';
   const broccoliIcon = categoryPillBroccoliIconHtml(categoryId, person.mode);
-  return `<span class="${classes}"${categoryAttrs}>${accountlessIcon}${broccoliIcon}${personPillEscapeHtml(person.name)}</span>`;
+  const pill = `<span class="${classes}"${categoryAttrs}>${accountlessIcon}${broccoliIcon}${personPillEscapeHtml(person.name)}</span>`;
+  if (!person.subline) return pill;
+  return `<span class="person-pill-cell">${pill}${personPillSublineHtml(person.subline)}</span>`;
 }

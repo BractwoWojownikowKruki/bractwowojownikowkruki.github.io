@@ -64,18 +64,24 @@ function splitEquipmentByOwnership(items) {
 
 /**
  * Candidates for the owner `<input list>` datalist, given what the member has typed so far. A
- * pure function (no DOM) so the matching rule can be unit-tested directly - same
- * displayName()-based, Polish-locale-aware substring match the rest of this site's filters use
- * (see czlonkowie.js's renderTable filter). An empty/whitespace-only query matches nothing, same
- * as the datalist has nothing useful to suggest until the member starts typing.
+ * pure function (no DOM) so the matching rule can be unit-tested directly - Polish-locale-aware
+ * substring match, same convention as the rest of this site's filters (see czlonkowie.js's
+ * renderTable filter). Matches against displayName() (ksywka/imię) AND personSubline()
+ * (nazwisko, imię) together - KRKG-0103: displayName() alone only shows the first name once a
+ * person has no ksywka, so matching on it exclusively would silently stop finding someone by
+ * their surname. An empty/whitespace-only query matches nothing, same as the datalist has
+ * nothing useful to suggest until the member starts typing.
  *
- * @param {Array<{nickname?: string|null, fullName?: string|null, email?: string|null}>} roster
+ * @param {Array<{nickname?: string|null, firstName?: string|null, lastName?: string|null, email?: string|null}>} roster
  * @param {string} query
  */
 function filterOwnerCandidates(roster, query) {
   const needle = String(query ?? '').trim().toLocaleLowerCase('pl');
   if (!needle) return [];
-  return roster.filter(person => displayName(person).toLocaleLowerCase('pl').includes(needle));
+  return roster.filter(person => {
+    const haystack = [displayName(person), personSubline(person)].filter(Boolean).join(' ');
+    return haystack.toLocaleLowerCase('pl').includes(needle);
+  });
 }
 
 let equipment = [];
@@ -83,7 +89,7 @@ let equipmentCategories = [];
 let sections = [];
 let categoryLabelById = new Map();
 let sectionLabelById = new Map();
-// personId -> { personId, accountless, email, fullName, nickname, sectionId, categoryId } -
+// personId -> { personId, accountless, email, lastName, firstName, nickname, sectionId, categoryId } -
 // covers both members (personId === lowercased e-mail) and accountless persons, mirroring
 // czlonkowie.js's own member+roster union. Resolves belongsToPersonId to a display name/section
 // for the private table and for auto-filling Sekcja when an owner is picked in the add form.
@@ -466,7 +472,8 @@ initGoogleSignIn({
         personId: m.email,
         accountless: false,
         email: m.email,
-        fullName: m.fullName,
+        lastName: m.lastName,
+        firstName: m.firstName,
         nickname: m.nickname,
         sectionId: m.sectionId,
         categoryId: m.categoryId,
@@ -477,7 +484,8 @@ initGoogleSignIn({
           personId: person.personId,
           accountless: true,
           email: null,
-          fullName: person.fullName,
+          lastName: person.lastName,
+          firstName: person.firstName,
           nickname: person.nickname,
           sectionId: person.sectionId,
           categoryId: person.categoryId,

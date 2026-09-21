@@ -84,6 +84,8 @@ const duesFields = {
 const profileFields = {
   memberEmail: 'roleRestricted',
   name: 'roleRestricted',
+  lastName: 'roleRestricted',
+  firstName: 'roleRestricted',
   nickname: 'roleRestricted',
   sectionId: 'roleRestricted',
   folderId: 'roleRestricted',

@@ -978,20 +978,13 @@ async function handleMembershipSections(req: IncomingMessage, res: ServerRespons
 async function handleMembershipApply(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateSessionOnly(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
-  const fullNameInput = optionalTrimmedString(
-    body.fullName,
-    LW_MAX_NAME_LENGTH,
-    `Imię i nazwisko może mieć najwyżej ${LW_MAX_NAME_LENGTH} znaków.`,
-  );
+  const lastName = requireTrimmedString(body.lastName, LW_MAX_NAME_LENGTH, 'Nazwisko jest wymagane.');
+  const firstName = requireTrimmedString(body.firstName, LW_MAX_NAME_LENGTH, 'Imię jest wymagane.');
   const nicknameInput = optionalTrimmedString(
     body.nickname,
     LW_MAX_NAME_LENGTH,
     `Ksywa może mieć najwyżej ${LW_MAX_NAME_LENGTH} znaków.`,
   );
-  const fullName = fullNameInput ?? nicknameInput;
-  if (fullName === null) {
-    throw new AuthError('Podaj Imię i nazwisko lub Ksywę.', 400);
-  }
   const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
   const lookupLists = await getAllLookupLists(deps.firestore);
   requireKnownLookupId(lookupLists.sections, sectionId, 'Wybrana sekcja nie istnieje.');
@@ -1007,7 +1000,7 @@ async function handleMembershipApply(req: IncomingMessage, res: ServerResponse, 
         changes: [{ field: 'status', ...(existing ? { before: existing.status } : {}), after: 'pending' }],
       };
     },
-    tx => applyForMembershipInTransaction(tx, identity.email, { fullName, nickname: nicknameInput, sectionId }),
+    tx => applyForMembershipInTransaction(tx, identity.email, { lastName, firstName, nickname: nicknameInput, sectionId }),
   );
   sendJson(res, 200, { member });
 }
@@ -1729,7 +1722,7 @@ async function transferOnePhoto(deps: ServerDeps, actorEmail: string, fileId: st
 // KRKG-0070 (addendum): replaces "Przenieś" (handleAdminMovePerson) as the way to approve one or
 // more pending uploads at once - moves every file in `fileIds` from the member's stable
 // stagingFolderId into their stable public driveFolderId, creating the public folder (named ONLY
-// from the admin-supplied `name`, never from MemberDoc.fullName/nickname/the staging folder's own
+// from the admin-supplied `name`, never from MemberDoc.lastName/firstName/nickname/the staging folder's own
 // name - see design.md) the first time only. `targetCategory`/`name`/`description` are only
 // required (and only meaningful) when the member has no public folder yet - the admin panel's
 // Upload view doesn't even send them for an already-published member, and this handler must not
@@ -2117,26 +2110,18 @@ async function handleListaWyjazdowaGetMember(req: IncomingMessage, res: ServerRe
 // and handleAdminUpdateMemberProfile (admin panel's Spis Ludności page, KRKG-0049) - same field
 // validation either way, only the auth gate and target-resolution differ.
 async function parseMemberWritableFields(deps: ServerDeps, body: Record<string, unknown>): Promise<MemberWritableFields> {
-  const fullNameInput = optionalTrimmedString(
-    body.fullName,
-    LW_MAX_NAME_LENGTH,
-    `Imię i nazwisko może mieć najwyżej ${LW_MAX_NAME_LENGTH} znaków.`,
-  );
+  // KRKG-0103: Nazwisko and Imię are both required now - no more "at least one of
+  // fullName/nickname" fallback. Ksywa stays genuinely optional.
+  const lastName = requireTrimmedString(body.lastName, LW_MAX_NAME_LENGTH, 'Nazwisko jest wymagane.');
+  const firstName = requireTrimmedString(body.firstName, LW_MAX_NAME_LENGTH, 'Imię jest wymagane.');
   const nicknameInput = optionalTrimmedString(
     body.nickname,
     LW_MAX_NAME_LENGTH,
     `Ksywa może mieć najwyżej ${LW_MAX_NAME_LENGTH} znaków.`,
   );
-  // Ksywa is never backfilled from Imię i nazwisko - it stays genuinely optional. Imię i
-  // nazwisko falls back to Ksywa so a member who only gives one identifier still has a
-  // non-empty fullName (used for the Drive folder name and any display that reads it
-  // directly); if neither is given there is nothing to identify the member by at all.
-  const fullName = fullNameInput ?? nicknameInput;
-  if (fullName === null) {
-    throw new AuthError('Podaj Imię i nazwisko lub Ksywę.', 400);
-  }
   const fields: MemberWritableFields = {
-    fullName,
+    lastName,
+    firstName,
     nickname: nicknameInput,
     sectionId: requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.'),
   };
@@ -2169,7 +2154,8 @@ async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerRe
         actor: { email: identity.email },
         resource: { kind: 'member', key: `member:${targetEmail.toLowerCase()}`, display: 'member' },
         changes: [
-          { field: 'name', ...(existing ? { before: existing.fullName } : {}), after: fields.fullName },
+          { field: 'lastName', ...(existing ? { before: existing.lastName } : {}), after: fields.lastName },
+          { field: 'firstName', ...(existing ? { before: existing.firstName } : {}), after: fields.firstName },
           { field: 'nickname', ...(existing ? { before: existing.nickname } : {}), after: fields.nickname },
           { field: 'sectionId', ...(existing ? { before: existing.sectionId } : {}), after: fields.sectionId },
         ],
@@ -2191,7 +2177,7 @@ async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerRe
 // purpose: that helper is shared with the self-service PUT above, and categoryId is admin-owned
 // only (design.md §7, same as driveFolderId) - self-service must never be able to set it. Omitting
 // it from the body leaves it untouched (so older callers/tests that only ever sent
-// fullName/nickname/sectionId keep working); the Zarządzanie ludźmi page always sends the row's
+// lastName/firstName/nickname/sectionId keep working); the Zarządzanie ludźmi page always sends the row's
 // current value alongside those on every save (see zarzadzanie-ludzmi.js's saveMemberProfileField),
 // with null meaning "no type assigned" - same as sending an explicit null, not "leave unchanged".
 async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -2201,11 +2187,12 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
   if (typeof email !== 'string' || !email.trim()) throw new AuthError('Brak email.', 400);
   const existing = await getMember(deps.firestore, email);
   if (!existing) throw new AuthError('Nie znaleziono takiego członka.', 404);
-  // fullName/nickname/sectionId are only validated-and-saved as a bundle when at least one of
-  // them is actually present - same "send it or leave it untouched" shape as categoryId/hidden
-  // below, so e.g. zarzadzanie-ludzmi.js's hidden checkbox can PUT { email, hidden } alone without
-  // also having to resend (and re-pass validation for) the name/section fields already showing.
-  const hasMemberFields = body.fullName !== undefined || body.nickname !== undefined || body.sectionId !== undefined;
+  // lastName/firstName/nickname/sectionId are only validated-and-saved as a bundle when at least
+  // one of them is actually present - same "send it or leave it untouched" shape as
+  // categoryId/hidden below, so e.g. zarzadzanie-ludzmi.js's hidden checkbox can PUT
+  // { email, hidden } alone without also having to resend (and re-pass validation for) the
+  // name/section fields already showing.
+  const hasMemberFields = body.lastName !== undefined || body.firstName !== undefined || body.nickname !== undefined || body.sectionId !== undefined;
   const fields = hasMemberFields ? await parseMemberWritableFields(deps, body) : undefined;
   let categoryId: string | null | undefined;
   if (body.categoryId !== undefined) {
@@ -2239,7 +2226,8 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
         resource: { kind: 'member', key: `member:${email.toLowerCase()}`, display: 'member' },
         changes: [
           ...(fields ? [
-            { field: 'name', before: current?.fullName ?? null, after: fields.fullName },
+            { field: 'lastName', before: current?.lastName ?? null, after: fields.lastName },
+            { field: 'firstName', before: current?.firstName ?? null, after: fields.firstName },
             { field: 'nickname', before: current?.nickname ?? null, after: fields.nickname },
             { field: 'sectionId', before: current?.sectionId ?? null, after: fields.sectionId },
           ] : []),
@@ -2532,8 +2520,12 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
 
   sendJson(res, 200, {
     // A member on the allowlist with no `members/{email}` document yet (never opened "Mój
-    // profil") still gets a usable name, same fallback as wyjazd.js's displayName().
-    fullName: member?.fullName ?? email.split('@')[0],
+    // profil") still gets a usable name, same fallback as wyjazd.js's displayName() - here it's
+    // covered by sending `email` below and letting displayName()'s own email-local-part fallback
+    // handle it, rather than precomputing it server-side.
+    lastName: member?.lastName ?? null,
+    firstName: member?.firstName ?? null,
+    email,
     nickname: member?.nickname ?? null,
     // sectionId/categoryId/weaponIds alongside their *Label/*s (KRKG-0074) - the profile drawer
     // renders Sekcja/Status as the same colored pills as every dense table ([data-section]/
@@ -2863,7 +2855,7 @@ async function handleListaWyjazdowaPutEventEquipment(req: IncomingMessage, res: 
 // Enumerates the live kruki Google Group allowlist (same as GET /members/directory, KRKG-0045),
 // not just members/{email} docs: a club member who never opened "Mój profil" still has to be
 // settable as attending/not-attending a trip, which is only possible if their row exists at all.
-// fullName/nickname/sectionId/categoryId are null for such a member; the event page's "Wszyscy"
+// lastName/firstName/nickname/sectionId/categoryId are null for such a member; the event page's "Wszyscy"
 // filter is what surfaces them (see wyjazd.js's renderRoster), hidden by default behind "tylko
 // zgłoszeni" so a long allowlist doesn't bury the people who already signed up.
 async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
@@ -2907,7 +2899,8 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       accountless: false,
       ownerPersonId: null,
       email,
-      fullName: member?.fullName ?? null,
+      lastName: member?.lastName ?? null,
+      firstName: member?.firstName ?? null,
       nickname: member?.nickname ?? null,
       sectionId: member?.sectionId ?? null,
       categoryId: member?.categoryId ?? null,
@@ -2981,7 +2974,7 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
   ]);
   const weaponLabelById = new Map(lookupLists.weapons.map((w) => [w.id, w.label]));
   const ownerName = person.ownerPersonId
-    ? (ownerMember ? (ownerMember.nickname || ownerMember.fullName || person.ownerPersonId) : person.ownerPersonId)
+    ? (ownerMember ? (ownerMember.nickname || [ownerMember.firstName, ownerMember.lastName].filter(Boolean).join(' ') || person.ownerPersonId) : person.ownerPersonId)
     : null;
   sendJson(res, 200, {
     profile: {
@@ -3012,8 +3005,8 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
 // GET /members/directory (KRKG-0045): the club-wide "Lista Członków" page. Same allowlist
 // enumeration as the Lista Wyjazdowa roster above (the same live kruki Google Group membership
 // that already gates authenticateWojownicyUpload/authenticate), so someone who has site access but
-// never saved a profile still shows up, just with blank fullName/nickname/sectionId rather than
-// being missing entirely.
+// never saved a profile still shows up, just with blank lastName/firstName/nickname/sectionId
+// rather than being missing entirely.
 async function handleMembersDirectory(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   await deps.authenticateWojownicyUpload(req, res);
   const [emails, members, lookupLists] = await Promise.all([
@@ -3030,7 +3023,8 @@ async function handleMembersDirectory(req: IncomingMessage, res: ServerResponse,
     const member = memberByEmail.get(email);
     return {
       email,
-      fullName: member?.fullName ?? null,
+      lastName: member?.lastName ?? null,
+      firstName: member?.firstName ?? null,
       nickname: member?.nickname ?? null,
       sectionId: member?.sectionId ?? null,
       sectionLabel: member?.sectionId ? (sectionLabelById.get(member.sectionId) ?? member.sectionId) : null,
@@ -3414,7 +3408,7 @@ async function handleListaWyjazdowaGetPersons(req: IncomingMessage, res: ServerR
   const ownerName = (ownerPersonId: string | null): string | null => {
     if (!ownerPersonId) return null;
     const owner = memberByEmail.get(ownerPersonId.toLowerCase());
-    return owner ? (owner.nickname || owner.fullName || ownerPersonId) : ownerPersonId;
+    return owner ? (owner.nickname || [owner.firstName, owner.lastName].filter(Boolean).join(' ') || ownerPersonId) : ownerPersonId;
   };
   sendJson(res, 200, {
     persons: persons.map(({ data: person }) => ({
@@ -3600,10 +3594,14 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
 
   const ksywka = requireTrimmedString(body.ksywka, LW_MAX_NAME_LENGTH, 'Ksywka jest wymagana.');
   const categoryId = requireTrimmedString(body.categoryId, LW_MAX_NAME_LENGTH, 'Kategoria jest wymagana.');
+  // KRKG-0103: quick-add used to hardcode empty firstName/lastName - now that validatePersonFields
+  // requires both, they have to come from the request body like every other person field.
+  const firstName = requireTrimmedString(body.firstName, LW_MAX_NAME_LENGTH, 'Imię osoby jest wymagane.');
+  const lastName = requireTrimmedString(body.lastName, LW_MAX_NAME_LENGTH, 'Nazwisko osoby jest wymagane.');
   const ownerMember = await getMember(deps.firestore, ownerKey);
   const sectionId = ownerMember?.sectionId?.trim();
   if (!sectionId) throw new AuthError('Opiekun nie ma ustawionej sekcji.', 400);
-  const fields: PersonWritableFields = { ksywka, firstName: '', lastName: '', categoryId, sectionId, weaponIds: [] };
+  const fields: PersonWritableFields = { ksywka, firstName, lastName, categoryId, sectionId, weaponIds: [] };
   const personId = randomUUID();
   const { result } = await executeDeclaredAuditedMutation(
     deps,

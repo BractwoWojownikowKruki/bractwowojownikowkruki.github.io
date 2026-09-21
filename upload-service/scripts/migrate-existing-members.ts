@@ -79,12 +79,14 @@ export async function migrateActiveMembers(
     if (existing) {
       updated++;
       if (!options.dryRun) {
-        // Only overwrite fullName if it still exactly matches the email - see the file header
-        // for why this signature, not updatedBy, is the safe check.
-        const looksLikeUnfixedMigrationBug = existing.fullName === existing.email;
+        // Only overwrite lastName if it still exactly matches the email - see the file header
+        // for why this signature, not updatedBy, is the safe check. KRKG-0103: this script
+        // predates the lastName/firstName split; it only ever fills the (legacy, single) name
+        // slot, now lastName, and never touches firstName on an existing doc.
+        const looksLikeUnfixedMigrationBug = existing.lastName === existing.email;
         const record: MemberDoc = {
           ...existing,
-          fullName: looksLikeUnfixedMigrationBug ? fullName : existing.fullName,
+          lastName: looksLikeUnfixedMigrationBug ? fullName : existing.lastName,
           status: 'active',
           appliedAt: existing.appliedAt ?? now,
           approvedAt: existing.approvedAt ?? now,
@@ -99,7 +101,8 @@ export async function migrateActiveMembers(
       if (!options.dryRun) {
         const record: MemberDoc = {
           email,
-          fullName,
+          lastName: fullName,
+          firstName: '',
           nickname: null,
           sectionId: 'nieznana',
           categoryId: null,
