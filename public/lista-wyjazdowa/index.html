@@ -52,18 +52,15 @@
         </div>
 
         <div id="events-panel" hidden>
-          <!-- Same persistent sub-nav as wyjazd/index.html and skladki/index.html - "this is an
+          <!-- Same shared top-level dropdown (shared/lw-nav.js) as wyjazd/index.html - "this is an
                app within the site" means every view inside it keeps quick access back to the
                list and to creating a new event, not just the page you happened to land on.
-               "Dodaj wyjazd" here just reveals the inline form below (see the click handler in
-               lista-wyjazdowa.js) rather than navigating, since the form already lives on this
-               page; the other two pages link to /lista-wyjazdowa/?new=1 instead, which this
-               page's own load logic detects and opens the same way. -->
-          <nav class="lw-subnav">
-            <a href="/lista-wyjazdowa/" class="lw-subnav-link lw-subnav-link--active" id="lw-subnav-list">Lista wyjazdów</a>
-            <a href="?new=1" class="lw-subnav-link" id="lw-subnav-add">Dodaj wyjazd</a>
-            <a href="skladki/" class="lw-subnav-link">Składki</a>
-          </nav>
+               lista-wyjazdowa.js intercepts a click on its "+ Dodaj wyjazd" item to reveal the
+               inline form below in place (see openAddEventForm()) rather than navigating, since
+               the form already lives on this page; the detail page has no such form, so there the
+               same item's href (/lista-wyjazdowa/?new=1) just navigates here, which this page's
+               own load logic detects and opens the same way. -->
+          <div id="lw-nav-container"></div>
           <form id="add-event-form" hidden>
             <div class="field">
               <label for="new-event-name">Nazwa</label>
@@ -103,6 +100,7 @@
   <script src="../shared/display-name.js"></script>
   <script src="../shared/companion-add.js"></script>
   <script src="../shared/event-edit-form.js"></script>
+  <script src="../shared/lw-nav.js"></script>
   <script src="lista-wyjazdowa.js"></script>
 </body>
 </html>

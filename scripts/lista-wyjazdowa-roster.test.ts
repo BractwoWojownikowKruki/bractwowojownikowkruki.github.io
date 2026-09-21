@@ -4,9 +4,11 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8');
+const page = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/index.html', import.meta.url), 'utf8');
 const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 const companionAddSource = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
 const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-form.js', import.meta.url), 'utf8');
+const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.meta.url), 'utf8');
 
 class Element {
   id: string;
@@ -50,7 +52,7 @@ const elementIds = [
   'event-title', 'event-meta',
   'event-edit-toggle', 'event-edit-panel', 'event-history-link', 'skladka-fee-history-link',
   'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category',
-  'event-equipment-panel', 'event-equipment-table', 'event-equipment-content',
+  'event-equipment-panel', 'event-equipment-table', 'event-equipment-content', 'lw-nav-container',
 ];
 
 function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]> } = {}) {
@@ -144,6 +146,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
   vm.runInNewContext(companionAddSource, context, { filename: 'companion-add.js' });
   vm.runInNewContext(eventEditFormSource, context, { filename: 'event-edit-form.js' });
+  vm.runInNewContext(lwNavSource, context, { filename: 'lw-nav.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   return {
     elements,
@@ -517,4 +520,33 @@ test('a failed quick-add changes nothing and reports the error', async () => {
 
   assert.equal(roster.innerHTML, before);
   assert.match(harness.elements.get('lw-error')!.textContent, /Nie udało się dodać osoby/);
+});
+
+test('the old lw-subnav pill row is gone, replaced by the shared dropdown', () => {
+  assert.doesNotMatch(page, /lw-subnav/);
+  assert.match(page, /id="lw-nav-container"/);
+  assert.match(page, /shared\/lw-nav\.js/);
+});
+
+test('the trip detail page renders the shared dropdown with the open trip highlighted, not "Wszystkie"', async () => {
+  const harness = createHarness(event('50 zł'));
+  await harness.signIn();
+  const nav = harness.elements.get('lw-nav-container')!.innerHTML;
+  assert.match(nav, /class="lw-nav-item lw-nav-item--active" role="menuitem">Wyjazd/);
+  assert.doesNotMatch(nav, /lw-nav-item--all lw-nav-item--active/);
+  // "Wszystkie" keeps its permanent underline even though it isn't the active item here.
+  assert.match(nav, /class="lw-nav-item lw-nav-item--all"[^>]*>Wszystkie/);
+});
+
+test('clicking the dropdown toggle on the trip detail page opens and closes the menu', async () => {
+  const harness = createHarness(event('50 zł'));
+  await harness.signIn();
+  const nav = harness.elements.get('lw-nav-container')!;
+  assert.match(nav.innerHTML, /class="lw-nav-menu" role="menu" hidden>/);
+
+  await nav.clickWith(clickTarget('.lw-nav-toggle'));
+  assert.doesNotMatch(nav.innerHTML, /class="lw-nav-menu" role="menu" hidden>/);
+
+  await nav.clickWith(clickTarget('.lw-nav-toggle'));
+  assert.match(nav.innerHTML, /class="lw-nav-menu" role="menu" hidden>/);
 });

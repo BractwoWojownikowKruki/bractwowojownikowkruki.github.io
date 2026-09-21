@@ -7,6 +7,7 @@ const source = readFileSync(new URL('../public/lista-wyjazdowa/lista-wyjazdowa.j
 const displayNameSource = readFileSync(new URL('../public/shared/display-name.js', import.meta.url), 'utf8');
 const companionAddSource = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
 const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-form.js', import.meta.url), 'utf8');
+const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../public/lista-wyjazdowa/index.html', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/member-area.css', import.meta.url), 'utf8');
 
@@ -30,8 +31,8 @@ class Element {
   async click() {
     await Promise.all((this.listeners.get('click') ?? []).map((listener) => listener({ target: this })));
   }
-  async clickWith(target: unknown) {
-    await Promise.all((this.listeners.get('click') ?? []).map((listener) => listener({ target })));
+  async clickWith(target: unknown, eventProps: Record<string, unknown> = {}) {
+    await Promise.all((this.listeners.get('click') ?? []).map((listener) => listener({ target, ...eventProps })));
   }
   async dispatch(type: string, event: Record<string, unknown> = {}) {
     await Promise.all((this.listeners.get(type) ?? []).map((listener) => listener({ preventDefault: () => {}, target: this, ...event })));
@@ -58,7 +59,7 @@ function clickTarget(selector: string, dataset: Record<string, string> = {}) {
 
 const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'no-profile-panel', 'events-panel',
-  'events-list', 'toggle-past-events', 'events-error', 'lw-subnav-list', 'lw-subnav-add',
+  'events-list', 'toggle-past-events', 'events-error', 'lw-nav-container',
   'lw-page-title', 'add-event-form', 'add-event-error',
   // Rendered into #events-list's innerHTML in the real DOM; the stub can't parse that, so the
   // panel's controls are looked up directly by id.
@@ -138,6 +139,7 @@ function createHarness(options: HarnessOptions = {}) {
   vm.runInNewContext(displayNameSource, context, { filename: 'display-name.js' });
   vm.runInNewContext(companionAddSource, context, { filename: 'companion-add.js' });
   vm.runInNewContext(eventEditFormSource, context, { filename: 'event-edit-form.js' });
+  vm.runInNewContext(lwNavSource, context, { filename: 'lw-nav.js' });
   vm.runInNewContext(source, context, { filename: 'lista-wyjazdowa.js' });
 
   return {
@@ -326,4 +328,51 @@ test('a newly created event shows 0 os. instead of undefined os. before the next
   assert.match(listHtml, /Nowy wyjazd/);
   assert.match(listHtml, /0 os\./);
   assert.doesNotMatch(listHtml, /undefined os\./);
+});
+
+test('the old lw-subnav pill row is gone, replaced by the shared dropdown', () => {
+  assert.doesNotMatch(page, /lw-subnav/);
+  assert.match(page, /id="lw-nav-container"/);
+  assert.match(page, /shared\/lw-nav\.js/);
+});
+
+test('signing in renders the dropdown with "Wszystkie" active and no specific trip open', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const nav = harness.elements.get('lw-nav-container')!.innerHTML;
+  assert.match(nav, /class="lw-nav-item lw-nav-item--all lw-nav-item--active"[^>]*>Wszystkie/);
+  assert.match(nav, /Wyjazd Letni/);
+});
+
+test('clicking the dropdown toggle opens the menu and toggles it back closed', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const nav = harness.elements.get('lw-nav-container')!;
+  assert.match(nav.innerHTML, /class="lw-nav-menu" role="menu" hidden>/);
+
+  await nav.clickWith({ closest: (q: string) => (q === '.lw-nav-toggle' ? {} : null) });
+  assert.doesNotMatch(nav.innerHTML, /class="lw-nav-menu" role="menu" hidden>/);
+
+  await nav.clickWith({ closest: (q: string) => (q === '.lw-nav-toggle' ? {} : null) });
+  assert.match(nav.innerHTML, /class="lw-nav-menu" role="menu" hidden>/);
+});
+
+test('clicking "+ Dodaj wyjazd" in the dropdown reveals the inline form in place, no navigation', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const nav = harness.elements.get('lw-nav-container')!;
+  const form = harness.elements.get('add-event-form')!;
+  const title = harness.elements.get('lw-page-title')!;
+  form.hidden = true; // matches the real markup's default `hidden` attribute
+
+  let defaultPrevented = false;
+  await nav.clickWith(
+    { closest: (q: string) => (q === '#lw-nav-add' ? {} : null) },
+    { preventDefault: () => { defaultPrevented = true; } },
+  );
+
+  assert.equal(defaultPrevented, true);
+  assert.equal(form.hidden, false);
+  assert.equal(title.textContent, 'Dodaj wyjazd');
+  assert.equal(harness.elements.get('events-list')!.hidden, true);
 });
