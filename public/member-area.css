@@ -632,6 +632,16 @@
   white-space: nowrap;
 }
 
+/* KRKG-0101: the "Jadę/Nie jadę" toggle and the "+ osoba towarzysząca" control share one inline
+   strip. On desktop this is invisible (the row is already a single line), but on mobile the row
+   turns into a column - this wrapper is what keeps the two controls on the same line there. */
+.lw-event-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1rem;
+}
+
 /* "Jadę / Nie jadę" as an actual toggle switch (track + sliding knob) rather than a plain button
    whose only state cue was its text - the on/off state now reads at a glance the way a settings
    switch does everywhere else. Built from a <button aria-pressed> (see lista-wyjazdowa.js), so
@@ -778,7 +788,7 @@ button.lw-skladka-icon:disabled {
 .lw-add-companion {
   display: inline-flex;
   align-items: center;
-  gap: 0.18rem;
+  gap: 0;
   margin-left: 0.3rem;
   padding: 0.1rem 0.35rem;
   border: none;
@@ -803,14 +813,29 @@ button.lw-skladka-icon:disabled {
   font-weight: 700;
 }
 
+/* KRKG-0101: the person figure is drawn in a 24x24 viewBox whose artwork only spans x:8.2..15.8,
+   so the SVG carries ~4.6px of empty padding on each side at 0.85rem. Pull the icon and the label
+   back over that padding so the "+", the figure and "osoba towarzysząca" read as one tight mark
+   instead of three loosely spaced ones. */
 .lw-add-companion-icon {
   width: 0.85rem;
   height: 0.85rem;
+  margin-left: -0.18rem;
+}
+
+.lw-add-companion-label {
+  margin-left: -0.14rem;
 }
 
 @media (max-width: 760px) {
   .lw-add-companion-label {
     display: none;
+  }
+
+  /* KRKG-0101: the roster's tight name cell keeps the icon-only form, but the all-events list has
+     room for the label - show it there so the "+" figure is not a mystery tap target. */
+  .lw-event-row .lw-add-companion-label {
+    display: inline;
   }
 }
 
@@ -819,7 +844,7 @@ button.lw-skladka-icon:disabled {
 .person-pill-icon {
   width: 0.72rem;
   height: 0.72rem;
-  margin-right: 0.18rem;
+  margin-right: -0.08rem;
   vertical-align: -0.06em;
   opacity: 0.85;
 }

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KRKG — CSS tester: Lista wyjazdowa</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --bg: #13100e; --surface: #1e1813; --border: #3d2e1e; --gold: #c4962a;
+      --text: #f5e6c8; --text-muted: #a89070;
+    }
+    body {
+      margin: 0; min-height: 100vh; background: #0c0a09; color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    header {
+      position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap;
+      align-items: center; gap: 1rem; padding: 0.75rem 1.25rem;
+      background: var(--bg); border-bottom: 1px solid var(--border);
+    }
+    .brand { color: var(--gold); font-weight: 700; letter-spacing: 0.4px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; align-items: center; }
+    .group { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+    .group button {
+      font: inherit; font-size: 12px; font-weight: 600; padding: 0.35rem 0.8rem;
+      background: transparent; color: var(--text-muted); border: none; cursor: pointer;
+    }
+    .group button + button { border-left: 1px solid var(--border); }
+    .group button:hover { color: var(--text); }
+    .group button.active { background: color-mix(in srgb, var(--gold) 22%, transparent); color: var(--gold); }
+    .hint { font-size: 12px; color: var(--text-muted); }
+    .stage { display: flex; justify-content: center; padding: 1.5rem 1rem 3rem; }
+    iframe {
+      height: calc(100vh - 120px); min-height: 640px; border: 1px solid var(--border);
+      border-radius: 8px; background: var(--bg); transition: width 0.15s ease;
+    }
+    .note { max-width: 760px; margin: 0.75rem auto 0; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="brand">CSS tester — Lista wyjazdowa</span>
+    <div class="controls">
+      <div class="group" role="group" aria-label="Widok">
+        <button type="button" data-view="lista-wyjazdowa.html" class="active">Lista wyjazdów</button>
+        <button type="button" data-view="wyjazd.html">Szczegóły wyjazdu</button>
+      </div>
+      <div class="group" role="group" aria-label="Szerokość">
+        <button type="button" data-width="360">360</button>
+        <button type="button" data-width="390">390</button>
+        <button type="button" data-width="430" class="active">430</button>
+        <button type="button" data-width="700">700</button>
+        <button type="button" data-width="1200">1200</button>
+      </div>
+      <span class="hint" id="hint">Mobile 430 · Lista wyjazdów</span>
+    </div>
+  </header>
+  <p class="note">Podgląd używa realnych stylów <code>public/style.css</code> i <code>public/member-area.css</code> (plus <code>profile-panel.css</code>), a przyciski i plakietki buduje realny kod z <code>public/shared/</code>. Media queries działają względem szerokości ramki — przełączaj szerokości, żeby zobaczyć widok mobilny i desktopowy.</p>
+  <div class="stage">
+    <iframe id="frame" src="lista-wyjazdowa.html" style="width: 430px" title="Podgląd"></iframe>
+  </div>
+
+  <script>
+    const frame = document.getElementById('frame');
+    const hint = document.getElementById('hint');
+    let view = 'lista-wyjazdowa.html';
+    let width = 430;
+    let viewLabel = 'Lista wyjazdów';
+
+    function refresh() {
+      frame.src = view;
+      frame.style.width = width + 'px';
+      hint.textContent = (width <= 700 ? 'Mobile ' : 'Desktop ') + width + ' · ' + viewLabel;
+    }
+
+    document.querySelectorAll('[data-view]').forEach((button) => {
+      button.addEventListener('click', () => {
+        view = button.dataset.view;
+        viewLabel = button.textContent;
+        document.querySelectorAll('[data-view]').forEach((b) => b.classList.toggle('active', b === button));
+        refresh();
+      });
+    });
+    document.querySelectorAll('[data-width]').forEach((button) => {
+      button.addEventListener('click', () => {
+        width = Number(button.dataset.width);
+        document.querySelectorAll('[data-width]').forEach((b) => b.classList.toggle('active', b === button));
+        refresh();
+      });
+    });
+  </script>
+</body>
+</html>
