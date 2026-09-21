@@ -38,7 +38,7 @@
   --category-color-thing:     #e8642e;
   --category-color-blacha:    #427bff;
   --category-color-kandydat:  #639f09;
-  --category-color-bobo:      #06b6d4;
+  --category-color-bobo:      #f06bb0;
   --category-color-emeryt:    #94a3b8;
   --category-color-default:   var(--text-faint);
 }
@@ -61,6 +61,14 @@
   border: none;
   background: color-mix(in srgb, var(--category-c, var(--category-color-default)) 27%, var(--surface-deep));
   color: color-mix(in srgb, var(--category-c, var(--category-color-default)) 70%, white);
+}
+
+/* KRKG-0101: Bobo's pill is the inverse of Niewiasta's - a light pink fill with dark pink text,
+   instead of Niewiasta's dark fill + light text - so the two pink-family categories stay
+   distinguishable at a glance while reading as a matched pair. */
+.category-name-pill[data-category="bobo"] {
+  background: color-mix(in srgb, var(--category-color-bobo) 32%, white);
+  color: color-mix(in srgb, var(--category-color-bobo) 68%, black);
 }
 
 /* Overrides .czl-field's own border/radius/background on the editable fullName <input>

@@ -36,7 +36,7 @@
   const WEAPON_ITEM_NAMES = {
     tarczownik: 'tarcza',
     wlocznik: 'włócznia',
-    dunczyk: 'topór',
+    dunczyk: 'dun',
   };
   const WEAPON_DISPLAY_ORDER = ['tarczownik', 'wlocznik', 'dunczyk'];
 

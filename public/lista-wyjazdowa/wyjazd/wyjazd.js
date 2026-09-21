@@ -33,7 +33,7 @@ const WEAPON_ICON_KEYS = {
 };
 
 // KRKG-0100: one-letter codes for the roster's tiny caption under the weapon icon - tarcza (T),
-// włócznia (W), topór/DUN (D). Joined in WEAPON_DISPLAY_ORDER, so the same set always reads the same
+// włócznia (W), dun (D). Joined in WEAPON_DISPLAY_ORDER, so the same set always reads the same
 // way ("TW", "TD", "TWD", "WD").
 const WEAPON_LETTERS = {
   tarczownik: 'T',
@@ -433,10 +433,11 @@ function categoryLabelFor(categoryId) {
 
 // Short item names (not the "-townik"/"-nik" person-role labels weaponLabelFor returns) - always
 // used for weaponGroupLabel below, single weapon or not: "tarcza" rather than "Tarczownik", etc.
+// The axe is labelled "dun" (Duńczyk), not "topór" - that is its proper name in the UI (KRKG-0101).
 const WEAPON_ITEM_NAMES = {
   tarczownik: 'tarcza',
   wlocznik: 'włócznia',
-  dunczyk: 'topór',
+  dunczyk: 'dun',
 };
 // Fixed display order for a multi-weapon label, independent of weaponIds' own array order - same
 // order weaponGroupIconFile sorts by, so the same combination always prints the same way.
