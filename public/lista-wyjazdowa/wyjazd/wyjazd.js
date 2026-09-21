@@ -186,6 +186,26 @@ let canManageSkladki = false;
 let canManagePeople = false;
 let cachedEvent = null;
 
+// Shared top-level dropdown (shared/lw-nav.js): `cachedNavEvents` is the full events list fetched
+// alongside this trip's own data in loadAll(), and `lwNavOpen` mirrors the events list page's own
+// module-level-boolean-drives-re-render convention for the menu's expanded/collapsed state.
+let cachedNavEvents = [];
+let lwNavOpen = false;
+
+function renderLwNav() {
+  document.getElementById('lw-nav-container').innerHTML = window.LwNav.html({
+    events: cachedNavEvents,
+    currentEventId: eventId,
+    open: lwNavOpen,
+  });
+}
+
+document.getElementById('lw-nav-container').addEventListener('click', (e) => {
+  if (!e.target.closest('.lw-nav-toggle')) return;
+  lwNavOpen = !lwNavOpen;
+  renderLwNav();
+});
+
 // KRKG-0102: the fee edit form and the event edit form (name/date/description/cancel) are both
 // collapsed by default behind an Edytuj toggle - these track whether each is currently open, so a
 // re-render (after a save, or loadAll's refresh) can restore the same open/closed state instead of
@@ -883,6 +903,8 @@ async function loadAll() {
   ]);
   canManageSkladki = roleValue;
   canManagePeople = peopleValue === true;
+  cachedNavEvents = events;
+  renderLwNav();
   sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
   categoryLabelById = new Map((lookupLists.categories ?? []).map((c) => [c.id, c.label]));
   equipmentCategoryLabelById = new Map((lookupLists.equipmentCategories ?? []).map((c) => [c.id, c.label]));

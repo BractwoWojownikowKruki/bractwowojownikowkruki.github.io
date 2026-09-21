@@ -6,6 +6,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/index.html', import.meta.url), 'utf8');
 const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-form.js', import.meta.url), 'utf8');
+const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.meta.url), 'utf8');
 
 class Element {
   hidden = false;
@@ -36,7 +37,7 @@ const elementIds = [
   'event-meta', 'event-edit-toggle', 'event-edit-panel', 'event-history-link',
   'skladka-fee-history-link', 'lw-inline-existing-select', 'lw-inline-new-name',
   'lw-inline-new-category', 'event-equipment-panel', 'event-equipment-table',
-  'event-equipment-content',
+  'event-equipment-content', 'lw-nav-container',
 ];
 
 function createHarness(items: Array<Record<string, unknown>>) {
@@ -77,6 +78,7 @@ function createHarness(items: Array<Record<string, unknown>>) {
     },
   };
   vm.runInNewContext(eventEditFormSource, context, { filename: 'event-edit-form.js' });
+  vm.runInNewContext(lwNavSource, context, { filename: 'lw-nav.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   return { elements, calls, signIn: async () => signIn?.({ email: 'viewer@example.com' }) };
 }

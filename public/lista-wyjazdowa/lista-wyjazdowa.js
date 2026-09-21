@@ -61,6 +61,19 @@ let companionDataPromise = null;
 // with it (opening one closes the other) so a row never shows both panels stacked.
 let openEditPanelEventId = null;
 
+// Whether the shared top-level dropdown (shared/lw-nav.js) is currently expanded. Same
+// module-level-boolean-drives-re-render convention as the two ids above, since the dropdown's
+// menu markup is rebuilt from scratch on every renderLwNav() call rather than toggled in place.
+let lwNavOpen = false;
+
+function renderLwNav() {
+  document.getElementById('lw-nav-container').innerHTML = window.LwNav.html({
+    events: cachedEvents,
+    currentEventId: null,
+    open: lwNavOpen,
+  });
+}
+
 function ensureCompanionData() {
   if (!companionDataPromise) {
     companionDataPromise = Promise.all([
@@ -102,6 +115,7 @@ function visibleEvents() {
 }
 
 function renderEvents() {
+  renderLwNav();
   const container = document.getElementById('events-list');
   const events = visibleEvents();
   if (events.length === 0) {
@@ -441,14 +455,14 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
   }
 });
 
-// The sub-nav's "Dodaj wyjazd" is a plain link (href="?new=1") so it still works as a normal
-// navigation from the other two Lista Wyjazdowa pages - this handler only intercepts it when
-// we're already on this page, to avoid a pointless full reload for something the page can just
-// reveal in place. openAddEventForm() is also called directly below on page load when arriving
-// via that link from elsewhere (or a bookmarked/shared ?new=1 URL).
+// The dropdown's "+ Dodaj wyjazd" is a plain link (href="?new=1") so it still works as a normal
+// navigation from the event detail page - this handler only intercepts it when we're already on
+// this page, to avoid a pointless full reload for something the page can just reveal in place.
+// openAddEventForm() is also called directly below on page load when arriving via that link from
+// elsewhere (or a bookmarked/shared ?new=1 URL).
 //
 // The existing list (and its "pokaż wszystkie"/error row) is hidden while the form is open -
-// with both visible at once the list is just noise between the sub-nav and the form the member
+// with both visible at once the list is just noise between the dropdown and the form the member
 // actually came here to fill in.
 function setListVisible(visible) {
   document.getElementById('toggle-past-events').hidden = !visible;
@@ -456,13 +470,10 @@ function setListVisible(visible) {
   document.getElementById('events-list').hidden = !visible;
 }
 
-// The sub-nav's --active pill and the <h1> both need to track which of the two tabs is
-// actually showing - otherwise "Lista wyjazdów" stays highlighted (and the heading stays
-// "Lista wyjazdowa") while the form is the only thing on screen, which reads as if the click
+// The <h1> needs to track which of the two views is actually showing - otherwise the heading
+// stays "Lista wyjazdowa" while the form is the only thing on screen, which reads as if the click
 // didn't do anything.
 function setAddFormActive(active) {
-  document.getElementById('lw-subnav-list').classList.toggle('lw-subnav-link--active', !active);
-  document.getElementById('lw-subnav-add').classList.toggle('lw-subnav-link--active', active);
   document.getElementById('lw-page-title').textContent = active ? 'Dodaj wyjazd' : 'Lista wyjazdowa';
 }
 
@@ -474,15 +485,33 @@ function openAddEventForm() {
   form.scrollIntoView({ block: 'center' });
 }
 
-document.getElementById('lw-subnav-add').addEventListener('click', (e) => {
-  e.preventDefault();
+function closeAddEventForm() {
   const form = document.getElementById('add-event-form');
-  if (form.hidden) {
-    openAddEventForm();
-  } else {
-    form.hidden = true;
-    setListVisible(true);
-    setAddFormActive(false);
+  form.hidden = true;
+  setListVisible(true);
+  setAddFormActive(false);
+}
+
+// Delegated click handler for the shared dropdown (shared/lw-nav.js): its whole markup is
+// rebuilt on every renderLwNav() call, so listeners live on the persistent container instead of
+// the elements it renders - same reasoning as the #events-list delegated handler below.
+document.getElementById('lw-nav-container').addEventListener('click', (e) => {
+  const toggleBtn = e.target.closest('.lw-nav-toggle');
+  if (toggleBtn) {
+    lwNavOpen = !lwNavOpen;
+    renderLwNav();
+    return;
+  }
+  const addLink = e.target.closest('#lw-nav-add');
+  if (addLink) {
+    e.preventDefault();
+    lwNavOpen = false;
+    const form = document.getElementById('add-event-form');
+    if (form.hidden) {
+      openAddEventForm();
+    } else {
+      closeAddEventForm();
+    }
   }
 });
 

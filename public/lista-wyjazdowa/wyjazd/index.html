@@ -40,14 +40,11 @@
         </p>
 
         <div id="main-content" hidden>
-          <!-- Same persistent sub-nav on every Lista Wyjazdowa page - "Dodaj wyjazd" links to the
-               events list with ?new=1, which its own load logic detects and opens the add-event
-               form automatically, since this page has no form of its own to reveal in place. -->
-          <nav class="lw-subnav">
-            <a href="/lista-wyjazdowa/" class="lw-subnav-link">Lista wyjazdów</a>
-            <a href="/lista-wyjazdowa/?new=1" class="lw-subnav-link">Dodaj wyjazd</a>
-            <a href="/lista-wyjazdowa/skladki/" class="lw-subnav-link">Składki</a>
-          </nav>
+          <!-- Same shared top-level dropdown (shared/lw-nav.js) on every Lista Wyjazdowa page -
+               its "+ Dodaj wyjazd" item links to the events list with ?new=1, which that page's
+               own load logic detects and opens the add-event form automatically, since this page
+               has no form of its own to reveal in place. -->
+          <div id="lw-nav-container"></div>
 
           <h1 id="event-title">Wyjazd</h1>
 
@@ -170,6 +167,7 @@
   <script src="../../shared/profile-panel.js"></script>
   <script src="../../shared/companion-add.js"></script>
   <script src="../../shared/event-edit-form.js"></script>
+  <script src="../../shared/lw-nav.js"></script>
   <script src="wyjazd.js"></script>
 </body>
 </html>
