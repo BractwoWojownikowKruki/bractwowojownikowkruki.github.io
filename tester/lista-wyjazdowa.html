@@ -11,15 +11,32 @@
 <body>
   <main class="main-content">
     <div class="content-left">
-      <section class="content-section">
+      <section class="content-section content-section--app">
         <h1 id="lw-page-title">Lista wyjazdowa</h1>
 
         <div id="events-panel">
           <nav class="lw-subnav">
             <a href="#" class="lw-subnav-link lw-subnav-link--active" onclick="return false">Lista wyjazdów</a>
-            <a href="#" class="lw-subnav-link" onclick="return false">Dodaj wyjazd</a>
+            <a href="#" class="lw-subnav-link" id="lw-subnav-add" onclick="return false">Dodaj wyjazd</a>
             <a href="#" class="lw-subnav-link" onclick="return false">Składki</a>
           </nav>
+
+          <form id="add-event-form" hidden>
+            <div class="field">
+              <label for="new-event-name">Nazwa</label>
+              <input type="text" id="new-event-name" name="name" required>
+            </div>
+            <div class="field">
+              <label for="new-event-date">Data rozpoczęcia</label>
+              <input type="date" id="new-event-date" name="startDate" required>
+            </div>
+            <div class="field">
+              <label for="new-event-description">Opis</label>
+              <textarea id="new-event-description" name="description" rows="4" placeholder="Informacje o wyjeździe: miejsce, linki, co zabrać..."></textarea>
+            </div>
+            <p class="add-album-error" id="add-event-error" hidden></p>
+            <button type="submit" class="add-album-submit">Utwórz wyjazd</button>
+          </form>
 
           <button type="button" class="btn-cancel" id="toggle-past-events">Pokaż wszystkie (w tym odwołane i przeszłe)</button>
           <p class="add-album-error" id="events-error" hidden></p>
@@ -33,6 +50,11 @@
   <script src="../public/shared/person-pill.js"></script>
   <script src="../public/shared/companion-add.js"></script>
   <script>
+    document.getElementById('lw-subnav-add').addEventListener('click', () => {
+      const form = document.getElementById('add-event-form');
+      form.hidden = !form.hidden;
+    });
+
     const viewerPersonId = 'viewer@example.com';
     const categories = [
       { id: 'kandydat', label: 'Kandydat' },

@@ -710,6 +710,24 @@ main { padding: 1.25rem 1.5rem 3rem; }
   color-scheme: dark;
 }
 
+.field textarea {
+  width: 100%;
+  padding: 9px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.field textarea::placeholder { color: var(--text-faint); }
+.field textarea:focus { border-color: var(--accent); }
+
 .add-album-error {
   color: var(--accent);
   font-size: 13px;
@@ -2055,12 +2073,30 @@ button.nav-item {
    consistent with the rest of the site instead of floating directly on the page background.
    Excludes the homepage's own content-section: it already holds the Facebook feed's own boxed
    post cards, so this outer box would just frame a frame - a nested-box look that (confirmed by
-   eye) reads worse than the plain background it replaced. */
-.content-section:not(:has(#facebook-feed)) {
+   eye) reads worse than the plain background it replaced. Keyed off .facebook-feed rather than
+   the #facebook-feed id that element also carries - a :has() argument's specificity is that of
+   its most specific selector, and an id there would out-specificity the plain two-class
+   .content-section--app override below regardless of source order. */
+.content-section:not(:has(.facebook-feed)) {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 2rem 2.5rem;
+}
+
+/* Member-area "app" screens (Lista wyjazdowa, Profil, Admin, ...) already nest their own boxes -
+   table wrappers, fee panels, edit forms - so the plain content-section card here just adds one
+   more frame around frames. Panel (/app/) never had this outer box and reads more like an app
+   because of it, so the same screens drop it too; opt in per page with this modifier rather than
+   flipping the shared .content-section default, since public prose pages still want their single
+   card. Only the box goes - h1/h2/p/a etc. above stay inherited from .content-section. Same
+   specificity as the rule above (one class + one :has()-class each), so it wins on source order -
+   must stay declared after it. */
+.content-section.content-section--app {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
 }
 
 .content-section .content-image {
@@ -2775,8 +2811,12 @@ button.nav-item {
   /* The card padding (2rem 2.5rem) is fine on desktop but its 40px sides eat too much of a
      phone's width - e.g. it was leaving the achievements timeline/photo mosaic noticeably
      narrower than intended. Same homepage exclusion as the desktop rule above. */
-  .content-section:not(:has(#facebook-feed)) {
+  .content-section:not(:has(.facebook-feed)) {
     padding: 1.5rem 1.25rem;
+  }
+
+  .content-section.content-section--app {
+    padding: 0;
   }
 
   .content-section h1 {

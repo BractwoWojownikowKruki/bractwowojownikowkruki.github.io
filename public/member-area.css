@@ -1127,10 +1127,17 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
   color: #6fcf73;
 }
 
+/* Extra breathing room below the title/meta block, so the accent-bordered fee panel (below)
+   doesn't visually crowd the h1 the way the plain event-actions row used to sit right under it. */
+#event-meta {
+  margin-bottom: 1.25rem;
+}
+
 #skladka-fee-panel {
   padding: 0.85rem 1rem;
   background: var(--surface);
   border: 1px solid var(--border);
+  border-left: 3px solid var(--gold);
   border-radius: 8px;
 }
 
@@ -1185,6 +1192,95 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
 
 .lw-fee-actions .btn-cancel {
   flex: 0 0 auto;
+}
+
+/* Meta line under the title (date on the left) plus its right-aligned Historia/Edytuj controls -
+   shared by the event page's #event-meta row and reused wherever else a title needs the same
+   "info left, small actions right" line (KRKG event-edit UI). */
+.lw-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.lw-meta-row #event-meta {
+  margin-bottom: 0;
+}
+
+.lw-meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Small icon+label toggle that reveals an edit form in place - same footprint/hover as
+   a.audyt-history-btn (1.8rem tall, --gold on hover) so the two sit as a matched pair on the
+   meta row and on the fee summary line. */
+button.lw-edit-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 1.8rem;
+  padding: 0 0.65rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+button.lw-edit-toggle:hover,
+button.lw-edit-toggle[aria-expanded="true"] {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+
+button.lw-edit-toggle svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  pointer-events: none;
+}
+
+/* Collapsible "edit this event" panel opened by the meta row's Edytuj toggle - reuses the shared
+   .field pattern (style.css) for Nazwa/Data/Opis like the add-event form does, so the two forms
+   stay visually identical. */
+.lw-event-edit-form {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.lw-event-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.lw-event-edit-actions .add-album-submit {
+  width: auto;
+  flex: 1 1 auto;
+  padding: 10px 1.25rem;
+}
+
+/* Odwołaj/Przywróć wyjazd sits apart from Zapisz/Anuluj - a dividing line plus right alignment
+   marks it as the destructive/status action rather than part of the save flow (it used to be its
+   own always-visible button; now it only surfaces once the form is open). */
+.lw-event-edit-danger-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border);
 }
 
 /* Year <select> above the Składki table (skladki.js's populateYearSelect, KRKG-0047) - same
