@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDate, extractTitle, makeSearchText, displayTitle, parseAlbumsJson, extractPhotoCount, extractThumbEntries, extractDriveFolderId } from './utils.ts';
+import { parseDate, extractTitle, makeSearchText, displayTitle, parseAlbumsJson, extractPhotoCount, extractThumbEntries, extractDriveFolderId, shouldRefreshCover, stableSyncTime } from './utils.ts';
 
 describe('parseDate', () => {
   // --- prefix, hyphens ---
@@ -284,5 +284,58 @@ describe('makeSearchText', () => {
 
   it('replaces em-dash with hyphen', () => {
     assert.equal(makeSearchText('Wolin — Walki'), 'wolin - walki');
+  });
+});
+
+describe('shouldRefreshCover', () => {
+  it('refreshes when the local cover file is missing', () => {
+    assert.equal(shouldRefreshCover('src-a', 'src-a', false), true);
+  });
+
+  it('skips when the source identity is unchanged and the file exists', () => {
+    assert.equal(shouldRefreshCover('src-a', 'src-a', true), false);
+  });
+
+  it('refreshes when the source identity changed', () => {
+    assert.equal(shouldRefreshCover('src-a', 'src-b', true), true);
+  });
+
+  it('trusts the existing file when no source was recorded yet (migration)', () => {
+    assert.equal(shouldRefreshCover(undefined, 'src-a', true), false);
+  });
+
+  it('skips when no source could be extracted', () => {
+    assert.equal(shouldRefreshCover('src-a', undefined, true), false);
+    assert.equal(shouldRefreshCover(undefined, undefined, false), false);
+  });
+});
+
+describe('stableSyncTime', () => {
+  const base = { url: 'u', lastSyncedAt: '2026-01-01T00:00:00.000Z' };
+
+  it('reuses the cached timestamp when the record is unchanged', () => {
+    const next = { ...base, lastSyncedAt: '2026-09-22T09:00:00.000Z' };
+    assert.equal(stableSyncTime(next, base).lastSyncedAt, base.lastSyncedAt);
+  });
+
+  it('keeps the new timestamp when a field changed', () => {
+    const next = { url: 'u2', lastSyncedAt: '2026-09-22T09:00:00.000Z' };
+    assert.equal(stableSyncTime(next, base).lastSyncedAt, '2026-09-22T09:00:00.000Z');
+  });
+
+  it('returns the new record when there is no cached record', () => {
+    const next = { ...base, lastSyncedAt: '2026-09-22T09:00:00.000Z' };
+    assert.equal(stableSyncTime(next, undefined), next);
+  });
+
+  it('treats a new optional field as a change', () => {
+    const next = { ...base, lastSyncedAt: '2026-09-22T09:00:00.000Z', coverSource: 'src' };
+    assert.equal(stableSyncTime(next, base).lastSyncedAt, '2026-09-22T09:00:00.000Z');
+  });
+
+  it('ignores key order when comparing records', () => {
+    const cached = { url: 'u', title: 't', lastSyncedAt: '2026-01-01T00:00:00.000Z' };
+    const next = { title: 't', url: 'u', lastSyncedAt: '2026-09-22T09:00:00.000Z' };
+    assert.equal(stableSyncTime(next, cached).lastSyncedAt, cached.lastSyncedAt);
   });
 });
