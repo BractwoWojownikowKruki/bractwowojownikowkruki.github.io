@@ -32,7 +32,7 @@ test('the identity section saves through the target-specific route with feedback
   assert.match(panel, /\/lista-wyjazdowa\/persons/);
   assert.match(panel, /method: 'PUT'/);
   assert.match(panel, /loadProfileTarget\(target\)/);
-  assert.match(panel, /refreshProfileDrawer\(\)/);
+  assert.match(panel, /refreshProfileDrawer\('identity'\)/);
   assert.match(panel, /weaponIds: profile\.weaponIds \?\? \[\]/);
 });
 
@@ -46,4 +46,22 @@ test('identity save keeps drafts on inline errors, disables only its pending sec
   assert.match(panel, /Nie udało się zapisać lub odświeżyć danych/);
   assert.match(css, /\.profile-identity-section/);
   assert.match(css, /\.profile-identity-error/);
+});
+
+test('weapons and dues are independently capability-gated drawer sections with their audited save routes', () => {
+  assert.match(panel, /profile\.editor\?\.canEditWeapons/);
+  assert.match(panel, /profile-weapons-form/);
+  assert.match(panel, /lookupLists\.weapons/);
+  assert.match(panel, /\/admin\/members\/weapons/);
+  assert.match(panel, /weaponIds: draft\.weaponIds/);
+  assert.match(panel, /profile\.editor\?\.canEditDues/);
+  assert.match(panel, /profile-dues-form/);
+  assert.match(panel, /\/lista-wyjazdowa\/wpisowe\?personId=/);
+  assert.match(panel, /\/lista-wyjazdowa\/dues\?personId=/);
+  assert.match(panel, /year=\$\{encodeURIComponent\(profile\.duesYear\)\}/);
+  assert.match(panel, /annualDuesDraft\.status/);
+  assert.match(panel, /profile-weapons-section--pending/);
+  assert.match(panel, /profile-dues-section--pending/);
+  assert.match(css, /\.profile-weapons-form/);
+  assert.match(css, /\.profile-dues-form/);
 });

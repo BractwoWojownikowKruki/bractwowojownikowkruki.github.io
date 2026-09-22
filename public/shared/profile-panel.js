@@ -170,6 +170,57 @@
     </section>`;
   }
 
+  function weaponsDraft(profile) {
+    return { weaponIds: [...(profile.weaponIds ?? [])] };
+  }
+
+  // Weapons and dues deliberately stay separate from identity: their permissions, backend
+  // resources, audit events, drafts, errors, and pending controls are all independent.
+  function profileWeaponsHtml(profile) {
+    if (!profile.editor?.canEditWeapons) return '';
+    const draft = editorState.drafts.weapons ?? weaponsDraft(profile);
+    const errorHtml = editorState.errors.weapons
+      ? `<p class="profile-weapons-error" role="alert">${escapeHtml(editorState.errors.weapons)}</p>`
+      : '';
+    return `<section class="profile-weapons-section">
+      <form class="profile-weapons-form" data-profile-section="weapons">
+        <fieldset><legend>Broń</legend>
+          ${(profile.editor.lookupLists.weapons ?? []).map((weapon) => `<label class="profile-weapons-option">
+            <input type="checkbox" name="weaponIds" value="${escapeHtml(weapon.id)}"${draft.weaponIds.includes(weapon.id) ? ' checked' : ''}>
+            ${escapeHtml(weapon.label)}
+          </label>`).join('')}
+        </fieldset>
+        ${errorHtml}
+        <button type="submit" class="profile-weapons-save">Zapisz broń</button>
+      </form>
+    </section>`;
+  }
+
+  function profileDuesHtml(profile) {
+    if (!profile.editor?.canEditDues) return '';
+    const entryFeeDraft = editorState.drafts.entryFee ?? { paid: Boolean(profile.wpisowePaid) };
+    const annualDuesDraft = editorState.drafts.annualDues ?? { status: profile.duesStatus ?? 'unpaid' };
+    const error = editorState.errors.entryFee ?? editorState.errors.annualDues;
+    const errorHtml = error
+      ? `<p class="profile-dues-error" role="alert">${escapeHtml(error)}</p>`
+      : '';
+    return `<section class="profile-dues-section">
+      <form class="profile-dues-form" data-profile-section="dues">
+        <fieldset><legend>Składki</legend>
+          <label class="profile-dues-option"><input type="checkbox" name="wpisowePaid"${entryFeeDraft.paid ? ' checked' : ''}> Wpisowe opłacone</label>
+          <button type="button" class="profile-dues-save" data-profile-dues-save="wpisowe">Zapisz wpisowe</button>
+          <label>Składka ${escapeHtml(profile.duesYear)}
+            <select name="duesStatus">
+              ${['unpaid', 'paid', 'not_applicable'].map((status) => `<option value="${status}"${annualDuesDraft.status === status ? ' selected' : ''}>${({ unpaid: 'nieopłacona', paid: 'opłacona', not_applicable: 'nie dotyczy' })[status]}</option>`).join('')}
+            </select>
+          </label>
+          <button type="button" class="profile-dues-save" data-profile-dues-save="annual">Zapisz składkę</button>
+        </fieldset>
+        ${errorHtml}
+      </form>
+    </section>`;
+  }
+
   function ensureDrawer() {
     if (els) return els;
     const wrapper = document.createElement('div');
@@ -344,6 +395,8 @@
       ${galleryHtml}
       <h3>${profile.accountless ? PERSON_MARKER_ICON : ''}${escapeHtml(shownName)}</h3>
       ${profileIdentityHtml(profile)}
+      ${profileWeaponsHtml(profile)}
+      ${profileDuesHtml(profile)}
       <dl class="profile-fields">
         ${(profile.lastName || profile.firstName) ? `<dt>Nazwisko i imię</dt><dd>${escapeHtml([profile.lastName, profile.firstName].filter(Boolean).join(', '))}</dd>` : ''}
         ${profile.nickname ? `<dt>Ksywka</dt><dd>${escapeHtml(profile.nickname)}</dd>` : ''}
@@ -395,14 +448,16 @@
     );
   }
 
-  async function refreshProfileDrawer() {
+  async function refreshProfileDrawer(savedSection = null) {
     const otherDrafts = { ...editorState.drafts };
     const profile = await loadProfileTarget(editorState.target);
     editorState.profile = profile;
     editorState.drafts = otherDrafts;
-    editorState.drafts.identity = null;
-    editorState.errors.identity = null;
-    editorState.editingSection = null;
+    if (savedSection) {
+      editorState.drafts[savedSection] = null;
+      editorState.errors[savedSection] = null;
+      if (savedSection === 'identity') editorState.editingSection = null;
+    }
     renderProfileDrawer();
   }
 
@@ -508,8 +563,8 @@
           drawerShowReauth,
           drawerHideReauth,
         ),
-        apply: refreshProfileDrawer,
-        refreshFragment: refreshProfileDrawer,
+        apply: () => refreshProfileDrawer('identity'),
+        refreshFragment: () => refreshProfileDrawer('identity'),
       });
     } catch (err) {
       if (handleProfileDrawerError(err)) return;
@@ -517,6 +572,94 @@
       renderProfileDrawer();
     } finally {
       section.classList.remove('profile-identity-section--pending');
+      save.disabled = false;
+    }
+  }
+
+  function updateWeaponsDraft(form) {
+    editorState.drafts.weapons = {
+      weaponIds: [...form.querySelectorAll('input[name="weaponIds"]:checked')].map((input) => input.value),
+    };
+  }
+
+  async function saveWeapons(form) {
+    const section = form.closest('.profile-weapons-section');
+    const save = form.querySelector('.profile-weapons-save');
+    updateWeaponsDraft(form);
+    const draft = editorState.drafts.weapons;
+    const profile = editorState.profile;
+    const body = editorState.target.kind === 'person'
+      ? {
+          personId: editorState.target.personId,
+          ksywka: profile.nickname ?? '',
+          firstName: profile.firstName ?? '',
+          lastName: profile.lastName ?? '',
+          categoryId: profile.categoryId ?? '',
+          sectionId: profile.sectionId ?? '',
+          weaponIds: draft.weaponIds,
+        }
+      : { email: editorState.target.email, weaponIds: draft.weaponIds };
+    section.classList.add('profile-weapons-section--pending');
+    save.disabled = true;
+    editorState.errors.weapons = null;
+    try {
+      await window.MutationFeedback.confirmed({
+        control: save,
+        anchor: els.content,
+        viewRoot: els.drawer.querySelector('.profile-drawer-panel'),
+        execute: () => apiFetch(
+          editorState.target.kind === 'person' ? '/lista-wyjazdowa/persons' : '/admin/members/weapons',
+          { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+          drawerShowReauth,
+          drawerHideReauth,
+        ),
+        apply: () => refreshProfileDrawer('weapons'),
+        refreshFragment: () => refreshProfileDrawer('weapons'),
+      });
+    } catch (err) {
+      if (handleProfileDrawerError(err)) return;
+      editorState.errors.weapons = `Nie udało się zapisać broni: ${err.message}`;
+      renderProfileDrawer();
+    } finally {
+      section.classList.remove('profile-weapons-section--pending');
+      save.disabled = false;
+    }
+  }
+
+  function updateDuesDraft(form) {
+    editorState.drafts.entryFee = { paid: form.elements.wpisowePaid.checked };
+    editorState.drafts.annualDues = { status: form.elements.duesStatus.value };
+  }
+
+  async function saveDues(form, kind) {
+    const section = form.closest('.profile-dues-section');
+    const save = form.querySelector(`[data-profile-dues-save="${kind}"]`);
+    updateDuesDraft(form);
+    const profile = editorState.profile;
+    const personId = editorState.target.kind === 'person' ? editorState.target.personId : editorState.target.email;
+    const isEntryFee = kind === 'wpisowe';
+    const url = isEntryFee
+      ? `/lista-wyjazdowa/wpisowe?personId=${encodeURIComponent(personId)}`
+      : `/lista-wyjazdowa/dues?personId=${encodeURIComponent(personId)}&year=${encodeURIComponent(profile.duesYear)}`;
+    const body = isEntryFee ? editorState.drafts.entryFee : editorState.drafts.annualDues;
+    section.classList.add('profile-dues-section--pending');
+    save.disabled = true;
+    editorState.errors[isEntryFee ? 'entryFee' : 'annualDues'] = null;
+    try {
+      await window.MutationFeedback.confirmed({
+        control: save,
+        anchor: els.content,
+        viewRoot: els.drawer.querySelector('.profile-drawer-panel'),
+        execute: () => apiFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, drawerShowReauth, drawerHideReauth),
+        apply: () => refreshProfileDrawer(isEntryFee ? 'entryFee' : 'annualDues'),
+        refreshFragment: () => refreshProfileDrawer(isEntryFee ? 'entryFee' : 'annualDues'),
+      });
+    } catch (err) {
+      if (handleProfileDrawerError(err)) return;
+      editorState.errors[isEntryFee ? 'entryFee' : 'annualDues'] = `Nie udało się zapisać składki: ${err.message}`;
+      renderProfileDrawer();
+    } finally {
+      section.classList.remove('profile-dues-section--pending');
       save.disabled = false;
     }
   }
@@ -537,6 +680,13 @@
       editorState.drafts.identity = null;
       editorState.errors.identity = null;
       renderProfileDrawer();
+      return;
+    }
+
+    const duesSave = e.target.closest('[data-profile-dues-save]');
+    if (duesSave) {
+      const form = duesSave.closest('.profile-dues-form');
+      if (form) saveDues(form, duesSave.dataset.profileDuesSave);
       return;
     }
 
@@ -574,18 +724,33 @@
   document.addEventListener('input', (e) => {
     const form = e.target.closest('.profile-identity-form');
     if (form) updateIdentityDraft(form);
+    const weaponsForm = e.target.closest('.profile-weapons-form');
+    if (weaponsForm) updateWeaponsDraft(weaponsForm);
+    const duesForm = e.target.closest('.profile-dues-form');
+    if (duesForm) updateDuesDraft(duesForm);
   });
 
   document.addEventListener('change', (e) => {
     const form = e.target.closest('.profile-identity-form');
     if (form) updateIdentityDraft(form);
+    const weaponsForm = e.target.closest('.profile-weapons-form');
+    if (weaponsForm) updateWeaponsDraft(weaponsForm);
+    const duesForm = e.target.closest('.profile-dues-form');
+    if (duesForm) updateDuesDraft(duesForm);
   });
 
   document.addEventListener('submit', (e) => {
     const form = e.target.closest('.profile-identity-form');
-    if (!form) return;
-    e.preventDefault();
-    saveIdentity(form);
+    if (form) {
+      e.preventDefault();
+      saveIdentity(form);
+      return;
+    }
+    const weaponsForm = e.target.closest('.profile-weapons-form');
+    if (weaponsForm) {
+      e.preventDefault();
+      saveWeapons(weaponsForm);
+    }
   });
 
   document.addEventListener('keydown', (e) => {

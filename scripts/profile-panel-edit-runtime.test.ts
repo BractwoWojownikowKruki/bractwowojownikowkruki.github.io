@@ -14,6 +14,7 @@ class FakeClassList {
 class FakeElement {
   hidden = false;
   disabled = false;
+  checked = false;
   value = '';
   dataset: Record<string, string> = {};
   classList = new FakeClassList();
@@ -21,6 +22,7 @@ class FakeElement {
   isConnected = false;
   private html = '';
   private children = new Map<string, FakeElement>();
+  private groups = new Map<string, FakeElement[]>();
   private appended: FakeElement[] = [];
   private listeners = new Map<string, Array<(event: any) => unknown>>();
 
@@ -50,10 +52,27 @@ class FakeElement {
       };
       form.addChild('.profile-identity-save', new FakeElement('.profile-identity-save'));
     }
+    if (value.includes('profile-weapons-form')) {
+      const section = this.addChild('.profile-weapons-section', new FakeElement('.profile-weapons-section'));
+      const form = section.addChild('.profile-weapons-form', new FakeElement('.profile-weapons-form'));
+      const weaponIds = [...value.matchAll(/name="weaponIds" value="([^"]*)"( checked)?/g)]
+        .map((match) => Object.assign(new FakeElement(), { value: match[1], checked: Boolean(match[2]) }));
+      form.groups.set('input[name="weaponIds"]:checked', weaponIds.filter((input) => input.checked));
+      form.addChild('.profile-weapons-save', new FakeElement('.profile-weapons-save'));
+    }
+    if (value.includes('profile-dues-form')) {
+      const section = this.addChild('.profile-dues-section', new FakeElement('.profile-dues-section'));
+      const form = section.addChild('.profile-dues-form', new FakeElement('.profile-dues-form'));
+      form.elements = { wpisowePaid: { checked: value.includes('name="wpisowePaid" checked') }, duesStatus: { value: value.match(/name="duesStatus"[\s\S]*?<option value="([^"]*)" selected/)?.[1] ?? 'unpaid' } } as any;
+      const entry = form.addChild('[data-profile-dues-save="wpisowe"]', new FakeElement('[data-profile-dues-save="wpisowe"]'));
+      entry.dataset.profileDuesSave = 'wpisowe';
+      const annual = form.addChild('[data-profile-dues-save="annual"]', new FakeElement('[data-profile-dues-save="annual"]'));
+      annual.dataset.profileDuesSave = 'annual';
+    }
   }
 
   // HTMLFormElement's named controls are the only form API used by the drawer save path.
-  elements: Record<string, { value: string }> = {};
+  elements: Record<string, { value?: string; checked?: boolean }> = {};
 
   addChild(selector: string, child: FakeElement) {
     child.parent = this;
@@ -74,9 +93,10 @@ class FakeElement {
     }
     return null;
   }
-  querySelectorAll() { return []; }
+  querySelectorAll(selector: string) { return this.groups.get(selector) ?? []; }
   closest(selector: string) {
     if (this.selector === selector) return this;
+    if (selector === '[data-profile-dues-save]' && this.dataset.profileDuesSave) return this;
     return this.parent?.closest(selector) ?? null;
   }
   addEventListener(type: string, listener: (event: any) => unknown) {
@@ -92,9 +112,9 @@ function createHarness() {
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   const profile = {
     firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik',
-    sectionLabel: 'Kruki', categoryLabel: 'Wojownik', weapons: [], weaponIds: [], photos: [], pendingPhotos: [],
+    sectionLabel: 'Kruki', categoryLabel: 'Wojownik', weapons: [], weaponIds: ['tarcza'], photos: [], pendingPhotos: [],
     published: false, wpisowePaid: true, duesStatus: 'paid', duesYear: 2026,
-    editor: { canEditIdentity: true, lookupLists: { sections: [{ id: 'kruki', label: 'Kruki' }], categories: [{ id: 'wojownik', label: 'Wojownik' }] } },
+    editor: { canEditIdentity: true, canEditWeapons: true, canEditDues: true, lookupLists: { sections: [{ id: 'kruki', label: 'Kruki' }], categories: [{ id: 'wojownik', label: 'Wojownik' }], weapons: [{ id: 'tarcza', label: 'Tarcza' }] } },
   };
   const document = {
     body,
@@ -112,7 +132,7 @@ function createHarness() {
     },
     apiFetch: async (url: string, options: Record<string, unknown>) => {
       apiCalls.push({ url, options });
-      return profile;
+      return url.startsWith('/lista-wyjazdowa/person-profile?') ? { profile } : profile;
     },
     categoryPillBroccoliIconHtml: () => '',
     displayName: (item: { nickname?: string; firstName?: string; lastName?: string }) => item.nickname || `${item.firstName} ${item.lastName}`,
@@ -149,4 +169,53 @@ test('identity-capable profile drawer submits the edited member identity through
     email: 'jan@example.test', firstName: 'Janusz', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik',
   });
   assert.equal(harness.apiCalls.filter((call) => call.url.startsWith('/member-profile?')).length, 2, 'a successful PUT refreshes the open drawer');
+});
+
+test('capability-gated weapons and dues controls use their distinct PUT bodies and refresh the drawer', async () => {
+  const harness = createHarness();
+  await harness.window.ProfilePanel.open('jan@example.test');
+
+  const weapons = harness.document.body.querySelector('.profile-weapons-form');
+  assert.ok(weapons);
+  await harness.document.dispatch('submit', weapons);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const weaponsPut = harness.apiCalls.find((call) => call.url === '/admin/members/weapons');
+  assert.ok(weaponsPut, JSON.stringify(harness.apiCalls));
+  assert.deepEqual(JSON.parse(String(weaponsPut?.options.body)), { email: 'jan@example.test', weaponIds: ['tarcza'] });
+
+  const entryFee = harness.document.body.querySelector('[data-profile-dues-save="wpisowe"]');
+  assert.ok(entryFee);
+  await harness.document.dispatch('click', entryFee);
+  await new Promise((resolve) => setImmediate(resolve));
+  const entryFeePut = harness.apiCalls.find((call) => call.url === '/lista-wyjazdowa/wpisowe?personId=jan%40example.test');
+  assert.deepEqual(JSON.parse(String(entryFeePut?.options.body)), { paid: true });
+
+  const annual = harness.document.body.querySelector('[data-profile-dues-save="annual"]');
+  assert.ok(annual);
+  await harness.document.dispatch('click', annual);
+  await new Promise((resolve) => setImmediate(resolve));
+  const annualPut = harness.apiCalls.find((call) => call.url === '/lista-wyjazdowa/dues?personId=jan%40example.test&year=2026');
+  assert.deepEqual(JSON.parse(String(annualPut?.options.body)), { status: 'paid' });
+  assert.equal(harness.apiCalls.filter((call) => call.url.startsWith('/member-profile?')).length, 4, 'each successful write reloads the drawer');
+});
+
+test('accountless person weapons save preserves the complete person record and reloads by person id', async () => {
+  const harness = createHarness();
+  const trigger = new FakeElement('[data-profile-trigger]');
+  trigger.dataset.personId = 'person-42';
+  await harness.document.dispatch('click', trigger);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const weapons = harness.document.body.querySelector('.profile-weapons-form');
+  assert.ok(weapons);
+  await harness.document.dispatch('submit', weapons);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const put = harness.apiCalls.find((call) => call.url === '/lista-wyjazdowa/persons' && call.options.method === 'PUT');
+  assert.ok(put, JSON.stringify(harness.apiCalls));
+  assert.deepEqual(JSON.parse(String(put.options.body)), {
+    personId: 'person-42', ksywka: 'Janko', firstName: 'Jan', lastName: 'Kowalski', categoryId: 'wojownik', sectionId: 'kruki', weaponIds: ['tarcza'],
+  });
+  assert.equal(harness.apiCalls.filter((call) => call.url === '/lista-wyjazdowa/person-profile?personId=person-42').length, 2, 'the write refreshes via the person-keyed profile endpoint');
 });
