@@ -6681,6 +6681,14 @@ test('GET profile endpoints expose editor capabilities and lookup lists only for
     assert.ok(body.profile.editor?.lookupLists, `${role.name} receives lookup lists for the editable target`);
   });
 
+  const accountlessViewer = memberDeps(personFirestore, 'viewer@example.test');
+  await withServer(accountlessViewer, async baseUrl => {
+    const response = await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=person-capabilities`);
+    assert.equal(response.status, 200, 'an authenticated viewer can read the accountless profile');
+    const body = await response.json();
+    assert.equal('editor' in body.profile, false, 'a non-owner, non-staff viewer receives no edit capability');
+  });
+
   const unauthorizedViewer = makeDeps({ firestore: memberFirestore, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => { throw new AuthError('Brak uprawnień.', 403); } });
   await withServer(unauthorizedViewer, async baseUrl => assert.equal((await fetch(`${baseUrl}/member-profile?email=target@example.test`)).status, 403));
 });
