@@ -6646,6 +6646,57 @@ test('GET /lista-wyjazdowa/person-profile returns an accountless person and 404s
   });
 });
 
+test('GET profile endpoints expose editor capabilities and lookup lists only for an editable target', async () => {
+  const memberFirestore = makeListaWyjazdowaFirestore();
+  seedMember(memberFirestore, 'target@example.test');
+  const memberCases: Array<{ name: string; deps: ServerDeps; expected: { canEditIdentity: boolean; canEditWeapons: boolean; canEditDues: boolean } | null }> = [
+    { name: 'admin', deps: makeDeps({ firestore: memberFirestore }), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: true } },
+    { name: 'hovding', deps: makeDeps({ firestore: memberFirestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => fakeSessionClaims({ email: 'hovding@example.test' }) }), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: false } },
+    { name: 'accountant', deps: makeDeps({ firestore: memberFirestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'accountant@example.test' }), listMemberEmails: async () => ['accountant@example.test', 'target@example.test'] }), expected: { canEditIdentity: false, canEditWeapons: false, canEditDues: true } },
+    { name: 'ordinary member', deps: makeDeps({ firestore: memberFirestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'member@example.test' }), listMemberEmails: async () => ['member@example.test', 'target@example.test'] }), expected: null },
+  ];
+  memberFirestore.seed('userRoles', 'accountant@example.test', { roles: ['accountant'] });
+  for (const role of memberCases) await withServer(role.deps, async baseUrl => {
+    const response = await fetch(`${baseUrl}/member-profile?email=target@example.test`);
+    assert.equal(response.status, 200, role.name);
+    const body = await response.json();
+    if (role.expected) {
+      assert.deepEqual({ canEditIdentity: body.editor?.canEditIdentity, canEditWeapons: body.editor?.canEditWeapons, canEditDues: body.editor?.canEditDues }, role.expected, role.name);
+      assert.ok(body.editor?.lookupLists, `${role.name} receives lookup lists for the editable target`);
+    } else assert.equal('editor' in body, false, `${role.name} keeps the ordinary response shape`);
+  });
+
+  const personFirestore = makeListaWyjazdowaFirestore();
+  seedPerson(personFirestore, 'person-capabilities', 'owner@example.test');
+  personFirestore.seed('userRoles', 'staff@example.test', { roles: ['accountant'] });
+  const personCases: Array<{ name: string; deps: ServerDeps; expected: { canEditIdentity: boolean; canEditWeapons: boolean; canEditDues: boolean } }> = [
+    { name: 'accountless owner', deps: memberDeps(personFirestore, 'owner@example.test'), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: false } },
+    { name: 'accountless staff', deps: makeDeps({ firestore: personFirestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'staff@example.test' }) }), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: true } },
+  ];
+  for (const role of personCases) await withServer(role.deps, async baseUrl => {
+    const response = await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=person-capabilities`);
+    assert.equal(response.status, 200, role.name);
+    const body = await response.json();
+    assert.deepEqual({ canEditIdentity: body.profile.editor?.canEditIdentity, canEditWeapons: body.profile.editor?.canEditWeapons, canEditDues: body.profile.editor?.canEditDues }, role.expected, role.name);
+    assert.ok(body.profile.editor?.lookupLists, `${role.name} receives lookup lists for the editable target`);
+  });
+
+  const unauthorizedViewer = makeDeps({ firestore: memberFirestore, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => { throw new AuthError('Brak uprawnień.', 403); } });
+  await withServer(unauthorizedViewer, async baseUrl => assert.equal((await fetch(`${baseUrl}/member-profile?email=target@example.test`)).status, 403));
+});
+
+test('GET profile capabilities do not bypass the existing PUT authorization routes', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'target@example.test');
+  const deps = makeDeps({ firestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovdingWithStepUp: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'member@example.test' }), listMemberEmails: async () => ['member@example.test', 'target@example.test'] });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/member-profile?email=target@example.test`)).json();
+    assert.equal('editor' in body, false);
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/admin/members/profile', { email: 'target@example.test', lastName: 'Nowak', firstName: 'Jan', nickname: '', sectionId: 'krakow' })).status, 403);
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=target@example.test', { paid: true })).status, 403);
+  });
+});
+
 // KRKG-0087: the event-scoped read is the historical one. A person who has left the club must still
 // appear on a trip they were signed up for, or that past trip's summary and audit would change.
 test('GET /lista-wyjazdowa/roster?eventId= keeps a tombstoned person who signed up for that trip', async () => {
