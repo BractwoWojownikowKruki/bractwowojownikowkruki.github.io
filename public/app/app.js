@@ -66,9 +66,10 @@ function daysUntil(isoDate) {
 }
 
 // KRKG-0094: one trip's detail URL, shared by both dashboard trip widgets so tapping a trip
-// always opens that specific trip rather than the generic Lista Wyjazdowa page.
-function eventDetailHref(eventId) {
-  return `/lista-wyjazdowa/wyjazd/?eventId=${encodeURIComponent(eventId)}`;
+// always opens that specific trip rather than the generic Lista Wyjazdowa page. KRKG-0106: uses
+// the friendly ?do=<slug> format via the shared module, like every other link to an event.
+function eventDetailHref(event) {
+  return window.LwFriendlyUrl.eventUrl(event);
 }
 
 function renderNearestEventWidget(events) {
@@ -78,7 +79,7 @@ function renderNearestEventWidget(events) {
   if (upcoming.length === 0) return null;
   const event = upcoming[0];
   const widget = document.createElement('a');
-  widget.href = eventDetailHref(event.id);
+  widget.href = eventDetailHref(event);
   widget.className = 'dashboard-widget';
   widget.innerHTML = `
     <h3>Najbliższy wyjazd</h3>
@@ -119,7 +120,7 @@ function renderMySignupsWidget(events) {
   const items = widget.querySelectorAll('.dashboard-mini-item');
   mine.forEach((e, i) => {
     const nameLink = items[i].querySelector('.dashboard-mini-item-name');
-    nameLink.href = eventDetailHref(e.id);
+    nameLink.href = eventDetailHref(e);
     nameLink.textContent = e.name;
     items[i].querySelector('.dashboard-mini-item-meta').textContent = formatDate(e.startDate);
   });

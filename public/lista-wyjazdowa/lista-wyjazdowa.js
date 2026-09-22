@@ -16,6 +16,14 @@ function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function escapeAttr(str) {
+  return escapeHtml(str).replace(/"/g, '&quot;');
+}
+
+// Same share glyph as wyjazd/index.html's "Udostępnij" button (KRKG-0106) - icon-only here, like
+// the row's Edytuj toggle, since every row needs its own compact trigger.
+const SHARE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>';
+
 const panels = {
   checking: document.getElementById('lw-checking'),
   signedOut: document.getElementById('signed-out-panel'),
@@ -150,7 +158,7 @@ function renderEvents() {
         : '';
       return `
         <div class="lw-event-row">
-          <a href="wyjazd/?eventId=${encodeURIComponent(e.id)}" class="lw-event-name">${escapeHtml(e.name)}${statusLabel}</a>
+          <a href="${escapeAttr(window.LwFriendlyUrl.eventUrl(e))}" class="lw-event-name">${escapeHtml(e.name)}${statusLabel}</a>
           <span class="lw-event-date">${escapeHtml(formatDate(e.startDate))}</span>
           <span class="lw-event-count">${e.attendingCount} os.</span>
           <div class="lw-event-actions">
@@ -159,6 +167,7 @@ function renderEvents() {
               ${e.viewerAttending ? 'Jadę' : 'Nie jadę'}
             </button>
             ${addCompanionHtml}
+            <button type="button" class="lw-edit-toggle lw-edit-toggle--icon lw-event-share-button" data-event-id="${escapeAttr(e.id)}" aria-label="Udostępnij wyjazd" title="Udostępnij wyjazd">${SHARE_ICON}</button>
             ${editToggleHtml}
           </div>
           ${panelHtml}
@@ -298,6 +307,16 @@ async function setEventStatusFromList(eventId, status, control) {
 
 document.getElementById('events-list').addEventListener('click', async (e) => {
   const errorEl = document.getElementById('events-error');
+
+  // KRKG-0106: per-row "Udostępnij" - icon-only, so shareEvent() gets no textEl (no room in the
+  // row for a "Skopiowano!" label); the button's own lw-share--active pulse is the only feedback
+  // on the clipboard-fallback path, same as the detail page's button.
+  const shareBtn = e.target.closest('.lw-event-share-button');
+  if (shareBtn) {
+    const targetEvent = cachedEvents.find((ev) => ev.id === shareBtn.dataset.eventId);
+    if (targetEvent) window.LwFriendlyUrl.shareEvent(targetEvent, { button: shareBtn });
+    return;
+  }
 
   // KRKG-0094: the "+ osoba towarzysząca" control opens/closes the same inline panel the trip
   // detail page renders. Opening it lazy-loads the roster/categories (once) and this event's

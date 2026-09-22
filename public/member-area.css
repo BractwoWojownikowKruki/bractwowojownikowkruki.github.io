@@ -1519,6 +1519,13 @@ button.lw-edit-toggle.lw-edit-toggle--icon {
   justify-content: center;
 }
 
+/* KRKG-0106: 2s pulse feedback on the "Udostępnij" button's clipboard fallback path only - the
+   native Web Share sheet is its own feedback, so this class never applies on that path. */
+button.lw-edit-toggle.lw-share--active {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+
 /* Collapsible "edit this event" panel opened by the meta row's Edytuj toggle - reuses the shared
    .field pattern (style.css) for Nazwa/Data/Opis like the add-event form does, so the two forms
    stay visually identical. */

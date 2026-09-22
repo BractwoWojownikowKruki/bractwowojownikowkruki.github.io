@@ -38,6 +38,10 @@
         <p class="upload-forbidden" id="forbidden-panel" hidden>
           Brak uprawnień. Ta sekcja jest dostępna tylko dla członków Bractwa.
         </p>
+        <p class="upload-forbidden" id="not-found-panel" hidden>
+          Nie znaleziono wyjazdu. Link może być nieaktualny (np. wyjazd zmienił nazwę lub datę).
+          <a href="/lista-wyjazdowa/">Wróć do listy wyjazdów</a>
+        </p>
 
         <div id="main-content" hidden>
           <!-- Same shared sticky top bar (shared/lw-nav.js + shared/lw-topbar.js) on every Lista
@@ -61,6 +65,7 @@
             <p id="event-meta"></p>
             <div class="lw-meta-actions">
               <button type="button" id="event-edit-toggle" class="lw-edit-toggle" aria-expanded="false" aria-controls="event-edit-panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>Edytuj</span></button>
+              <button type="button" id="event-share-button" class="lw-edit-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg><span id="event-share-button-text">Udostępnij</span></button>
               <a id="event-history-link" class="audyt-history-btn" href="/audyt/" title="Historia" aria-label="Historia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
             </div>
           </div>
@@ -171,6 +176,7 @@
   <script src="../../shared/profile-panel.js"></script>
   <script src="../../shared/companion-add.js"></script>
   <script src="../../shared/event-edit-form.js"></script>
+  <script src="../../shared/lw-friendly-url.js"></script>
   <script src="../../shared/lw-nav.js"></script>
   <script src="../../shared/lw-topbar.js"></script>
   <script src="wyjazd.js"></script>

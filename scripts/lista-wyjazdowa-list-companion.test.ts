@@ -7,6 +7,7 @@ const source = readFileSync(new URL('../public/lista-wyjazdowa/lista-wyjazdowa.j
 const displayNameSource = readFileSync(new URL('../public/shared/display-name.js', import.meta.url), 'utf8');
 const companionAddSource = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
 const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-form.js', import.meta.url), 'utf8');
+const lwFriendlyUrlSource = readFileSync(new URL('../public/shared/lw-friendly-url.js', import.meta.url), 'utf8');
 const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../public/lista-wyjazdowa/index.html', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/member-area.css', import.meta.url), 'utf8');
@@ -139,6 +140,7 @@ function createHarness(options: HarnessOptions = {}) {
   vm.runInNewContext(displayNameSource, context, { filename: 'display-name.js' });
   vm.runInNewContext(companionAddSource, context, { filename: 'companion-add.js' });
   vm.runInNewContext(eventEditFormSource, context, { filename: 'event-edit-form.js' });
+  vm.runInNewContext(lwFriendlyUrlSource, context, { filename: 'lw-friendly-url.js' });
   vm.runInNewContext(lwNavSource, context, { filename: 'lw-nav.js' });
   vm.runInNewContext(source, context, { filename: 'lista-wyjazdowa.js' });
 
@@ -297,7 +299,7 @@ test('KRKG-0101: the toggle and companion control share an action strip on mobil
   // row's mobile column layout keeps the two controls on one line.
   assert.match(
     source,
-    /<div class="lw-event-actions">\s*<button type="button" class="lw-attend-toggle"[\s\S]*?\$\{addCompanionHtml\}\s*\$\{editToggleHtml\}\s*<\/div>/,
+    /<div class="lw-event-actions">\s*<button type="button" class="lw-attend-toggle"[\s\S]*?\$\{addCompanionHtml\}\s*<button type="button" class="lw-edit-toggle lw-edit-toggle--icon lw-event-share-button"[\s\S]*?\$\{editToggleHtml\}\s*<\/div>/,
   );
   assert.match(css, /\.lw-event-actions\s*\{[^}]*display:\s*flex/);
   // On the all-events list the mobile label is shown again (the base rule hides it for the roster).
