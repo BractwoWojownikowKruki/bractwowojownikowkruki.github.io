@@ -60,10 +60,10 @@ test('with no current trip, "Wszystkie" is the active item and no trip is highli
   assert.doesNotMatch(menu, /class="lw-nav-item lw-nav-item--active"/);
 });
 
-test('the toggle label follows the current view: "Wszystkie" or the open trip\'s name', () => {
+test('the toggle label always reads "Lista wyjazdów", regardless of which trip is open', () => {
   const { html } = loadLwNav('2026-06-15');
-  assert.match(html({ events, currentEventId: null, open: false }), /<span>Wszystkie<\/span>/);
-  assert.match(html({ events, currentEventId: 'current', open: false }), /<span>Wyjazd Letni<\/span>/);
+  assert.match(html({ events, currentEventId: null, open: false }), /<span>Lista wyjazdów<\/span>/);
+  assert.match(html({ events, currentEventId: 'current', open: false }), /<span>Lista wyjazdów<\/span>/);
 });
 
 test('"Dodaj wyjazd" is not one of the dropdown items - it is a standalone button elsewhere on the page', () => {

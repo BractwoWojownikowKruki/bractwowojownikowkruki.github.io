@@ -522,9 +522,12 @@ test('a failed quick-add changes nothing and reports the error', async () => {
   assert.match(harness.elements.get('lw-error')!.textContent, /Nie udało się dodać osoby/);
 });
 
-test('the old lw-subnav pill row is gone, replaced by the shared sticky top bar', () => {
+test('the old lw-subnav pill row is gone, replaced by the shared top bar (non-sticky on this page)', () => {
   assert.doesNotMatch(page, /lw-subnav/);
-  assert.match(page, /class="lw-topbar"/);
+  // lw-topbar--static: unlike the events list page, the trip detail page's own content (roster,
+  // summary) is what matters while scrolling, so this page's bar scrolls away naturally instead
+  // of staying pinned under the site header.
+  assert.match(page, /class="lw-topbar lw-topbar--static"/);
   assert.match(page, /id="lw-nav-container"/);
   assert.match(page, /shared\/lw-nav\.js/);
   assert.match(page, /shared\/lw-topbar\.js/);
