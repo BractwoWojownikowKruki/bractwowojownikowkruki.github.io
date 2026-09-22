@@ -2434,15 +2434,17 @@ async function handleListaWyjazdowaSetMainPhoto(req: IncomingMessage, res: Serve
 // member (authenticateWojownicyUpload) and the target must be active and not hidden.
 async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   let isAdminOrHovding = true;
+  let identity: SessionClaims | undefined;
   try {
-    await deps.authenticateAdminOrHovding(req, res);
+    identity = await deps.authenticateAdminOrHovding(req, res);
   } catch (err) {
     if (!(err instanceof AuthError)) throw err;
     isAdminOrHovding = false;
   }
   if (!isAdminOrHovding) {
-    await deps.authenticateWojownicyUpload(req, res);
+    identity = await deps.authenticateWojownicyUpload(req, res);
   }
+  if (!identity) throw new Error('Profile request completed without an authenticated identity.');
 
   const rawEmail = url.searchParams.get('email');
   if (!rawEmail) {
@@ -2489,6 +2491,12 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
   const sectionLabelById = new Map(lookupLists.sections.map(s => [s.id, s.label]));
   const categoryLabelById = new Map(lookupLists.categories.map(c => [c.id, c.label]));
   const weaponLabelById = new Map(lookupLists.weapons.map(w => [w.id, w.label]));
+  const canEditDues = await canManageSkladki(req, res, deps, identity.email);
+  const canEditIdentity = isAdminOrHovding;
+  const canEditWeapons = isAdminOrHovding;
+  const editorCapabilities = canEditIdentity || canEditWeapons || canEditDues
+    ? { editor: { canEditIdentity, canEditWeapons, canEditDues, lookupLists } }
+    : {};
 
   let mainPhoto: PersonPhoto | null = null;
   let photos: PersonPhoto[] = [];
@@ -2548,6 +2556,7 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
     wpisowePaid: profile?.wpisowePaid ?? false,
     duesYear,
     duesStatus: effectiveDuesStatus(dues, member?.categoryId ?? null),
+    ...editorCapabilities,
   });
 }
 
@@ -2957,7 +2966,7 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
 // counterpart: the same public fields the drawer shows for a member (minus photos/description,
 // which a person never has) plus their dues status, so any signed-in member can open their pill.
 async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateWojownicyUpload(req, res);
+  const identity = await deps.authenticateWojownicyUpload(req, res);
   const personId = url.searchParams.get('personId');
   if (!personId) throw new AuthError('Brak identyfikatora osoby.', 400);
   const person = await getPerson(deps.firestore, personId);
@@ -2975,6 +2984,14 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
   const ownerName = person.ownerPersonId
     ? (ownerMember ? (ownerMember.nickname || [ownerMember.firstName, ownerMember.lastName].filter(Boolean).join(' ') || person.ownerPersonId) : person.ownerPersonId)
     : null;
+  const isOwner = person.ownerPersonId?.toLowerCase() === identity.email.toLowerCase();
+  const staff = await isPersonStaff(req, res, deps, identity.email);
+  const canEditIdentity = staff || isOwner;
+  const canEditWeapons = staff || isOwner;
+  const canEditDues = await canManageSkladki(req, res, deps, identity.email);
+  const editorCapabilities = canEditIdentity || canEditWeapons || canEditDues
+    ? { editor: { canEditIdentity, canEditWeapons, canEditDues, lookupLists } }
+    : {};
   sendJson(res, 200, {
     profile: {
       personId: person.personId,
@@ -3000,6 +3017,7 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
       wpisowePaid: profile?.wpisowePaid ?? false,
       duesStatus: effectiveDuesStatus(dues, person.categoryId),
       duesYear: year,
+      ...editorCapabilities,
     },
   });
 }
