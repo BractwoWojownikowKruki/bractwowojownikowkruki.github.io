@@ -662,10 +662,10 @@ function renderRoster(roster, signups) {
       ? compareDateValues(sortValue(a), sortValue(b), rosterSortState.dir)
       : compareValues(sortValue(a), sortValue(b), rosterSortState.dir);
     if (cmp !== 0) return cmp;
-    // Tie-break alphabetically by name, always ascending regardless of the primary column's own
-    // direction - a stable, predictable order for ties rather than one that flips with every
-    // direction toggle on an unrelated column.
-    return compareValues(displayName(a), displayName(b), 'asc');
+    // Tie-break alphabetically by Nazwisko (not the displayed ksywka/imię), always ascending
+    // regardless of the primary column's own direction - a stable, predictable order for ties
+    // rather than one that flips with every direction toggle on an unrelated column.
+    return compareValues(a.lastName ?? '', b.lastName ?? '', 'asc');
   });
 
   tbody.innerHTML = sorted

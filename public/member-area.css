@@ -1492,9 +1492,16 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
 }
 
 /* The event's own free-text description (Opis field), shown read-only below the meta row when
-   present; hidden entirely (via the [hidden] attribute in JS) when the event has none. */
+   present; hidden entirely (via the [hidden] attribute in JS) when the event has none. Set off as
+   its own card (border, tinted background) rather than a plain paragraph, so it doesn't read as
+   stray unstyled text floating under the title. */
 .lw-event-description {
   margin-bottom: 1.25rem;
+  padding: 0.85rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-hover);
+  border-radius: 8px;
   color: var(--text-muted);
   white-space: pre-wrap;
 }

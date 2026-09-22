@@ -94,10 +94,11 @@ function renderTable() {
   const sorted = [...filtered].sort((a, b) => {
     const cmp = compareValues(sortValue(a), sortValue(b), sortState.dir);
     // Sorting by Sekcja ties every member in the same section - break the tie alphabetically by
-    // name instead of leaving it at the server's arbitrary order, so "grouped by section, A-Z
-    // within it" is what both the default view and an explicit click on the Sekcja header show.
+    // Nazwisko (not the displayed ksywka/imię) instead of leaving it at the server's arbitrary
+    // order, so "grouped by section, A-Z by surname within it" is what both the default view and
+    // an explicit click on the Sekcja header show.
     if (cmp === 0 && sortState.key === 'sectionLabel') {
-      return compareValues(displayName(a), displayName(b), sortState.dir);
+      return compareValues(a.lastName ?? '', b.lastName ?? '', sortState.dir);
     }
     return cmp;
   });

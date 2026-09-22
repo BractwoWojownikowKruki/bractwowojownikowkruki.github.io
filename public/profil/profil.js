@@ -629,16 +629,17 @@ function clearPersonsError() {
   document.getElementById('persons-error').hidden = true;
 }
 
-// `person` null renders a blank "new person" row; the caller's owner section is the default so a
-// member only has to pick a ksywka and category (design.md section B). The category's no-weapon
-// rule is applied on render too, for a person already saved as Niewiasta/Bobo.
+// `person` null renders a blank "new person" row; the caller's owner section is the default. Imię,
+// nazwisko, kategoria i sekcja are required (matching the server's validatePersonFields) - ksywka
+// stays optional. The category's no-weapon rule is applied on render too, for a person already
+// saved as Niewiasta/Bobo.
 function addPersonRow(container, person = null) {
   const row = document.createElement('div');
   row.className = 'person-row';
   if (person) row.dataset.personId = person.personId;
   row.innerHTML = `
     <div class="person-row-fields">
-      <input type="text" class="person-ksywka" placeholder="Ksywka" value="${escapeAttr(person?.nickname ?? '')}" aria-label="Ksywka" />
+      <input type="text" class="person-ksywka" placeholder="Ksywka (opcjonalnie)" value="${escapeAttr(person?.nickname ?? '')}" aria-label="Ksywka (opcjonalnie)" />
       <input type="text" class="person-first-name" placeholder="Imię" value="${escapeAttr(person?.firstName ?? '')}" aria-label="Imię" />
       <input type="text" class="person-last-name" placeholder="Nazwisko" value="${escapeAttr(person?.lastName ?? '')}" aria-label="Nazwisko" />
       <select class="person-category" aria-label="Kategoria">${personOptionsHtml(personLookupLists.categories, person?.categoryId ?? null)}</select>
@@ -657,8 +658,8 @@ function addPersonRow(container, person = null) {
   row.querySelector('.person-save').addEventListener('click', (event) => {
     clearPersonsError();
     const fields = readPersonRow(row);
-    if (!fields.ksywka || !fields.categoryId || !fields.sectionId) {
-      showPersonsError('Ksywka, kategoria i sekcja są wymagane.');
+    if (!fields.firstName || !fields.lastName || !fields.categoryId || !fields.sectionId) {
+      showPersonsError('Imię, nazwisko, kategoria i sekcja są wymagane. Ksywka jest opcjonalna.');
       return;
     }
     if (person) savePerson(row.dataset.personId, fields, event.target);

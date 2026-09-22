@@ -401,7 +401,8 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
   members = [...members].sort((a, b) => {
     const cmp = compareValues(sortValue(a), sortValue(b), membershipSortState.dir);
     if (cmp !== 0) return cmp;
-    return compareValues(displayName(a), displayName(b), 'asc');
+    // Tie-break alphabetically by Nazwisko, not the displayed ksywka/imię.
+    return compareValues(a.lastName ?? '', b.lastName ?? '', 'asc');
   });
   const actions = MEMBERSHIP_ACTIONS_BY_STATUS[status] ?? [];
   const labelByFolderId = new Map(driveFolderOptions.map(o => [o.folderId, o.label]));
