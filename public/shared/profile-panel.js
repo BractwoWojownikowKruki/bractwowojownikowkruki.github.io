@@ -85,13 +85,14 @@
   let lightboxEls = null;
   let currentPhotos = [];
   let lightboxPhotoIndex = -1;
-  // The drawer has one independent draft per editable section. Batch 2 introduces identity;
-  // future sections can retain their own draft when a successful identity save GET-refreshes the
-  // server view, rather than one section's save unexpectedly discarding another's work.
+  // The drawer has one independent draft per editable section (identity/weapons/entryFee/
+  // annualDues), so a successful save of one never discards another's unsaved work. All of them
+  // still share a single "Edytuj" toggle (editorOpen) - the three forms are collapsed behind one
+  // button at the bottom of the profile rather than each being its own always-visible section.
   const editorState = {
     profile: null,
     target: null,
-    editingSection: null,
+    editorOpen: false,
     drafts: {},
     errors: {},
     pending: {},
@@ -124,12 +125,30 @@
     return url.replace(/=s\d+$/, `=s${size}`);
   }
 
+  // Identity/weapons saves go through authenticateAdminOrHovdingWithStepUp (server.ts), which
+  // needs a *fresh* sign-in (30-minute window) on top of the ordinary session - a step-up 401
+  // mid-edit is expected, not exceptional. Several host pages that embed this drawer
+  // (lista-wyjazdowa.js/wyjazd.js/skladki.js/czlonkowie.js) only ever declared a no-op
+  // window.showReauth "for now" (their own comments say so), and pliki.js/sprzet-obozowy.js never
+  // declared one at all - so delegating to window.showReauth left apiFetch's reauth prompt with
+  // no button to click, silently hanging the save forever with no error and no confirmation. The
+  // drawer now renders its own Google Sign-In button into the reauth banner above, so a step-up
+  // works regardless of what (if anything) the host page wired up. This only needs
+  // window.google.accounts.id.initialize() to have already run, which every one of those pages
+  // already does via its own initGoogleSignIn call before a signed-in viewer could ever open this
+  // drawer in the first place.
   function drawerShowReauth() {
-    window.showReauth?.();
+    const { reauth, reauthButton } = els;
+    reauth.hidden = false;
+    reauth.scrollIntoView({ block: 'center' });
+    if (window.google?.accounts?.id && !reauthButton.dataset.rendered) {
+      window.google.accounts.id.renderButton(reauthButton, { type: 'standard', text: 'signin_with', locale: 'pl' });
+      reauthButton.dataset.rendered = 'true';
+    }
   }
 
   function drawerHideReauth() {
-    window.hideReauth?.();
+    els.reauth.hidden = true;
   }
 
   function identityDraft(profile) {
@@ -147,13 +166,10 @@
       `<option value="${escapeHtml(item.id)}"${item.id === selectedId ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}`;
   }
 
-  function profileIdentityHtml(profile) {
+  // The identity form itself - always rendered when the shared editor panel is open (see
+  // profileEditorHtml below), never on its own.
+  function profileIdentityFormHtml(profile) {
     if (!profile.editor?.canEditIdentity) return '';
-    if (editorState.editingSection !== 'identity') {
-      return `<section class="profile-identity-section">
-        <button type="button" class="lw-edit-toggle profile-identity-edit" data-profile-edit="identity">${EDIT_PENCIL_ICON}<span>Edytuj</span></button>
-      </section>`;
-    }
     const draft = editorState.drafts.identity ?? identityDraft(profile);
     const lookupLists = profile.editor.lookupLists;
     const errorHtml = editorState.errors.identity
@@ -169,7 +185,6 @@
         ${errorHtml}
         <div class="profile-identity-actions">
           <button type="submit" class="add-album-submit profile-identity-save">Zapisz</button>
-          <button type="button" class="btn-cancel profile-identity-cancel" data-profile-cancel="identity">Anuluj</button>
         </div>
       </form>
     </section>`;
@@ -180,8 +195,9 @@
   }
 
   // Weapons and dues deliberately stay separate from identity: their permissions, backend
-  // resources, audit events, drafts, errors, and pending controls are all independent.
-  function profileWeaponsHtml(profile) {
+  // resources, audit events, drafts, errors, and pending controls are all independent. Like
+  // profileIdentityFormHtml, only ever rendered inside the shared editor panel.
+  function profileWeaponsFormHtml(profile) {
     if (!profile.editor?.canEditWeapons) return '';
     const draft = editorState.drafts.weapons ?? weaponsDraft(profile);
     const errorHtml = editorState.errors.weapons
@@ -201,7 +217,9 @@
     </section>`;
   }
 
-  function profileDuesHtml(profile) {
+  // Like profileIdentityFormHtml/profileWeaponsFormHtml, only ever rendered inside the shared
+  // editor panel.
+  function profileDuesFormHtml(profile) {
     if (!profile.editor?.canEditDues) return '';
     const entryFeeDraft = editorState.drafts.entryFee ?? { paid: Boolean(profile.wpisowePaid) };
     const annualDuesDraft = editorState.drafts.annualDues ?? { status: profile.duesStatus ?? 'unpaid' };
@@ -226,6 +244,28 @@
     </section>`;
   }
 
+  // The three editable forms above (identity/weapons/dues) are independent - different
+  // permissions, endpoints, drafts and audit events - but share one "Edytuj" toggle so they don't
+  // clutter the profile as always-visible forms. Placed at the very bottom of the profile (see
+  // renderProfile), below every read-only field including Broń, rather than at the top.
+  function profileEditorHtml(profile) {
+    const canEditAny = profile.editor?.canEditIdentity || profile.editor?.canEditWeapons || profile.editor?.canEditDues;
+    if (!canEditAny) return '';
+    if (!editorState.editorOpen) {
+      return `<div class="profile-editor-toggle-row">
+        <button type="button" class="lw-edit-toggle profile-editor-edit" data-profile-edit="editor">${EDIT_PENCIL_ICON}<span>Edytuj</span></button>
+      </div>`;
+    }
+    return `<div class="profile-editor-panel">
+      ${profileIdentityFormHtml(profile)}
+      ${profileWeaponsFormHtml(profile)}
+      ${profileDuesFormHtml(profile)}
+      <div class="profile-editor-actions">
+        <button type="button" class="btn-cancel profile-editor-cancel" data-profile-cancel="editor">Zamknij edycję</button>
+      </div>
+    </div>`;
+  }
+
   function ensureDrawer() {
     if (els) return els;
     const wrapper = document.createElement('div');
@@ -235,6 +275,10 @@
         <div class="profile-drawer-panel" role="dialog" aria-label="Profil użytkownika">
           <button type="button" class="profile-drawer-close" aria-label="Zamknij">✕</button>
           <div class="profile-drawer-status" aria-live="polite"></div>
+          <div class="profile-drawer-reauth" hidden role="alert">
+            <p>Aby zapisać zmiany, zaloguj się ponownie.</p>
+            <div class="profile-drawer-reauth-button"></div>
+          </div>
           <div class="profile-drawer-content"></div>
         </div>
       </div>
@@ -252,6 +296,8 @@
       // without scrolling (same "anchor outside what gets rebuilt" fix as KRKG-0102's
       // event-edit-toggle anchor in wyjazd.js).
       status: drawer.querySelector('.profile-drawer-status'),
+      reauth: drawer.querySelector('.profile-drawer-reauth'),
+      reauthButton: drawer.querySelector('.profile-drawer-reauth-button'),
       close: drawer.querySelector('.profile-drawer-close'),
       backdrop: drawer.querySelector('.profile-drawer-backdrop'),
     };
@@ -408,9 +454,6 @@
       ${duesStatusHtml}
       ${galleryHtml}
       <h3>${profile.accountless ? PERSON_MARKER_ICON : ''}${escapeHtml(shownName)}</h3>
-      ${profileIdentityHtml(profile)}
-      ${profileWeaponsHtml(profile)}
-      ${profileDuesHtml(profile)}
       <dl class="profile-fields">
         ${(profile.lastName || profile.firstName) ? `<dt>Nazwisko i imię</dt><dd>${escapeHtml([profile.lastName, profile.firstName].filter(Boolean).join(', '))}</dd>` : ''}
         ${profile.nickname ? `<dt>Ksywka</dt><dd>${escapeHtml(profile.nickname)}</dd>` : ''}
@@ -421,6 +464,7 @@
       </dl>
       ${descriptionHtml}
       ${pendingHtml}
+      ${profileEditorHtml(profile)}
     `;
   }
 
@@ -470,9 +514,20 @@
     if (savedSection) {
       editorState.drafts[savedSection] = null;
       editorState.errors[savedSection] = null;
-      if (savedSection === 'identity') editorState.editingSection = null;
     }
     renderProfileDrawer();
+  }
+
+  // refreshProfileDrawer's renderProfileDrawer() rebuilds .profile-drawer-content wholesale, so
+  // the Zapisz button just clicked is already gone by the time a save resolves - MutationFeedback
+  // can't anchor its checkmark there directly (see mutation-feedback.js's showCheck export
+  // comment). Call this from apply(), after the refresh, to place it next to the freshly-rendered
+  // button for the section that was actually saved instead of some fixed drawer-level spot.
+  function showSavedCheckNear(selector) {
+    const target = els.content.querySelector(selector)
+      || els.content.querySelector('.profile-editor-edit')
+      || els.status;
+    window.MutationFeedback.showCheck(target);
   }
 
   function handleProfileDrawerError(err) {
@@ -494,7 +549,7 @@
       editorState.target = { kind: 'member', email };
       editorState.drafts = {};
       editorState.errors = {};
-      editorState.editingSection = null;
+      editorState.editorOpen = false;
       editorState.profile = await loadProfileTarget(editorState.target);
       renderProfileDrawer();
     } catch (err) {
@@ -517,7 +572,7 @@
       editorState.target = { kind: 'person', personId };
       editorState.drafts = {};
       editorState.errors = {};
-      editorState.editingSection = null;
+      editorState.editorOpen = false;
       editorState.profile = await loadProfileTarget(editorState.target);
       renderProfileDrawer();
     } catch (err) {
@@ -571,7 +626,6 @@
     try {
       await window.MutationFeedback.confirmed({
         control: save,
-        anchor: els.status,
         viewRoot: els.drawer.querySelector('.profile-drawer-panel'),
         execute: () => apiFetch(
           editorState.target.kind === 'person' ? '/lista-wyjazdowa/persons' : '/admin/members/profile',
@@ -579,7 +633,11 @@
           drawerShowReauth,
           drawerHideReauth,
         ),
-        apply: () => refreshProfileDrawer('identity'),
+        apply: async () => {
+          await refreshProfileDrawer('identity');
+          showSavedCheckNear('.profile-identity-save');
+        },
+        shouldShowCheck: () => false,
         refreshFragment: () => refreshProfileDrawer('identity'),
       });
     } catch (err) {
@@ -624,7 +682,6 @@
     try {
       await window.MutationFeedback.confirmed({
         control: save,
-        anchor: els.status,
         viewRoot: els.drawer.querySelector('.profile-drawer-panel'),
         execute: () => apiFetch(
           editorState.target.kind === 'person' ? '/lista-wyjazdowa/persons' : '/admin/members/weapons',
@@ -632,7 +689,11 @@
           drawerShowReauth,
           drawerHideReauth,
         ),
-        apply: () => refreshProfileDrawer('weapons'),
+        apply: async () => {
+          await refreshProfileDrawer('weapons');
+          showSavedCheckNear('.profile-weapons-save');
+        },
+        shouldShowCheck: () => false,
         refreshFragment: () => refreshProfileDrawer('weapons'),
       });
     } catch (err) {
@@ -671,10 +732,13 @@
     try {
       await window.MutationFeedback.confirmed({
         control: save,
-        anchor: els.status,
         viewRoot: els.drawer.querySelector('.profile-drawer-panel'),
         execute: () => apiFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, drawerShowReauth, drawerHideReauth),
-        apply: () => refreshProfileDrawer(isEntryFee ? 'entryFee' : 'annualDues'),
+        apply: async () => {
+          await refreshProfileDrawer(isEntryFee ? 'entryFee' : 'annualDues');
+          showSavedCheckNear(`[data-profile-dues-save="${kind}"]`);
+        },
+        shouldShowCheck: () => false,
         refreshFragment: () => refreshProfileDrawer(isEntryFee ? 'entryFee' : 'annualDues'),
       });
     } catch (err) {
@@ -689,20 +753,32 @@
   }
 
   document.addEventListener('click', (e) => {
-    const identityEdit = e.target.closest('[data-profile-edit="identity"]');
-    if (identityEdit) {
-      editorState.editingSection = 'identity';
+    const editorEdit = e.target.closest('[data-profile-edit="editor"]');
+    if (editorEdit) {
+      editorState.editorOpen = true;
       editorState.drafts.identity = identityDraft(editorState.profile);
       editorState.errors.identity = null;
+      editorState.drafts.weapons = weaponsDraft(editorState.profile);
+      editorState.errors.weapons = null;
+      editorState.drafts.entryFee = null;
+      editorState.drafts.annualDues = null;
+      editorState.errors.entryFee = null;
+      editorState.errors.annualDues = null;
       renderProfileDrawer();
       return;
     }
 
-    const identityCancel = e.target.closest('[data-profile-cancel="identity"]');
-    if (identityCancel) {
-      editorState.editingSection = null;
+    const editorCancel = e.target.closest('[data-profile-cancel="editor"]');
+    if (editorCancel) {
+      editorState.editorOpen = false;
       editorState.drafts.identity = null;
       editorState.errors.identity = null;
+      editorState.drafts.weapons = null;
+      editorState.errors.weapons = null;
+      editorState.drafts.entryFee = null;
+      editorState.drafts.annualDues = null;
+      editorState.errors.entryFee = null;
+      editorState.errors.annualDues = null;
       renderProfileDrawer();
       return;
     }

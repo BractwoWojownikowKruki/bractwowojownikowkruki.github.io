@@ -38,9 +38,19 @@ class FakeElement {
       const drawer = this.children.get('.profile-drawer')!;
       drawer.addChild('.profile-drawer-content', new FakeElement('.profile-drawer-content'));
       drawer.addChild('.profile-drawer-close', new FakeElement('.profile-drawer-close'));
+      drawer.addChild('.profile-drawer-status', new FakeElement('.profile-drawer-status'));
+      const reauth = drawer.addChild('.profile-drawer-reauth', new FakeElement('.profile-drawer-reauth'));
+      reauth.addChild('.profile-drawer-reauth-button', new FakeElement('.profile-drawer-reauth-button'));
+      reauth.hidden = true;
       drawer.addChild('.profile-drawer-backdrop', new FakeElement('.profile-drawer-backdrop'));
     }
-    if (value.includes('data-profile-edit="identity"')) this.addChild('[data-profile-edit="identity"]', new FakeElement('[data-profile-edit="identity"]'));
+    // The editor toggle/panel is shared across identity/weapons/dues (editorOpen), replacing the
+    // old per-section identity-only toggle.
+    if (value.includes('data-profile-edit="editor"')) this.addChild('[data-profile-edit="editor"]', new FakeElement('[data-profile-edit="editor"]'));
+    if (value.includes('data-profile-cancel="editor"')) {
+      const cancel = this.addChild('[data-profile-cancel="editor"]', new FakeElement('[data-profile-cancel="editor"]'));
+      cancel.dataset.profileCancel = 'editor';
+    }
     if (value.includes('profile-identity-form')) {
       const section = this.addChild('.profile-identity-section', new FakeElement('.profile-identity-section'));
       const form = section.addChild('.profile-identity-form', new FakeElement('.profile-identity-form'));
@@ -51,8 +61,6 @@ class FakeElement {
         sectionId: { value: selectedValue('sectionId') }, categoryId: { value: selectedValue('categoryId') },
       };
       form.addChild('.profile-identity-save', new FakeElement('.profile-identity-save'));
-      const cancel = form.addChild('[data-profile-cancel="identity"]', new FakeElement('[data-profile-cancel="identity"]'));
-      cancel.dataset.profileCancel = 'identity';
       if (value.includes('profile-identity-error')) form.addChild('.profile-identity-error', new FakeElement('.profile-identity-error'));
     }
     if (value.includes('profile-weapons-form')) {
@@ -106,6 +114,7 @@ class FakeElement {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
   focus() {}
+  scrollIntoView() {}
 }
 
 function createHarness(harnessOptions: {
@@ -124,7 +133,6 @@ function createHarness(harnessOptions: {
     editor: { canEditIdentity: true, canEditWeapons: true, canEditDues: true, lookupLists: { sections: [{ id: 'kruki', label: 'Kruki' }], categories: [{ id: 'wojownik', label: 'Wojownik' }], weapons: [{ id: 'tarcza', label: 'Tarcza' }] } },
   };
   const profile = { ...defaultProfile, ...harnessOptions.profile };
-  let reauthRequests = 0;
   const document = {
     body,
     activeElement: new FakeElement(),
@@ -137,8 +145,12 @@ function createHarness(harnessOptions: {
   const context: Record<string, unknown> = {
     document,
     window: {
-      MutationFeedback: { confirmed: async ({ execute, apply }: { execute: () => Promise<unknown>; apply: (result: unknown) => Promise<void> }) => apply(await execute()) },
-      showReauth: () => { reauthRequests += 1; },
+      MutationFeedback: {
+        confirmed: async ({ execute, apply }: { execute: () => Promise<unknown>; apply: (result: unknown) => Promise<void> }) => apply(await execute()),
+        // Real callers now anchor the checkmark themselves post-refresh (see profile-panel.js's
+        // showSavedCheckNear) instead of confirmed() placing it - a no-op stub is enough here.
+        showCheck: () => {},
+      },
     },
     apiFetch: async (url: string, request: Record<string, unknown>) => {
       apiCalls.push({ url, options: request });
@@ -159,7 +171,6 @@ function createHarness(harnessOptions: {
     apiCalls,
     get drawer() { return drawerWrapper?.firstElementChild ?? null; },
     document,
-    get reauthRequests() { return reauthRequests; },
     window: context.window as { ProfilePanel: { open(email: string): Promise<void> } },
   };
 }
@@ -168,8 +179,8 @@ test('identity-capable profile drawer submits the edited member identity through
   const harness = createHarness();
   await harness.window.ProfilePanel.open('jan@example.test');
 
-  const edit = harness.document.body.querySelector('[data-profile-edit="identity"]');
-  assert.ok(edit, 'an identity-capable response exposes the Edit action');
+  const edit = harness.document.body.querySelector('[data-profile-edit="editor"]');
+  assert.ok(edit, 'an identity-capable response exposes the shared Edit action');
   await harness.document.dispatch('click', edit);
 
   const form = harness.document.body.querySelector('.profile-identity-form');
@@ -191,6 +202,7 @@ test('identity-capable profile drawer submits the edited member identity through
 test('capability-gated weapons and dues controls use their distinct PUT bodies and refresh the drawer', async () => {
   const harness = createHarness();
   await harness.window.ProfilePanel.open('jan@example.test');
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
 
   const weapons = harness.document.body.querySelector('.profile-weapons-form');
   assert.ok(weapons);
@@ -223,6 +235,7 @@ test('accountless person weapons save preserves the complete person record and r
   trigger.dataset.personId = 'person-42';
   await harness.document.dispatch('click', trigger);
   await new Promise((resolve) => setImmediate(resolve));
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
 
   const weapons = harness.document.body.querySelector('.profile-weapons-form');
   assert.ok(weapons);
@@ -241,36 +254,37 @@ test('a read-only profile does not expose any editable section controls', async 
   const harness = createHarness({ profile: { editor: undefined } });
   await harness.window.ProfilePanel.open('readonly@example.test');
 
-  assert.equal(harness.document.body.querySelector('[data-profile-edit="identity"]'), null);
+  assert.equal(harness.document.body.querySelector('[data-profile-edit="editor"]'), null);
   assert.equal(harness.document.body.querySelector('.profile-weapons-form'), null);
   assert.equal(harness.document.body.querySelector('.profile-dues-form'), null);
   assert.equal(harness.apiCalls.filter((call) => call.options.method === 'PUT').length, 0);
 });
 
-test('cancelling an identity edit restores the read-only view without a mutation', async () => {
+test('cancelling the shared editor restores the read-only view without a mutation', async () => {
   const harness = createHarness();
   await harness.window.ProfilePanel.open('jan@example.test');
-  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="identity"]')!);
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
   const form = harness.document.body.querySelector('.profile-identity-form');
   assert.ok(form);
   form.elements.firstName.value = 'Nie zapisuj';
 
-  const cancel = harness.document.body.querySelector('[data-profile-cancel="identity"]');
+  const cancel = harness.document.body.querySelector('[data-profile-cancel="editor"]');
   assert.ok(cancel);
   await harness.document.dispatch('click', cancel);
 
   assert.equal(harness.document.body.querySelector('.profile-identity-form'), null);
-  assert.ok(harness.document.body.querySelector('[data-profile-edit="identity"]'));
+  assert.equal(harness.document.body.querySelector('.profile-weapons-form'), null);
+  assert.ok(harness.document.body.querySelector('[data-profile-edit="editor"]'));
   assert.equal(harness.apiCalls.filter((call) => call.options.method === 'PUT').length, 0);
 });
 
 test('refreshing after an identity save retains the unsaved annual-dues draft', async () => {
   const harness = createHarness();
   await harness.window.ProfilePanel.open('jan@example.test');
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
   const dues = harness.document.body.querySelector('.profile-dues-form')!;
   dues.elements.duesStatus.value = 'unpaid';
   await harness.document.dispatch('input', dues);
-  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="identity"]')!);
   await harness.document.dispatch('submit', harness.document.body.querySelector('.profile-identity-form')!);
   await new Promise((resolve) => setImmediate(resolve));
 
@@ -278,7 +292,7 @@ test('refreshing after an identity save retains the unsaved annual-dues draft', 
   assert.equal(harness.apiCalls.filter((call) => call.url.startsWith('/member-profile?')).length, 2);
 });
 
-test('an identity 401 closes the drawer and invokes the existing reauthentication flow', async () => {
+test('an identity 401 shows the drawer\'s own reauth banner, then closes the drawer once the retry still fails', async () => {
   const harness = createHarness({
     apiFetch: async (_url, request) => {
       if (request.method === 'PUT') throw Object.assign(new Error('Wymagane ponowne logowanie.'), { status: 401 });
@@ -286,11 +300,13 @@ test('an identity 401 closes the drawer and invokes the existing reauthenticatio
     },
   });
   await harness.window.ProfilePanel.open('jan@example.test');
-  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="identity"]')!);
+  const reauth = harness.drawer?.querySelector('.profile-drawer-reauth');
+  assert.ok(reauth, 'the drawer renders its own reauth banner, not window.showReauth');
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
   await harness.document.dispatch('submit', harness.document.body.querySelector('.profile-identity-form')!);
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(harness.reauthRequests, 1);
+  assert.equal(reauth.hidden, false, 'a step-up 401 opens the drawer\'s self-contained reauth banner');
   assert.equal(harness.drawer?.hidden, true);
 });
 
@@ -302,7 +318,7 @@ test('an identity validation error retains the entered draft and shows an inline
     },
   });
   await harness.window.ProfilePanel.open('jan@example.test');
-  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="identity"]')!);
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
   const form = harness.document.body.querySelector('.profile-identity-form')!;
   form.elements.firstName.value = 'Janusz';
   await harness.document.dispatch('submit', form);
@@ -319,7 +335,7 @@ test('a second identity submit is ignored while its first save remains pending',
     firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', weapons: [], weaponIds: [], photos: [], pendingPhotos: [], editor: { canEditIdentity: true, lookupLists: { sections: [], categories: [] } },
   } });
   await harness.window.ProfilePanel.open('jan@example.test');
-  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="identity"]')!);
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
   const form = harness.document.body.querySelector('.profile-identity-form')!;
   await harness.document.dispatch('submit', form);
   await harness.document.dispatch('submit', form);
@@ -334,7 +350,7 @@ test('weapons retain their own pending guard while an identity save is in flight
     firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', weapons: [], weaponIds: [], photos: [], pendingPhotos: [], editor: { canEditIdentity: true, canEditWeapons: true, lookupLists: { sections: [], categories: [], weapons: [] } },
   } });
   await harness.window.ProfilePanel.open('jan@example.test');
-  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="identity"]')!);
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
   await harness.document.dispatch('submit', harness.document.body.querySelector('.profile-identity-form')!);
   const weapons = harness.document.body.querySelector('.profile-weapons-form')!;
   await harness.document.dispatch('submit', weapons);
@@ -351,6 +367,7 @@ test('entry and annual dues have separate pending guards', async () => {
     firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', weapons: [], weaponIds: [], photos: [], pendingPhotos: [], wpisowePaid: true, duesStatus: 'paid', duesYear: 2026, editor: { canEditDues: true, lookupLists: {} },
   } });
   await harness.window.ProfilePanel.open('jan@example.test');
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
   const entry = harness.document.body.querySelector('[data-profile-dues-save="wpisowe"]')!;
   const annual = harness.document.body.querySelector('[data-profile-dues-save="annual"]')!;
   await harness.document.dispatch('click', entry);

@@ -119,5 +119,10 @@
     return result;
   }
 
-  window.MutationFeedback = { confirmed };
+  // Exposed for callers whose apply() replaces the DOM around `control` wholesale (e.g. the
+  // profile drawer's editor panel, rebuilt from scratch on every save) and so cannot pass a
+  // fixed anchor up front: they pass `shouldShowCheck: () => false` to skip confirmed()'s own
+  // placement, then call this directly once apply() has re-rendered and they can look up the
+  // freshly-rendered control to anchor the checkmark next to.
+  window.MutationFeedback = { confirmed, showCheck };
 }());

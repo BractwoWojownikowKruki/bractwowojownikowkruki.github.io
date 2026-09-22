@@ -5,15 +5,15 @@ import assert from 'node:assert/strict';
 const panel = readFileSync(new URL('../public/shared/profile-panel.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/shared/profile-panel.css', import.meta.url), 'utf8');
 
-test('the profile drawer is read-only until an identity-capable editor chooses Edytuj', () => {
+test('the profile drawer is read-only until an editor-capable viewer chooses the shared Edytuj toggle', () => {
   assert.match(panel, /profile\.editor\?\.canEditIdentity/);
-  assert.match(panel, /profile-identity-edit/);
-  assert.match(panel, /data-profile-edit="identity"/);
+  assert.match(panel, /profile-editor-edit/);
+  assert.match(panel, /data-profile-edit="editor"/);
   assert.match(panel, />Edytuj</);
   assert.match(panel, /profile-identity-form/);
-  assert.match(panel, /profile-identity-cancel/);
-  assert.match(panel, /data-profile-cancel="identity"/);
-  assert.match(panel, />Anuluj</);
+  assert.match(panel, /profile-editor-cancel/);
+  assert.match(panel, /data-profile-cancel="editor"/);
+  assert.match(panel, />Zamknij edycję</);
 });
 
 test('identity editing uses the profile lookup lists for all identity fields', () => {

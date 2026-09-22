@@ -87,8 +87,9 @@
   margin: 0;
 }
 
-/* Identity is the first independently editable drawer section. It is deliberately opt-in: the
-   surrounding drawer stays a read-only profile until a capability-enabled viewer chooses Edytuj. */
+/* Identity/weapons/dues are independently permissioned and independently saved, but share one
+   "Edytuj" toggle (.profile-editor-toggle-row/.profile-editor-panel below) at the bottom of the
+   drawer - the surrounding profile stays read-only until a capability-enabled viewer opens it. */
 .profile-identity-section {
   margin: 0.75rem 0 1rem;
 }
@@ -120,9 +121,9 @@
   gap: 0.5rem;
 }
 
-/* Same "auto width, share the row" override as .lw-event-edit-actions .add-album-submit
-   (member-area.css) - the base .add-album-submit is a full-width form submit, wrong for a
-   Zapisz/Anuluj pair sharing one row. */
+/* Same "auto width" override as .lw-event-edit-actions .add-album-submit (member-area.css) -
+   the base .add-album-submit is a full-bleed form submit; this keeps Zapisz sized to its own
+   row instead of stretching edge to edge like a page-level submit button. */
 .profile-identity-actions .add-album-submit {
   width: auto;
   flex: 1 1 auto;
@@ -194,6 +195,36 @@
 }
 
 .profile-drawer-error {
+  color: var(--danger, #c0392b);
+}
+
+/* The shared "Edytuj" toggle/panel wrapping identity+weapons+dues (profileEditorHtml in
+   profile-panel.js) - placed at the very bottom of the profile, below Broń and every other
+   read-only field. */
+.profile-editor-toggle-row {
+  margin-top: 1.25rem;
+}
+
+.profile-editor-panel {
+  margin-top: 1.25rem;
+}
+
+.profile-editor-actions {
+  margin-top: 0.5rem;
+}
+
+/* Reauth banner (KRKG-0104 follow-up): the drawer renders its own Google Sign-In button here for
+   a step-up 401 instead of relying on the host page's own (often absent) reauth UI - see
+   drawerShowReauth's comment in profile-panel.js. */
+.profile-drawer-reauth {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--danger, #c0392b);
+  border-radius: 6px;
+}
+
+.profile-drawer-reauth p {
+  margin: 0 0 0.5rem;
   color: var(--danger, #c0392b);
 }
 
