@@ -12,7 +12,16 @@ function loadLwNav(now: string): { html: (params: { events: unknown[]; currentEv
       else super(...(args as []));
     }
   }
-  const context: Record<string, unknown> = { Date: FixedDate, String, encodeURIComponent, window: {} };
+  const context: Record<string, unknown> = {
+    Date: FixedDate,
+    String,
+    encodeURIComponent,
+    window: {
+      LwFriendlyUrl: {
+        eventUrl: (event: { name: string; startDate: string }) => `https://www.kruki.org/lista-wyjazdowa/wyjazd/?do=${event.startDate}-${event.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      },
+    },
+  };
   vm.runInNewContext(source, context, { filename: 'lw-nav.js' });
   return (context.window as { LwNav: { html: (params: { events: unknown[]; currentEventId: string | null; open: boolean }) => string } }).LwNav;
 }
@@ -84,4 +93,11 @@ test('trip names are HTML-escaped', () => {
   const menu = html({ events: [{ id: 'x', name: '<b>Zły</b>', startDate: '2026-07-01', status: 'active' }], currentEventId: null, open: true });
   assert.match(menu, /&lt;b&gt;Zły&lt;\/b&gt;/);
   assert.doesNotMatch(menu, /<b>Zły<\/b>/);
+});
+
+test('trip links use the friendly ?do= format from LwFriendlyUrl.eventUrl()', () => {
+  const { html } = loadLwNav('2026-06-15');
+  const menu = html({ events, currentEventId: null, open: true });
+  assert.match(menu, /href="https:\/\/www\.kruki\.org\/lista-wyjazdowa\/wyjazd\/\?do=2026-07-01-/);
+  assert.doesNotMatch(menu, /eventId=/);
 });

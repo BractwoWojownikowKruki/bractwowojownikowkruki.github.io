@@ -8,6 +8,7 @@ const page = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/index.html',
 const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 const companionAddSource = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
 const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-form.js', import.meta.url), 'utf8');
+const lwFriendlyUrlSource = readFileSync(new URL('../public/shared/lw-friendly-url.js', import.meta.url), 'utf8');
 const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.meta.url), 'utf8');
 
 class Element {
@@ -146,6 +147,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
   vm.runInNewContext(companionAddSource, context, { filename: 'companion-add.js' });
   vm.runInNewContext(eventEditFormSource, context, { filename: 'event-edit-form.js' });
+  vm.runInNewContext(lwFriendlyUrlSource, context, { filename: 'lw-friendly-url.js' });
   vm.runInNewContext(lwNavSource, context, { filename: 'lw-nav.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   return {
