@@ -837,8 +837,8 @@
 /* Standalone "Dodaj wyjazd" button next to the dropdown in .lw-topbar - not one of the dropdown's
    items, since it's an action rather than a place to navigate to. Same flat, edge-to-edge segment
    treatment as .lw-nav-toggle so the two read as one continuous menu bar rather than two
-   separately-styled controls; fills the remaining 40% the dropdown's own flex-basis (above)
-   leaves in the row instead of sizing to its own text. */
+   separately-styled controls; matches its 50% flex-basis (below) so the two segments split the
+   row evenly instead of sizing to their own text. */
 .content-section .lw-nav-add {
   display: flex;
   align-items: center;
