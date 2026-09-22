@@ -2,7 +2,7 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import https from 'https';
 import { join } from 'path';
-import { AlbumEntry, extractCoverUrl, extractDriveFolderId, extractPhotoCount, extractThumbEntries, extractTitle, makeSearchText, parseAlbumsJson, parseDate } from './utils.ts';
+import { AlbumEntry, extractCoverUrl, extractDriveFolderId, extractPhotoCount, extractThumbEntries, extractTitle, makeSearchText, parseAlbumsJson, parseDate, shouldRefreshCover, stableSyncTime } from './utils.ts';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const ALBUMS_JSON = join(ROOT, 'albums.json');
@@ -20,6 +20,7 @@ interface AlbumRecord {
   searchText: string;
   lastSyncedAt: string;
   syncStatus: 'ok' | 'failed';
+  coverSource?: string;
   source?: 'drive';
   driveFolderId?: string;
 }
@@ -76,10 +77,10 @@ async function syncAlbum({ url, nameOverride, dateOverride }: AlbumEntry, cached
 
     const title = nameOverride ?? extractTitle(html) ?? cached?.title ?? 'Album bez tytułu';
     const date = dateOverride ?? parseDate(title);
-    const coverUrl = extractCoverUrl(html);
+    const coverUrl = extractCoverUrl(html) ?? undefined;
     const photoCount = extractPhotoCount(html);
 
-    if (coverUrl) {
+    if (coverUrl && shouldRefreshCover(cached?.coverSource, coverUrl, existsSync(coverPath))) {
       try {
         await downloadImage(coverUrl, coverPath);
       } catch (e) {
@@ -133,6 +134,7 @@ async function syncAlbum({ url, nameOverride, dateOverride }: AlbumEntry, cached
       searchText: makeSearchText(title),
       lastSyncedAt: now,
       syncStatus: 'ok',
+      coverSource: coverUrl ?? cached?.coverSource,
     };
   } catch (e) {
     console.error(`[error] ${url}: ${(e as Error).message}`);
@@ -146,6 +148,7 @@ async function syncAlbum({ url, nameOverride, dateOverride }: AlbumEntry, cached
       searchText: cached?.searchText ?? '',
       lastSyncedAt: now,
       syncStatus: 'failed',
+      coverSource: cached?.coverSource,
     };
   }
 }
@@ -177,6 +180,7 @@ async function syncDriveAlbum(
     searchText: cached?.searchText ?? makeSearchText(nameOverride ?? ''),
     lastSyncedAt: now,
     syncStatus: 'failed',
+    coverSource: cached?.coverSource,
     source: 'drive',
     driveFolderId,
   });
@@ -195,13 +199,15 @@ async function syncDriveAlbum(
     const folder = (await folderRes.json()) as { name: string };
 
     const q = encodeURIComponent(`'${driveFolderId}' in parents and mimeType contains 'image/'`);
-    const listRes = await driveApiFetch(`/drive/v3/files?q=${q}&fields=files(id,thumbnailLink)&pageSize=1000`, apiKey);
+    const listRes = await driveApiFetch(`/drive/v3/files?q=${q}&fields=files(id,thumbnailLink,modifiedTime)&pageSize=1000`, apiKey);
     if (!listRes.ok) throw new Error(`HTTP ${listRes.status} (file list)`);
-    const list = (await listRes.json()) as { files: { id: string; thumbnailLink?: string }[] };
+    const list = (await listRes.json()) as { files: { id: string; thumbnailLink?: string; modifiedTime?: string }[] };
 
     const photoCount = list.files.length;
-    const coverThumb = list.files[0]?.thumbnailLink;
-    if (coverThumb) {
+    const first = list.files[0];
+    const coverThumb = first?.thumbnailLink;
+    const coverSource = first ? `${first.id}@${first.modifiedTime ?? ''}` : undefined;
+    if (coverThumb && shouldRefreshCover(cached?.coverSource, coverSource, existsSync(coverPath))) {
       try {
         await downloadImage(coverThumb.replace(/=s\d+$/, '=s800'), coverPath);
       } catch (e) {
@@ -223,6 +229,7 @@ async function syncDriveAlbum(
       searchText: makeSearchText(title),
       lastSyncedAt: now,
       syncStatus: 'ok',
+      coverSource: coverSource ?? cached?.coverSource,
       source: 'drive',
       driveFolderId,
     };
@@ -247,12 +254,12 @@ async function main(): Promise<void> {
 
   const results: AlbumRecord[] = [];
   for (const entry of entries) {
+    const cached = cache.get(entry.url);
     const driveFolderId = extractDriveFolderId(entry.url);
-    if (driveFolderId) {
-      results.push(await syncDriveAlbum(entry, driveFolderId, cache.get(entry.url)));
-    } else {
-      results.push(await syncAlbum(entry, cache.get(entry.url)));
-    }
+    const record = driveFolderId
+      ? await syncDriveAlbum(entry, driveFolderId, cached)
+      : await syncAlbum(entry, cached);
+    results.push(stableSyncTime(record, cached));
   }
 
   writeFileSync(GENERATED_JSON, JSON.stringify(results, null, 2) + '\n');

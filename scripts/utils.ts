@@ -106,6 +106,43 @@ export function makeSearchText(title: string): string {
   return title.toLowerCase().replace(/[–—]/g, '-');
 }
 
+// Decides whether a cover image must be (re)downloaded. The cover is keyed by
+// its source identity rather than by its bytes, because image hosts re-encode
+// the same picture differently on every fetch — byte comparison would always
+// report a change. Returns true only when a source is known and either the
+// local file is missing or the recorded source identity changed (for example
+// the album's cover photo was replaced). When no source has been recorded yet
+// (records generated before this field existed), an already-present file is
+// trusted so the migration does not re-download every album once.
+export function shouldRefreshCover(
+  cachedSource: string | undefined,
+  source: string | undefined,
+  fileExists: boolean,
+): boolean {
+  if (!source) return false;
+  if (!fileExists) return true;
+  if (cachedSource === undefined) return false;
+  return cachedSource !== source;
+}
+
+// Keeps generated records stable across sync runs. A fresh `lastSyncedAt` is
+// produced on every run, so writing it unconditionally yields a diff (and a
+// bot commit) even when nothing changed. When every field except the timestamp
+// matches the cached record, the cached timestamp is reused so the record — and
+// therefore the generated JSON file — stays byte-identical.
+export function stableSyncTime<T extends { lastSyncedAt: string }>(next: T, cached: T | undefined): T {
+  if (!cached) return next;
+  if (canonicalRecord(next) === canonicalRecord(cached)) {
+    return { ...next, lastSyncedAt: cached.lastSyncedAt };
+  }
+  return next;
+}
+
+function canonicalRecord(record: { lastSyncedAt: string }): string {
+  const { lastSyncedAt: _ignored, ...rest } = record;
+  return JSON.stringify(rest, Object.keys(rest).sort());
+}
+
 export interface AlbumEntry {
   url: string;
   nameOverride?: string;
