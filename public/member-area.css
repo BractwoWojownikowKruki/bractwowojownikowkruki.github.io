@@ -568,6 +568,18 @@
   }
 }
 
+/* Lista wyjazdowa's own two pages (events list, trip detail) put the shared trip-picker topbar
+   (.lw-topbar above) right at the top of their content, so style.css's generic 3rem/2rem
+   .main-content top padding - sized for pages that open with a page title - just reads as dead
+   air above the buttons. Dropped to 0: .lw-topbar's own 0.85rem vertical padding is already
+   enough breathing room under the site header. Only touches the top; left/right/bottom stay the
+   site default. Same later-file-wins reasoning as .main-content--wide above, so this one override
+   covers every breakpoint without needing to repeat it inside each of style.css's own media
+   queries. */
+.main-content--flush-top {
+  padding-top: 0;
+}
+
 /* KRKG-0052: scoped to this one table - it's the densest on the site, so a slightly smaller
    font buys back some of the width a plain column count otherwise demands. Other member tables
    stay at .czl-table's own 0.9rem; this only tightens Zarządzanie ludźmi's. */
@@ -672,45 +684,60 @@
 /* Sticky bar (shared/lw-nav.js + shared/lw-topbar.js) replacing the lw-subnav pill row above:
    the trip-picker dropdown plus the standalone "Dodaj wyjazd" button, pinned directly under the
    site's own sticky header (--lw-header-h, kept in sync by lw-topbar.js) instead of scrolling
-   away as a plain inline control. */
+   away as a plain inline control. Styled as a flat, edge-to-edge menu bar (square corners, full
+   width, segments divided by hairlines) rather than two separate pill buttons floating in open
+   space - the pill treatment read as two random controls dropped on the page instead of a
+   dedicated navigation row attached to the content below it. */
 .lw-topbar {
   position: sticky;
   top: var(--lw-header-h, 0px);
   z-index: 15;
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin: 0 -1px 1.75rem;
-  padding: 0.85rem 1px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  align-items: stretch;
+  flex-wrap: nowrap;
+  margin: 0 0 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+/* Trip detail page's own topbar (public/lista-wyjazdowa/wyjazd/index.html): the events list page
+   keeps the sticky behavior above (it's a long scrolling list, so quick access back to the
+   dropdown is worth keeping onscreen), but the detail page's own content (roster, summary) is
+   what matters while scrolling, not the trip picker sitting above it - it should scroll away
+   naturally instead of pinning itself under the site header. */
+.lw-topbar--static {
+  position: static;
 }
 
 .lw-nav {
   position: relative;
   max-width: 100%;
+  flex: 1 1 50%;
+  border-right: 1px solid var(--border);
 }
 
 .lw-nav-toggle {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.6rem;
-  padding: 0.6rem 1.1rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 0.85rem 1.25rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
   color: var(--text);
   font-family: inherit;
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;
-  transition: border-color 0.15s;
+  transition: background-color 0.15s;
 }
 
 .lw-nav-toggle:hover,
 .lw-nav-toggle[aria-expanded="true"] {
-  border-color: var(--accent);
+  background: var(--surface-deep);
 }
 
 .lw-nav-toggle:focus-visible {
@@ -729,21 +756,27 @@
   transform: rotate(180deg);
 }
 
+/* Attaches flush to the bottom of the toggle's own segment (top: 100%, same width, square
+   corners) so it reads as this one segment unfolding rather than an unrelated rounded card
+   floating below the flat menu bar. */
 .lw-nav-menu {
   position: absolute;
-  top: calc(100% + 0.4rem);
-  left: 0;
+  top: 100%;
+  left: -1px;
   z-index: 20;
   display: flex;
   flex-direction: column;
-  min-width: 240px;
+  /* At least as wide as the toggle segment itself (seamless continuation), but never narrower
+     than trip name + date need to stay on one line - the segment alone (roughly half the
+     topbar) is too narrow for that once there's a real event list. */
+  min-width: max(100%, 260px);
   max-width: min(90vw, 380px);
   max-height: 60vh;
   overflow-y: auto;
   padding: 0.4rem;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-top: none;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
 }
 
@@ -755,9 +788,10 @@
   padding: 0.55rem 0.75rem;
   /* Resets .content-section a's default red border-bottom "link underline" look (out-specificity
      needed since these are <a> tags) - without this every item showed a stray line under its
-     text, not just the intentional --active/--all treatments below. */
+     text, not just the intentional --active/--all treatments below. Square corners, no radius -
+     matches the flat menu-bar look of .lw-topbar/.lw-nav-menu above instead of the pill style
+     the rest of the site's buttons use. */
   border: 1px solid transparent;
-  border-radius: 7px;
   color: var(--text-muted);
   font-size: 14px;
   font-weight: 600;
@@ -801,24 +835,29 @@
 }
 
 /* Standalone "Dodaj wyjazd" button next to the dropdown in .lw-topbar - not one of the dropdown's
-   items, since it's an action rather than a place to navigate to. Same button chrome as
-   .lw-nav-toggle so the two read as a matched pair. */
+   items, since it's an action rather than a place to navigate to. Same flat, edge-to-edge segment
+   treatment as .lw-nav-toggle so the two read as one continuous menu bar rather than two
+   separately-styled controls; fills the remaining 40% the dropdown's own flex-basis (above)
+   leaves in the row instead of sizing to its own text. */
 .content-section .lw-nav-add {
   display: flex;
   align-items: center;
-  padding: 0.6rem 1.1rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  justify-content: center;
+  flex: 1 1 50%;
+  padding: 0.85rem 1.25rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
   color: var(--gold);
   font-size: 15px;
   font-weight: 700;
   white-space: nowrap;
+  transition: background-color 0.15s;
 }
 
 .content-section .lw-nav-add:hover,
 .content-section .lw-nav-add:focus-visible {
-  border-color: var(--gold);
+  background: var(--surface-deep);
 }
 
 /* Shared card look for event rows - the roster and Składki (KRKG-0052/this change) both moved to a

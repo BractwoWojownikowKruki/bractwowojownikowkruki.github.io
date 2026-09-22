@@ -51,11 +51,11 @@
       .sort((a, b) => a.startDate.localeCompare(b.startDate));
   }
 
-  function currentLabel(events, currentEventId) {
-    if (!currentEventId) return 'Wszystkie';
-    const event = events.find((e) => e.id === currentEventId);
-    return event ? event.name : 'Wyjazd';
-  }
+  // The toggle's own label never reflects the currently open trip - it always reads "Lista
+  // wyjazdów", since the trip's name is already shown by the page itself (the h1 on the detail
+  // page, the active row's highlight in the dropdown here) and a label that changed length with
+  // the trip name is what caused the "Dodaj wyjazd" button beside it to wrap onto its own line.
+  const TOGGLE_LABEL = 'Lista wyjazdów';
 
   /**
    * @param {{events: Array<{id: string, name: string, startDate: string, status: string}>, currentEventId: string|null, open: boolean}} params
@@ -70,7 +70,7 @@
     return `
       <div class="lw-nav">
         <button type="button" class="lw-nav-toggle" aria-haspopup="true" aria-expanded="${open ? 'true' : 'false'}">
-          <span>${escapeHtml(currentLabel(events, currentEventId))}</span>
+          <span>${TOGGLE_LABEL}</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </button>
         <div class="lw-nav-menu" role="menu"${open ? '' : ' hidden'}>

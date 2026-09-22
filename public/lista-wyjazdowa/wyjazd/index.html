@@ -27,7 +27,7 @@
 <body>
     <!-- PARTIAL:nav -->
 
-  <main class="main-content">
+  <main class="main-content main-content--flush-top">
     <div class="content-left">
       <section class="content-section content-section--app">
         <p class="auth-checking busy-sticker-loader--feature" id="lw-checking" role="status"><span class="busy-sticker-aura busy-sticker-aura--feature" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--feature" alt=""></span><span class="busy-sticker-label">PLEASE HOLD THE LINE...</span></p>
@@ -45,7 +45,7 @@
                action, not a place to navigate to) - it links to the events list with ?new=1,
                which that page's own load logic detects and opens the add-event form
                automatically, since this page has no form of its own to reveal in place. -->
-          <div class="lw-topbar">
+          <div class="lw-topbar lw-topbar--static">
             <div id="lw-nav-container"></div>
             <a href="/lista-wyjazdowa/?new=1" class="lw-nav-add" id="lw-nav-add">+ Dodaj wyjazd</a>
           </div>

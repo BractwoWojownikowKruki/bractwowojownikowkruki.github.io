@@ -9,14 +9,13 @@
   <link rel="stylesheet" href="../public/shared/profile-panel.css">
 </head>
 <body>
-  <main class="main-content">
+  <main class="main-content main-content--flush-top">
     <div class="content-left">
       <section class="content-section content-section--app">
-        <nav class="lw-subnav">
-          <a href="#" class="lw-subnav-link" onclick="return false">Lista wyjazdów</a>
-          <a href="#" class="lw-subnav-link" onclick="return false">Dodaj wyjazd</a>
-          <a href="#" class="lw-subnav-link" onclick="return false">Składki</a>
-        </nav>
+        <div class="lw-topbar lw-topbar--static">
+          <div id="lw-nav-container"></div>
+          <a href="#" class="lw-nav-add" id="lw-nav-add" onclick="return false">+ Dodaj wyjazd</a>
+        </div>
 
         <h1 id="event-title">Wyjazd Sokoli</h1>
 
@@ -152,9 +151,30 @@
   <script src="../public/shared/display-name.js"></script>
   <script src="../public/shared/person-pill.js"></script>
   <script src="../public/shared/companion-add.js"></script>
+  <script src="../public/shared/lw-nav.js"></script>
   <script>
     const EMPTY = '—';
     const viewerPersonId = 'viewer@example.com';
+
+    const navEvents = [
+      { id: 'e1', name: 'Wyjazd Letni', startDate: '2027-05-01', status: 'active' },
+      { id: 'e2', name: 'Zimowy Biwak', startDate: '2027-01-15', status: 'active' },
+      { id: 'e3', name: 'Wyjazd Sokoli', startDate: '2027-01-01', status: 'active' },
+    ];
+    let lwNavOpen = false;
+    function renderLwNav() {
+      document.getElementById('lw-nav-container').innerHTML = window.LwNav.html({
+        events: navEvents,
+        currentEventId: 'e3',
+        open: lwNavOpen,
+      });
+    }
+    document.getElementById('lw-nav-container').addEventListener('click', (e) => {
+      if (!e.target.closest('.lw-nav-toggle')) return;
+      lwNavOpen = !lwNavOpen;
+      renderLwNav();
+    });
+    renderLwNav();
 
     const categories = [
       { id: 'kandydat', label: 'Kandydat' },
