@@ -123,7 +123,6 @@
     "cover": "covers/0cfd7c11.jpg",
     "photoCount": 27,
     "thumbs": [
-      "thumbs/0cfd7c11-85e2227e.jpg",
       "thumbs/0cfd7c11-7e4a43ac.jpg",
       "thumbs/0cfd7c11-f4c8a4a1.jpg",
       "thumbs/0cfd7c11-436e8116.jpg",
@@ -138,6 +137,7 @@
       "thumbs/0cfd7c11-665fa4fd.jpg",
       "thumbs/0cfd7c11-935bc9c2.jpg",
       "thumbs/0cfd7c11-0762beec.jpg",
+      "thumbs/0cfd7c11-85e2227e.jpg",
       "thumbs/0cfd7c11-e3a5f949.jpg",
       "thumbs/0cfd7c11-56d87758.jpg",
       "thumbs/0cfd7c11-87095037.jpg",
@@ -149,7 +149,7 @@
       "thumbs/0cfd7c11-9ecd7e32.jpg"
     ],
     "searchText": "2026.06.12-14 noc kupały szczecin",
-    "lastSyncedAt": "2026-09-22T10:43:56.883Z",
+    "lastSyncedAt": "2026-09-22T19:51:15.126Z",
     "syncStatus": "ok",
     "coverSource": "https://lh3.googleusercontent.com/pw/AP1GczMBJiiMw2oiHiL0Cnizkf_D_7Eyw2o1HX8Sbu3H79yWBUzf5ANqipBCNpst7dySLR9InD53NmtY9gcnvB4AvML2S43ZYfkATZHntplezsNTC940g9lk=w600-h315-p-k"
   },
@@ -900,10 +900,10 @@
     "cover": "covers/7a0bf95d.jpg",
     "photoCount": 15,
     "thumbs": [
+      "thumbs/7a0bf95d-57ebf103.jpg",
       "thumbs/7a0bf95d-ebe557f3.jpg",
       "thumbs/7a0bf95d-4c0b3d58.jpg",
       "thumbs/7a0bf95d-6bbf1669.jpg",
-      "thumbs/7a0bf95d-57ebf103.jpg",
       "thumbs/7a0bf95d-f755f76f.jpg",
       "thumbs/7a0bf95d-ebced0e9.jpg",
       "thumbs/7a0bf95d-c6bdcddc.jpg",
@@ -917,7 +917,7 @@
       "thumbs/7a0bf95d-ca3c674a.jpg"
     ],
     "searchText": "2018.04.21 pobiedziska",
-    "lastSyncedAt": "2026-09-22T19:34:28.937Z",
+    "lastSyncedAt": "2026-09-22T19:51:29.970Z",
     "syncStatus": "ok",
     "coverSource": "https://lh3.googleusercontent.com/pw/AP1GczPgEBByaaYQaTY9lRfe0GdMMpoTRmvOs8ozmMVpX2-BvdZOje9xr6W71fqPUozJIBX7WvCW-UHkQGtOM6tC2hkIod0lX92lTMO4ZPgRGvIR2QCF-x4=w600-h315-p-k"
   },
