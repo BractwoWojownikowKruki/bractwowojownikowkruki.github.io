@@ -1456,6 +1456,25 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
   flex: 0 0 auto;
 }
 
+/* Title row: the event name plus its "Udostępnij" share button, on the same line so sharing sits
+   right where the name is read, not buried in the meta row below. */
+.lw-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.lw-title-row h1 {
+  margin-bottom: 0;
+}
+
+.lw-title-row .lw-edit-toggle {
+  flex-shrink: 0;
+}
+
 /* Meta line under the title (date on the left) plus its right-aligned Historia/Edytuj controls -
    shared by the event page's #event-meta row and reused wherever else a title needs the same
    "info left, small actions right" line (KRKG event-edit UI). */
@@ -1470,6 +1489,14 @@ span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
 
 .lw-meta-row #event-meta {
   margin-bottom: 0;
+}
+
+/* The event's own free-text description (Opis field), shown read-only below the meta row when
+   present; hidden entirely (via the [hidden] attribute in JS) when the event has none. */
+.lw-event-description {
+  margin-bottom: 1.25rem;
+  color: var(--text-muted);
+  white-space: pre-wrap;
 }
 
 .lw-meta-actions {
@@ -1535,6 +1562,15 @@ button.lw-edit-toggle.lw-share--active {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+/* Shown live (KRKG event-edit-form.js's wireUrlWarning) once Nazwa or Data differs from the
+   event's saved values - both feed the friendly-URL slug, so either one changing breaks already
+   shared links. --gold rather than the error color: informational, not a failure. */
+.lw-event-edit-url-warning {
+  color: var(--gold);
+  font-size: 13px;
+  margin: -0.5rem 0 1rem;
 }
 
 .lw-event-edit-actions {

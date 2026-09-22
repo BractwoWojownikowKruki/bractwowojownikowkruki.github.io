@@ -176,6 +176,10 @@ function renderEvents() {
       `;
     })
     .join('');
+  if (openEditPanelEventId) {
+    const openEvent = events.find((e) => e.id === openEditPanelEventId);
+    if (openEvent) window.EventEditForm.wireUrlWarning(`lw-event-edit-${openEvent.id}`, openEvent);
+  }
 }
 
 async function loadEvents() {

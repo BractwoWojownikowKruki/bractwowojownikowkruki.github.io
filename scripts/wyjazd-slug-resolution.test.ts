@@ -31,15 +31,15 @@ const elementIds = [
   'skladka-fee-display', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
   'skladka-fee-save', 'skladka-fee-remove', 'summary-content', 'roster-panel', 'roster-table',
   'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni', 'event-title',
-  'event-meta', 'event-edit-toggle', 'event-edit-panel', 'event-history-link',
+  'event-meta', 'event-description', 'event-edit-toggle', 'event-edit-panel', 'event-history-link',
   'skladka-fee-history-link', 'lw-inline-existing-select', 'lw-inline-new-name',
   'lw-inline-new-category', 'event-equipment-panel', 'event-equipment-table',
   'event-equipment-content', 'lw-nav-container', 'event-share-button', 'event-share-button-text',
 ];
 
 const events = [
-  { id: 'e1', name: 'Wolin', startDate: '2026-01-01', status: 'active' },
-  { id: 'e2', name: 'Wolin Żarłoczny', startDate: '2026-06-15', status: 'active' },
+  { id: 'e1', name: 'Wolin', startDate: '2026-01-01', status: 'active', description: 'Zbiórka o 9:00 pod bramą.' },
+  { id: 'e2', name: 'Wolin Żarłoczny', startDate: '2026-06-15', status: 'active', description: null },
 ];
 
 function createHarness(search: string) {
@@ -109,4 +109,19 @@ test('the legacy ?eventId= param still works and skips slug resolution', async (
   assert.ok(harness.elements.get('not-found-panel')!.hidden);
   // Only one /lista-wyjazdowa/events call - the legacy path never needs the extra resolution fetch.
   assert.equal(harness.calls.filter(c => c.url === '/lista-wyjazdowa/events').length, 1);
+});
+
+test('an event with a description shows it, unhidden', async () => {
+  const harness = createHarness('?eventId=e1');
+  await harness.signIn();
+  const description = harness.elements.get('event-description')!;
+  assert.equal(description.textContent, 'Zbiórka o 9:00 pod bramą.');
+  assert.equal(description.hidden, false);
+});
+
+test('an event with no description keeps the paragraph hidden', async () => {
+  const harness = createHarness('?eventId=e2');
+  await harness.signIn();
+  const description = harness.elements.get('event-description')!;
+  assert.equal(description.hidden, true);
 });

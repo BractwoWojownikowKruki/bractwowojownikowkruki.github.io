@@ -50,7 +50,7 @@ const elementIds = [
   'skladka-fee-display', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
   'skladka-fee-save', 'skladka-fee-remove', 'roster-panel', 'summary-content',
   'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni',
-  'event-title', 'event-meta',
+  'event-title', 'event-meta', 'event-description',
   'event-edit-toggle', 'event-edit-panel', 'event-history-link', 'skladka-fee-history-link',
   'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category',
   'event-equipment-panel', 'event-equipment-table', 'event-equipment-content', 'lw-nav-container',

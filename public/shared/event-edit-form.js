@@ -50,6 +50,7 @@
         <label for="${idPrefix}-date">Data rozpoczęcia</label>
         <input type="date" id="${idPrefix}-date" value="${escapeHtml(event.startDate)}">
       </div>
+      <p class="lw-event-edit-url-warning" id="${idPrefix}-url-warning" hidden>⚠️ Zmiana nazwy lub daty zmieni link do wyjazdu — stare linki (np. już udostępnione) przestaną działać.</p>
       <div class="field">
         <label for="${idPrefix}-description">Opis</label>
         <textarea id="${idPrefix}-description" rows="4" placeholder="Informacje o wyjeździe: miejsce, linki, co zabrać...">${escapeHtml(description)}</textarea>
@@ -78,6 +79,27 @@
   }
 
   /**
+   * Wires the Nazwa/Data inputs to toggle the "this will change the URL" warning live as the
+   * viewer types - both fields feed the friendly-URL slug (KRKG-0106: `${startDate}-${slugify(name)}`),
+   * so either one changing invalidates already-shared links. Called once per panel render, right
+   * after `panelHtml`'s markup is inserted into the DOM.
+   *
+   * @param {string} idPrefix
+   * @param {{name: string, startDate: string}} event
+   */
+  function wireUrlWarning(idPrefix, event) {
+    const nameInput = document.getElementById(`${idPrefix}-name`);
+    const dateInput = document.getElementById(`${idPrefix}-date`);
+    const warning = document.getElementById(`${idPrefix}-url-warning`);
+    if (!nameInput || !dateInput || !warning) return;
+    const update = () => {
+      warning.hidden = nameInput.value.trim() === event.name && dateInput.value === event.startDate;
+    };
+    nameInput.addEventListener('input', update);
+    dateInput.addEventListener('input', update);
+  }
+
+  /**
    * Diff-only PUT body: only fields that actually changed from `event` are included, same
    * "send only what changed" contract as wyjazd.js's saveSkladkaFee. An empty description is sent
    * as null (clears it) rather than an empty string, matching the backend's optionalTrimmedString.
@@ -96,5 +118,5 @@
     return body;
   }
 
-  window.EventEditForm = { toggleButtonHtml, panelHtml, readForm, buildUpdateBody };
+  window.EventEditForm = { toggleButtonHtml, panelHtml, readForm, buildUpdateBody, wireUrlWarning };
 }());

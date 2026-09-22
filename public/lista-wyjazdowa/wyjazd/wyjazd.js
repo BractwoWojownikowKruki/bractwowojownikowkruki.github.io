@@ -898,6 +898,15 @@ document.getElementById('event-equipment-content').addEventListener('click', (e)
     .finally(() => { equipmentBtn.disabled = false; });
 });
 
+// Read-only rendering of the event's free-text description (the Opis field the edit panel below
+// also edits) - hidden entirely when the event has none, rather than showing an empty paragraph.
+function renderEventDescription(event) {
+  const el = document.getElementById('event-description');
+  const description = event.description ?? '';
+  el.textContent = description;
+  el.hidden = !description;
+}
+
 async function loadAll() {
   const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue, canManagePeople: peopleValue }, lookupLists, { items: eventEquipmentItems }] = await Promise.all([
     apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
@@ -925,6 +934,7 @@ async function loadAll() {
   cachedEvent = event;
   document.getElementById('event-title').textContent = event.name;
   document.getElementById('event-meta').textContent = `${formatDate(event.startDate)}${event.status === 'cancelled' ? ' — odwołany' : ''}`;
+  renderEventDescription(event);
   renderEventEditPanel();
   // Historia deep links (KRKG-0050 batch 5/6, event-wide in KRKG-0086). The top clock opens the
   // whole trip history via the `eventId` selector - event metadata, the event fee, every member's
@@ -957,6 +967,7 @@ async function loadAll() {
 function renderEventEditPanel() {
   if (!cachedEvent) return;
   document.getElementById('event-edit-panel').innerHTML = window.EventEditForm.panelHtml(cachedEvent, { idPrefix: 'event-edit' });
+  window.EventEditForm.wireUrlWarning('event-edit', cachedEvent);
   document.getElementById('event-edit-panel').hidden = !eventEditOpen;
   document.getElementById('event-edit-toggle').setAttribute('aria-expanded', String(eventEditOpen));
 }
@@ -993,6 +1004,7 @@ async function saveEventDetails(control) {
       cachedEvent = result.event;
       document.getElementById('event-title').textContent = cachedEvent.name;
       document.getElementById('event-meta').textContent = `${formatDate(cachedEvent.startDate)}${cachedEvent.status === 'cancelled' ? ' — odwołany' : ''}`;
+      renderEventDescription(cachedEvent);
       eventEditOpen = false;
       renderEventEditPanel();
       // `control` (the Zapisz button just clicked) does not survive renderEventEditPanel's
