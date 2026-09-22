@@ -21,6 +21,10 @@
   // companion figure from the roster's add-companion button, not the profile-open person icon.
   const PERSON_MARKER_ICON = '<svg class="person-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="osoba bez konta"><circle cx="12" cy="5.5" r="2.6"/><path d="M12 8.5v6.5"/><path d="M8.2 11h7.6"/><path d="M9.2 22l2.8-7 2.8 7"/></svg>';
 
+  // Same "Edytuj" pencil icon as shared/event-edit-form.js's toggleButtonHtml, duplicated per-file
+  // by that module's own established convention - no shared icon module in this codebase.
+  const EDIT_PENCIL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+
   // Weapon icons (KRKG-0074): the same hand-drawn PNG set wyjazd.js/profil.js use for a member's
   // weapons. The seeded lookup label "Duńczyk (D)" still carries its "(D)" placeholder, which
   // reads as broken when printed as plain text - so Broń renders the same icon + short item-name
@@ -147,7 +151,7 @@
     if (!profile.editor?.canEditIdentity) return '';
     if (editorState.editingSection !== 'identity') {
       return `<section class="profile-identity-section">
-        <button type="button" class="profile-identity-edit" data-profile-edit="identity">Edytuj</button>
+        <button type="button" class="lw-edit-toggle profile-identity-edit" data-profile-edit="identity">${EDIT_PENCIL_ICON}<span>Edytuj</span></button>
       </section>`;
     }
     const draft = editorState.drafts.identity ?? identityDraft(profile);
@@ -164,8 +168,8 @@
         <label>Status<select name="categoryId">${selectOptions(lookupLists.categories, draft.categoryId, true)}</select></label>
         ${errorHtml}
         <div class="profile-identity-actions">
-          <button type="submit" class="profile-identity-save">Zapisz</button>
-          <button type="button" class="profile-identity-cancel" data-profile-cancel="identity">Anuluj</button>
+          <button type="submit" class="add-album-submit profile-identity-save">Zapisz</button>
+          <button type="button" class="btn-cancel profile-identity-cancel" data-profile-cancel="identity">Anuluj</button>
         </div>
       </form>
     </section>`;
@@ -192,7 +196,7 @@
           </label>`).join('')}
         </fieldset>
         ${errorHtml}
-        <button type="submit" class="profile-weapons-save">Zapisz broń</button>
+        <button type="submit" class="add-album-submit profile-weapons-save">Zapisz broń</button>
       </form>
     </section>`;
   }
@@ -209,13 +213,13 @@
       <form class="profile-dues-form" data-profile-section="dues">
         <fieldset><legend>Składki</legend>
           <label class="profile-dues-option"><input type="checkbox" name="wpisowePaid"${entryFeeDraft.paid ? ' checked' : ''}> Wpisowe opłacone</label>
-          <button type="button" class="profile-dues-save" data-profile-dues-save="wpisowe">Zapisz wpisowe</button>
+          <button type="button" class="add-album-submit profile-dues-save" data-profile-dues-save="wpisowe">Zapisz wpisowe</button>
           <label>Składka ${escapeHtml(profile.duesYear)}
             <select name="duesStatus">
               ${['unpaid', 'paid', 'not_applicable'].map((status) => `<option value="${status}"${annualDuesDraft.status === status ? ' selected' : ''}>${({ unpaid: 'nieopłacona', paid: 'opłacona', not_applicable: 'nie dotyczy' })[status]}</option>`).join('')}
             </select>
           </label>
-          <button type="button" class="profile-dues-save" data-profile-dues-save="annual">Zapisz składkę</button>
+          <button type="button" class="add-album-submit profile-dues-save" data-profile-dues-save="annual">Zapisz składkę</button>
         </fieldset>
         ${errorHtml}
       </form>
@@ -230,6 +234,7 @@
         <div class="profile-drawer-backdrop"></div>
         <div class="profile-drawer-panel" role="dialog" aria-label="Profil użytkownika">
           <button type="button" class="profile-drawer-close" aria-label="Zamknij">✕</button>
+          <div class="profile-drawer-status" aria-live="polite"></div>
           <div class="profile-drawer-content"></div>
         </div>
       </div>
@@ -239,6 +244,14 @@
     els = {
       drawer,
       content: drawer.querySelector('.profile-drawer-content'),
+      // Persistent anchor for MutationFeedback's "saved" checkmark. `content` gets wholesale
+      // replaced by renderProfileDrawer() on every save (photo, identity, weapons, dues and the
+      // photo gallery all live in that one innerHTML), so anchoring the checkmark there puts it
+      // after the *entire* rebuilt profile - usually scrolled out of view. This marker sits
+      // above content, right under the close button, so the confirmation is always visible
+      // without scrolling (same "anchor outside what gets rebuilt" fix as KRKG-0102's
+      // event-edit-toggle anchor in wyjazd.js).
+      status: drawer.querySelector('.profile-drawer-status'),
       close: drawer.querySelector('.profile-drawer-close'),
       backdrop: drawer.querySelector('.profile-drawer-backdrop'),
     };
@@ -558,7 +571,7 @@
     try {
       await window.MutationFeedback.confirmed({
         control: save,
-        anchor: els.content,
+        anchor: els.status,
         viewRoot: els.drawer.querySelector('.profile-drawer-panel'),
         execute: () => apiFetch(
           editorState.target.kind === 'person' ? '/lista-wyjazdowa/persons' : '/admin/members/profile',
@@ -611,7 +624,7 @@
     try {
       await window.MutationFeedback.confirmed({
         control: save,
-        anchor: els.content,
+        anchor: els.status,
         viewRoot: els.drawer.querySelector('.profile-drawer-panel'),
         execute: () => apiFetch(
           editorState.target.kind === 'person' ? '/lista-wyjazdowa/persons' : '/admin/members/weapons',
@@ -658,7 +671,7 @@
     try {
       await window.MutationFeedback.confirmed({
         control: save,
-        anchor: els.content,
+        anchor: els.status,
         viewRoot: els.drawer.querySelector('.profile-drawer-panel'),
         execute: () => apiFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, drawerShowReauth, drawerHideReauth),
         apply: () => refreshProfileDrawer(isEntryFee ? 'entryFee' : 'annualDues'),

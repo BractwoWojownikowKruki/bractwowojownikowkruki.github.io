@@ -120,6 +120,15 @@
   gap: 0.5rem;
 }
 
+/* Same "auto width, share the row" override as .lw-event-edit-actions .add-album-submit
+   (member-area.css) - the base .add-album-submit is a full-width form submit, wrong for a
+   Zapisz/Anuluj pair sharing one row. */
+.profile-identity-actions .add-album-submit {
+  width: auto;
+  flex: 1 1 auto;
+  padding: 10px 1.25rem;
+}
+
 .profile-identity-section--pending {
   opacity: 0.7;
 }
