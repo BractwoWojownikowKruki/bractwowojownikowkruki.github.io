@@ -15,7 +15,7 @@ test('Spis Ludności renders and sorts the primary name with displayName', () =>
   assert.match(script, /sortState\.key === 'displayName' \? displayName\(member\) : \(member\[sortState\.key\] \?\? ''\)/);
   assert.match(script, /name: displayName\(m\)/);
   assert.doesNotMatch(script, /\$\{cell\(m\.fullName\)\}/);
-  assert.match(script, /compareValues\(displayName\(a\), displayName\(b\), sortState\.dir\)/);
+  assert.match(script, /compareValues\(a\.lastName \?\? '', b\.lastName \?\? '', sortState\.dir\)/);
 });
 
 test('Spis Ludności unions accountless people from the roster and renders them read-only with the marker', () => {
