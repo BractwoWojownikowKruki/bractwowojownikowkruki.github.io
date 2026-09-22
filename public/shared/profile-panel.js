@@ -81,6 +81,16 @@
   let lightboxEls = null;
   let currentPhotos = [];
   let lightboxPhotoIndex = -1;
+  // The drawer has one independent draft per editable section. Batch 2 introduces identity;
+  // future sections can retain their own draft when a successful identity save GET-refreshes the
+  // server view, rather than one section's save unexpectedly discarding another's work.
+  const editorState = {
+    profile: null,
+    target: null,
+    editingSection: null,
+    drafts: {},
+    errors: {},
+  };
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (c) => ({
@@ -107,6 +117,57 @@
   // o-nas.js's resizeUrl).
   function resizeUrl(url, size) {
     return url.replace(/=s\d+$/, `=s${size}`);
+  }
+
+  function drawerShowReauth() {
+    window.showReauth?.();
+  }
+
+  function drawerHideReauth() {
+    window.hideReauth?.();
+  }
+
+  function identityDraft(profile) {
+    return {
+      firstName: profile.firstName ?? '',
+      lastName: profile.lastName ?? '',
+      nickname: profile.nickname ?? '',
+      sectionId: profile.sectionId ?? '',
+      categoryId: profile.categoryId ?? '',
+    };
+  }
+
+  function selectOptions(items, selectedId, includeBlank = false) {
+    return `${includeBlank ? '<option value="">—</option>' : ''}${(items ?? []).map((item) =>
+      `<option value="${escapeHtml(item.id)}"${item.id === selectedId ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}`;
+  }
+
+  function profileIdentityHtml(profile) {
+    if (!profile.editor?.canEditIdentity) return '';
+    if (editorState.editingSection !== 'identity') {
+      return `<section class="profile-identity-section">
+        <button type="button" class="profile-identity-edit" data-profile-edit="identity">Edytuj</button>
+      </section>`;
+    }
+    const draft = editorState.drafts.identity ?? identityDraft(profile);
+    const lookupLists = profile.editor.lookupLists;
+    const errorHtml = editorState.errors.identity
+      ? `<p class="profile-identity-error" role="alert">${escapeHtml(editorState.errors.identity)}</p>`
+      : '';
+    return `<section class="profile-identity-section">
+      <form class="profile-identity-form" data-profile-section="identity">
+        <label>Nazwisko<input name="lastName" value="${escapeHtml(draft.lastName)}" required></label>
+        <label>Imię<input name="firstName" value="${escapeHtml(draft.firstName)}" required></label>
+        <label>Ksywka<input name="nickname" value="${escapeHtml(draft.nickname)}"></label>
+        <label>Sekcja<select name="sectionId" required>${selectOptions(lookupLists.sections, draft.sectionId)}</select></label>
+        <label>Status<select name="categoryId">${selectOptions(lookupLists.categories, draft.categoryId, true)}</select></label>
+        ${errorHtml}
+        <div class="profile-identity-actions">
+          <button type="submit" class="profile-identity-save">Zapisz</button>
+          <button type="button" class="profile-identity-cancel" data-profile-cancel="identity">Anuluj</button>
+        </div>
+      </form>
+    </section>`;
   }
 
   function ensureDrawer() {
@@ -282,6 +343,7 @@
       ${duesStatusHtml}
       ${galleryHtml}
       <h3>${profile.accountless ? PERSON_MARKER_ICON : ''}${escapeHtml(shownName)}</h3>
+      ${profileIdentityHtml(profile)}
       <dl class="profile-fields">
         ${(profile.lastName || profile.firstName) ? `<dt>Nazwisko i imię</dt><dd>${escapeHtml([profile.lastName, profile.firstName].filter(Boolean).join(', '))}</dd>` : ''}
         ${profile.nickname ? `<dt>Ksywka</dt><dd>${escapeHtml(profile.nickname)}</dd>` : ''}
@@ -293,6 +355,11 @@
       ${descriptionHtml}
       ${pendingHtml}
     `;
+  }
+
+  function renderProfileDrawer() {
+    if (!els || !editorState.profile) return;
+    els.content.innerHTML = renderProfile(editorState.profile);
   }
 
   // Same full-size "busy sticker" loader used elsewhere for a full-page loading state (e.g.
@@ -310,6 +377,44 @@
     `;
   }
 
+  async function loadProfileTarget(target) {
+    if (target.kind === 'person') {
+      const { profile } = await apiFetch(
+        `/lista-wyjazdowa/person-profile?personId=${encodeURIComponent(target.personId)}`,
+        { method: 'GET' },
+        drawerShowReauth,
+        drawerHideReauth,
+      );
+      return profile;
+    }
+    return apiFetch(
+      `/member-profile?email=${encodeURIComponent(target.email)}`,
+      { method: 'GET' },
+      drawerShowReauth,
+      drawerHideReauth,
+    );
+  }
+
+  async function refreshProfileDrawer() {
+    const otherDrafts = { ...editorState.drafts };
+    const profile = await loadProfileTarget(editorState.target);
+    editorState.profile = profile;
+    editorState.drafts = otherDrafts;
+    editorState.drafts.identity = null;
+    editorState.errors.identity = null;
+    editorState.editingSection = null;
+    renderProfileDrawer();
+  }
+
+  function handleProfileDrawerError(err) {
+    if (err.status === 401 || err.status === 403) {
+      if (err.status === 401) drawerShowReauth();
+      closeDrawer();
+      return true;
+    }
+    return false;
+  }
+
   async function open(email) {
     lastFocused = document.activeElement;
     const { drawer, content, close } = ensureDrawer();
@@ -317,10 +422,15 @@
     drawer.hidden = false;
     close.focus();
     try {
-      const profile = await apiFetch(`/member-profile?email=${encodeURIComponent(email)}`, { method: 'GET' });
-      content.innerHTML = renderProfile(profile);
+      editorState.target = { kind: 'member', email };
+      editorState.drafts = {};
+      editorState.errors = {};
+      editorState.editingSection = null;
+      editorState.profile = await loadProfileTarget(editorState.target);
+      renderProfileDrawer();
     } catch (err) {
       currentPhotos = [];
+      if (handleProfileDrawerError(err)) return;
       content.innerHTML = `<p class="profile-drawer-error">Nie udało się wczytać profilu: ${escapeHtml(err.message)}</p>`;
     }
   }
@@ -335,15 +445,101 @@
     drawer.hidden = false;
     close.focus();
     try {
-      const { profile } = await apiFetch(`/lista-wyjazdowa/person-profile?personId=${encodeURIComponent(personId)}`, { method: 'GET' });
-      content.innerHTML = renderProfile(profile);
+      editorState.target = { kind: 'person', personId };
+      editorState.drafts = {};
+      editorState.errors = {};
+      editorState.editingSection = null;
+      editorState.profile = await loadProfileTarget(editorState.target);
+      renderProfileDrawer();
     } catch (err) {
       currentPhotos = [];
+      if (handleProfileDrawerError(err)) return;
       content.innerHTML = `<p class="profile-drawer-error">Nie udało się wczytać profilu: ${escapeHtml(err.message)}</p>`;
     }
   }
 
+  function updateIdentityDraft(form) {
+    editorState.drafts.identity = {
+      firstName: form.elements.firstName.value,
+      lastName: form.elements.lastName.value,
+      nickname: form.elements.nickname.value,
+      sectionId: form.elements.sectionId.value,
+      categoryId: form.elements.categoryId.value,
+    };
+  }
+
+  async function saveIdentity(form) {
+    const section = form.closest('.profile-identity-section');
+    const save = form.querySelector('.profile-identity-save');
+    updateIdentityDraft(form);
+    const draft = editorState.drafts.identity;
+    section.classList.add('profile-identity-section--pending');
+    save.disabled = true;
+    editorState.errors.identity = null;
+    const profile = editorState.profile;
+    const body = editorState.target.kind === 'person'
+      ? {
+          personId: editorState.target.personId,
+          ksywka: draft.nickname.trim(),
+          firstName: draft.firstName.trim(),
+          lastName: draft.lastName.trim(),
+          categoryId: draft.categoryId,
+          sectionId: draft.sectionId,
+          // The person route is a complete-record PUT. Preserve existing weapon selections
+          // without exposing weapon controls in this identity-only batch.
+          weaponIds: profile.weaponIds ?? [],
+        }
+      : {
+          email: editorState.target.email,
+          firstName: draft.firstName.trim(),
+          lastName: draft.lastName.trim(),
+          nickname: draft.nickname.trim() || null,
+          sectionId: draft.sectionId,
+          categoryId: draft.categoryId || null,
+        };
+    try {
+      await window.MutationFeedback.confirmed({
+        control: save,
+        anchor: els.content,
+        viewRoot: els.drawer.querySelector('.profile-drawer-panel'),
+        execute: () => apiFetch(
+          editorState.target.kind === 'person' ? '/lista-wyjazdowa/persons' : '/admin/members/profile',
+          { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+          drawerShowReauth,
+          drawerHideReauth,
+        ),
+        apply: refreshProfileDrawer,
+        refreshFragment: refreshProfileDrawer,
+      });
+    } catch (err) {
+      if (handleProfileDrawerError(err)) return;
+      editorState.errors.identity = `Nie udało się zapisać lub odświeżyć danych: ${err.message}`;
+      renderProfileDrawer();
+    } finally {
+      section.classList.remove('profile-identity-section--pending');
+      save.disabled = false;
+    }
+  }
+
   document.addEventListener('click', (e) => {
+    const identityEdit = e.target.closest('[data-profile-edit="identity"]');
+    if (identityEdit) {
+      editorState.editingSection = 'identity';
+      editorState.drafts.identity = identityDraft(editorState.profile);
+      editorState.errors.identity = null;
+      renderProfileDrawer();
+      return;
+    }
+
+    const identityCancel = e.target.closest('[data-profile-cancel="identity"]');
+    if (identityCancel) {
+      editorState.editingSection = null;
+      editorState.drafts.identity = null;
+      editorState.errors.identity = null;
+      renderProfileDrawer();
+      return;
+    }
+
     const trigger = e.target.closest('[data-profile-trigger]');
     if (trigger) {
       if (trigger.dataset.personId) openPerson(trigger.dataset.personId);
@@ -373,6 +569,23 @@
     if (filmThumb && filmThumb.closest('#profile-lightbox')) {
       setLightboxIndex(Number(filmThumb.dataset.index));
     }
+  });
+
+  document.addEventListener('input', (e) => {
+    const form = e.target.closest('.profile-identity-form');
+    if (form) updateIdentityDraft(form);
+  });
+
+  document.addEventListener('change', (e) => {
+    const form = e.target.closest('.profile-identity-form');
+    if (form) updateIdentityDraft(form);
+  });
+
+  document.addEventListener('submit', (e) => {
+    const form = e.target.closest('.profile-identity-form');
+    if (!form) return;
+    e.preventDefault();
+    saveIdentity(form);
   });
 
   document.addEventListener('keydown', (e) => {

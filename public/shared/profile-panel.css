@@ -87,6 +87,48 @@
   margin: 0;
 }
 
+/* Identity is the first independently editable drawer section. It is deliberately opt-in: the
+   surrounding drawer stays a read-only profile until a capability-enabled viewer chooses Edytuj. */
+.profile-identity-section {
+  margin: 0.75rem 0 1rem;
+}
+
+.profile-identity-form {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.profile-identity-form label {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.profile-identity-form input,
+.profile-identity-form select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.profile-identity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.profile-identity-section--pending {
+  opacity: 0.7;
+}
+
+.profile-identity-error {
+  margin: 0;
+  color: var(--danger, #c0392b);
+}
+
 .profile-description {
   margin-top: 1rem;
   white-space: pre-wrap;
