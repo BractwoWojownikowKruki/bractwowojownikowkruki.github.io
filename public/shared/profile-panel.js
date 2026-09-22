@@ -90,6 +90,7 @@
     editingSection: null,
     drafts: {},
     errors: {},
+    pending: {},
   };
 
   function escapeHtml(value) {
@@ -524,6 +525,8 @@
   }
 
   async function saveIdentity(form) {
+    if (editorState.pending.identity) return;
+    editorState.pending.identity = true;
     const section = form.closest('.profile-identity-section');
     const save = form.querySelector('.profile-identity-save');
     updateIdentityDraft(form);
@@ -571,6 +574,7 @@
       editorState.errors.identity = `Nie udało się zapisać lub odświeżyć danych: ${err.message}`;
       renderProfileDrawer();
     } finally {
+      editorState.pending.identity = false;
       section.classList.remove('profile-identity-section--pending');
       save.disabled = false;
     }
@@ -583,6 +587,8 @@
   }
 
   async function saveWeapons(form) {
+    if (editorState.pending.weapons) return;
+    editorState.pending.weapons = true;
     const section = form.closest('.profile-weapons-section');
     const save = form.querySelector('.profile-weapons-save');
     updateWeaponsDraft(form);
@@ -621,6 +627,7 @@
       editorState.errors.weapons = `Nie udało się zapisać broni: ${err.message}`;
       renderProfileDrawer();
     } finally {
+      editorState.pending.weapons = false;
       section.classList.remove('profile-weapons-section--pending');
       save.disabled = false;
     }
@@ -632,6 +639,9 @@
   }
 
   async function saveDues(form, kind) {
+    const pendingKey = kind === 'wpisowe' ? 'entryFee' : 'annualDues';
+    if (editorState.pending[pendingKey]) return;
+    editorState.pending[pendingKey] = true;
     const section = form.closest('.profile-dues-section');
     const save = form.querySelector(`[data-profile-dues-save="${kind}"]`);
     updateDuesDraft(form);
@@ -659,6 +669,7 @@
       editorState.errors[isEntryFee ? 'entryFee' : 'annualDues'] = `Nie udało się zapisać składki: ${err.message}`;
       renderProfileDrawer();
     } finally {
+      editorState.pending[pendingKey] = false;
       section.classList.remove('profile-dues-section--pending');
       save.disabled = false;
     }

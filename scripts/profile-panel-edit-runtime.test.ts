@@ -51,6 +51,9 @@ class FakeElement {
         sectionId: { value: selectedValue('sectionId') }, categoryId: { value: selectedValue('categoryId') },
       };
       form.addChild('.profile-identity-save', new FakeElement('.profile-identity-save'));
+      const cancel = form.addChild('[data-profile-cancel="identity"]', new FakeElement('[data-profile-cancel="identity"]'));
+      cancel.dataset.profileCancel = 'identity';
+      if (value.includes('profile-identity-error')) form.addChild('.profile-identity-error', new FakeElement('.profile-identity-error'));
     }
     if (value.includes('profile-weapons-form')) {
       const section = this.addChild('.profile-weapons-section', new FakeElement('.profile-weapons-section'));
@@ -105,21 +108,27 @@ class FakeElement {
   focus() {}
 }
 
-function createHarness() {
+function createHarness(harnessOptions: {
+  profile?: Record<string, unknown>;
+  apiFetch?: (url: string, request: Record<string, unknown>) => Promise<unknown>;
+} = {}) {
   const listeners = new Map<string, Array<(event: any) => unknown>>();
   const body = new FakeElement('body');
   body.isConnected = true;
+  let drawerWrapper: FakeElement | null = null;
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
-  const profile = {
+  const defaultProfile = {
     firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik',
     sectionLabel: 'Kruki', categoryLabel: 'Wojownik', weapons: [], weaponIds: ['tarcza'], photos: [], pendingPhotos: [],
     published: false, wpisowePaid: true, duesStatus: 'paid', duesYear: 2026,
     editor: { canEditIdentity: true, canEditWeapons: true, canEditDues: true, lookupLists: { sections: [{ id: 'kruki', label: 'Kruki' }], categories: [{ id: 'wojownik', label: 'Wojownik' }], weapons: [{ id: 'tarcza', label: 'Tarcza' }] } },
   };
+  const profile = { ...defaultProfile, ...harnessOptions.profile };
+  let reauthRequests = 0;
   const document = {
     body,
     activeElement: new FakeElement(),
-    createElement: () => new FakeElement(),
+    createElement: () => (drawerWrapper = new FakeElement()),
     addEventListener: (type: string, listener: (event: any) => unknown) => listeners.set(type, [...(listeners.get(type) ?? []), listener]),
     async dispatch(type: string, target: FakeElement) {
       for (const listener of listeners.get(type) ?? []) await listener({ target, preventDefault() {} });
@@ -129,9 +138,11 @@ function createHarness() {
     document,
     window: {
       MutationFeedback: { confirmed: async ({ execute, apply }: { execute: () => Promise<unknown>; apply: (result: unknown) => Promise<void> }) => apply(await execute()) },
+      showReauth: () => { reauthRequests += 1; },
     },
-    apiFetch: async (url: string, options: Record<string, unknown>) => {
-      apiCalls.push({ url, options });
+    apiFetch: async (url: string, request: Record<string, unknown>) => {
+      apiCalls.push({ url, options: request });
+      if (harnessOptions.apiFetch) return harnessOptions.apiFetch(url, request);
       return url.startsWith('/lista-wyjazdowa/person-profile?') ? { profile } : profile;
     },
     categoryPillBroccoliIconHtml: () => '',
@@ -144,7 +155,13 @@ function createHarness() {
     JSON,
   };
   vm.runInNewContext(source, context, { filename: 'profile-panel.js' });
-  return { apiCalls, document, window: context.window as { ProfilePanel: { open(email: string): Promise<void> } } };
+  return {
+    apiCalls,
+    get drawer() { return drawerWrapper?.firstElementChild ?? null; },
+    document,
+    get reauthRequests() { return reauthRequests; },
+    window: context.window as { ProfilePanel: { open(email: string): Promise<void> } },
+  };
 }
 
 test('identity-capable profile drawer submits the edited member identity through its target-specific PUT route', async () => {
@@ -218,4 +235,129 @@ test('accountless person weapons save preserves the complete person record and r
     personId: 'person-42', ksywka: 'Janko', firstName: 'Jan', lastName: 'Kowalski', categoryId: 'wojownik', sectionId: 'kruki', weaponIds: ['tarcza'],
   });
   assert.equal(harness.apiCalls.filter((call) => call.url === '/lista-wyjazdowa/person-profile?personId=person-42').length, 2, 'the write refreshes via the person-keyed profile endpoint');
+});
+
+test('a read-only profile does not expose any editable section controls', async () => {
+  const harness = createHarness({ profile: { editor: undefined } });
+  await harness.window.ProfilePanel.open('readonly@example.test');
+
+  assert.equal(harness.document.body.querySelector('[data-profile-edit="identity"]'), null);
+  assert.equal(harness.document.body.querySelector('.profile-weapons-form'), null);
+  assert.equal(harness.document.body.querySelector('.profile-dues-form'), null);
+  assert.equal(harness.apiCalls.filter((call) => call.options.method === 'PUT').length, 0);
+});
+
+test('cancelling an identity edit restores the read-only view without a mutation', async () => {
+  const harness = createHarness();
+  await harness.window.ProfilePanel.open('jan@example.test');
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="identity"]')!);
+  const form = harness.document.body.querySelector('.profile-identity-form');
+  assert.ok(form);
+  form.elements.firstName.value = 'Nie zapisuj';
+
+  const cancel = harness.document.body.querySelector('[data-profile-cancel="identity"]');
+  assert.ok(cancel);
+  await harness.document.dispatch('click', cancel);
+
+  assert.equal(harness.document.body.querySelector('.profile-identity-form'), null);
+  assert.ok(harness.document.body.querySelector('[data-profile-edit="identity"]'));
+  assert.equal(harness.apiCalls.filter((call) => call.options.method === 'PUT').length, 0);
+});
+
+test('refreshing after an identity save retains the unsaved annual-dues draft', async () => {
+  const harness = createHarness();
+  await harness.window.ProfilePanel.open('jan@example.test');
+  const dues = harness.document.body.querySelector('.profile-dues-form')!;
+  dues.elements.duesStatus.value = 'unpaid';
+  await harness.document.dispatch('input', dues);
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="identity"]')!);
+  await harness.document.dispatch('submit', harness.document.body.querySelector('.profile-identity-form')!);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(harness.document.body.querySelector('.profile-dues-form')?.elements.duesStatus.value, 'unpaid');
+  assert.equal(harness.apiCalls.filter((call) => call.url.startsWith('/member-profile?')).length, 2);
+});
+
+test('an identity 401 closes the drawer and invokes the existing reauthentication flow', async () => {
+  const harness = createHarness({
+    apiFetch: async (_url, request) => {
+      if (request.method === 'PUT') throw Object.assign(new Error('Wymagane ponowne logowanie.'), { status: 401 });
+      return { firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', weapons: [], weaponIds: [], photos: [], pendingPhotos: [], editor: { canEditIdentity: true, lookupLists: { sections: [], categories: [] } } };
+    },
+  });
+  await harness.window.ProfilePanel.open('jan@example.test');
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="identity"]')!);
+  await harness.document.dispatch('submit', harness.document.body.querySelector('.profile-identity-form')!);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(harness.reauthRequests, 1);
+  assert.equal(harness.drawer?.hidden, true);
+});
+
+test('an identity validation error retains the entered draft and shows an inline alert', async () => {
+  const harness = createHarness({
+    apiFetch: async (_url, request) => {
+      if (request.method === 'PUT') throw Object.assign(new Error('Nieprawidłowa sekcja.'), { status: 400 });
+      return { firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', weapons: [], weaponIds: [], photos: [], pendingPhotos: [], editor: { canEditIdentity: true, lookupLists: { sections: [], categories: [] } } };
+    },
+  });
+  await harness.window.ProfilePanel.open('jan@example.test');
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="identity"]')!);
+  const form = harness.document.body.querySelector('.profile-identity-form')!;
+  form.elements.firstName.value = 'Janusz';
+  await harness.document.dispatch('submit', form);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(harness.document.body.querySelector('.profile-identity-form')?.elements.firstName.value, 'Janusz');
+  assert.ok(harness.document.body.querySelector('.profile-identity-error'));
+});
+
+test('a second identity submit is ignored while its first save remains pending', async () => {
+  let resolvePut: (() => void) | undefined;
+  const pendingPut = new Promise<void>((resolve) => { resolvePut = resolve; });
+  const harness = createHarness({ apiFetch: async (_url, request) => request.method === 'PUT' ? pendingPut : {
+    firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', weapons: [], weaponIds: [], photos: [], pendingPhotos: [], editor: { canEditIdentity: true, lookupLists: { sections: [], categories: [] } },
+  } });
+  await harness.window.ProfilePanel.open('jan@example.test');
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="identity"]')!);
+  const form = harness.document.body.querySelector('.profile-identity-form')!;
+  await harness.document.dispatch('submit', form);
+  await harness.document.dispatch('submit', form);
+
+  assert.equal(harness.apiCalls.filter((call) => call.options.method === 'PUT').length, 1);
+  resolvePut?.();
+});
+
+test('weapons retain their own pending guard while an identity save is in flight', async () => {
+  const pendingPut = new Promise<void>(() => {});
+  const harness = createHarness({ apiFetch: async (_url, request) => request.method === 'PUT' ? pendingPut : {
+    firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', weapons: [], weaponIds: [], photos: [], pendingPhotos: [], editor: { canEditIdentity: true, canEditWeapons: true, lookupLists: { sections: [], categories: [], weapons: [] } },
+  } });
+  await harness.window.ProfilePanel.open('jan@example.test');
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="identity"]')!);
+  await harness.document.dispatch('submit', harness.document.body.querySelector('.profile-identity-form')!);
+  const weapons = harness.document.body.querySelector('.profile-weapons-form')!;
+  await harness.document.dispatch('submit', weapons);
+  await harness.document.dispatch('submit', weapons);
+
+  assert.equal(harness.apiCalls.filter((call) => call.options.method === 'PUT').length, 2);
+  assert.equal(harness.apiCalls.some((call) => call.url === '/admin/members/profile'), true);
+  assert.equal(harness.apiCalls.some((call) => call.url === '/admin/members/weapons'), true);
+});
+
+test('entry and annual dues have separate pending guards', async () => {
+  const pendingPut = new Promise<void>(() => {});
+  const harness = createHarness({ apiFetch: async (_url, request) => request.method === 'PUT' ? pendingPut : {
+    firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', weapons: [], weaponIds: [], photos: [], pendingPhotos: [], wpisowePaid: true, duesStatus: 'paid', duesYear: 2026, editor: { canEditDues: true, lookupLists: {} },
+  } });
+  await harness.window.ProfilePanel.open('jan@example.test');
+  const entry = harness.document.body.querySelector('[data-profile-dues-save="wpisowe"]')!;
+  const annual = harness.document.body.querySelector('[data-profile-dues-save="annual"]')!;
+  await harness.document.dispatch('click', entry);
+  await harness.document.dispatch('click', entry);
+  await harness.document.dispatch('click', annual);
+
+  assert.equal(harness.apiCalls.filter((call) => call.options.method === 'PUT').length, 2);
+  assert.equal(harness.apiCalls.some((call) => call.url.includes('/wpisowe?')), true);
+  assert.equal(harness.apiCalls.some((call) => call.url.includes('/dues?')), true);
 });
