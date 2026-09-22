@@ -46,7 +46,7 @@ class Element {
 }
 
 const elementIds = [
-  'lw-checking', 'signed-out-panel', 'forbidden-panel', 'main-content', 'lw-error',
+  'lw-checking', 'signed-out-panel', 'forbidden-panel', 'not-found-panel', 'main-content', 'lw-error',
   'skladka-fee-display', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
   'skladka-fee-save', 'skladka-fee-remove', 'roster-panel', 'summary-content',
   'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni',
@@ -54,6 +54,7 @@ const elementIds = [
   'event-edit-toggle', 'event-edit-panel', 'event-history-link', 'skladka-fee-history-link',
   'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category',
   'event-equipment-panel', 'event-equipment-table', 'event-equipment-content', 'lw-nav-container',
+  'event-share-button', 'event-share-button-text',
 ];
 
 function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]> } = {}) {

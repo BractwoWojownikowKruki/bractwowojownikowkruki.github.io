@@ -138,6 +138,7 @@ const panels = {
   checking: document.getElementById('lw-checking'),
   signedOut: document.getElementById('signed-out-panel'),
   forbidden: document.getElementById('forbidden-panel'),
+  notFound: document.getElementById('not-found-panel'),
 };
 
 function showOnly(panel) {
@@ -147,7 +148,12 @@ function showOnly(panel) {
 
 showOnly(panels.checking);
 
-const eventId = new URLSearchParams(window.location.search).get('eventId');
+// KRKG-0106: `eventId` is read from the legacy `?eventId=` param when present (old links keep
+// working), otherwise a friendly `?do=<slug>` is remembered and resolved to a real eventId inside
+// onSignedIn, before loadAll() - resolving only after auth means nothing about events leaks to a
+// signed-out/forbidden viewer (design.md §4).
+let eventId = new URLSearchParams(window.location.search).get('eventId');
+const pendingSlug = !eventId ? new URLSearchParams(window.location.search).get('do') : null;
 
 // Every mutation on this page is a fire-and-forget click handler with no return value the user
 // can inspect, so a rejected apiFetch has to be turned into something visible or the click just
@@ -960,6 +966,14 @@ document.getElementById('event-edit-toggle').addEventListener('click', () => {
   renderEventEditPanel();
 });
 
+document.getElementById('event-share-button').addEventListener('click', (e) => {
+  if (!cachedEvent) return;
+  window.LwFriendlyUrl.shareEvent(cachedEvent, {
+    button: e.currentTarget,
+    textEl: document.getElementById('event-share-button-text'),
+  });
+});
+
 async function saveEventDetails(control) {
   clearError();
   try {
@@ -1053,6 +1067,15 @@ initGoogleSignIn({
     try {
       // The viewer's own personId is their lowercased e-mail (a member's canonical key).
       viewerPersonId = identity.email?.toLowerCase() ?? null;
+      if (pendingSlug) {
+        const { events } = await apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth);
+        const match = events.find((e) => window.LwFriendlyUrl.eventSlug(e) === pendingSlug);
+        if (!match) {
+          showOnly(panels.notFound);
+          return;
+        }
+        eventId = match.id;
+      }
       await loadAll();
       showOnly(null);
     } catch (err) {
