@@ -299,7 +299,7 @@ test('KRKG-0101: the toggle and companion control share an action strip on mobil
   // row's mobile column layout keeps the two controls on one line.
   assert.match(
     source,
-    /<div class="lw-event-actions">\s*<button type="button" class="lw-attend-toggle"[\s\S]*?\$\{addCompanionHtml\}\s*\$\{editToggleHtml\}\s*<\/div>/,
+    /<div class="lw-event-actions">\s*<button type="button" class="lw-attend-toggle"[\s\S]*?\$\{addCompanionHtml\}\s*<button type="button" class="lw-edit-toggle lw-edit-toggle--icon lw-event-share-button"[\s\S]*?\$\{editToggleHtml\}\s*<\/div>/,
   );
   assert.match(css, /\.lw-event-actions\s*\{[^}]*display:\s*flex/);
   // On the all-events list the mobile label is shown again (the base rule hides it for the roster).
