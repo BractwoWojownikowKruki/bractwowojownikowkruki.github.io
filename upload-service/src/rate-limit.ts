@@ -36,13 +36,16 @@ export function resetRateLimitForTests(): void {
 // it showed the real caller IP regardless of the forged header, matching Google Cloud's
 // documented behavior of appending the resolved client IP after whatever the incoming header
 // already contained. Falls back to the raw socket address when there is no header at all (local/
-// dev runs not sitting behind that proxy).
+// dev runs not sitting behind that proxy), or when the header's last entry is empty (a malformed
+// header GFE would never actually send, e.g. a trailing comma) - never an empty string, which
+// would otherwise silently pool every such caller into one shared rate-limit bucket.
 export function getClientIp(req: IncomingMessage): string {
   const forwarded = req.headers['x-forwarded-for'];
   const value = Array.isArray(forwarded) ? forwarded[forwarded.length - 1] : forwarded;
   if (value) {
     const parts = value.split(',');
-    return parts[parts.length - 1].trim();
+    const last = parts[parts.length - 1].trim();
+    if (last) return last;
   }
   return req.socket.remoteAddress ?? 'unknown';
 }

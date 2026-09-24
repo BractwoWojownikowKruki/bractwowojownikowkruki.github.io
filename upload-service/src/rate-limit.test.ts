@@ -76,3 +76,11 @@ test('isRateLimited still blocks a caller who forges a different first X-Forward
   const ip = getClientIp(makeReq({ 'x-forwarded-for': '255.255.255.255, 46.112.2.10' }));
   assert.equal(isRateLimited(ip, 1000), true);
 });
+
+// KRKG-0108 (batch 5 review): a header GFE would never actually send (a trailing comma, or
+// whitespace-only) must not become an empty-string rate-limit key shared by every such caller.
+test('getClientIp falls back to the socket address when the header\'s last entry is empty', () => {
+  assert.equal(getClientIp(makeReq({ 'x-forwarded-for': '46.112.2.10, ' }, '127.0.0.1')), '127.0.0.1');
+  assert.equal(getClientIp(makeReq({ 'x-forwarded-for': ',,' }, '127.0.0.1')), '127.0.0.1');
+  assert.equal(getClientIp(makeReq({ 'x-forwarded-for': '   ' }, '127.0.0.1')), '127.0.0.1');
+});
