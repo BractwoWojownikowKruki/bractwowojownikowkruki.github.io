@@ -7,7 +7,10 @@ export interface RedirectEntry {
 }
 
 function escapeAttr(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  // Every use here is a double-quoted attribute, so only & and " are strictly load-bearing -
+  // but escaping ' too (KRKG-0108 review) means this stays correct if a future double-quoted
+  // OR single-quoted attribute value ever reuses it, not just the two current call sites.
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // Meta-refresh fires before the page has a chance to render (instant on every browser, unlike

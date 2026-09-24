@@ -11,8 +11,11 @@
  */
 // document.currentScript is only reliable for a synchronously-executing script - true for this
 // one (no async/defer on the tag that loads it), and captured immediately at module top level,
-// before any other script tag can become "the current script" instead.
-const DOC_KEY = document.currentScript.dataset.docKey;
+// before any other script tag can become "the current script" instead. Failing loudly here
+// (rather than fetching /wojownicy-docs?key=undefined later) catches a page that ever loads
+// this script without the attribute, or twice.
+const DOC_KEY = document.currentScript?.dataset.docKey;
+if (!DOC_KEY) throw new Error('wojownicy-doc.js: missing data-doc-key on its own <script> tag.');
 function showSignedOut() {
   document.getElementById('doc-checking').hidden = true;
   document.getElementById('doc-signin').hidden = false;
