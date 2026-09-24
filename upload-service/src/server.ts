@@ -3705,8 +3705,9 @@ async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerRespons
 
 async function handleStart(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
-  const { name, date } = await readJsonBody<{ name?: string; date: string }>(req, deps.maxJsonBodyBytes);
-  if (!date) throw new AuthError('Brak daty albumu.', 400);
+  const body = await readJsonBody<{ name?: unknown; date?: unknown }>(req, deps.maxJsonBodyBytes);
+  const date = requireGalleryDate(body.date, 'Brak daty albumu.');
+  const name = optionalGalleryName(body.name);
   const folderName = name ? `${date} ${name}` : date;
   // Pre-effect resource protocol - see the matching comment in handleAdminApprovePhoto.
   const correlationId = randomUUID();
@@ -3884,11 +3885,11 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, url: URL,
 
 async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
-  const { folderId, name, date } = await readJsonBody<{ folderId: string; name?: string; date: string }>(
-    req,
-    deps.maxJsonBodyBytes,
-  );
-  if (!folderId || !date) throw new AuthError('Brak folderId lub daty.', 400);
+  const body = await readJsonBody<{ folderId?: string; name?: unknown; date?: unknown }>(req, deps.maxJsonBodyBytes);
+  const { folderId } = body;
+  if (!folderId) throw new AuthError('Brak folderId lub daty.', 400);
+  const date = requireGalleryDate(body.date, 'Brak folderId lub daty.');
+  const name = optionalGalleryName(body.name);
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
 
@@ -4043,6 +4044,42 @@ function canonicalizeGalleryUrl(rawUrl: string): string {
   return trimmed;
 }
 
+// KRKG-0108: a gallery's date and name end up in places rendered as HTML (albums.json ->
+// albums.generated.json -> galerie/app.js for /register; the Drive manifest and folder name ->
+// GET /galleries for /start and /finalize), so neither may be arbitrary text. The date has to be
+// exactly what the forms' <input type="date"> sends: YYYY-MM-DD naming a real calendar day, checked
+// by round-tripping through Date.UTC rather than new Date(string), which would silently roll
+// 2024-13-01 over to 2025-01-01 instead of rejecting it.
+const GALLERY_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const GALLERY_NAME_MAX_LENGTH = 120;
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+
+function requireGalleryDate(value: unknown, missingMessage: string): string {
+  if (value === undefined || value === null || value === '') throw new AuthError(missingMessage, 400);
+  const match = typeof value === 'string' ? GALLERY_DATE_PATTERN.exec(value) : null;
+  if (!match) throw new AuthError('Nieprawidłowa data albumu (oczekiwany format RRRR-MM-DD).', 400);
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+    throw new AuthError('Nieprawidłowa data albumu (taki dzień nie istnieje).', 400);
+  }
+  return value as string;
+}
+
+// Optional everywhere it's used - an empty or whitespace-only name means "no name", same as the
+// forms sending an empty field today.
+function optionalGalleryName(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') throw new AuthError('Nieprawidłowa nazwa albumu.', 400);
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length > GALLERY_NAME_MAX_LENGTH) {
+    throw new AuthError(`Nazwa albumu może mieć najwyżej ${GALLERY_NAME_MAX_LENGTH} znaków.`, 400);
+  }
+  if (CONTROL_CHARACTERS.test(trimmed)) throw new AuthError('Nazwa albumu zawiera niedozwolone znaki.', 400);
+  return trimmed;
+}
+
 // Lets an already-authenticated, allowlisted user register a gallery that already exists
 // (a Google Photos album, or a Drive folder the app itself did NOT create) instead of
 // uploading files - replaces the old GitHub Issue/PR submission path with something tied to a
@@ -4053,8 +4090,11 @@ function canonicalizeGalleryUrl(rawUrl: string): string {
 // there is no faster path for Drive URLs than the same albums.json + CI pipeline Photos uses.
 async function handleRegister(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
-  const { url, name, date } = await readJsonBody<{ url?: string; name?: string; date: string }>(req, deps.maxJsonBodyBytes);
-  if (!url || !date) throw new AuthError('Brak adresu URL galerii lub daty.', 400);
+  const body = await readJsonBody<{ url?: string; name?: unknown; date?: unknown }>(req, deps.maxJsonBodyBytes);
+  const { url } = body;
+  if (!url) throw new AuthError('Brak adresu URL galerii lub daty.', 400);
+  const date = requireGalleryDate(body.date, 'Brak adresu URL galerii lub daty.');
+  const name = optionalGalleryName(body.name);
   const canonicalUrl = canonicalizeGalleryUrl(url);
 
   await executeAuditedExternalMutation(

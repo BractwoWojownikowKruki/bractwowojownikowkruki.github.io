@@ -119,7 +119,12 @@ function renderProgress(completed, total, failed) {
   if (fillEl) fillEl.style.width = `${total ? Math.round((completed / total) * 100) : 0}%`;
   if (failed.length) {
     listEl.hidden = false;
-    listEl.innerHTML = failed.map(name => `<li>Nie udało się przesłać: ${name}</li>`).join('');
+    // Built as text nodes, not an HTML string - a file name is arbitrary text from the user's disk.
+    listEl.replaceChildren(...failed.map(name => {
+      const li = document.createElement('li');
+      li.textContent = `Nie udało się przesłać: ${name}`;
+      return li;
+    }));
   }
 }
 

@@ -171,6 +171,26 @@ describe('parseAlbumsJson', () => {
     }]);
   });
 
+  it('keeps a month-only dateOverride', () => {
+    const [entry] = parseAlbumsJson('[{"url":"https://photos.app.goo.gl/abc","dateOverride":"2024-08"}]');
+    assert.equal(entry.dateOverride, '2024-08');
+  });
+
+  it('drops a dateOverride that is not a plain date, keeping the entry (KRKG-0108)', () => {
+    for (const bad of ['"<img src=x onerror=alert(1)>"', '"2024-08-03T00:00"', '20240803', 'null']) {
+      const [entry] = parseAlbumsJson(`[{"url":"https://photos.app.goo.gl/abc","dateOverride":${bad}}]`);
+      assert.equal(entry.url, 'https://photos.app.goo.gl/abc');
+      assert.equal(entry.dateOverride, undefined, `expected ${bad} to be dropped`);
+    }
+  });
+
+  it('drops a nameOverride that is too long, multi-line, or not a string (KRKG-0108)', () => {
+    for (const bad of [JSON.stringify('x'.repeat(121)), JSON.stringify('a\nb'), '42']) {
+      const [entry] = parseAlbumsJson(`[{"url":"https://photos.app.goo.gl/abc","nameOverride":${bad}}]`);
+      assert.equal(entry.nameOverride, undefined, `expected ${bad} to be dropped`);
+    }
+  });
+
   it('drops an entry with no url', () => {
     const result = parseAlbumsJson('[{"nameOverride":"Wolin"}]');
     assert.equal(result.length, 0);

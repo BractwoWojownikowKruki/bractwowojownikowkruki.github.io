@@ -2336,6 +2336,45 @@ test('/register rejects unsafe or unsupported URL schemes/hosts without invoking
   }
 });
 
+// KRKG-0108: date/name are rendered on the gallery page, so anything that isn't a real
+// YYYY-MM-DD day or a plain one-line name must be rejected before any side effect.
+const INVALID_GALLERY_DATES = ['<img src=x onerror=alert(1)>', '2024-13-01', '2024-02-30', '2024-8-3', '2024-08', '2024-08-03T00:00:00Z', 20240803];
+const INVALID_GALLERY_NAMES = ['x'.repeat(121), 'line\nbreak', 42];
+
+test('/register rejects an invalid date or name without invoking GitHub', async () => {
+  const bodies = [
+    ...INVALID_GALLERY_DATES.map(date => ({ date })),
+    ...INVALID_GALLERY_NAMES.map(name => ({ date: '2026-08-09', name })),
+  ];
+  for (const extra of bodies) {
+    let githubCalled = false;
+    const deps = makeDeps({ github: makeFakeGithub({ appendAlbumToMain: async () => { githubCalled = true; } }) });
+    await withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: 'https://photos.app.goo.gl/AbCdEf', ...extra }),
+      });
+      assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(extra)}, got ${res.status}`);
+      assert.equal(githubCalled, false, `GitHub should not be called for ${JSON.stringify(extra)}`);
+    });
+  }
+});
+
+test('/register accepts a leap day and trims the name', async () => {
+  let appendedEntry: unknown = null;
+  const deps = makeDeps({ github: makeFakeGithub({ appendAlbumToMain: async entry => { appendedEntry = entry; } }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://photos.app.goo.gl/AbCdEf', date: '2024-02-29', name: '  Wolin  ' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.deepEqual(appendedEntry, { url: 'https://photos.app.goo.gl/AbCdEf', nameOverride: 'Wolin', dateOverride: '2024-02-29' });
+});
+
 test('/register commits a Drive folder URL to albums.json and does not touch Drive itself', async () => {
   let appendedEntry: unknown = null;
   let driveCalled = false;
@@ -3993,6 +4032,40 @@ test('/start creates a folder and returns a submission token bound to the caller
   assert.deepEqual(event.data.changes.map(change => [change.field, change.after]), [['name', 'Wolin'], ['date', '2026-08-09']]);
 });
 
+test('/start rejects an invalid date or name without creating a folder', async () => {
+  const bodies = [
+    ...INVALID_GALLERY_DATES.map(date => ({ date })),
+    ...INVALID_GALLERY_NAMES.map(name => ({ date: '2026-08-09', name })),
+  ];
+  for (const body of bodies) {
+    let driveCalled = false;
+    const deps = makeDeps({ drive: makeFakeDrive({ createAlbumFolder: async () => { driveCalled = true; return 'x'; } }) });
+    await withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(body)}, got ${res.status}`);
+      assert.equal(driveCalled, false, `Drive should not be called for ${JSON.stringify(body)}`);
+    });
+  }
+});
+
+test('/start treats a whitespace-only name as no name', async () => {
+  let createdName: string | null = null;
+  const deps = makeDeps({ drive: makeFakeDrive({ createAlbumFolder: async (_parent, name) => { createdName = name; return 'f'; } }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: '2026-08-09', name: '   ' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(createdName, '2026-08-09');
+});
+
 test('/start makes the new folder public immediately, before any files are uploaded', async () => {
   let madePublicFolderId: string | undefined;
   const deps = makeDeps({
@@ -4425,6 +4498,33 @@ test('/finalize rejects a folder with no uploaded files', async () => {
     });
     assert.equal(res.status, 400);
   });
+});
+
+test('/finalize rejects an invalid date or name without writing a manifest', async () => {
+  const bodies = [
+    ...INVALID_GALLERY_DATES.map(date => ({ date })),
+    ...INVALID_GALLERY_NAMES.map(name => ({ date: '2026-08-09', name })),
+  ];
+  for (const extra of bodies) {
+    let manifestWritten = false;
+    const deps = makeDeps({
+      drive: makeFakeDrive({
+        listFiles: async () => [{ name: 'a.jpg', size: 10 }],
+        writeManifest: async () => { manifestWritten = true; },
+      }),
+    });
+    const folderId = uniqueFolderId();
+    await withServer(deps, async baseUrl => {
+      const token = await issueTestSubmissionToken(deps, folderId);
+      const res = await fetch(`${baseUrl}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Submission-Token': token },
+        body: JSON.stringify({ folderId, ...extra }),
+      });
+      assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(extra)}, got ${res.status}`);
+      assert.equal(manifestWritten, false, `manifest should not be written for ${JSON.stringify(extra)}`);
+    });
+  }
 });
 
 test('/finalize writes a gallery manifest with name, date, and the uploader as contributor before publishing', async () => {

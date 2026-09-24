@@ -195,7 +195,7 @@ function galleryResourceKey(album) {
 
 function renderCard(album, mode = 'focus') {
   const badge = album.date
-    ? `<span class="date-badge">${album.date}</span>`
+    ? `<span class="date-badge">${escapeHtml(album.date)}</span>`
     : `<span class="no-date-badge">bez daty</span>`;
 
   const countBadge = album.photoCount != null
@@ -387,7 +387,7 @@ function addPhotosUrl(album) {
 }
 
 function renderDriveGalleryView(album) {
-  const badge = album.date ? `<span class="drive-gallery-date">${album.date}</span>` : '';
+  const badge = album.date ? `<span class="drive-gallery-date">${escapeHtml(album.date)}</span>` : '';
   return `
     <a href="#" class="back-link">&larr; Wszystkie galerie</a>
     <div class="drive-gallery-header">
