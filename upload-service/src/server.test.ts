@@ -2167,7 +2167,7 @@ test('PUT /admin/people/photo/approve moves every fileId in a batch to the exist
   const renamedTo: Record<string, string> = {};
   const deps = makeDeps({
     firestore,
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       readTextFile: async (id, fileName) => (id === 's1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
       listImageFiles: async id => {
         if (id === 's1') return [
@@ -2220,7 +2220,7 @@ test('PUT /admin/people/photo/approve, subsequent approval: moves the file into 
   ];
   const deps = makeDeps({
     firestore,
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       readTextFile: async (id, fileName) => (id === 'staging-1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
       listImageFiles: async id => {
         if (id === 'staging-1') return [{ id: 'f2', name: '!f2.jpg', thumbnailLink: 'https://example.test/f2=s220' }];
@@ -2247,6 +2247,35 @@ test('PUT /admin/people/photo/approve, subsequent approval: moves the file into 
   assert.equal(targetImages.find(image => image.id === 'f2')!.name, 'f2.jpg', 'the incoming ! prefix must be stripped since the target already had a main photo');
 });
 
+// KRKG-0108: a driveFolderId stored before the drive-folder setter validated targets may point
+// anywhere; approval must not move a member's photos into a folder outside the public people tree.
+test('PUT /admin/people/photo/approve refuses an existing member link that is not a public person folder, moving nothing', async () => {
+  for (const parent of ['cat-upload', 'galleries-root', null]) {
+    resetAboutUsBootstrapForTests();
+    const firestore = createInMemoryFirestoreClient();
+    await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'staging-1', driveFolderId: 'legacy-bad-link' }));
+    let moved = false;
+    const deps = makeDeps({
+      firestore,
+      drive: makePersonTreeDrive({
+        getFolderParentId: async id => (id === 'legacy-bad-link' ? parent : 'cat-Kandydaci'),
+        readTextFile: async (id, fileName) => (id === 'staging-1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
+        listImageFiles: async id => (id === 'staging-1' ? [{ id: 'f2', name: 'f2.jpg', thumbnailLink: null }] : []),
+        moveFile: async () => { moved = true; return { previousFolderId: 'staging-1' }; },
+      }),
+    });
+    await withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileIds: ['f2'], stagingFolderId: 'staging-1' }),
+      });
+      assert.equal(res.status, 404, `parent ${parent}`);
+    });
+    assert.equal(moved, false, `parent ${parent}: nothing moved`);
+  }
+});
+
 test('PUT /admin/people/photo/approve: a failure during the post-transfer !main normalization is itself audited as failed, without losing the already-succeeded transfer', async () => {
   // Review-round-2 blocker #2: the normalization step must be its own auditable, failure-visible
   // operation - not a bare, unaudited rename that could silently leave an inconsistent two-!
@@ -2259,7 +2288,7 @@ test('PUT /admin/people/photo/approve: a failure during the post-transfer !main 
   await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'staging-1', driveFolderId: 'existing-public-folder' }));
   const deps = makeDeps({
     firestore,
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       readTextFile: async (id, fileName) => (id === 'staging-1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
       listImageFiles: async id => {
         if (id === 'staging-1') return [{ id: 'f2', name: '!f2.jpg', thumbnailLink: 'https://example.test/f2=s220' }];
@@ -4139,6 +4168,34 @@ test('/delete-drive-gallery refuses a folder that is not a gallery, and a malfor
   }
 });
 
+// KRKG-0108 (batch 3 review): the warm /galleries cache must never authorize a mutation - a
+// gallery moved out of the galleries root after the cache was built is still listed there.
+test('/delete-drive-gallery and /gallery-photos/start re-check Drive live, ignoring a stale cached gallery', async () => {
+  let movedOut = false;
+  let deleted = false;
+  const deps = makeDeps({
+    galleriesCacheTtlMs: 60_000,
+    drive: makeFakeDrive({
+      listGalleryFolders: async () => (movedOut ? [] : [{ id: 'g-moved', name: 'Galeria', modifiedTime: '2026-01-01T00:00:00.000Z' }]),
+      deleteFolder: async () => { deleted = true; },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const warm = await fetch(`${baseUrl}/galleries`).then(r => r.json());
+    assert.equal(warm.galleries.length, 1);
+    movedOut = true;
+    for (const path of ['/delete-drive-gallery', '/gallery-photos/start']) {
+      const res = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId: 'g-moved' }),
+      });
+      assert.equal(res.status, 404, path);
+    }
+  });
+  assert.equal(deleted, false);
+});
+
 test('/delete-drive-gallery deletes the folder via Drive', async () => {
   let deletedFolderId: string | null = null;
   const deps = makeDeps({
@@ -4159,14 +4216,15 @@ test('/delete-drive-gallery deletes the folder via Drive', async () => {
 
 test('/delete-drive-gallery invalidates the /galleries cache so the deletion is reflected immediately', async () => {
   let listCalls = 0;
+  let deleted = false;
   const deps = makeDeps({
     galleriesCacheTtlMs: 60_000,
     drive: makeFakeDrive({
       listGalleryFolders: async () => {
         listCalls++;
-        return listCalls === 1 ? [{ id: 'g1', name: 'Folder', modifiedTime: '2026-01-01T00:00:00.000Z' }] : [];
+        return deleted ? [] : [{ id: 'g1', name: 'Folder', modifiedTime: '2026-01-01T00:00:00.000Z' }];
       },
-      deleteFolder: async () => {},
+      deleteFolder: async () => { deleted = true; },
     }),
   });
   await withServer(deps, async baseUrl => {
@@ -4183,7 +4241,9 @@ test('/delete-drive-gallery invalidates the /galleries cache so the deletion is 
     // galleriesCacheTtlMs (60s) hasn't elapsed.
     const second = await fetch(`${baseUrl}/galleries`).then(r => r.json());
     assert.equal(second.galleries.length, 0);
-    assert.equal(listCalls, 2);
+    // 1: the first /galleries, 2: the delete's live gallery check (KRKG-0108 - never the cache),
+    // 3: the second /galleries, proving the cache was invalidated rather than served stale.
+    assert.equal(listCalls, 3);
   });
 });
 

@@ -1867,6 +1867,10 @@ async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse
 
   let targetFolderId: string;
   if (member.driveFolderId) {
+    // KRKG-0108: a link stored before PUT /admin/members/drive-folder validated its target may
+    // point anywhere; approval must not move a member's photos into a folder that isn't a person
+    // folder in a public category.
+    await requirePersonFolder(deps, member.driveFolderId, 'public');
     targetFolderId = member.driveFolderId;
   } else {
     if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
@@ -4028,11 +4032,12 @@ async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: S
 // children) before handing out a token for it - the frontend only ever offers this for a
 // gallery it already rendered from GET /galleries, but this endpoint shouldn't just trust an
 // arbitrary caller-supplied id.
-async function requireExistingGalleryFolder(deps: ServerDeps, folderId: string): Promise<void> {
-  // KRKG-0108: also guards the per-photo "Dodane przez" read, so a warm /galleries cache is
-  // consulted first; a miss (e.g. a gallery created since the cache was built) falls back to the
-  // live listing rather than wrongly rejecting it.
-  if (galleriesCache && galleriesCache.expiresAt > Date.now() && galleriesCache.data.some(g => g.id === folderId)) return;
+async function requireExistingGalleryFolder(deps: ServerDeps, folderId: string, options: { allowCached?: boolean } = {}): Promise<void> {
+  // KRKG-0108: the per-photo "Dodane przez" read (a display-only lookup made once per viewed photo)
+  // may accept a hit in the warm /galleries cache; every mutation or token issuance must not, since
+  // the cache can still list a gallery that has since been moved out of the galleries root. A miss
+  // always falls back to the live listing (e.g. a gallery created since the cache was built).
+  if (options.allowCached && galleriesCache && galleriesCache.expiresAt > Date.now() && galleriesCache.data.some(g => g.id === folderId)) return;
   const folders = await deps.drive.listGalleryFolders(deps.driveParentFolderId);
   if (!folders.some(f => f.id === folderId)) {
     throw new AuthError('Nie znaleziono galerii.', 404);
@@ -4104,7 +4109,7 @@ async function handleGalleryPhotosFinalize(req: IncomingMessage, res: ServerResp
 async function handleGalleryPhotoUploaders(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   await deps.authenticate(req, res);
   const folderId = requireDriveId(url.searchParams.get('folderId'), 'Brak folderId.');
-  await requireExistingGalleryFolder(deps, folderId);
+  await requireExistingGalleryFolder(deps, folderId, { allowCached: true });
   const uploaders = await readUploadLog(deps.drive, folderId);
   sendJson(res, 200, { uploaders });
 }
