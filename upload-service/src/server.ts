@@ -409,6 +409,15 @@ function releaseUploadSlot(folderId: string): void {
 // rejected as too costly for what this guards against (accidental re-submission of the same
 // batch), not a security boundary. If that trade-off ever stops being acceptable, a content hash
 // is the fix - not a fourth metadata field.
+//
+// KRKG-0108 (batch 4 review): the name compared here is the one sanitizeUploadFileName produces,
+// which can map two different original names to the same stored name (stripping a leading "!",
+// or correcting a mismatched extension) - widening the above-accepted collision window slightly
+// further, on top of an already-accepted risk. Real camera filenames are essentially never
+// changed by sanitization (they don't start with "."/"!" and their extension already matches
+// their format), so this only matters for the same deliberately-crafted or mislabeled inputs
+// sanitization exists to normalize in the first place - not treated as worth a fifth field on
+// top of the trade-off already made above.
 const folderKnownFileKeys = new Map<string, Set<string>>();
 
 // modifiedMs is the source file's own last-modified time in epoch ms (undefined when the client
@@ -699,9 +708,12 @@ function sanitizeUploadFileName(rawName: string, mimeType: string): string {
   const ext = extensionForMimeType(mimeType);
   const dotIndex = cleaned.lastIndexOf('.');
   const stem = (dotIndex > 0 ? cleaned.slice(0, dotIndex) : cleaned).slice(0, UPLOAD_FILE_NAME_MAX_LENGTH) || 'foto';
-  const currentExt = dotIndex > 0 ? cleaned.slice(dotIndex + 1).toLowerCase() : '';
-  const currentExtAsMime = `image/${currentExt === 'jpg' ? 'jpeg' : currentExt}`;
-  const matchesMimeExt = currentExt !== '' && (currentExt === ext || mimeTypesEquivalent(currentExtAsMime, mimeType));
+  // Case preserved (not forced to lowercase) when it already matches - "IMG_1234.HEIC" stays
+  // exactly that, only a name that actually needs correcting is touched.
+  const currentExt = dotIndex > 0 ? cleaned.slice(dotIndex + 1) : '';
+  const currentExtLower = currentExt.toLowerCase();
+  const currentExtAsMime = `image/${currentExtLower === 'jpg' ? 'jpeg' : currentExtLower}`;
+  const matchesMimeExt = currentExt !== '' && (currentExtLower === ext || mimeTypesEquivalent(currentExtAsMime, mimeType));
   return `${stem}.${matchesMimeExt ? currentExt : ext}`;
 }
 

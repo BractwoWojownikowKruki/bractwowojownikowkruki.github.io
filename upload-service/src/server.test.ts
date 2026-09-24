@@ -4424,17 +4424,21 @@ test('/upload rejects a file once the folder is already at the submission cap', 
 
 // KRKG-0108: an uploaded photo's name must never collide with this service's own metadata files
 // or fake the "!"-prefixed main-photo convention - see sanitizeUploadFileName's comment.
+const VALID_HEIC_BYTES = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftyp', 'ascii'), Buffer.from('heic', 'ascii'), Buffer.alloc(8)]);
+
 test('/upload sanitizes a metadata-shadowing or main-photo-mimicking filename before writing to Drive', async () => {
-  const cases: Array<[string, string]> = [
-    ['.gallery.json', 'gallery.jpg'],
-    ['.uploads.json', 'uploads.jpg'],
-    ['.owner-email', 'owner-email.jpg'],
-    ['!sneaky.jpg', 'sneaky.jpg'],
-    ['../../etc/passwd.jpg', 'etcpasswd.jpg'],
-    ['IMG_1234.JPG', 'IMG_1234.jpg'],
-    ['photo.png', 'photo.jpg'], // wrong extension for the declared/sniffed jpeg type
+  const cases: Array<[string, string, string, Buffer]> = [
+    ['.gallery.json', 'gallery.jpg', 'image/jpeg', VALID_JPEG_BYTES],
+    ['.uploads.json', 'uploads.jpg', 'image/jpeg', VALID_JPEG_BYTES],
+    ['.owner-email', 'owner-email.jpg', 'image/jpeg', VALID_JPEG_BYTES],
+    ['!sneaky.jpg', 'sneaky.jpg', 'image/jpeg', VALID_JPEG_BYTES],
+    ['../../etc/passwd.jpg', 'etcpasswd.jpg', 'image/jpeg', VALID_JPEG_BYTES],
+    ['IMG_1234.JPG', 'IMG_1234.JPG', 'image/jpeg', VALID_JPEG_BYTES], // casing preserved, not forced lowercase
+    ['photo.png', 'photo.jpg', 'image/jpeg', VALID_JPEG_BYTES], // wrong extension for the declared/sniffed jpeg type
+    ['noextension', 'noextension.jpg', 'image/jpeg', VALID_JPEG_BYTES], // no extension at all
+    ['IMG_1234.HEIC', 'IMG_1234.HEIC', 'image/heic', VALID_HEIC_BYTES], // unchanged: correct extension, correct casing
   ];
-  for (const [rawName, expectedName] of cases) {
+  for (const [rawName, expectedName, mimeType, bytes] of cases) {
     let storedName: string | undefined;
     const deps = makeDeps({
       drive: makeFakeDrive({
@@ -4451,15 +4455,47 @@ test('/upload sanitizes a metadata-shadowing or main-photo-mimicking filename be
     const folderId = uniqueFolderId();
     await withServer(deps, async baseUrl => {
       const token = await issueTestSubmissionToken(deps, folderId);
-      const res = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=${encodeURIComponent(rawName)}&mimeType=image/jpeg`, {
+      const res = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=${encodeURIComponent(rawName)}&mimeType=${encodeURIComponent(mimeType)}`, {
         method: 'POST',
         headers: { 'X-Submission-Token': token },
-        body: VALID_JPEG_BYTES,
+        body: bytes,
       });
       assert.equal(res.status, 200, rawName);
     });
     assert.equal(storedName, expectedName, `raw name ${rawName}`);
   }
+});
+
+// KRKG-0108 (batch 4 review): sanitization must not break the pre-existing dedupe guarantee for
+// an ordinary filename it doesn't touch - a second upload of the exact same (name, size, mtime)
+// is still recognized and skipped, exactly as before this batch.
+test('/upload still skips a duplicate after sanitization for a filename sanitization leaves unchanged', async () => {
+  let uploadCount = 0;
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      listFiles: async () => [],
+      uploadFileStream: async (_f, _n, _m, stream) => {
+        uploadCount++;
+        for await (const _chunk of stream) {
+          // drain
+        }
+        return { id: 'fake-uploaded-file-id' };
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=IMG_1234.jpg&mimeType=image/jpeg&lastModifiedMs=1700000000000`, {
+        method: 'POST',
+        headers: { 'X-Submission-Token': token },
+        body: VALID_JPEG_BYTES,
+      });
+      assert.equal(res.status, 200, `attempt ${attempt}`);
+    }
+  });
+  assert.equal(uploadCount, 1, 'the second, identical request must be skipped, not uploaded again');
 });
 
 test('/upload accepts a correctly labeled, correctly sized JPEG under the cap', async () => {
