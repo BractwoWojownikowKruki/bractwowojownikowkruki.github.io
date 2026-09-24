@@ -50,7 +50,7 @@ export function renderRedirectPage(target: string): string {
     </div>
   </main>
 
-  <script>location.replace(${JSON.stringify(target)});</script>
+  <script src="../redirect.js" data-target="${escapedTarget}"></script>
 </body>
 </html>
 `;

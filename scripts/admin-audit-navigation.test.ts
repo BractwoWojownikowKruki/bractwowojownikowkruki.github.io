@@ -11,6 +11,8 @@ const memberManagementScript = readFileSync(
   'utf8',
 );
 const adminAuditHtml = readFileSync(new URL('../public/admin/audyt/index.html', import.meta.url), 'utf8');
+// KRKG-0108: the whoamiPath wiring moved from an inline <script> into this external file.
+const adminAuditScript = readFileSync(new URL('../public/admin/audyt/audyt.js', import.meta.url), 'utf8');
 const stylesheet = readFileSync(new URL('../public/style.css', import.meta.url), 'utf8');
 
 test('member management exposes one unfiltered Historia icon button beside the Członkowie heading', () => {
@@ -36,7 +38,7 @@ test('admin audit shell authorizes through its own whoami endpoint, not the admi
   // Its own endpoint, not /admin/members/whoami - that one is admin-or-hovding only and would
   // 403 a pure accountant before they ever reached the page, even though the server-side query
   // (resolveAdminAuditAuth, server.ts) grants them dues-category-only access.
-  assert.match(adminAuditHtml, /whoamiPath:\s*'\/admin\/audyt\/whoami'/);
-  assert.doesNotMatch(adminAuditHtml, /whoamiPath:\s*'\/admin\/members\/whoami'/);
-  assert.doesNotMatch(adminAuditHtml, /whoamiPath:\s*'\/wojownicy-upload\/whoami'/);
+  assert.match(adminAuditScript, /whoamiPath:\s*'\/admin\/audyt\/whoami'/);
+  assert.doesNotMatch(adminAuditScript, /whoamiPath:\s*'\/admin\/members\/whoami'/);
+  assert.doesNotMatch(adminAuditScript, /whoamiPath:\s*'\/wojownicy-upload\/whoami'/);
 });

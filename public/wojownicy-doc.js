@@ -1,12 +1,18 @@
 /**
  * Shared behavior for the Wojownicy-only "live from a Google Doc" pages (Zasady Bractwa,
- * Poradnik Walki) - each page sets `const DOC_KEY` before loading this script, matching one of
- * the keys in upload-service's config.ts wojownicyDocs map. Gated by the same kruki Google
- * Group membership as "Wrzucam swoje zdjęcie" (GET /wojownicy-upload/whoami); content itself
- * comes from GET /wojownicy-docs?key=... once signed in - never checked into the repo, always
- * fetched live. Sign-in happens on /logowanie/, not here - this page only reacts to whatever
- * state auth.js/nav.js already established (or restored from an earlier page).
+ * Poradnik Walki) - each page's own <script src="...wojownicy-doc.js" data-doc-key="...">
+ * carries which document to load, matching one of the keys in upload-service's config.ts
+ * wojownicyDocs map (a data attribute, not an inline `const DOC_KEY = '...'` script, so every
+ * page can carry a script-src Content-Security-Policy - KRKG-0108). Gated by the same kruki
+ * Google Group membership as "Wrzucam swoje zdjęcie" (GET /wojownicy-upload/whoami); content
+ * itself comes from GET /wojownicy-docs?key=... once signed in - never checked into the repo,
+ * always fetched live. Sign-in happens on /logowanie/, not here - this page only reacts to
+ * whatever state auth.js/nav.js already established (or restored from an earlier page).
  */
+// document.currentScript is only reliable for a synchronously-executing script - true for this
+// one (no async/defer on the tag that loads it), and captured immediately at module top level,
+// before any other script tag can become "the current script" instead.
+const DOC_KEY = document.currentScript.dataset.docKey;
 function showSignedOut() {
   document.getElementById('doc-checking').hidden = true;
   document.getElementById('doc-signin').hidden = false;

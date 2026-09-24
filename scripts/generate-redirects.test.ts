@@ -7,9 +7,11 @@ test('renderRedirectPage embeds the target in a meta-refresh redirect', () => {
   assert.match(html, /<meta http-equiv="refresh" content="0;url=https:\/\/discord\.gg\/abc123" \/>/);
 });
 
-test('renderRedirectPage embeds the target in a JS fallback redirect', () => {
+// KRKG-0108: the JS fallback redirect is an external script (so the page can carry a script-src
+// Content-Security-Policy) reading its target from a data attribute, not an inline literal.
+test('renderRedirectPage embeds the target as a data attribute for the external JS fallback redirect', () => {
   const html = renderRedirectPage('https://discord.gg/abc123');
-  assert.match(html, /location\.replace\("https:\/\/discord\.gg\/abc123"\)/);
+  assert.match(html, /<script src="\.\.\/redirect\.js" data-target="https:\/\/discord\.gg\/abc123"><\/script>/);
 });
 
 test('renderRedirectPage escapes double quotes in the target for the meta/link attributes', () => {
