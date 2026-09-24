@@ -4048,7 +4048,7 @@ function canonicalizeGalleryUrl(rawUrl: string): string {
 // albums.generated.json -> galerie/app.js for /register; the Drive manifest and folder name ->
 // GET /galleries for /start and /finalize), so neither may be arbitrary text. The date has to be
 // exactly what the forms' <input type="date"> sends: YYYY-MM-DD naming a real calendar day, checked
-// by round-tripping through Date.UTC rather than new Date(string), which would silently roll
+// by round-tripping through setUTCFullYear rather than new Date(string), which would silently roll
 // 2024-13-01 over to 2025-01-01 instead of rejecting it.
 const GALLERY_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const GALLERY_NAME_MAX_LENGTH = 120;
@@ -4059,7 +4059,9 @@ function requireGalleryDate(value: unknown, missingMessage: string): string {
   const match = typeof value === 'string' ? GALLERY_DATE_PATTERN.exec(value) : null;
   if (!match) throw new AuthError('Nieprawidłowa data albumu (oczekiwany format RRRR-MM-DD).', 400);
   const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
-  const parsed = new Date(Date.UTC(year, month - 1, day));
+  // setUTCFullYear rather than passing the year to Date.UTC, which maps years 0-99 to 1900-1999.
+  const parsed = new Date(0);
+  parsed.setUTCFullYear(year, month - 1, day);
   if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
     throw new AuthError('Nieprawidłowa data albumu (taki dzień nie istnieje).', 400);
   }

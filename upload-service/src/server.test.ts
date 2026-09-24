@@ -2375,6 +2375,20 @@ test('/register accepts a leap day and trims the name', async () => {
   assert.deepEqual(appendedEntry, { url: 'https://photos.app.goo.gl/AbCdEf', nameOverride: 'Wolin', dateOverride: '2024-02-29' });
 });
 
+test('/register accepts a valid date in years 0001-0099 (not remapped to 19xx)', async () => {
+  const deps = makeDeps({ github: makeFakeGithub({ appendAlbumToMain: async () => {} }) });
+  await withServer(deps, async baseUrl => {
+    for (const date of ['0001-01-01', '0099-12-31']) {
+      const res = await fetch(`${baseUrl}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: 'https://photos.app.goo.gl/AbCdEf', date }),
+      });
+      assert.equal(res.status, 200, `expected 200 for ${date}, got ${res.status}`);
+    }
+  });
+});
+
 test('/register commits a Drive folder URL to albums.json and does not touch Drive itself', async () => {
   let appendedEntry: unknown = null;
   let driveCalled = false;
@@ -4506,11 +4520,12 @@ test('/finalize rejects an invalid date or name without writing a manifest', asy
     ...INVALID_GALLERY_NAMES.map(name => ({ date: '2026-08-09', name })),
   ];
   for (const extra of bodies) {
-    let manifestWritten = false;
+    const driveCalls: string[] = [];
     const deps = makeDeps({
       drive: makeFakeDrive({
-        listFiles: async () => [{ name: 'a.jpg', size: 10 }],
-        writeManifest: async () => { manifestWritten = true; },
+        listFiles: async () => { driveCalls.push('listFiles'); return [{ name: 'a.jpg', size: 10 }]; },
+        writeManifest: async () => { driveCalls.push('writeManifest'); },
+        setFolderPublic: async () => { driveCalls.push('setFolderPublic'); },
       }),
     });
     const folderId = uniqueFolderId();
@@ -4522,7 +4537,7 @@ test('/finalize rejects an invalid date or name without writing a manifest', asy
         body: JSON.stringify({ folderId, ...extra }),
       });
       assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(extra)}, got ${res.status}`);
-      assert.equal(manifestWritten, false, `manifest should not be written for ${JSON.stringify(extra)}`);
+      assert.deepEqual(driveCalls, [], `Drive should not be touched for ${JSON.stringify(extra)}`);
     });
   }
 });
