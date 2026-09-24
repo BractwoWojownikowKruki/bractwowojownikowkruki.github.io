@@ -226,3 +226,17 @@ jobs:
           SERVICE_URL="${{ steps.reconcile_audience.outputs.service_url }}"
           gcloud scheduler jobs describe audit-reconcile --location=europe-west1 --project=krucze-galery-upload --format=json \
             | npx tsx scripts/deploy-validation.ts verify-scheduler-job "$SERVICE_URL" "${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}"
+
+      # Cloud Run has no built-in revision retention, so old revisions pile up forever. Keep the
+      # newest 5 as rollback targets; never delete one that is currently receiving traffic.
+      - name: Prune old Cloud Run revisions
+        run: |
+          SERVING=$(gcloud run services describe krucze-galery-upload --region=europe-west1 --project=krucze-galery-upload \
+            --format=json | jq -r '.status.traffic[] | select(.percent > 0) | .revisionName')
+          gcloud run revisions list --service=krucze-galery-upload --region=europe-west1 --project=krucze-galery-upload \
+            --sort-by=~metadata.creationTimestamp --format='value(metadata.name)' \
+            | tail -n +6 \
+            | while read -r REV; do
+                if echo "$SERVING" | grep -qx "$REV"; then echo "Skipping $REV (serving traffic)"; continue; fi
+                gcloud run revisions delete "$REV" --region=europe-west1 --project=krucze-galery-upload --quiet --async
+              done
