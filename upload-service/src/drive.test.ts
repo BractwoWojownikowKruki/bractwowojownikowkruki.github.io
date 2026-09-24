@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMultipartParts, resizeThumbnailUrl, sanitizeFolderName } from './drive.ts';
+import { buildMultipartParts, escapeDriveQueryValue, resizeThumbnailUrl, sanitizeFolderName } from './drive.ts';
 
 test('sanitizeFolderName strips characters Drive folder names can carry but that read oddly', () => {
   assert.equal(sanitizeFolderName('2026-08-09 Wolin/Kruki'), '2026-08-09 WolinKruki');
@@ -29,4 +29,12 @@ test('resizeThumbnailUrl swaps the =s<size> suffix Drive thumbnail links carry',
     resizeThumbnailUrl('https://lh3.googleusercontent.com/abc=s220', 800),
     'https://lh3.googleusercontent.com/abc=s800',
   );
+});
+
+// KRKG-0108: ids and names are interpolated into Drive `q` literals quoted with single quotes.
+test('escapeDriveQueryValue escapes single quotes and backslashes (backslash first), leaving plain ids alone', () => {
+  assert.equal(escapeDriveQueryValue('1AbC_d-EfG'), '1AbC_d-EfG');
+  assert.equal(escapeDriveQueryValue("x' or name contains '"), "x\\' or name contains \\'");
+  assert.equal(escapeDriveQueryValue('a\\b'), 'a\\\\b');
+  assert.equal(escapeDriveQueryValue("\\'"), "\\\\\\'");
 });

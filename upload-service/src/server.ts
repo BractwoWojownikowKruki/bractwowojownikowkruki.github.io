@@ -1123,6 +1123,49 @@ function parseAdminDepartment(value: string | null): AdminDepartment {
   return value;
 }
 
+// KRKG-0108: every Drive file/folder id a request supplies is checked against Drive's id alphabet
+// before it reaches drive.ts, where it is interpolated into both `q` query strings and URL paths
+// (`/files/${id}`) - the character set is what rules out query-language or path injection. The
+// length floor is deliberately 1, not a "realistic" minimum: real ids are 25+ characters, but a
+// longer floor adds no safety and would only reject legitimate short test/fixture ids.
+const DRIVE_ID_PATTERN = /^[A-Za-z0-9_-]{1,200}$/;
+
+function requireDriveId(value: unknown, missingMessage: string): string {
+  if (value === undefined || value === null || value === '') throw new AuthError(missingMessage, 400);
+  if (typeof value !== 'string' || !DRIVE_ID_PATTERN.test(value)) {
+    throw new AuthError('Nieprawidłowy identyfikator pliku lub folderu Dysku Google.', 400);
+  }
+  return value;
+}
+
+// KRKG-0108: the admin people routes take a folderId from the client, and the Drive credential can
+// act on any app-created folder - including the about-us root, a category folder itself, or a
+// gallery. This confines them to what they are for: a person's own folder, i.e. a direct child of
+// one of the public categories, or (scope 'any') also of the "upload" staging / "deleted" archive
+// roots. A category folder itself fails because its parent is the about-us root, not a category.
+async function requirePersonFolder(deps: ServerDeps, folderId: string, scope: 'any' | 'public' = 'any'): Promise<void> {
+  const folders = await bootstrapAboutUsStructure(deps.drive);
+  const allowedParents = new Set<string>(Object.values(folders.categories));
+  if (scope === 'any') {
+    allowedParents.add(folders.uploadRoot);
+    allowedParents.add(folders.deletedRoot);
+  }
+  const parentId = await deps.drive.getFolderParentId(folderId);
+  if (!parentId || !allowedParents.has(parentId)) {
+    throw new AuthError(scope === 'public' ? 'To nie jest folder osoby w publicznej kategorii.' : 'To nie jest folder osoby.', 404);
+  }
+}
+
+// KRKG-0108: a photo-level admin action names both the person's folder and the file; the file must
+// actually be one of that folder's images, so a stale or mistyped fileId can't trash or rename some
+// unrelated file.
+async function requireImageInFolder(deps: ServerDeps, folderId: string, fileId: string): Promise<void> {
+  const images = await deps.drive.listImageFiles(folderId);
+  if (!images.some(image => image.id === fileId)) {
+    throw new AuthError('Ten plik nie należy do tego folderu.', 404);
+  }
+}
+
 async function handleAboutUs(res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const category = parseAboutUsCategory(url.searchParams.get('category'));
   const folders = await bootstrapAboutUsStructure(deps.drive);
@@ -1280,10 +1323,23 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
 // admin-only write path for it (see setMemberDriveFolderId's comment).
 async function handleAdminSetMemberDriveFolder(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminOrHovdingWithStepUp(req, res);
-  const { email, folderId } = await readJsonBody<{ email?: string; folderId?: string | null }>(req, deps.maxJsonBodyBytes);
+  const { email, folderId: rawFolderId } = await readJsonBody<{ email?: string; folderId?: string | null }>(req, deps.maxJsonBodyBytes);
   if (!email) throw new AuthError('Brak email.', 400);
   const member = await getMember(deps.firestore, email);
   if (!member) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  // KRKG-0108: driveFolderId is what the member's own self-service photo delete/"set main" act on
+  // (handleListaWyjazdowaDeleteProfilePhoto/SetMainPhoto trust it), so it may only ever point at a
+  // person's folder in a public category - never an arbitrary folder - and never at a folder that
+  // is already some other member's, or one wrong pick would let that member trash another
+  // person's photos. null (unlink) stays allowed.
+  let folderId: string | null = null;
+  if (rawFolderId !== null && rawFolderId !== undefined) {
+    folderId = requireDriveId(rawFolderId, 'Brak folderId.');
+    await requirePersonFolder(deps, folderId, 'public');
+    const ownerEmail = email.toLowerCase();
+    const otherOwner = (await listAllMembers(deps.firestore)).find(m => m.driveFolderId === folderId && m.email.toLowerCase() !== ownerEmail);
+    if (otherOwner) throw new AuthError('Ten folder jest już przypisany do innego członka.', 409);
+  }
   await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.memberDriveFolder,
@@ -1459,8 +1515,8 @@ function rejectIfRateLimited(req: IncomingMessage, res: ServerResponse): boolean
 
 async function handleAdminUpdateDescription(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
-  const folderId = url.searchParams.get('folderId');
-  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  const folderId = requireDriveId(url.searchParams.get('folderId'), 'Brak folderId.');
+  await requirePersonFolder(deps, folderId);
   const { description } = await readJsonBody<{ description?: string }>(req, deps.maxJsonBodyBytes);
   const value = description ?? '';
   await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.description.updated', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'descriptionHash', after: createHash('sha256').update(value).digest('hex') }, { field: 'descriptionLength', after: value.length }] }, async () => deps.drive.writeTextFile(folderId, 'Opis.txt', value));
@@ -1470,8 +1526,8 @@ async function handleAdminUpdateDescription(req: IncomingMessage, res: ServerRes
 
 async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
-  const folderId = url.searchParams.get('folderId');
-  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  const folderId = requireDriveId(url.searchParams.get('folderId'), 'Brak folderId.');
+  await requirePersonFolder(deps, folderId);
   await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.deleted', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'folderId', after: folderId }] }, async () => deps.drive.deleteFolder(folderId));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
@@ -1530,12 +1586,13 @@ async function handleAdminListPeople(req: IncomingMessage, res: ServerResponse, 
 // actually changed, rather than this handler needing to fetch the current folder name first.
 async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
-  const { folderId, name, order } = await readJsonBody<{ folderId?: string; name?: string; order?: number | null }>(
+  const { folderId: rawFolderId, name, order } = await readJsonBody<{ folderId?: string; name?: string; order?: number | null }>(
     req,
     deps.maxJsonBodyBytes,
   );
-  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  const folderId = requireDriveId(rawFolderId, 'Brak folderId.');
   if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
+  await requirePersonFolder(deps, folderId);
   await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.order.updated', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: name.trim() }, changes: [{ field: 'name', after: name.trim() }, { field: 'order', after: order ?? null }] }, async () => deps.drive.renameFolder(folderId, buildPersonFolderName(name, order ?? null)));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
@@ -1553,9 +1610,10 @@ async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerRes
 // explicitly. "upload"/"deleted" skip this entirely since order is meaningless there.
 async function handleAdminMovePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
-  const { folderId, category } = await readJsonBody<{ folderId?: string; category?: string }>(req, deps.maxJsonBodyBytes);
-  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  const { folderId: rawFolderId, category } = await readJsonBody<{ folderId?: string; category?: string }>(req, deps.maxJsonBodyBytes);
+  const folderId = requireDriveId(rawFolderId, 'Brak folderId.');
   const department = parseAdminDepartment(category ?? null);
+  await requirePersonFolder(deps, folderId);
   await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.category.changed', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'category', after: department }] }, async () => {
     const folders = await bootstrapAboutUsStructure(deps.drive); const targetFolderId = departmentFolderId(folders, department); const { name: currentFolderName } = await deps.drive.moveFolder(folderId, targetFolderId);
     if (isAboutUsCategory(department)) { const siblings = await deps.drive.listGalleryFolders(targetFolderId); const newOrder = computeOrderForDepartmentMove(department, siblings.filter(f => f.id !== folderId).map(f => f.name)); const { name: personName } = parsePersonFolderName(currentFolderName); await deps.drive.renameFolder(folderId, buildPersonFolderName(personName, newOrder)); }
@@ -1571,7 +1629,9 @@ async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse,
   const fileName = url.searchParams.get('fileName');
   const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
   if (!folderId || !fileName) throw new AuthError('Brak folderId lub fileName.', 400);
+  requireDriveId(folderId, 'Brak folderId lub fileName.');
   requireAllowedMimeType(mimeType, deps.allowedMimeTypes);
+  await requirePersonFolder(deps, folderId);
   const { result: uploaded } = await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: 'pending' }] }, async () => deps.drive.uploadFileStream(folderId, decodeURIComponent(fileName), mimeType, validatedUploadStream(req, deps.maxFileBytes, mimeType)), { eventInput: file => ({ action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: file.id }] }) });
   invalidateAboutUsCache();
   // Drive may acknowledge the write before it has generated thumbnailLink. The response still
@@ -1606,6 +1666,10 @@ async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse,
   // data-file-id).
   const folderId = url.searchParams.get('folderId');
   if (!fileId || !folderId) throw new AuthError('Brak fileId lub folderId.', 400);
+  requireDriveId(fileId, 'Brak fileId lub folderId.');
+  requireDriveId(folderId, 'Brak fileId lub folderId.');
+  await requirePersonFolder(deps, folderId);
+  await requireImageInFolder(deps, folderId, fileId);
   await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.deleted', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: fileId }] }, async () => deps.drive.deleteFolder(fileId));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
@@ -1619,6 +1683,12 @@ async function handleAdminSetMainPhoto(req: IncomingMessage, res: ServerResponse
   const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, fileId } = await readJsonBody<{ folderId?: string; fileId?: string }>(req, deps.maxJsonBodyBytes);
   if (!folderId || !fileId) throw new AuthError('Brak folderId lub fileId.', 400);
+  requireDriveId(folderId, 'Brak folderId lub fileId.');
+  requireDriveId(fileId, 'Brak folderId lub fileId.');
+  await requirePersonFolder(deps, folderId);
+  // Checked before auditedSetMainPhoto: its rename loop would otherwise strip the "!" from the
+  // real main photo before its postcondition notices the target was never in this folder.
+  await requireImageInFolder(deps, folderId, fileId);
   await auditedSetMainPhoto(deps, identity.email, folderId, fileId);
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
@@ -1683,6 +1753,14 @@ async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerRespons
     deps.maxJsonBodyBytes,
   );
   if (!fileId || !targetFolderId) throw new AuthError('Brak fileId lub targetFolderId.', 400);
+  requireDriveId(fileId, 'Brak fileId lub targetFolderId.');
+  requireDriveId(targetFolderId, 'Brak fileId lub targetFolderId.');
+  // Both ends must be a person's folder: the photo has to come out of one, and go into another.
+  const sourceFolderId = await deps.drive.getFolderParentId(fileId);
+  if (!sourceFolderId) throw new AuthError('Nie znaleziono pliku.', 404);
+  await requirePersonFolder(deps, sourceFolderId);
+  await requireImageInFolder(deps, sourceFolderId, fileId);
+  await requirePersonFolder(deps, targetFolderId);
   await transferOnePhoto(deps, identity.email, fileId, targetFolderId);
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
@@ -1752,6 +1830,10 @@ async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse
   if (!stagingFolderId || !Array.isArray(fileIds) || fileIds.length === 0) {
     throw new AuthError('Brak fileIds lub stagingFolderId.', 400);
   }
+  // Tree membership is already enforced below (stagingFolderId must equal the owner's own
+  // stagingFolderId, every fileId must be one of its images) - this only rejects malformed ids.
+  requireDriveId(stagingFolderId, 'Brak fileIds lub stagingFolderId.');
+  for (const fileId of fileIds) requireDriveId(fileId, 'Brak fileIds lub stagingFolderId.');
   // Validated eagerly (before touching Drive) whenever supplied, but only *required* inside the
   // "create the public folder" branch below - an already-published member's approval never sends
   // this at all (no category to pick, the folder is already fixed).
@@ -1866,6 +1948,8 @@ async function handleAdminSetInMemoriam(req: IncomingMessage, res: ServerRespons
   const identity = await deps.authenticateAdminWithStepUp(req, res);
   const { folderId, inMemoriam } = await readJsonBody<{ folderId?: string; inMemoriam?: boolean }>(req, deps.maxJsonBodyBytes);
   if (!folderId || typeof inMemoriam !== 'boolean') throw new AuthError('Brak folderId lub inMemoriam.', 400);
+  requireDriveId(folderId, 'Brak folderId lub inMemoriam.');
+  await requirePersonFolder(deps, folderId);
   await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.in_memoriam.changed', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'inMemoriam', after: inMemoriam }] }, async () => deps.drive.writeTextFile(folderId, IN_MEMORIAM_FILE_NAME, inMemoriam ? 'true' : 'false'));
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
@@ -2001,6 +2085,7 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
   const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
   const isMain = url.searchParams.get('isMain') === 'true';
   if (!folderId || !fileName) throw new AuthError('Brak folderId lub fileName.', 400);
+  requireDriveId(folderId, 'Brak folderId lub fileName.');
   requireAllowedMimeType(mimeType, deps.allowedMimeTypes);
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
@@ -2351,8 +2436,7 @@ async function handleListaWyjazdowaGetProfilePhoto(req: IncomingMessage, res: Se
 // check below is the entire authorization boundary for this endpoint.
 async function handleListaWyjazdowaDeleteProfilePhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  const fileId = url.searchParams.get('fileId');
-  if (!fileId) throw new AuthError('Brak fileId.', 400);
+  const fileId = requireDriveId(url.searchParams.get('fileId'), 'Brak fileId.');
   const rawSource = url.searchParams.get('source') ?? 'staging';
   if (rawSource !== 'staging' && rawSource !== 'public') throw new AuthError('Nieprawidłowa wartość source.', 400);
   const source = rawSource as 'staging' | 'public';
@@ -2410,8 +2494,8 @@ async function handleListaWyjazdowaDeleteProfilePhoto(req: IncomingMessage, res:
 // member doc, exactly like the delete handler above.
 async function handleListaWyjazdowaSetMainPhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  const { fileId } = await readJsonBody<{ fileId?: string }>(req, deps.maxJsonBodyBytes);
-  if (!fileId) throw new AuthError('Brak fileId.', 400);
+  const body = await readJsonBody<{ fileId?: string }>(req, deps.maxJsonBodyBytes);
+  const fileId = requireDriveId(body.fileId, 'Brak fileId.');
 
   const member = await getMember(deps.firestore, identity.email);
   const folderId = member?.driveFolderId ?? null;
@@ -3682,8 +3766,11 @@ function logDestructiveAction(action: string, actorEmail: string, target: string
 // don't need their own hovding concept per this repo's current direction.
 async function handleDeleteDriveGallery(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
-  const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
-  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  const body = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
+  const folderId = requireDriveId(body.folderId, 'Brak folderId.');
+  // KRKG-0108: only an actual gallery (a direct child of the galleries root) may be trashed here -
+  // never the root itself, a person's folder or anything else the Drive credential can reach.
+  await requireExistingGalleryFolder(deps, folderId);
   try {
     await executeAuditedExternalMutation(
       deps.firestore,
@@ -3754,6 +3841,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
   const fileName = url.searchParams.get('fileName');
   const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
   if (!folderId || !fileName) throw new AuthError('Brak folderId lub fileName.', 400);
+  requireDriveId(folderId, 'Brak folderId lub fileName.');
   requireAllowedMimeType(mimeType, deps.allowedMimeTypes);
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
@@ -3877,8 +3965,7 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
 
 async function handleStatus(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
-  const folderId = url.searchParams.get('folderId');
-  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  const folderId = requireDriveId(url.searchParams.get('folderId'), 'Brak folderId.');
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
   const uploadedFiles = await deps.drive.listFiles(folderId);
@@ -3888,8 +3975,7 @@ async function handleStatus(req: IncomingMessage, res: ServerResponse, url: URL,
 async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
   const body = await readJsonBody<{ folderId?: string; name?: unknown; date?: unknown }>(req, deps.maxJsonBodyBytes);
-  const { folderId } = body;
-  if (!folderId) throw new AuthError('Brak folderId lub daty.', 400);
+  const folderId = requireDriveId(body.folderId, 'Brak folderId lub daty.');
   const date = requireGalleryDate(body.date, 'Brak folderId lub daty.');
   const name = optionalGalleryName(body.name);
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
@@ -3942,8 +4028,12 @@ async function handleFinalize(req: IncomingMessage, res: ServerResponse, deps: S
 // children) before handing out a token for it - the frontend only ever offers this for a
 // gallery it already rendered from GET /galleries, but this endpoint shouldn't just trust an
 // arbitrary caller-supplied id.
-async function requireExistingGalleryFolder(drive: DriveClient, driveParentFolderId: string, folderId: string): Promise<void> {
-  const folders = await drive.listGalleryFolders(driveParentFolderId);
+async function requireExistingGalleryFolder(deps: ServerDeps, folderId: string): Promise<void> {
+  // KRKG-0108: also guards the per-photo "Dodane przez" read, so a warm /galleries cache is
+  // consulted first; a miss (e.g. a gallery created since the cache was built) falls back to the
+  // live listing rather than wrongly rejecting it.
+  if (galleriesCache && galleriesCache.expiresAt > Date.now() && galleriesCache.data.some(g => g.id === folderId)) return;
+  const folders = await deps.drive.listGalleryFolders(deps.driveParentFolderId);
   if (!folders.some(f => f.id === folderId)) {
     throw new AuthError('Nie znaleziono galerii.', 404);
   }
@@ -3955,9 +4045,9 @@ async function requireExistingGalleryFolder(drive: DriveClient, driveParentFolde
 // per-file upload endpoint and token-ownership machinery as creating a new one.
 async function handleGalleryPhotosStart(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWithStepUp(req, res);
-  const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
-  if (!folderId) throw new AuthError('Brak folderId.', 400);
-  await requireExistingGalleryFolder(deps.drive, deps.driveParentFolderId, folderId);
+  const body = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
+  const folderId = requireDriveId(body.folderId, 'Brak folderId.');
+  await requireExistingGalleryFolder(deps, folderId);
   const submissionToken = issueSubmissionToken(
     { folderId, sub: identity.sub, exp: Date.now() + SUBMISSION_TTL_MS },
     deps.submissionTokenSecret,
@@ -3979,8 +4069,8 @@ async function handleGalleryPhotosStart(req: IncomingMessage, res: ServerRespons
 // re-asserts public sharing, closing that gap for good the first time someone adds more photos.
 async function handleGalleryPhotosFinalize(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
-  const { folderId } = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
-  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  const body = await readJsonBody<{ folderId?: string }>(req, deps.maxJsonBodyBytes);
+  const folderId = requireDriveId(body.folderId, 'Brak folderId.');
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
 
@@ -4013,8 +4103,8 @@ async function handleGalleryPhotosFinalize(req: IncomingMessage, res: ServerResp
 // uploader emails/names/photos to anonymous visitors.
 async function handleGalleryPhotoUploaders(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   await deps.authenticate(req, res);
-  const folderId = url.searchParams.get('folderId');
-  if (!folderId) throw new AuthError('Brak folderId.', 400);
+  const folderId = requireDriveId(url.searchParams.get('folderId'), 'Brak folderId.');
+  await requireExistingGalleryFolder(deps, folderId);
   const uploaders = await readUploadLog(deps.drive, folderId);
   sendJson(res, 200, { uploaders });
 }

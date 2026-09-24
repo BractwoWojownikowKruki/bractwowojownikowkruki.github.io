@@ -59,14 +59,21 @@ export async function createAlbumFolder(deps: DriveDeps, parentFolderId: string,
   return id;
 }
 
+// KRKG-0108: every value interpolated into a Drive `q` string goes through this - ids as well as
+// names. Drive's query language quotes string literals with single quotes and escapes with a
+// backslash, so both must be escaped (backslash first); encodeURIComponent on the whole query only
+// protects the URL, not the query language Drive parses after decoding it.
+export function escapeDriveQueryValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 // Looks up an existing folder by exact name under a parent, or null if none exists. Used by
 // ensureFolder below to make folder creation idempotent - bootstrapping the "O Nas" tree must
 // be safe to call on every cold start without creating duplicate folders each time.
 export async function findFolderByName(deps: DriveDeps, parentFolderId: string, name: string): Promise<string | null> {
   const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
-  const escapedName = name.replace(/'/g, "\\'");
   const q = encodeURIComponent(
-    `'${parentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and name='${escapedName}' and trashed = false`,
+    `'${escapeDriveQueryValue(parentFolderId)}' in parents and mimeType='application/vnd.google-apps.folder' and name='${escapeDriveQueryValue(name)}' and trashed = false`,
   );
   const res = await fetch(`${DRIVE_API}/drive/v3/files?q=${q}&fields=files(id)&pageSize=1`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -330,7 +337,7 @@ export async function listFiles(deps: DriveDeps, folderId: string): Promise<Driv
   const files: DriveFileInfo[] = [];
   let pageToken: string | undefined;
   do {
-    const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
+    const q = encodeURIComponent(`'${escapeDriveQueryValue(folderId)}' in parents and trashed = false`);
     let path = `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(name,size,modifiedTime)&pageSize=1000`;
     if (pageToken) path += `&pageToken=${encodeURIComponent(pageToken)}`;
     const res = await fetch(path, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -353,7 +360,7 @@ export interface GalleryManifest {
 }
 
 async function findManifestFileId(accessToken: string, folderId: string): Promise<string | null> {
-  const q = encodeURIComponent(`'${folderId}' in parents and name='${MANIFEST_FILE_NAME}' and trashed = false`);
+  const q = encodeURIComponent(`'${escapeDriveQueryValue(folderId)}' in parents and name='${escapeDriveQueryValue(MANIFEST_FILE_NAME)}' and trashed = false`);
   const res = await fetch(`${DRIVE_API}/drive/v3/files?q=${q}&fields=files(id)&pageSize=1`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -415,8 +422,7 @@ export async function readManifest(deps: DriveDeps, folderId: string): Promise<G
 
 async function findFileIdByName(deps: DriveDeps, folderId: string, name: string): Promise<string | null> {
   const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
-  const escapedName = name.replace(/'/g, "\\'");
-  const q = encodeURIComponent(`'${folderId}' in parents and name='${escapedName}' and trashed = false`);
+  const q = encodeURIComponent(`'${escapeDriveQueryValue(folderId)}' in parents and name='${escapeDriveQueryValue(name)}' and trashed = false`);
   const res = await fetch(`${DRIVE_API}/drive/v3/files?q=${q}&fields=files(id)&pageSize=1`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -529,7 +535,7 @@ export async function listGalleryFolders(deps: DriveDeps, rootFolderId: string):
   const folders: DriveFolderInfo[] = [];
   let pageToken: string | undefined;
   do {
-    const q = encodeURIComponent(`'${rootFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed = false`);
+    const q = encodeURIComponent(`'${escapeDriveQueryValue(rootFolderId)}' in parents and mimeType='application/vnd.google-apps.folder' and trashed = false`);
     let path = `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,modifiedTime)&pageSize=1000`;
     if (pageToken) path += `&pageToken=${encodeURIComponent(pageToken)}`;
     const res = await fetch(path, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -547,7 +553,7 @@ export async function listGalleryFolders(deps: DriveDeps, rootFolderId: string):
 // already renders Drive-gallery covers from a live thumbnailLink rather than a cached file.
 export async function getCoverThumbnail(deps: DriveDeps, folderId: string): Promise<string | null> {
   const accessToken = await getAccessToken(deps.clientId, deps.clientSecret, deps.refreshToken);
-  const q = encodeURIComponent(`'${folderId}' in parents and mimeType contains 'image/' and trashed = false`);
+  const q = encodeURIComponent(`'${escapeDriveQueryValue(folderId)}' in parents and mimeType contains 'image/' and trashed = false`);
   const res = await fetch(`${DRIVE_API}/drive/v3/files?q=${q}&fields=files(thumbnailLink)&pageSize=1&orderBy=name`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -572,7 +578,7 @@ export async function listImageFiles(deps: DriveDeps, folderId: string): Promise
   const images: DriveImageInfo[] = [];
   let pageToken: string | undefined;
   do {
-    const q = encodeURIComponent(`'${folderId}' in parents and mimeType contains 'image/' and trashed = false`);
+    const q = encodeURIComponent(`'${escapeDriveQueryValue(folderId)}' in parents and mimeType contains 'image/' and trashed = false`);
     let path = `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,thumbnailLink)&pageSize=1000&orderBy=name`;
     if (pageToken) path += `&pageToken=${encodeURIComponent(pageToken)}`;
     const res = await fetch(path, { headers: { Authorization: `Bearer ${accessToken}` } });

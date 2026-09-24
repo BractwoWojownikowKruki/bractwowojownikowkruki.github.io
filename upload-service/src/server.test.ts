@@ -117,6 +117,26 @@ function makeFakeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
   };
 }
 
+// KRKG-0108: the admin people routes now require a folderId to be a person's folder (a direct child
+// of a category / upload / deleted folder) and a photo to be one of that folder's images. This fake
+// models that tree: the about-us bootstrap resolves every folder name to `cat-${name}` (unless the
+// test overrides ensureFolder), every `photo-*` file lives in person-1, and every other id is a
+// person folder under whatever id this drive's own ensureFolder gives the Kandydaci category. It
+// also resets the memoized about-us bootstrap so the category ids come from this fake, not from
+// whichever earlier test happened to bootstrap first.
+function makePersonTreeDrive(overrides: Partial<DriveClient> = {}): DriveClient {
+  resetAboutUsBootstrapForTests();
+  const drive: DriveClient = makeFakeDrive({
+    ensureFolder: async (_parent, name) => `cat-${name}`,
+    getFolderParentId: async id => (id.startsWith('photo-') ? 'person-1' : drive.ensureFolder('o-nas', 'Kandydaci')),
+    listImageFiles: async folderId => (folderId === 'person-1'
+      ? [{ id: 'photo-1', name: 'IMG_0001.jpg', thumbnailLink: null }, { id: 'photo-2', name: 'IMG_0002.jpg', thumbnailLink: null }]
+      : []),
+    ...overrides,
+  });
+  return drive;
+}
+
 function makeFakeGithub(overrides: Partial<GithubClient> = {}): GithubClient {
   return {
     appendAlbumToMain: async () => {},
@@ -1084,7 +1104,7 @@ test('GET /facebook-posts returns 429 once a single caller exceeds the per-IP ra
 test('PUT /admin/people/description updates a person\'s Opis.txt', async () => {
   let writtenDescription: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       writeTextFile: async (_folderId, _fileName, content) => {
         writtenDescription = content;
       },
@@ -1104,7 +1124,7 @@ test('PUT /admin/people/description updates a person\'s Opis.txt', async () => {
 test('DELETE /admin/people trashes the person folder', async () => {
   let deletedFolderId: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({ deleteFolder: async folderId => { deletedFolderId = folderId; } }),
+    drive: makePersonTreeDrive({ deleteFolder: async folderId => { deletedFolderId = folderId; } }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/people?folderId=person-1`, { method: 'DELETE' });
@@ -1266,7 +1286,7 @@ test('GET /admin/people rejects a nonexistent department', async () => {
 test('PUT /admin/people/order renames the folder to reflect the new name and order', async () => {
   let renamedTo: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       renameFolder: async (_folderId, newName) => {
         renamedTo = newName;
       },
@@ -1286,7 +1306,7 @@ test('PUT /admin/people/order renames the folder to reflect the new name and ord
 test('PUT /admin/people/order accepts a null order (unnumbered, sorted alphabetically)', async () => {
   let renamedTo: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       renameFolder: async (_folderId, newName) => {
         renamedTo = newName;
       },
@@ -1320,7 +1340,7 @@ test('PUT /admin/people/category moves the folder into the target department', a
   let movedFolderId: string | undefined;
   let movedToParent: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       ensureFolder: async (_parent, name) => `folder-${name}`,
       moveFolder: async (folderId, newParentId) => {
         movedFolderId = folderId;
@@ -1345,7 +1365,7 @@ test('PUT /admin/people/category can move a folder into the upload staging depar
   resetAboutUsBootstrapForTests();
   let movedToParent: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       ensureFolder: async (_parent, name) => (name === 'upload' ? 'upload-root' : `folder-${name}`),
       moveFolder: async (_folderId, newParentId) => {
         movedToParent = newParentId;
@@ -1382,7 +1402,7 @@ test('PUT /admin/people/category can move a folder into the deleted archive depa
   let movedToParent: string | undefined;
   let renameCalled = false;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       ensureFolder: async (_parent, name) => (name === 'deleted' ? 'deleted-root' : `folder-${name}`),
       moveFolder: async (_folderId, newParentId) => {
         movedToParent = newParentId;
@@ -1432,7 +1452,7 @@ test('PUT /admin/people/category moving into a normal department appends the per
   resetAboutUsBootstrapForTests();
   let renamedTo: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       ensureFolder: async (_parent, name) => `folder-${name}`,
       moveFolder: async () => ({ name: 'Ragnar' }),
       // The moved folder itself already shows up under the target once Drive's move completes
@@ -1463,7 +1483,7 @@ test('PUT /admin/people/category moving into Emeryci prepends the person at the 
   resetAboutUsBootstrapForTests();
   let renamedTo: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       ensureFolder: async (_parent, name) => `folder-${name}`,
       moveFolder: async () => ({ name: 'Ragnar' }),
       listGalleryFolders: async () => [
@@ -1490,7 +1510,7 @@ test('PUT /admin/people/category moving into an empty department defaults order 
   resetAboutUsBootstrapForTests();
   let renamedTo: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       ensureFolder: async (_parent, name) => `folder-${name}`,
       moveFolder: async () => ({ name: 'Ragnar' }),
       listGalleryFolders: async () => [],
@@ -1512,7 +1532,7 @@ test('PUT /admin/people/category moving into an empty department defaults order 
 test('POST /admin/people/photo streams an uploaded file into the person folder', async () => {
   let uploadedTo: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       uploadFileStream: async (folderId, _fileName, _mimeType, bodyStream) => {
         uploadedTo = folderId;
         for await (const _chunk of bodyStream) {
@@ -1534,7 +1554,7 @@ test('POST /admin/people/photo streams an uploaded file into the person folder',
 
 test('POST /admin/people/photo returns the uploaded photo DTO with a durable thumbnail URL', async () => {
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       uploadFileStream: async (_folderId, _fileName, _mimeType, bodyStream) => {
         for await (const _chunk of bodyStream) {
           // Drain the validated stream, exactly as the default fake does.
@@ -1558,7 +1578,7 @@ test('POST /admin/people/photo returns the uploaded photo DTO with a durable thu
 
 test('POST /admin/people/photo returns a null URL when Drive has not generated a thumbnail yet', async () => {
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       listImageFiles: async () => [{ id: 'fake-uploaded-file-id', name: 'zdjecie.jpg', thumbnailLink: null }],
     }),
   });
@@ -1576,7 +1596,7 @@ test('POST /admin/people/photo returns a null URL when Drive has not generated a
 
 test('POST /admin/people/photo returns a null URL when Drive metadata lookup fails after upload', async () => {
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       listImageFiles: async () => { throw new Error('Drive metadata temporarily unavailable'); },
     }),
   });
@@ -1592,10 +1612,89 @@ test('POST /admin/people/photo returns a null URL when Drive metadata lookup fai
   });
 });
 
+// KRKG-0108: the admin people routes act only on a person's folder, and photo actions only on a
+// file that is actually one of that folder's images.
+test('admin people routes reject a malformed folderId with 400 and a non-person folder with 404, touching nothing', async () => {
+  const routes: Array<{ method: string; path: (folderId: string) => string; body?: (folderId: string) => unknown }> = [
+    { method: 'DELETE', path: f => `/admin/people?folderId=${encodeURIComponent(f)}` },
+    { method: 'PUT', path: f => `/admin/people/description?folderId=${encodeURIComponent(f)}`, body: () => ({ description: 'x' }) },
+    { method: 'PUT', path: () => '/admin/people/order', body: f => ({ folderId: f, name: 'Ragnar', order: 1 }) },
+    { method: 'PUT', path: () => '/admin/people/category', body: f => ({ folderId: f, category: 'Niewiasty' }) },
+    { method: 'PUT', path: () => '/admin/people/in-memoriam', body: f => ({ folderId: f, inMemoriam: true }) },
+  ];
+  for (const route of routes) {
+    for (const [folderId, expected] of [["../x'", 400], ['cat-Kandydaci', 404], ['cat-O Nas', 400]] as const) {
+      const effects: string[] = [];
+      const deps = makeDeps({
+        drive: makePersonTreeDrive({
+          // A category folder's parent is the about-us root, never another category.
+          getFolderParentId: async id => (id.startsWith('cat-') ? 'o-nas-root' : 'cat-Kandydaci'),
+          deleteFolder: async () => { effects.push('deleteFolder'); },
+          renameFolder: async () => { effects.push('renameFolder'); },
+          moveFolder: async () => { effects.push('moveFolder'); return { name: '1. X' }; },
+          writeTextFile: async () => { effects.push('writeTextFile'); },
+        }),
+      });
+      await withServer(deps, async baseUrl => {
+        const body = route.body?.(folderId);
+        const res = await fetch(`${baseUrl}${route.path(folderId)}`, {
+          method: route.method,
+          ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
+        });
+        assert.equal(res.status, expected, `${route.method} ${route.path('<id>')} with ${folderId}`);
+      });
+      assert.deepEqual(effects, [], `${route.method} ${route.path('<id>')} with ${folderId}: no Drive write`);
+    }
+  }
+});
+
+test('DELETE /admin/people/photo refuses a fileId that is not an image of the named folder', async () => {
+  let deleted = false;
+  const deps = makeDeps({ drive: makePersonTreeDrive({ deleteFolder: async () => { deleted = true; } }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo?fileId=someone-elses-file&folderId=person-1`, { method: 'DELETE' });
+    assert.equal(res.status, 404);
+  });
+  assert.equal(deleted, false);
+});
+
+test('PUT /admin/people/photo/main refuses a fileId outside the folder before renaming anything', async () => {
+  const renames: string[] = [];
+  const deps = makeDeps({ drive: makePersonTreeDrive({ renameFolder: async id => { renames.push(id); } }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/main`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId: 'person-1', fileId: 'not-in-this-folder' }),
+    });
+    assert.equal(res.status, 404);
+  });
+  assert.deepEqual(renames, []);
+});
+
+test('PUT /admin/people/photo/transfer refuses a target that is not a person folder', async () => {
+  let moved = false;
+  const deps = makeDeps({
+    drive: makePersonTreeDrive({
+      getFolderParentId: async id => (id.startsWith('photo-') ? 'person-1' : id === 'gallery-9' ? 'galleries-root' : 'cat-Kandydaci'),
+      moveFile: async () => { moved = true; return {}; },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/transfer`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: 'photo-1', targetFolderId: 'gallery-9' }),
+    });
+    assert.equal(res.status, 404);
+  });
+  assert.equal(moved, false);
+});
+
 test('DELETE /admin/people/photo trashes the photo file', async () => {
   let deletedId: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({ deleteFolder: async fileId => { deletedId = fileId; } }),
+    drive: makePersonTreeDrive({ deleteFolder: async fileId => { deletedId = fileId; } }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/admin/people/photo?fileId=photo-1&folderId=person-1`, { method: 'DELETE' });
@@ -1615,7 +1714,7 @@ test('DELETE /admin/people/photo rejects a missing folderId (I4: resource key ne
 test('DELETE /admin/people/photo audits profile.person.photo.deleted on the person:{folderId} resource, matching its sibling person-photo actions', async () => {
   const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
-    drive: makeFakeDrive({ deleteFolder: async () => {} }),
+    drive: makePersonTreeDrive({ deleteFolder: async () => {} }),
     firestore,
   });
   await withServer(deps, async baseUrl => {
@@ -1637,7 +1736,7 @@ test('PUT /admin/people/photo/main prefixes the target photo and strips any prev
     { id: 'photo-2', name: 'IMG_0002.jpg', thumbnailLink: null },
   ];
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       listImageFiles: async () => images.map(image => ({ ...image })),
       renameFolder: async (fileId, newName) => {
         const image = images.find(img => img.id === fileId);
@@ -1660,7 +1759,7 @@ test('PUT /admin/people/photo/main prefixes the target photo and strips any prev
 test('PUT /admin/people/photo/main is a no-op when the target is already main and nothing else has the prefix', async () => {
   let renameCalled = false;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       listImageFiles: async () => [
         { id: 'photo-1', name: '!IMG_0001.jpg', thumbnailLink: null },
         { id: 'photo-2', name: 'IMG_0002.jpg', thumbnailLink: null },
@@ -1697,7 +1796,7 @@ test('PUT /admin/people/photo/transfer moves the photo into the target folder', 
   let movedFileId: string | undefined;
   let movedToParent: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       moveFile: async (fileId, newParentFolderId) => {
         movedFileId = fileId;
         movedToParent = newParentFolderId;
@@ -1721,7 +1820,7 @@ test('PUT /admin/people/photo/transfer audits profile.person.photo.transferred o
   const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
     firestore,
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       moveFile: async () => ({ previousFolderId: 'person-1' }),
     }),
   });
@@ -1746,7 +1845,7 @@ test('PUT /admin/people/photo/transfer emits only the destination event when Dri
   const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
     firestore,
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       moveFile: async () => ({}),
     }),
   });
@@ -2195,7 +2294,7 @@ test('PUT /admin/people/in-memoriam writes the marker file and invalidates the c
   let writtenName: string | undefined;
   let writtenContent: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       writeTextFile: async (folderId, fileName, content) => {
         writtenTo = folderId;
         writtenName = fileName;
@@ -2219,7 +2318,7 @@ test('PUT /admin/people/in-memoriam writes the marker file and invalidates the c
 test('PUT /admin/people/in-memoriam can unset the marker', async () => {
   let writtenContent: string | undefined;
   const deps = makeDeps({
-    drive: makeFakeDrive({
+    drive: makePersonTreeDrive({
       writeTextFile: async (_folderId, _fileName, content) => {
         writtenContent = content;
       },
@@ -2743,7 +2842,7 @@ test('PUT /admin/members/drive-folder links an existing member to a Drive folder
     email: 'ala@example.com', lastName: 'Ala', firstName: '', nickname: null, sectionId: 's',
     categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
   });
-  const deps = makeDeps({
+  const deps = makeDeps({ drive: makePersonTreeDrive(),
     firestore: client,
     authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
   });
@@ -2759,6 +2858,62 @@ test('PUT /admin/members/drive-folder links an existing member to a Drive folder
   });
   const stored = await client.getDoc<{ driveFolderId: string | null }>('members', 'ala@example.com');
   assert.equal(stored?.driveFolderId, 'folder-xyz');
+});
+
+// KRKG-0108: driveFolderId drives the member's own self-service photo delete, so it may only name
+// a person folder in a PUBLIC category, never one already linked to another member.
+function seedDriveFolderMembers(client: ReturnType<typeof createInMemoryFirestoreClient>, otherFolderId: string | null) {
+  const base = { lastName: 'X', firstName: '', nickname: null, sectionId: 's', categoryId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x' };
+  client.seed('members', 'ala@example.com', { ...base, email: 'ala@example.com', driveFolderId: null });
+  client.seed('members', 'bob@example.com', { ...base, email: 'bob@example.com', driveFolderId: otherFolderId });
+}
+
+async function putDriveFolder(deps: ServerDeps, folderId: unknown): Promise<Response> {
+  let res!: Response;
+  await withServer(deps, async baseUrl => {
+    res = await fetch(`${baseUrl}/admin/members/drive-folder`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', folderId }),
+    });
+  });
+  return res;
+}
+
+test('PUT /admin/members/drive-folder rejects a folder that is not a person folder in a public category, without writing', async () => {
+  const cases: Array<{ name: string; folderId: unknown; parentOf: (id: string) => string | null; status: number }> = [
+    { name: 'malformed id', folderId: "x' or '1'='1", parentOf: () => 'cat-Kandydaci', status: 400 },
+    { name: 'folder with no parent / unknown', folderId: 'stray-folder', parentOf: () => null, status: 404 },
+    { name: 'a category folder itself (parent is the about-us root)', folderId: 'cat-Kandydaci', parentOf: () => 'cat-O Nas', status: 404 },
+    { name: 'a pending submission in the upload staging root', folderId: 'staging-1', parentOf: () => 'cat-upload', status: 404 },
+    { name: 'an archived person in the deleted root', folderId: 'archived-1', parentOf: () => 'cat-deleted', status: 404 },
+  ];
+  for (const c of cases) {
+    const client = createInMemoryFirestoreClient();
+    seedDriveFolderMembers(client, null);
+    const deps = makeDeps({
+      drive: makePersonTreeDrive({ getFolderParentId: async id => c.parentOf(id) }),
+      firestore: client,
+      authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+    });
+    const res = await putDriveFolder(deps, c.folderId);
+    assert.equal(res.status, c.status, c.name);
+    const stored = await client.getDoc<{ driveFolderId: string | null }>('members', 'ala@example.com');
+    assert.equal(stored?.driveFolderId, null, `${c.name}: nothing written`);
+  }
+});
+
+test('PUT /admin/members/drive-folder rejects a folder already linked to another member with 409', async () => {
+  const client = createInMemoryFirestoreClient();
+  seedDriveFolderMembers(client, 'person-7');
+  const deps = makeDeps({
+    drive: makePersonTreeDrive(),
+    firestore: client,
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  const res = await putDriveFolder(deps, 'person-7');
+  assert.equal(res.status, 409);
+  assert.equal((await client.getDoc<{ driveFolderId: string | null }>('members', 'ala@example.com'))?.driveFolderId, null);
 });
 
 test('PUT /admin/members/drive-folder can clear a member\'s folder link by passing folderId: null', async () => {
@@ -3962,10 +4117,32 @@ test('/delete-drive-gallery rejects a body missing folderId', async () => {
   });
 });
 
+// KRKG-0108: only an actual gallery (a direct child of the galleries root) may be trashed.
+test('/delete-drive-gallery refuses a folder that is not a gallery, and a malformed id', async () => {
+  for (const [folderId, expected] of [['person-1', 404], ["x' or '1'='1", 400]] as const) {
+    let deleted = false;
+    const deps = makeDeps({
+      drive: makeFakeDrive({
+        listGalleryFolders: async () => [{ id: 'g1', name: 'Galeria', modifiedTime: '2026-01-01T00:00:00.000Z' }],
+        deleteFolder: async () => { deleted = true; },
+      }),
+    });
+    await withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/delete-drive-gallery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId }),
+      });
+      assert.equal(res.status, expected, folderId);
+    });
+    assert.equal(deleted, false, folderId);
+  }
+});
+
 test('/delete-drive-gallery deletes the folder via Drive', async () => {
   let deletedFolderId: string | null = null;
   const deps = makeDeps({
-    drive: makeFakeDrive({ deleteFolder: async folderId => { deletedFolderId = folderId; } }),
+    drive: makeFakeDrive({ listGalleryFolders: async () => [{ id: 'abc123', name: 'Galeria', modifiedTime: '2026-01-01T00:00:00.000Z' }], deleteFolder: async folderId => { deletedFolderId = folderId; } }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/delete-drive-gallery`, {
@@ -4847,10 +5024,27 @@ test('GET /gallery-photos/uploaders rejects an unauthenticated caller before tou
   });
 });
 
+test('GET /gallery-photos/uploaders refuses a folder that is not a gallery and a malformed id, without reading Drive files', async () => {
+  for (const [folderId, expected] of [['person-1', 404], ["x' or name contains '", 400]] as const) {
+    let read = false;
+    const deps = makeDeps({
+      drive: makeFakeDrive({
+        listGalleryFolders: async () => [{ id: 'gallery-1', name: 'Galeria', modifiedTime: '2026-01-01T00:00:00.000Z' }],
+        readTextFile: async () => { read = true; return null; },
+      }),
+    });
+    await withServer(deps, async baseUrl => {
+      const res = await fetch(`${baseUrl}/gallery-photos/uploaders?folderId=${encodeURIComponent(folderId)}`);
+      assert.equal(res.status, expected, folderId);
+    });
+    assert.equal(read, false, folderId);
+  }
+});
+
 test('GET /gallery-photos/uploaders returns the upload log for a folder', async () => {
   const entries = [{ fileId: 'f1', email: 'alice@gmail.com', uploadedAt: '2026-01-01T00:00:00.000Z' }];
   const deps = makeDeps({
-    drive: makeFakeDrive({ readTextFile: async () => JSON.stringify(entries) }),
+    drive: makeFakeDrive({ listGalleryFolders: async () => [{ id: 'gallery-1', name: 'Galeria', modifiedTime: '2026-01-01T00:00:00.000Z' }], readTextFile: async () => JSON.stringify(entries) }),
   });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/gallery-photos/uploaders?folderId=gallery-1`);
@@ -4861,7 +5055,7 @@ test('GET /gallery-photos/uploaders returns the upload log for a folder', async 
 });
 
 test('GET /gallery-photos/uploaders returns an empty list when there is no upload log yet', async () => {
-  const deps = makeDeps({ drive: makeFakeDrive({ readTextFile: async () => null }) });
+  const deps = makeDeps({ drive: makeFakeDrive({ listGalleryFolders: async () => [{ id: 'gallery-1', name: 'Galeria', modifiedTime: '2026-01-01T00:00:00.000Z' }], readTextFile: async () => null }) });
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/gallery-photos/uploaders?folderId=gallery-1`);
     assert.equal(res.status, 200);
