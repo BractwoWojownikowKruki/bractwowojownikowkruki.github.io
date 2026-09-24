@@ -1368,6 +1368,8 @@ async function handleAdminSetRoles(req: IncomingMessage, res: ServerResponse, de
     throw new AuthError('Nieprawidłowa rola.', 400);
   }
   const newRoles = roles as string[];
+  // Raw stored grant on purpose (not getEffectiveRoles, KRKG-0108): this edits the grant itself, so
+  // the audit before/after must describe what was stored, not what currently confers power.
   const previousRoles = await getGrantedRoles(deps.firestore, email);
   const action = previousRoles.length === 0 && newRoles.length > 0
     ? 'role.granted'
