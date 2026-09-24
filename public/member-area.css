@@ -430,6 +430,14 @@
   white-space: normal;
 }
 
+/* KRKG-0108: a stored role on a non-active member confers nothing - see inactiveRolesHintHtml. */
+.member-roles-inactive-hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.75em;
+  opacity: 0.75;
+  white-space: normal;
+}
+
 .member-role-label {
   display: flex;
   align-items: center;

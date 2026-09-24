@@ -1,5 +1,6 @@
 import type { FirestoreLikeClient } from './firestore.ts';
 import { AuthError } from './auth.ts';
+import { getMember } from './members.ts';
 import type { Authorizer } from './server.ts';
 
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
@@ -33,6 +34,17 @@ export async function getGrantedRoles(client: FirestoreLikeClient, email: string
   return doc?.roles ?? [];
 }
 
+// KRKG-0108: the roles that actually confer powers right now - the stored grant, but only while
+// the holder's members/{email} doc is 'active'. Suspending or removing a member therefore revokes
+// every Firestore-granted power immediately, and reactivating restores it, without touching the
+// userRoles doc itself (so the admin role UI and the role.* audit history keep the stored value).
+// Every authorization decision must go through this; getGrantedRoles above is only for displaying
+// or editing the stored grant (GET/PUT /admin/roles).
+export async function getEffectiveRoles(client: FirestoreLikeClient, email: string): Promise<string[]> {
+  const [member, granted] = await Promise.all([getMember(client, email), getGrantedRoles(client, email)]);
+  return member?.status === 'active' ? granted : [];
+}
+
 // KRKG-0049: the first way to grant userRoles other than a direct Firestore-console edit (see
 // design notes on KRKG-0037's Plan C, which deliberately left this out). Admin-only at the
 // server.ts route level - this function itself does no authorization, same division of
@@ -58,13 +70,14 @@ export async function requireRole(
   email: string,
   required: AccessRole,
 ): Promise<void> {
-  const granted = await getGrantedRoles(client, email);
+  const granted = await getEffectiveRoles(client, email);
   if (!satisfiesRole(granted, required)) {
     throw new AuthError('Brak uprawnień do tej operacji.', 403);
   }
 }
 
-// An Authorizer (server.ts) backed by a Firestore userRoles doc, for composing into
+// An Authorizer (server.ts) backed by a Firestore userRoles doc (effective roles only - see
+// getEffectiveRoles), for composing into
 // authenticateAdminOrHovding alongside the admin-allowlist Authorizer via server.ts's anyOf() -
 // same role check as requireRole above, wrapped to fit the Authorizer shape verifySessionRequest
 // expects.

@@ -935,6 +935,7 @@ test('anyOf rejects if every authorizer rejects, surfacing the last error', asyn
 test('anyOf(fromAllowlist(admin), createRoleAuthorizer(hovding)) lets a Firestore-only hovding through', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('userRoles', 'mod@example.test', { roles: ['hovding'] });
+  client.seed('members', 'mod@example.test', { email: 'mod@example.test', status: 'active' });
   const adminAllowlist: SheetAllowlist = { getEmails: async () => ['admin@example.test'] };
   const authorizer = anyOf(fromAllowlist(adminAllowlist), createRoleAuthorizer(client, 'hovding'));
   await authorizer.authorize({ sub: 's1', email: 'mod@example.test' });
@@ -3735,6 +3736,7 @@ test('GET /files marks every file deletable for a hovding', async () => {
     });
   });
   firestore.seed('userRoles', 'mod@example.test', { roles: ['hovding'] });
+  firestore.seed('members', 'mod@example.test', { email: 'mod@example.test', status: 'active' });
   await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'mod@example.test' }) }), async baseUrl => {
     const res = await fetch(`${baseUrl}/files`);
     const { files } = (await res.json()) as { files: Array<{ canDelete: boolean }> };
@@ -3841,6 +3843,7 @@ test('DELETE /files lets a hovding delete someone else\'s file', async () => {
     fileId = ((await postRes.json()) as { file: { id: string } }).file.id;
   });
   firestore.seed('userRoles', 'mod@example.test', { roles: ['hovding'] });
+  firestore.seed('members', 'mod@example.test', { email: 'mod@example.test', status: 'active' });
   await withServer(makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'mod@example.test' }) }), async baseUrl => {
     const res = await fetch(`${baseUrl}/files?id=${fileId}`, { method: 'DELETE' });
     assert.equal(res.status, 200);
@@ -6314,6 +6317,8 @@ test('PUT /lista-wyjazdowa/member?memberEmail= requires accountant, 403 for a pl
 
 test('PUT /lista-wyjazdowa/member?memberEmail= lets an accountant edit another member, recording the accountant as updatedBy', async () => {
   const firestore = makeListaWyjazdowaFirestore();
+  // KRKG-0108: a Firestore role only counts while its holder is an active member.
+  firestore.seed('members', 'wojownik@gmail.com', { email: 'wojownik@gmail.com', status: 'active' });
   const deps = makeDepsWithRole('accountant', firestore);
   await withServer(deps, async baseUrl => {
     const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member?memberEmail=inny@example.test', {
@@ -6771,6 +6776,7 @@ test('GET profile endpoints expose editor capabilities and lookup lists only for
     { name: 'ordinary member', deps: makeDeps({ firestore: memberFirestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'member@example.test' }), listMemberEmails: async () => ['member@example.test', 'target@example.test'] }), expected: null },
   ];
   memberFirestore.seed('userRoles', 'accountant@example.test', { roles: ['accountant'] });
+  memberFirestore.seed('members', 'accountant@example.test', { email: 'accountant@example.test', status: 'active' });
   for (const role of memberCases) await withServer(role.deps, async baseUrl => {
     const response = await fetch(`${baseUrl}/member-profile?email=target@example.test`);
     assert.equal(response.status, 200, role.name);
@@ -6784,6 +6790,7 @@ test('GET profile endpoints expose editor capabilities and lookup lists only for
   const personFirestore = makeListaWyjazdowaFirestore();
   seedPerson(personFirestore, 'person-capabilities', 'owner@example.test');
   personFirestore.seed('userRoles', 'staff@example.test', { roles: ['accountant'] });
+  personFirestore.seed('members', 'staff@example.test', { email: 'staff@example.test', status: 'active' });
   const personCases: Array<{ name: string; deps: ServerDeps; expected: { canEditIdentity: boolean; canEditWeapons: boolean; canEditDues: boolean } }> = [
     { name: 'accountless owner', deps: memberDeps(personFirestore, 'owner@example.test'), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: false } },
     { name: 'accountless staff', deps: makeDeps({ firestore: personFirestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'staff@example.test' }) }), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: true } },
@@ -7155,6 +7162,7 @@ test('PUT /lista-wyjazdowa/persons/account refuses to merge a deactivated person
 test('an accountant is staff on the person routes', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   firestore.seed('userRoles', 'ksiegowa@example.com', { roles: ['accountant'] });
+  firestore.seed('members', 'ksiegowa@example.com', { email: 'ksiegowa@example.com', status: 'active' });
   const deps = makeDeps({
     firestore,
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'k1', email: 'ksiegowa@example.com' }),
@@ -7346,6 +7354,7 @@ test('POST /lista-wyjazdowa/signups/quick-add lets staff quick-add for someone e
   seedMember(firestore, 'ktos@gmail.com');
   seedEvent(firestore, 'event-1');
   firestore.seed('userRoles', 'ksiegowa@example.com', { roles: ['accountant'] });
+  firestore.seed('members', 'ksiegowa@example.com', { email: 'ksiegowa@example.com', status: 'active' });
   const request = { eventId: 'event-1', ownerPersonId: 'ktos@gmail.com', mode: 'new', ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski', categoryId: 'thing' };
   const run = (deps: ServerDeps) => withServer(deps, async baseUrl => {
     assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', request)).status, 201);
@@ -7605,6 +7614,37 @@ test('GET /lista-wyjazdowa/my-role also grants canManageSkladki via the env admi
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
     assert.deepEqual(await res.json(), { canManageSkladki: true, canManagePeople: true });
   });
+});
+
+// KRKG-0108: suspending/removing a member revokes their Firestore-granted accountant powers at
+// once (getEffectiveRoles), and reactivating restores them, without touching the userRoles doc.
+test('GET /lista-wyjazdowa/my-role drops canManageSkladki while an accountant is suspended and restores it on reactivation', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('userRoles', 'wojownik@gmail.com', { roles: ['accountant'] });
+  const deps = makeDeps({
+    firestore,
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+  const myRole = (baseUrl: string) => fetch(`${baseUrl}/lista-wyjazdowa/my-role`).then(r => r.json());
+  for (const [status, expected] of [['active', true], ['suspended', false], ['removed', false], ['active', true]] as const) {
+    await firestore.setDoc('members', 'wojownik@gmail.com', { email: 'wojownik@gmail.com', status });
+    await withServer(deps, async baseUrl => {
+      assert.deepEqual(await myRole(baseUrl), { canManageSkladki: expected, canManagePeople: expected }, `status ${status}`);
+    });
+  }
+  assert.deepEqual(await firestore.getDoc('userRoles', 'wojownik@gmail.com'), { roles: ['accountant'] });
+});
+
+test('anyOf(fromAllowlist(admin), createRoleAuthorizer(hovding)) rejects a suspended or removed hovding', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('userRoles', 'mod@example.test', { roles: ['hovding'] });
+  const adminAllowlist: SheetAllowlist = { getEmails: async () => ['admin@example.test'] };
+  const authorizer = anyOf(fromAllowlist(adminAllowlist), createRoleAuthorizer(client, 'hovding'));
+  for (const status of ['suspended', 'removed']) {
+    await client.setDoc('members', 'mod@example.test', { email: 'mod@example.test', status });
+    await assert.rejects(() => authorizer.authorize({ sub: 's1', email: 'mod@example.test' }), `status ${status}`);
+  }
 });
 
 test('PUT /lista-wyjazdowa/events with skladkaFee requires accountant, 403 for a plain member', async () => {
@@ -8317,10 +8357,12 @@ test('GET /admin/audyt list and detail give a Firestore-only hovding full audit 
     { createId: () => 'evt-roles', now: () => new Date('2026-01-01T00:01:00.000Z') },
   );
   await firestore.setDoc('userRoles', 'wojownik@gmail.com', { roles: ['hovding'] });
+  await firestore.setDoc('members', 'wojownik@gmail.com', { email: 'wojownik@gmail.com', status: 'active' });
   const hovdingDeps = makeDeps({
     firestore,
-    // The audit shell reaches its reader through the admin-or-hovding boundary. A hovding
-    // need not be an active member, so the general member gate is deliberately rejecting here.
+    // The audit shell reaches its reader through the admin-or-hovding boundary; the general
+    // member gate is deliberately rejecting here so only that boundary can let the caller in.
+    // (KRKG-0108: the hovding role itself only counts while its holder is an active member.)
     authenticate: async () => { throw new AuthError('Brak uprawnień.', 403); },
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
     authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'mod-1', email: 'wojownik@gmail.com' }),
@@ -8348,6 +8390,7 @@ test('GET /admin/audyt list and detail give a Firestore-only hovding full audit 
   // event but not the permissions one, and its detail 404s (projectAuditEvent returns null for an
   // invisible category, never a 403 that would confirm the event's existence).
   await firestore.setDoc('userRoles', 'accountant@example.test', { roles: ['accountant'] });
+  await firestore.setDoc('members', 'accountant@example.test', { email: 'accountant@example.test', status: 'active' });
   const accountantDeps = makeDeps({
     firestore,
     authenticate: async () => fakeSessionClaims({ email: 'accountant@example.test' }),
@@ -8378,6 +8421,7 @@ test('GET /admin/audyt list and detail give a Firestore-only hovding full audit 
   });
 
   await firestore.setDoc('userRoles', 'combined@example.test', { roles: ['accountant', 'hovding'] });
+  await firestore.setDoc('members', 'combined@example.test', { email: 'combined@example.test', status: 'active' });
   const combinedDeps = makeDeps({
     firestore,
     authenticate: async () => fakeSessionClaims({ email: 'combined@example.test' }),

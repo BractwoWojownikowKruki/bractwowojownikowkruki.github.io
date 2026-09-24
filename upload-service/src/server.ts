@@ -86,7 +86,7 @@ import {
   type SignupDoc,
   type SignupWritableFields,
 } from './signups.ts';
-import { getGrantedRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, createRoleAuthorizer } from './roles.ts';
+import { getGrantedRoles, getEffectiveRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, createRoleAuthorizer } from './roles.ts';
 import { listDuesForYear, saveDues, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, type DuesYearFeeWritableFields, getDues, normalizeDuesStatus, effectiveDuesStatus } from './dues.ts';
 import { buildSharedFileDoc, saveFileInTransaction, deleteFileInTransaction, getFileInTransaction, listFiles, InvalidFileUrlError, type SharedFileDoc } from './files.ts';
 import {
@@ -727,7 +727,7 @@ async function handleListFiles(req: IncomingMessage, res: ServerResponse, deps: 
   const identity = await deps.authenticate(req, res);
   const [files, grantedRoles] = await Promise.all([
     listFiles(deps.firestore),
-    getGrantedRoles(deps.firestore, identity.email),
+    getEffectiveRoles(deps.firestore, identity.email),
   ]);
   const canDeleteAny = satisfiesRole(grantedRoles, 'hovding');
   const email = identity.email.toLowerCase();
@@ -777,14 +777,14 @@ async function handleAddFile(req: IncomingMessage, res: ServerResponse, deps: Se
 // and both commit a full file.deleted audit event, even though the race loser's actual deleteDoc
 // was a no-op against an already-gone document - a false audit record. Reading tx.getDoc inside
 // the transaction means the loser's read returns null and the whole transaction aborts with 404
-// before any write happens. Role eligibility (getGrantedRoles/satisfiesRole) stays a
+// before any write happens. Role eligibility (getEffectiveRoles/satisfiesRole) stays a
 // pre-transaction read on purpose - roles aren't part of this race, see design.md's "Odwrócone po
 // recenzji Batchy 1-2" section for the full reasoning behind this reversal.
 async function handleDeleteFile(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
   const id = url.searchParams.get('id');
   if (!id) throw new AuthError('Brak id.', 400);
-  const grantedRoles = await getGrantedRoles(deps.firestore, identity.email);
+  const grantedRoles = await getEffectiveRoles(deps.firestore, identity.email);
   const canDeleteAny = satisfiesRole(grantedRoles, 'hovding');
   const email = identity.email.toLowerCase();
   await executeDeclaredAuditedMutation(
@@ -3067,7 +3067,7 @@ async function handleMembersDirectory(req: IncomingMessage, res: ServerResponse,
 // with no separate userRoles grant, must still be able to manage money. Same admin-allowlist-or-
 // Firestore-role fallback as resolveAdminAuditAuth uses for /admin/audyt/.
 async function requireSkladkiAccess(req: IncomingMessage, res: ServerResponse, deps: ServerDeps, email: string): Promise<void> {
-  const granted = await getGrantedRoles(deps.firestore, email);
+  const granted = await getEffectiveRoles(deps.firestore, email);
   if (satisfiesRole(granted, 'accountant')) return;
   await deps.authenticateAdmin(req, res);
 }
@@ -4281,7 +4281,7 @@ interface AdminAuditAuth {
 async function resolveAdminAuditAuth(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<AdminAuditAuth> {
   try {
     const identity = await deps.authenticateAdminOrHovding(req, res);
-    const granted = await getGrantedRoles(deps.firestore, identity.email);
+    const granted = await getEffectiveRoles(deps.firestore, identity.email);
     let isAdmin = granted.includes('admin');
     if (!isAdmin) {
       try {
@@ -4303,7 +4303,7 @@ async function resolveAdminAuditAuth(req: IncomingMessage, res: ServerResponse, 
     // no session at all still surfaces from the deps.authenticate call below).
     if (!(err instanceof AuthError)) throw err;
     const identity = await deps.authenticate(req, res);
-    const granted = await getGrantedRoles(deps.firestore, identity.email);
+    const granted = await getEffectiveRoles(deps.firestore, identity.email);
     if (!granted.includes('accountant')) throw new AuthError('Brak uprawnień do przeglądania audytu.', 403);
     return { identity, isAdmin: false, isHovding: false, isAccountant: true };
   }

@@ -356,6 +356,14 @@ function roleCheckboxesHtml(email, roles) {
   ).join('');
 }
 
+// KRKG-0108: the server only honours a Firestore role while its holder is an active member
+// (roles.ts getEffectiveRoles), so a grant still stored for a suspended/removed/pending member is
+// shown - it's still editable here - but flagged as currently having no effect.
+function inactiveRolesHintHtml(status, roles) {
+  if (status === 'active' || !roles?.length) return '';
+  return '<p class="member-roles-inactive-hint">Nieaktywne — role działają tylko dla aktywnych członków.</p>';
+}
+
 // A retired weapon (same "still resolve for someone who already has it" rule as
 // sectionOptions/categoryOptions above) stays offered here if this member currently has it
 // checked, otherwise drops out of new selection - mirrors profil.js's selectableLookupItems.
@@ -447,7 +455,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
         <span class="drive-folder-saved" style="color:var(--gold);" hidden>✓</span>
       </td>
       <td class="member-weapons-cell">${weaponCheckboxesHtml(m.email, weapons, m.weaponIds)}</td>
-      <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(m.email, rolesByEmail.get(m.email))}</td>
+      <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(m.email, rolesByEmail.get(m.email))}${inactiveRolesHintHtml(status, rolesByEmail.get(m.email))}</td>
       <td ${canManageSkladki ? '' : 'hidden'}>
         <label class="member-role-label">
           <input id="${memberFocusId(m.email, 'wpisowe')}" type="checkbox" class="member-wpisowe-checkbox" data-email="${escapeAttr(m.email)}" ${wpisoweByEmail.get(m.email) ? 'checked' : ''} />
