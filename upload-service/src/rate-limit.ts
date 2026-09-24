@@ -24,12 +24,25 @@ export function resetRateLimitForTests(): void {
   hits.clear();
 }
 
-// Cloud Run's front-end proxy sets X-Forwarded-For to "<client>, <proxy1>, ...";  the first
-// entry is the original client. Falls back to the raw socket address (e.g. for local/dev runs
-// not sitting behind that proxy).
+// KRKG-0108: this is a client-controlled header - the FIRST entry is whatever the caller sends
+// and never a rate-limit boundary on its own (a caller can send a fresh, distinct first entry on
+// every request and never get counted twice). The LAST entry is the one Google's own frontend
+// (GFE) appends from its own view of the TCP connection, which the caller cannot influence -
+// confirmed for this exact deployment (api.kruki.org is a plain Cloud Run domain mapping to the
+// same GFE the *.run.app URL uses, with no separate external HTTPS Load Balancer in front - the
+// project has Compute Engine/load-balancer APIs disabled) by sending a request with a forged,
+// multi-entry X-Forwarded-For and reading it back from Cloud Run's own auto-generated request log
+// (`httpRequest.remoteIp`, which Google's infrastructure computes independently of the header):
+// it showed the real caller IP regardless of the forged header, matching Google Cloud's
+// documented behavior of appending the resolved client IP after whatever the incoming header
+// already contained. Falls back to the raw socket address when there is no header at all (local/
+// dev runs not sitting behind that proxy).
 export function getClientIp(req: IncomingMessage): string {
   const forwarded = req.headers['x-forwarded-for'];
-  const value = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  if (value) return value.split(',')[0].trim();
+  const value = Array.isArray(forwarded) ? forwarded[forwarded.length - 1] : forwarded;
+  if (value) {
+    const parts = value.split(',');
+    return parts[parts.length - 1].trim();
+  }
   return req.socket.remoteAddress ?? 'unknown';
 }
