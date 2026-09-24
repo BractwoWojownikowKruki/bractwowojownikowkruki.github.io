@@ -663,6 +663,48 @@ function requireAllowedMimeType(mimeType: string, allowedMimeTypes: string[]): v
   }
 }
 
+const UPLOAD_MIME_EXTENSIONS: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
+};
+
+function extensionForMimeType(mimeType: string): string {
+  return UPLOAD_MIME_EXTENSIONS[mimeType] ?? 'jpg';
+}
+
+// KRKG-0108: a decoded upload filename is used verbatim as the Drive file's name, in the same
+// folder that also holds this service's own metadata files (MANIFEST_FILE_NAME, .uploads.json,
+// .owner-email, .in-memoriam, Opis.txt - every one of them either starts with "." or, for
+// Opis.txt, has no image extension) and this project's own "!"-prefix main-photo convention -
+// findFileIdByName's exact-name lookup and the main-photo sort both take the first match, so a
+// photo named like one of those, or given a leading "!", could shadow a metadata lookup or fake
+// being the main photo. Sanitizes rather than rejects, so no legitimate phone camera filename
+// starts failing: strips path separators/control characters and any leading "."/"!" (removing
+// the exact-name collision), caps the length, and forces an extension that matches the mime type
+// this upload was already validated against (deps.allowedMimeTypes is image-only) - appending one
+// if missing, replacing it if it names something else. Since the result always ends in a real
+// image extension, it can never equal any reserved name (.json/.txt/no extension at all) even
+// without checking the exact strings. A name that becomes empty after stripping falls back to
+// "foto".
+const UPLOAD_FILE_NAME_MAX_LENGTH = 150;
+
+function sanitizeUploadFileName(rawName: string, mimeType: string): string {
+  const cleaned = rawName
+    .replace(/[/\\]/g, '')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/^[.!]+/, '');
+  const ext = extensionForMimeType(mimeType);
+  const dotIndex = cleaned.lastIndexOf('.');
+  const stem = (dotIndex > 0 ? cleaned.slice(0, dotIndex) : cleaned).slice(0, UPLOAD_FILE_NAME_MAX_LENGTH) || 'foto';
+  const currentExt = dotIndex > 0 ? cleaned.slice(dotIndex + 1).toLowerCase() : '';
+  const currentExtAsMime = `image/${currentExt === 'jpg' ? 'jpeg' : currentExt}`;
+  const matchesMimeExt = currentExt !== '' && (currentExt === ext || mimeTypesEquivalent(currentExtAsMime, mimeType));
+  return `${stem}.${matchesMimeExt ? currentExt : ext}`;
+}
+
 // Discards a request body nothing is going to read (the duplicate-upload skip path below never
 // calls validatedUploadStream) - without this, the still-incoming bytes sit unread on the
 // connection, which can retain buffered data and stall reuse of a keep-alive socket under
@@ -1632,7 +1674,8 @@ async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse,
   requireDriveId(folderId, 'Brak folderId lub fileName.');
   requireAllowedMimeType(mimeType, deps.allowedMimeTypes);
   await requirePersonFolder(deps, folderId);
-  const { result: uploaded } = await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: 'pending' }] }, async () => deps.drive.uploadFileStream(folderId, decodeURIComponent(fileName), mimeType, validatedUploadStream(req, deps.maxFileBytes, mimeType)), { eventInput: file => ({ action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: file.id }] }) });
+  const safeFileName = sanitizeUploadFileName(decodeURIComponent(fileName), mimeType);
+  const { result: uploaded } = await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: 'pending' }] }, async () => deps.drive.uploadFileStream(folderId, safeFileName, mimeType, validatedUploadStream(req, deps.maxFileBytes, mimeType)), { eventInput: file => ({ action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: file.id }] }) });
   invalidateAboutUsCache();
   // Drive may acknowledge the write before it has generated thumbnailLink. The response still
   // proves the file was saved, while null tells the client to use only a temporary local preview.
@@ -1648,7 +1691,7 @@ async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse,
   sendJson(res, 200, {
     photo: {
       id: uploaded.id,
-      name: uploadedImage?.name ?? decodeURIComponent(fileName),
+      name: uploadedImage?.name ?? safeFileName,
       url: uploadedImage?.thumbnailLink ? resizeThumbnailUrl(uploadedImage.thumbnailLink, 300) : null,
     },
   });
@@ -1959,18 +2002,6 @@ async function handleAdminSetInMemoriam(req: IncomingMessage, res: ServerRespons
   sendJson(res, 200, { ok: true });
 }
 
-const WOJOWNICY_UPLOAD_MIME_EXTENSIONS: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/heic': 'heic',
-  'image/heif': 'heif',
-};
-
-function extensionForMimeType(mimeType: string): string {
-  return WOJOWNICY_UPLOAD_MIME_EXTENSIONS[mimeType] ?? 'jpg';
-}
-
 async function handleWojownicyUploadWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   sendJson(res, 200, identityResponseBody(identity));
@@ -2094,7 +2125,7 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
 
-  const targetName = isMain ? `!main.${extensionForMimeType(mimeType)}` : decodeURIComponent(fileName);
+  const targetName = isMain ? `!main.${extensionForMimeType(mimeType)}` : sanitizeUploadFileName(decodeURIComponent(fileName), mimeType);
   await executeAuditedExternalMutation(
     deps.firestore,
     {
@@ -3850,7 +3881,9 @@ async function handleUpload(req: IncomingMessage, res: ServerResponse, url: URL,
   const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
   checkSubmissionOwnership(claims, folderId, identity.sub);
 
-  const decodedFileName = decodeURIComponent(fileName);
+  // Sanitized before the dedupe key below is computed, so "the same file uploaded twice" and
+  // "the stored name" always agree - see sanitizeUploadFileName's comment for what this guards.
+  const decodedFileName = sanitizeUploadFileName(decodeURIComponent(fileName), mimeType);
   // Only possible when the client sent Content-Length (a real File body always does) and/or
   // lastModifiedMs (the browser's File.lastModified - both dodaj-galerie.js and
   // dodaj-zdjecia.js send it); skip duplicate detection entirely rather than guess if missing.

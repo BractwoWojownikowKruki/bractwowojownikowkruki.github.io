@@ -1552,6 +1552,29 @@ test('POST /admin/people/photo streams an uploaded file into the person folder',
   assert.equal(uploadedTo, 'person-1');
 });
 
+test('POST /admin/people/photo sanitizes a metadata-shadowing filename before writing to Drive', async () => {
+  let storedName: string | undefined;
+  const deps = makeDeps({
+    drive: makePersonTreeDrive({
+      uploadFileStream: async (_folderId, name, _mimeType, bodyStream) => {
+        storedName = name;
+        for await (const _chunk of bodyStream) {
+          // drain
+        }
+        return { id: 'fake-uploaded-file-id' };
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(
+      `${baseUrl}/admin/people/photo?folderId=person-1&fileName=${encodeURIComponent('Opis.txt')}&mimeType=image%2Fjpeg`,
+      { method: 'POST', body: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]) },
+    );
+    assert.equal(res.status, 200);
+  });
+  assert.equal(storedName, 'Opis.jpg');
+});
+
 test('POST /admin/people/photo returns the uploaded photo DTO with a durable thumbnail URL', async () => {
   const deps = makeDeps({
     drive: makePersonTreeDrive({
@@ -4399,6 +4422,46 @@ test('/upload rejects a file once the folder is already at the submission cap', 
   });
 });
 
+// KRKG-0108: an uploaded photo's name must never collide with this service's own metadata files
+// or fake the "!"-prefixed main-photo convention - see sanitizeUploadFileName's comment.
+test('/upload sanitizes a metadata-shadowing or main-photo-mimicking filename before writing to Drive', async () => {
+  const cases: Array<[string, string]> = [
+    ['.gallery.json', 'gallery.jpg'],
+    ['.uploads.json', 'uploads.jpg'],
+    ['.owner-email', 'owner-email.jpg'],
+    ['!sneaky.jpg', 'sneaky.jpg'],
+    ['../../etc/passwd.jpg', 'etcpasswd.jpg'],
+    ['IMG_1234.JPG', 'IMG_1234.jpg'],
+    ['photo.png', 'photo.jpg'], // wrong extension for the declared/sniffed jpeg type
+  ];
+  for (const [rawName, expectedName] of cases) {
+    let storedName: string | undefined;
+    const deps = makeDeps({
+      drive: makeFakeDrive({
+        listFiles: async () => [],
+        uploadFileStream: async (_f, name, _m, stream) => {
+          storedName = name;
+          for await (const _chunk of stream) {
+            // drain
+          }
+          return { id: 'fake-uploaded-file-id' };
+        },
+      }),
+    });
+    const folderId = uniqueFolderId();
+    await withServer(deps, async baseUrl => {
+      const token = await issueTestSubmissionToken(deps, folderId);
+      const res = await fetch(`${baseUrl}/upload?folderId=${folderId}&fileName=${encodeURIComponent(rawName)}&mimeType=image/jpeg`, {
+        method: 'POST',
+        headers: { 'X-Submission-Token': token },
+        body: VALID_JPEG_BYTES,
+      });
+      assert.equal(res.status, 200, rawName);
+    });
+    assert.equal(storedName, expectedName, `raw name ${rawName}`);
+  }
+});
+
 test('/upload accepts a correctly labeled, correctly sized JPEG under the cap', async () => {
   let uploaded = false;
   const deps = makeDeps({
@@ -6323,6 +6386,35 @@ test('/wojownicy-upload/photo without isMain keeps the original filename', async
     );
     assert.equal(res.status, 200);
     assert.equal(uploadedName, 'IMG_1234.jpg');
+  });
+});
+
+// KRKG-0108: without isMain, a metadata-shadowing name (or one faking the main-photo prefix
+// itself) must still be sanitized - only the isMain=true path may produce "!main.<ext>".
+test('/wojownicy-upload/photo without isMain sanitizes a metadata-shadowing or "!"-prefixed filename', async () => {
+  let uploadedName: string | undefined;
+  const deps = makeDeps({
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      listFiles: async () => [],
+      uploadFileStream: async (_f, fileName, _m, stream) => {
+        uploadedName = fileName;
+        for await (const _chunk of stream) {
+          // drain
+        }
+        return { id: 'fake-uploaded-file-id' };
+      },
+    }),
+  });
+  const folderId = uniqueFolderId();
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(
+      `${baseUrl}/wojownicy-upload/photo?folderId=${folderId}&fileName=${encodeURIComponent('!fake-main.jpg')}&mimeType=image/jpeg`,
+      { method: 'POST', headers: { 'X-Submission-Token': token }, body: VALID_JPEG_BYTES },
+    );
+    assert.equal(res.status, 200);
+    assert.equal(uploadedName, 'fake-main.jpg');
   });
 });
 
