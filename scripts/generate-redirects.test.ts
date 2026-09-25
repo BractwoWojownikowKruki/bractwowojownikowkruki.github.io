@@ -11,7 +11,7 @@ test('renderRedirectPage embeds the target in a meta-refresh redirect', () => {
 // Content-Security-Policy) reading its target from a data attribute, not an inline literal.
 test('renderRedirectPage embeds the target as a data attribute for the external JS fallback redirect', () => {
   const html = renderRedirectPage('https://discord.gg/abc123');
-  assert.match(html, /<script src="\.\.\/redirect\.js" data-target="https:\/\/discord\.gg\/abc123"><\/script>/);
+  assert.match(html, /<script src="\/redirect\.js" data-target="https:\/\/discord\.gg\/abc123"><\/script>/);
 });
 
 test('renderRedirectPage escapes double quotes in the target for the meta/link attributes', () => {
@@ -22,11 +22,11 @@ test('renderRedirectPage escapes double quotes in the target for the meta/link a
 
 test('renderRedirectPage shows the site logo linking home, styled like the rest of the site', () => {
   const html = renderRedirectPage('https://discord.gg/abc123');
-  assert.match(html, /<link rel="stylesheet" href="\.\.\/style\.css" \/>/);
-  assert.match(html, /<img src="\.\.\/kruki-logo\.png" alt="Kruki" class="logo" \/>/);
+  assert.match(html, /<link rel="stylesheet" href="\/style\.css" \/>/);
+  assert.match(html, /<img src="\/kruki-logo\.png" alt="Kruki" class="logo" \/>/);
 });
 
 test('renderRedirectPage shows a "Poczekaj..." message', () => {
   const html = renderRedirectPage('https://discord.gg/abc123');
-  assert.match(html, /Poczekaj\.\.\./);
+  assert.match(html, /Poczekaj\./);
 });

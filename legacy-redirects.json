@@ -1,0 +1,462 @@
+[
+  {
+    "path": "strona-główna",
+    "target": "/"
+  },
+  {
+    "path": "strona-glowna",
+    "target": "/"
+  },
+  {
+    "path": "emeryci",
+    "target": "/wojownicy/emeryci/"
+  },
+  {
+    "path": "niewiasty",
+    "target": "/wojownicy/niewiasty/"
+  },
+  {
+    "path": "kandydaci",
+    "target": "/wojownicy/kandydaci/"
+  },
+  {
+    "path": "my-wojownicy",
+    "target": "/wojownicy/"
+  },
+  {
+    "path": "oferta",
+    "target": "/oferty/"
+  },
+  {
+    "path": "rekrutacja",
+    "target": "/nabor/"
+  },
+  {
+    "path": "kruczy-turniej",
+    "target": "/turniej/"
+  },
+  {
+    "path": "kruczy-turniej-faq",
+    "target": "/turniej/"
+  },
+  {
+    "path": "kruczy-turniej-zasady",
+    "target": "/turniej/"
+  },
+  {
+    "path": "raven-tournament",
+    "target": "/turniej/en/"
+  },
+  {
+    "path": "krucza-tarcza",
+    "target": "/o-nas/"
+  },
+  {
+    "path": "kruczy-sztandar",
+    "target": "/o-nas/"
+  },
+  {
+    "path": "nasze-rozboje",
+    "target": "/o-nas/nasze-osiagniecia/"
+  },
+  {
+    "path": "nasze-rozboje-2",
+    "target": "/o-nas/nasze-osiagniecia/"
+  },
+  {
+    "path": "linkowisko",
+    "target": "/"
+  },
+  {
+    "path": "lipa",
+    "target": "/"
+  },
+  {
+    "path": "juniorzy",
+    "target": "/wojownicy/"
+  },
+  {
+    "path": "walczacy",
+    "target": "/wojownicy/blachowi/"
+  },
+  {
+    "path": "oferta-2",
+    "target": "/oferty/"
+  },
+  {
+    "path": "kruczy-turniej-zasady-2",
+    "target": "/turniej/"
+  },
+  {
+    "path": "galeria-testowa",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_bartias_chaty2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_bartias_kruszwica2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_bartias_manewry2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_bartias_ogrodzieniec2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_bartias_wesele2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_bartias_wolin2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_bartias_wolin_kupala2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_ebook_drevnaya_rus",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_manewry2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_orpik_manewry2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_orpik_przemarsz2013_1",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_orpik_przemarsz2013_2",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_orpik_przemarsz2013_3",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_orpik_przemarsz2013_4",
+    "target": "/galerie/"
+  },
+  {
+    "path": "galeria_orpik_wolin2014",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/2000",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/2001",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/2002",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/2003",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/2006",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/2012",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/alf",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/apoule",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/biskupin",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/borre",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/bractwo-wojownikow-kruki",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/bydgoszcz",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/cedynia",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/chaty",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/dominik",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/egil",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/eldar",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/gniezno",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/golub-dobrzyn",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/gorm",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/grimar",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/grzybowo",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/hakon",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/herger",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/inowroclaw",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/ivar",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/janikowo",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/kalisz",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/kolo",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/kruki",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/leszko",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/lipa",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/lummen",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/manewry-2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/milosz",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/odense",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/ogrodzieniec",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/olaf",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/orpik",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/pakosc",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/paszko",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/plock",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/pyrkon",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/ragnar",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/slawno",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/stara-basn",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/stavanger",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/suwalki",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/szatan",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/szoszon",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/tarczyny",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/ulfar",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/valgard",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/westar",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/wolin",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/wolin-2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/wroclaw",
+    "target": "/galerie/"
+  },
+  {
+    "path": "ngg_tag/zdamir",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2000",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2001",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2002",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2003",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2004",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2005",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2006",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2007",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2008",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2009",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2010",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2011",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2012",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2013",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2014",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2015",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2016",
+    "target": "/galerie/"
+  },
+  {
+    "path": "rok-2017",
+    "target": "/galerie/"
+  }
+]
