@@ -1,4 +1,12 @@
 <!--
+TODO (needs a locally running agent - the istra tracker below is only on the maintainer's machine):
+the 2026-09-30 e-mail notifications change edited this table in the repo only. Copy this whole
+table into implementation-contract.md so the two match again: rows added for
+PUT /admin/people/photo/reject and PUT /admin/settings/notifications; rows changed for
+POST /membership/apply, POST /admin/members/transition, PUT /admin/people/photo/approve and
+DELETE /lista-wyjazdowa/profile/photo. Remove this TODO once done. Until then the local-only
+drift test in mutation-inventory.test.ts is expected to fail on a machine that has the istra file.
+
 Checked-in copy of the "## Mutation inventory" table from implementation-contract.md.
 
 Source of truth (istra tracker, NOT part of this repo, not available in CI):
