@@ -1,0 +1,68 @@
+/* Zarejestruj się - the pieces style.css doesn't already cover (.field, .add-album-*,
+   .crop-modal* are shared). Hint/fieldset/thumbnail look matches /profil/'s profil.css. */
+
+.lw-hint {
+  color: var(--text-faint);
+  font-size: 12px;
+  margin: -0.4rem 0 0.75rem;
+}
+
+.zg-photos {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.zg-photos legend {
+  font-family: 'Cinzel', serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--gold);
+  padding: 0 0.4rem;
+}
+
+.zg-photo-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.zg-photo-thumb {
+  width: 120px;
+  text-align: center;
+}
+
+.zg-photo-thumb img {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+  background: var(--surface);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: block;
+}
+
+.zg-photo-thumb p {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0.35rem 0;
+}
+
+.zg-photo-thumb .zg-crop-btn {
+  width: 100%;
+  padding: 6px 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.zg-photo-thumb .zg-crop-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}

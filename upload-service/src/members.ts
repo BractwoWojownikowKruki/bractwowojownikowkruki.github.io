@@ -34,6 +34,9 @@ export interface MemberDoc {
   // Lista Wyjazdowa roster) excludes them entirely, rather than showing them greyed out or with a
   // separate visibility flag - a member marked hidden should read as absent everywhere but there.
   hidden: boolean;
+  // Free-text "who are you, where did you come from" written by the applicant on the Zarejestruj
+  // się form. Optional because documents created before the field existed don't have it.
+  description?: string | null;
 }
 
 export interface MemberWritableFields {

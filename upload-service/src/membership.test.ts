@@ -6,17 +6,35 @@ import { applyForMembership, applyAdminTransition, listMembersByStatus } from '.
 
 test('applyForMembership creates a pending record when no doc exists', async () => {
   const client = createInMemoryFirestoreClient();
-  const record = await applyForMembership(client, 'Bob@Example.com', { lastName: 'Bob', firstName: '', nickname: null, sectionId: 'sekcja-1' });
+  const record = await applyForMembership(client, 'Bob@Example.com', { lastName: 'Bob', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' });
   assert.equal(record.status, 'pending');
   assert.equal(record.email, 'bob@example.com');
   assert.ok(record.appliedAt);
   assert.equal(record.approvedAt, null);
 });
 
+test('applyForMembership stores the description and defaults a new applicant to Brokuł', async () => {
+  const client = createInMemoryFirestoreClient();
+  const record = await applyForMembership(client, 'ola@example.com', { lastName: 'Nowak', firstName: 'Ola', nickname: null, sectionId: 'sekcja-1', description: 'Jestem z Krakowa.' });
+  assert.equal(record.description, 'Jestem z Krakowa.');
+  assert.equal(record.categoryId, 'brokul');
+});
+
+test('applyForMembership keeps an admin-set category on re-application', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'kuba@example.com', {
+    email: 'kuba@example.com', lastName: 'Kuba', firstName: '', nickname: null, sectionId: 'sekcja-1',
+    categoryId: 'blacha', driveFolderId: null, status: 'removed', appliedAt: 'x', approvedAt: 'y', approvedBy: 'admin@example.com',
+    updatedAt: 'x', updatedBy: 'admin@example.com',
+  });
+  const record = await applyForMembership(client, 'kuba@example.com', { lastName: 'Kuba', firstName: '', nickname: null, sectionId: 'sekcja-1', description: 'Wracam.' });
+  assert.equal(record.categoryId, 'blacha');
+});
+
 test('applyForMembership updates fields but keeps appliedAt when re-submitting while pending', async () => {
   const client = createInMemoryFirestoreClient();
-  const first = await applyForMembership(client, 'bob@example.com', { lastName: 'Bob', firstName: '', nickname: null, sectionId: 'sekcja-1' });
-  const second = await applyForMembership(client, 'bob@example.com', { lastName: 'Bob Two', firstName: '', nickname: 'Bobby', sectionId: 'sekcja-2' });
+  const first = await applyForMembership(client, 'bob@example.com', { lastName: 'Bob', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' });
+  const second = await applyForMembership(client, 'bob@example.com', { lastName: 'Bob Two', firstName: '', nickname: 'Bobby', sectionId: 'sekcja-2', description: '' });
   assert.equal(second.status, 'pending');
   assert.equal(second.lastName, 'Bob Two');
   assert.equal(second.appliedAt, first.appliedAt);
@@ -30,7 +48,7 @@ test('applyForMembership rejects with 409 when the caller is already active', as
     updatedAt: 'z', updatedBy: 'carol@example.com',
   });
   await assert.rejects(
-    () => applyForMembership(client, 'carol@example.com', { lastName: 'Carol', firstName: '', nickname: null, sectionId: 'sekcja-1' }),
+    () => applyForMembership(client, 'carol@example.com', { lastName: 'Carol', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' }),
     (err: unknown) => err instanceof AuthError && err.status === 409,
   );
 });
@@ -43,7 +61,7 @@ test('applyForMembership rejects with 409 when the caller is suspended', async (
     updatedAt: 'z', updatedBy: 'dave@example.com',
   });
   await assert.rejects(
-    () => applyForMembership(client, 'dave@example.com', { lastName: 'Dave', firstName: '', nickname: null, sectionId: 'sekcja-1' }),
+    () => applyForMembership(client, 'dave@example.com', { lastName: 'Dave', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' }),
     (err: unknown) => err instanceof AuthError && err.status === 409,
   );
 });
@@ -55,7 +73,7 @@ test('applyForMembership allows re-applying from rejected, resetting to pending 
     categoryId: null, driveFolderId: null, status: 'rejected', appliedAt: '2020-01-01T00:00:00.000Z',
     approvedAt: null, approvedBy: null, updatedAt: '2020-01-01T00:00:00.000Z', updatedBy: 'admin@example.com',
   });
-  const record = await applyForMembership(client, 'eve@example.com', { lastName: 'Eve', firstName: '', nickname: null, sectionId: 'sekcja-1' });
+  const record = await applyForMembership(client, 'eve@example.com', { lastName: 'Eve', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' });
   assert.equal(record.status, 'pending');
   assert.notEqual(record.appliedAt, '2020-01-01T00:00:00.000Z');
 });
@@ -67,13 +85,13 @@ test('applyForMembership allows re-applying from removed', async () => {
     categoryId: null, driveFolderId: null, status: 'removed', appliedAt: 'x', approvedAt: 'y', approvedBy: 'admin@example.com',
     updatedAt: 'z', updatedBy: 'admin@example.com',
   });
-  const record = await applyForMembership(client, 'frank@example.com', { lastName: 'Frank', firstName: '', nickname: null, sectionId: 'sekcja-1' });
+  const record = await applyForMembership(client, 'frank@example.com', { lastName: 'Frank', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' });
   assert.equal(record.status, 'pending');
 });
 
 test('applyAdminTransition approves a pending member, setting approvedAt/approvedBy', async () => {
   const client = createInMemoryFirestoreClient();
-  await applyForMembership(client, 'grace@example.com', { lastName: 'Grace', firstName: '', nickname: null, sectionId: 'sekcja-1' });
+  await applyForMembership(client, 'grace@example.com', { lastName: 'Grace', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' });
   const record = await applyAdminTransition(client, 'grace@example.com', 'approve', 'admin@example.com');
   assert.equal(record.status, 'active');
   assert.equal(record.approvedBy, 'admin@example.com');
@@ -90,7 +108,7 @@ test('applyAdminTransition rejects an approve on a non-pending member', async ()
 
 test('applyAdminTransition suspends an active member and reactivate brings them back', async () => {
   const client = createInMemoryFirestoreClient();
-  await applyForMembership(client, 'henry@example.com', { lastName: 'Henry', firstName: '', nickname: null, sectionId: 'sekcja-1' });
+  await applyForMembership(client, 'henry@example.com', { lastName: 'Henry', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' });
   await applyAdminTransition(client, 'henry@example.com', 'approve', 'admin@example.com');
   const suspended = await applyAdminTransition(client, 'henry@example.com', 'suspend', 'admin@example.com');
   assert.equal(suspended.status, 'suspended');
@@ -100,7 +118,7 @@ test('applyAdminTransition suspends an active member and reactivate brings them 
 
 test('applyAdminTransition removes from active or suspended', async () => {
   const client = createInMemoryFirestoreClient();
-  await applyForMembership(client, 'iris@example.com', { lastName: 'Iris', firstName: '', nickname: null, sectionId: 'sekcja-1' });
+  await applyForMembership(client, 'iris@example.com', { lastName: 'Iris', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' });
   await applyAdminTransition(client, 'iris@example.com', 'approve', 'admin@example.com');
   const removed = await applyAdminTransition(client, 'iris@example.com', 'remove', 'admin@example.com');
   assert.equal(removed.status, 'removed');
@@ -108,7 +126,7 @@ test('applyAdminTransition removes from active or suspended', async () => {
 
 test('applyAdminTransition never deletes the document', async () => {
   const client = createInMemoryFirestoreClient();
-  await applyForMembership(client, 'jack@example.com', { lastName: 'Jack', firstName: '', nickname: null, sectionId: 'sekcja-1' });
+  await applyForMembership(client, 'jack@example.com', { lastName: 'Jack', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' });
   await applyAdminTransition(client, 'jack@example.com', 'reject', 'admin@example.com');
   const docs = await client.listDocs('members');
   assert.equal(docs.length, 1);
@@ -120,7 +138,7 @@ test('applyAdminTransition never deletes the document', async () => {
 // already-updated status and 409, not silently overwrite the first admin's decision).
 test('applyAdminTransition is atomic - concurrent conflicting transitions do not both commit', async () => {
   const client = createInMemoryFirestoreClient();
-  await applyForMembership(client, 'race@example.com', { lastName: 'Race', firstName: '', nickname: null, sectionId: 'sekcja-1' });
+  await applyForMembership(client, 'race@example.com', { lastName: 'Race', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' });
 
   const results = await Promise.allSettled([
     applyAdminTransition(client, 'race@example.com', 'approve', 'admin1@example.com'),
@@ -143,8 +161,8 @@ test('applyAdminTransition is atomic - concurrent conflicting transitions do not
 
 test('listMembersByStatus filters correctly', async () => {
   const client = createInMemoryFirestoreClient();
-  await applyForMembership(client, 'kate@example.com', { lastName: 'Kate', firstName: '', nickname: null, sectionId: 'sekcja-1' });
-  await applyForMembership(client, 'liam@example.com', { lastName: 'Liam', firstName: '', nickname: null, sectionId: 'sekcja-1' });
+  await applyForMembership(client, 'kate@example.com', { lastName: 'Kate', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' });
+  await applyForMembership(client, 'liam@example.com', { lastName: 'Liam', firstName: '', nickname: null, sectionId: 'sekcja-1', description: '' });
   await applyAdminTransition(client, 'liam@example.com', 'approve', 'admin@example.com');
   const pending = await listMembersByStatus(client, 'pending');
   assert.equal(pending.length, 1);

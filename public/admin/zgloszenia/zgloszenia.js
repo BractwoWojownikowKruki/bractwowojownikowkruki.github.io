@@ -74,6 +74,7 @@ function renderMembershipApplications(members) {
       <div style="flex:1; min-width:200px;">
         <strong>${escapeHtml(m.lastName ?? '')}, ${escapeHtml(m.firstName ?? '')}</strong>${m.nickname ? ` (${escapeHtml(m.nickname)})` : ''}
         <br><span style="color:var(--text-muted);">${escapeHtml(m.email)} - ${escapeHtml(m.sectionId)}</span>
+        ${m.description ? `<p class="membership-application-description" style="margin:0.25rem 0 0; white-space:pre-wrap;">${escapeHtml(m.description)}</p>` : ''}
       </div>
       <button id="${applicationFocusId(m.email, 'approve')}" class="approve-application" style="color:var(--gold);">Zatwierdź</button>
       <button id="${applicationFocusId(m.email, 'reject')}" class="reject-application" style="color:var(--accent);">Odrzuć</button>

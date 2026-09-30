@@ -715,12 +715,14 @@ test('POST /membership/apply creates a pending application for any signed-in ide
     const res = await fetch(`${baseUrl}/membership/apply`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
-      body: JSON.stringify({ lastName: 'New Person', firstName: 'Jan', nickname: 'Newbie', sectionId: 'krakow' }),
+      body: JSON.stringify({ lastName: 'New Person', firstName: 'Jan', nickname: 'Newbie', sectionId: 'krakow', description: 'Jestem z Krakowa.' }),
     });
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.member.status, 'pending');
     assert.equal(body.member.email, 'new@example.com');
+    assert.equal(body.member.description, 'Jestem z Krakowa.');
+    assert.equal(body.member.categoryId, 'brokul');
   });
 });
 
@@ -734,7 +736,7 @@ test('POST /membership/apply rejects a sectionId that is not in lookupLists', as
     const res = await fetch(`${baseUrl}/membership/apply`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
-      body: JSON.stringify({ lastName: 'New', firstName: 'Jan', nickname: null, sectionId: 'nieznana-sekcja' }),
+      body: JSON.stringify({ lastName: 'New', firstName: 'Jan', nickname: null, sectionId: 'nieznana-sekcja', description: 'Opis' }),
     });
     assert.equal(res.status, 400);
   });
@@ -755,7 +757,7 @@ test('POST /membership/apply returns 409 for an already-active member', async ()
     const res = await fetch(`${baseUrl}/membership/apply`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
-      body: JSON.stringify({ lastName: 'Active', firstName: 'Jan', nickname: null, sectionId: 'krakow' }),
+      body: JSON.stringify({ lastName: 'Active', firstName: 'Jan', nickname: null, sectionId: 'krakow', description: 'Opis' }),
     });
     assert.equal(res.status, 409);
   });
@@ -775,22 +777,25 @@ test('POST /membership/apply ignores admin-owned fields present in the request b
     const res = await fetch(`${baseUrl}/membership/apply`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
-      body: JSON.stringify({ lastName: 'New', firstName: 'Jan', nickname: null, sectionId: 'krakow', status: 'active', categoryId: 'hacked' }),
+      body: JSON.stringify({ lastName: 'New', firstName: 'Jan', nickname: null, sectionId: 'krakow', description: 'Opis', status: 'active', categoryId: 'hacked' }),
     });
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.member.status, 'pending');
-    assert.equal(body.member.categoryId, null);
+    assert.equal(body.member.categoryId, 'brokul');
   });
 });
 
 // KRKG-0103: lastName and firstName are both required, independently - see the equivalent table
 // of PUT /lista-wyjazdowa/member cases further down for the same rule on the self-service edit.
 for (const [label, body] of [
-  ['a missing lastName', { firstName: 'Jan', sectionId: 'krakow' }],
-  ['a missing firstName', { lastName: 'New', sectionId: 'krakow' }],
-  ['a whitespace-only lastName', { lastName: '   ', firstName: 'Jan', sectionId: 'krakow' }],
-  ['a whitespace-only firstName', { lastName: 'New', firstName: '   ', sectionId: 'krakow' }],
+  ['a missing lastName', { firstName: 'Jan', sectionId: 'krakow', description: 'Opis' }],
+  ['a missing firstName', { lastName: 'New', sectionId: 'krakow', description: 'Opis' }],
+  ['a whitespace-only lastName', { lastName: '   ', firstName: 'Jan', sectionId: 'krakow', description: 'Opis' }],
+  ['a whitespace-only firstName', { lastName: 'New', firstName: '   ', sectionId: 'krakow', description: 'Opis' }],
+  ['a missing description', { lastName: 'New', firstName: 'Jan', sectionId: 'krakow' }],
+  ['a whitespace-only description', { lastName: 'New', firstName: 'Jan', sectionId: 'krakow', description: '  ' }],
+  ['a too-long description', { lastName: 'New', firstName: 'Jan', sectionId: 'krakow', description: 'x'.repeat(2001) }],
 ] as const) {
   test(`POST /membership/apply rejects ${label} with 400`, async () => {
     const client = makeListaWyjazdowaFirestore();
@@ -808,6 +813,133 @@ for (const [label, body] of [
     });
   });
 }
+
+// Registration photos: /membership/photos/start and /membership/photo let a *pending* applicant
+// (who can't reach /wojownicy-upload/*) add at most 3 photos of at most 10 MB each.
+function seedApplicant(client: ReturnType<typeof createInMemoryFirestoreClient>, status: string, stagingFolderId: string | null) {
+  client.seed('members', 'applicant@example.com', {
+    email: 'applicant@example.com', lastName: 'Nowak', firstName: 'Ola', nickname: null, sectionId: 'krakow',
+    categoryId: 'brokul', driveFolderId: null, stagingFolderId, status, appliedAt: 'x', approvedAt: null, approvedBy: null,
+    updatedAt: 'x', updatedBy: 'applicant@example.com',
+  });
+}
+
+function makeApplicantDeps(client: ReturnType<typeof createInMemoryFirestoreClient>, drive: Partial<DriveClient> = {}) {
+  return makeDeps({
+    firestore: client,
+    authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'applicant@example.com' }),
+    drive: makeFakeDrive(drive),
+  });
+}
+
+test('POST /membership/photos/start creates the staging folder for a pending applicant and reports the photo limit', async () => {
+  const client = createInMemoryFirestoreClient();
+  seedApplicant(client, 'pending', null);
+  const folderId = uniqueFolderId();
+  const deps = makeApplicantDeps(client, { createAlbumFolder: async () => folderId });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/membership/photos/start`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.folderId, folderId);
+    assert.ok(body.submissionToken);
+    assert.equal(body.remainingPhotos, 3);
+    assert.equal(body.maxPhotoBytes, 10 * 1024 * 1024);
+  });
+  const member = await client.getDoc<{ stagingFolderId: string }>('members', 'applicant@example.com');
+  assert.equal(member?.stagingFolderId, folderId);
+});
+
+for (const status of ['active', 'rejected', null] as const) {
+  test(`POST /membership/photos/start rejects a ${status ?? 'non-applicant'} caller with 403`, async () => {
+    const client = createInMemoryFirestoreClient();
+    if (status) seedApplicant(client, status, null);
+    await withServer(makeApplicantDeps(client), async baseUrl => {
+      const res = await fetch(`${baseUrl}/membership/photos/start`, { method: 'POST' });
+      assert.equal(res.status, 403);
+    });
+  });
+}
+
+test('POST /membership/photo uploads into the applicant\'s own staging folder', async () => {
+  const client = createInMemoryFirestoreClient();
+  const folderId = uniqueFolderId();
+  seedApplicant(client, 'pending', folderId);
+  let uploadedTo: string | undefined;
+  const deps = makeApplicantDeps(client, {
+    uploadFileStream: async (target, _name, _mime, stream) => {
+      uploadedTo = target;
+      for await (const _chunk of stream) {
+        // drain
+      }
+      return { id: 'fake-uploaded-file-id' };
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/membership/photo?folderId=${folderId}&fileName=a.jpg&mimeType=image/jpeg&isMain=true`, {
+      method: 'POST', headers: { 'X-Submission-Token': token }, body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(uploadedTo, folderId);
+  });
+});
+
+test('POST /membership/photo refuses a 4th photo', async () => {
+  const client = createInMemoryFirestoreClient();
+  const folderId = uniqueFolderId();
+  seedApplicant(client, 'pending', folderId);
+  let uploads = 0;
+  const deps = makeApplicantDeps(client, {
+    // .owner-email and the Odrzucone subfolder don't count towards the limit.
+    listFiles: async () => [
+      { name: '.owner-email', size: 10 }, { name: 'Odrzucone', size: 0 },
+      { name: '!main.jpg', size: 1 }, { name: 'a.jpg', size: 1 }, { name: 'b.png', size: 1 },
+    ],
+    uploadFileStream: async () => {
+      uploads++;
+      return { id: 'x' };
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/membership/photo?folderId=${folderId}&fileName=c.jpg&mimeType=image/jpeg`, {
+      method: 'POST', headers: { 'X-Submission-Token': token }, body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 400);
+    assert.equal(uploads, 0);
+  });
+});
+
+test('POST /membership/photo rejects a photo over 10 MB', async () => {
+  const client = createInMemoryFirestoreClient();
+  const folderId = uniqueFolderId();
+  seedApplicant(client, 'pending', folderId);
+  const deps = makeApplicantDeps(client);
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, folderId);
+    const res = await fetch(`${baseUrl}/membership/photo?folderId=${folderId}&fileName=big.jpg&mimeType=image/jpeg`, {
+      method: 'POST',
+      headers: { 'X-Submission-Token': token },
+      body: Buffer.concat([VALID_JPEG_BYTES, Buffer.alloc(10 * 1024 * 1024, 0x42)]),
+    });
+    assert.equal(res.status, 413);
+  });
+});
+
+test('POST /membership/photo rejects a folder that is not the applicant\'s own staging folder', async () => {
+  const client = createInMemoryFirestoreClient();
+  seedApplicant(client, 'pending', 'own-folder');
+  const otherFolderId = uniqueFolderId();
+  const deps = makeApplicantDeps(client);
+  await withServer(deps, async baseUrl => {
+    const token = await issueTestSubmissionToken(deps, otherFolderId);
+    const res = await fetch(`${baseUrl}/membership/photo?folderId=${otherFolderId}&fileName=a.jpg&mimeType=image/jpeg`, {
+      method: 'POST', headers: { 'X-Submission-Token': token }, body: VALID_JPEG_BYTES,
+    });
+    assert.equal(res.status, 403);
+  });
+});
 
 // Login-CSRF: a cross-origin POST with a CORS-safelisted Content-Type (e.g. text/plain) never
 // triggers a preflight, so CORS alone would not stop an attacker's page from POSTing their own
@@ -1235,7 +1367,7 @@ test('GET /admin/people?category=upload enriches an entry with publicFolderId/pu
 test('GET /admin/people?category=upload returns null public fields when the member has no driveFolderId yet (KRKG-0070 addendum)', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
-  await firestore.setDoc('members', 'anna@gmail.com', seedMemberDoc({ email: 'anna@gmail.com', driveFolderId: null, stagingFolderId: 's1' }));
+  await firestore.setDoc('members', 'anna@gmail.com', { ...seedMemberDoc({ email: 'anna@gmail.com', driveFolderId: null, stagingFolderId: 's1' }), description: 'Jestem Anna z Poznania.' });
   const deps = makeDeps({
     firestore,
     drive: makeFakeDrive({
@@ -1253,6 +1385,8 @@ test('GET /admin/people?category=upload returns null public fields when the memb
     assert.equal(body.people[0].publicFolderId, null);
     assert.equal(body.people[0].publicName, null);
     assert.equal(body.people[0].publicDescription, null);
+    // The registration description prefills the admin's Opis for a first publication.
+    assert.equal(body.people[0].applicationDescription, 'Jestem Anna z Poznania.');
   });
 });
 
@@ -8383,7 +8517,7 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
   await withServer(deps, async baseUrl => {
     const application = await postListaWyjazdowa(baseUrl, '/membership/apply', {
       lastName: 'Kandydat', firstName: 'Jan',
-      sectionId: 'krakow',
+      sectionId: 'krakow', description: 'Opis',
     });
     assert.equal(application.status, 200);
 
@@ -9616,7 +9750,7 @@ test('POST /membership/apply e-mails every configured-role holder once, and not 
       const res = await fetch(`${baseUrl}/membership/apply`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
-        body: JSON.stringify({ lastName: 'Nowak', firstName: 'Jan', sectionId: 'krakow' }),
+        body: JSON.stringify({ lastName: 'Nowak', firstName: 'Jan', sectionId: 'krakow', description: 'Opis' }),
       });
       assert.equal(res.status, 200);
     }

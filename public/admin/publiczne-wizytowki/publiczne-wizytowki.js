@@ -120,9 +120,9 @@ function transferTargetOptionsHtml(transferTargets, excludeFolderId) {
 // (unlike TRANSFER_TARGET_CATEGORIES above, which deliberately excludes Emeryci for a different
 // reason - transferring into an existing retired-warrior profile isn't where a *fresh* upload
 // should default). Approving into Emeryci as someone's first-ever public profile is a normal,
-// legitimate admin choice the UI must not block. Blachowi stays first because this array's first
-// element is the dropdown's default - a fresh photo should not default to Założyciele.
-const APPROVE_TARGET_CATEGORIES = ['Blachowi', 'Założyciele', 'Niewiasty', 'Emeryci', 'Kandydaci'];
+// legitimate admin choice the UI must not block. Kandydaci is first because this array's first
+// element is the dropdown's default - a fresh upload is almost always a new applicant's.
+const APPROVE_TARGET_CATEGORIES = ['Kandydaci', 'Blachowi', 'Założyciele', 'Niewiasty', 'Emeryci'];
 
 function approveTargetCategoryOptionsHtml() {
   return APPROVE_TARGET_CATEGORIES.map(category => `<option value="${category}">${category}</option>`).join('');
@@ -234,14 +234,16 @@ function uploadReadOnlyFieldsHtml(name, description) {
     </div>`;
 }
 
-function uploadEditableFieldsHtml() {
+// applicationDescription (the registration form's "kim jesteś" text) prefills Opis; the admin can
+// still edit or clear it before approving.
+function uploadEditableFieldsHtml(applicationDescription) {
   return `
     <div class="upload-fields">
       <label style="display:block; margin:0.5rem 0;">Nazwa publiczna
         <input type="text" class="upload-public-name" required style="display:block; width:100%; margin-top:4px;" />
       </label>
       <label style="display:block; margin:0.5rem 0;">Opis (opcjonalnie)
-        <textarea class="upload-public-description" rows="4" style="display:block; width:100%; margin-top:4px;"></textarea>
+        <textarea class="upload-public-description" rows="4" style="display:block; width:100%; margin-top:4px;">${escapeHtml(applicationDescription ?? '')}</textarea>
       </label>
       <label style="display:block; margin:0.5rem 0;">Kategoria
         <select class="upload-target-category" style="display:block; width:100%; margin-top:4px;">
@@ -278,7 +280,7 @@ function uploadRejectedSectionHtml(rejectedPhotos) {
 
 function uploadDecisionControlsHtml(p) {
   const isPublished = !!p.publicFolderId;
-  const nameDescHtml = isPublished ? uploadReadOnlyFieldsHtml(p.publicName, p.publicDescription) : uploadEditableFieldsHtml();
+  const nameDescHtml = isPublished ? uploadReadOnlyFieldsHtml(p.publicName, p.publicDescription) : uploadEditableFieldsHtml(p.applicationDescription);
   return `
     <div class="upload-decision">
       ${nameDescHtml}

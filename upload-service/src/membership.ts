@@ -9,7 +9,12 @@ export interface ApplyFields {
   firstName: string;
   nickname: string | null;
   sectionId: string;
+  description: string;
 }
+
+// Every new applicant starts as a Brokuł (lookupLists/categories id). An admin-set type from an
+// earlier membership survives a re-application.
+export const DEFAULT_APPLICANT_CATEGORY_ID = 'brokul';
 
 /**
  * Self-service registration/re-registration (KRKG-0046). Branches on the *existing* doc's
@@ -52,7 +57,7 @@ export async function applyForMembershipInTransaction(
     firstName: fields.firstName,
     nickname: fields.nickname,
     sectionId: fields.sectionId,
-    categoryId: existing?.categoryId ?? null,
+    categoryId: existing?.categoryId ?? DEFAULT_APPLICANT_CATEGORY_ID,
     driveFolderId: existing?.driveFolderId ?? null,
     stagingFolderId: existing?.stagingFolderId ?? null,
     status: 'pending',
@@ -63,6 +68,7 @@ export async function applyForMembershipInTransaction(
     updatedBy: id,
     lastLoginAt: existing?.lastLoginAt ?? null,
     hidden: existing?.hidden ?? false,
+    description: fields.description,
   };
   await client.setDoc('members', id, record);
   return record;

@@ -1061,6 +1061,11 @@ async function handleMembershipApply(req: IncomingMessage, res: ServerResponse, 
     `Ksywa może mieć najwyżej ${LW_MAX_NAME_LENGTH} znaków.`,
   );
   const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
+  const description = requireTrimmedString(
+    body.description,
+    APPLICATION_MAX_DESCRIPTION_LENGTH,
+    `Opis jest wymagany (najwyżej ${APPLICATION_MAX_DESCRIPTION_LENGTH} znaków).`,
+  );
   const lookupLists = await getAllLookupLists(deps.firestore);
   requireKnownLookupId(lookupLists.sections, sectionId, 'Wybrana sekcja nie istnieje.');
   // Captured inside the transaction (the last attempt's read wins on a retry) - decides below
@@ -1079,7 +1084,7 @@ async function handleMembershipApply(req: IncomingMessage, res: ServerResponse, 
         changes: [{ field: 'status', ...(existing ? { before: existing.status } : {}), after: 'pending' }],
       };
     },
-    tx => applyForMembershipInTransaction(tx, identity.email, { lastName, firstName, nickname: nicknameInput, sectionId }),
+    tx => applyForMembershipInTransaction(tx, identity.email, { lastName, firstName, nickname: nicknameInput, sectionId, description }),
   );
   // Re-saving an application that is still pending is an edit, not a new registration - only the
   // first submission (or a re-application after a rejection/removal) notifies.
@@ -1680,15 +1685,17 @@ async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse
 async function enrichUploadEntryWithPublicStatus(
   deps: ServerDeps,
   person: Person,
-): Promise<Person & { rejectedPhotos: RejectedPhoto[]; publicFolderId: string | null; publicName: string | null; publicDescription: string | null }> {
+): Promise<Person & { rejectedPhotos: RejectedPhoto[]; publicFolderId: string | null; publicName: string | null; publicDescription: string | null; applicationDescription: string | null }> {
   // Shown greyed-out with a stamp in the admin Upload view; never counted as pending work (they
   // are not in person.mainPhoto/photos, which is all the pending counts look at).
   const rejectedPhotos = await listRejectedPhotos(deps.drive, person.folderId);
-  const nullResult = { ...person, rejectedPhotos, publicFolderId: null, publicName: null, publicDescription: null };
   const ownerEmailRaw = await deps.drive.readTextFile(person.folderId, '.owner-email');
   const ownerEmail = ownerEmailRaw?.trim().toLowerCase();
-  if (!ownerEmail) return nullResult;
-  const member = await getMember(deps.firestore, ownerEmail);
+  const member = ownerEmail ? await getMember(deps.firestore, ownerEmail) : null;
+  // The registration form's free-text description - prefills the admin's "Opis" for a first
+  // publication.
+  const applicationDescription = member?.description ?? null;
+  const nullResult = { ...person, rejectedPhotos, publicFolderId: null, publicName: null, publicDescription: null, applicationDescription };
   if (!member?.driveFolderId) return nullResult;
   const [folderName, description] = await Promise.all([
     deps.drive.getFolderName(member.driveFolderId),
@@ -1701,6 +1708,7 @@ async function enrichUploadEntryWithPublicStatus(
     publicFolderId: member.driveFolderId,
     publicName: parsePersonFolderName(folderName).name,
     publicDescription: description,
+    applicationDescription,
   };
 }
 
@@ -2189,6 +2197,22 @@ async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResp
   if (!name || !name.trim()) throw new AuthError('Brak imienia.', 400);
 
   const member = await getMember(deps.firestore, identity.email);
+  const folderId = await getOrCreateStagingFolder(deps, identity, member, name);
+  const submissionToken = issueSubmissionToken(
+    { folderId, sub: identity.sub, exp: Date.now() + SUBMISSION_TTL_MS },
+    deps.submissionTokenSecret,
+  );
+  sendJson(res, 200, { folderId, submissionToken });
+}
+
+// Shared by the member (/wojownicy-upload/submit) and applicant (/membership/photos/start) flows:
+// reuses the member's permanent staging folder, or creates it on first use.
+async function getOrCreateStagingFolder(
+  deps: ServerDeps,
+  identity: SessionClaims,
+  member: MemberDoc | null,
+  name: string,
+): Promise<string> {
   const reusableFolderId = await findReusableSubmissionFolder(deps, member);
 
   let folderId: string;
@@ -2236,12 +2260,7 @@ async function handleWojownicyUploadSubmit(req: IncomingMessage, res: ServerResp
     // already had that page open/cached earlier in the day.
     invalidateAboutUsCache();
   }
-
-  const submissionToken = issueSubmissionToken(
-    { folderId, sub: identity.sub, exp: Date.now() + SUBMISSION_TTL_MS },
-    deps.submissionTokenSecret,
-  );
-  sendJson(res, 200, { folderId, submissionToken });
+  return folderId;
 }
 
 // isMain=true renames whatever the browser called the file to "!main.<ext>" - every other photo
@@ -2316,6 +2335,125 @@ async function handleWojownicyUploadPhoto(req: IncomingMessage, res: ServerRespo
   sendJson(res, 200, { ok: true });
 }
 
+// Registration photos (Zarejestruj się). A pending applicant can't reach /wojownicy-upload/*
+// (active members only), so these two routes mirror it for applicants - into the same permanent
+// staging folder, so the photos land in the admin's Upload (zgłoszenia) queue - but with much
+// tighter limits, since the registration form is open to any Google account: at most
+// APPLICANT_MAX_PHOTOS photos per application, each at most APPLICANT_MAX_PHOTO_BYTES.
+export const APPLICANT_MAX_PHOTOS = 3;
+export const APPLICANT_MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+
+const STAGED_IMAGE_NAME = /\.(jpe?g|png|webp|heic|heif)$/i;
+
+// The staging folder also holds .owner-email and the Odrzucone subfolder - only photos count.
+async function countStagedImages(drive: DriveClient, folderId: string): Promise<number> {
+  const files = await drive.listFiles(folderId);
+  return files.filter(f => STAGED_IMAGE_NAME.test(f.name)).length;
+}
+
+// Unlike reserveUploadSlot, re-reads Drive on every call (cheap at 3 files) and only tracks
+// uploads still in flight in memory, so a photo the applicant deleted frees its slot again.
+const applicantUploadsInFlight = new Map<string, number>();
+
+async function reserveApplicantPhotoSlot(drive: DriveClient, folderId: string): Promise<boolean> {
+  return withFolderLock(`applicant:${folderId}`, async () => {
+    const inFlight = applicantUploadsInFlight.get(folderId) ?? 0;
+    const stored = await countStagedImages(drive, folderId);
+    if (stored + inFlight >= APPLICANT_MAX_PHOTOS) return false;
+    applicantUploadsInFlight.set(folderId, inFlight + 1);
+    return true;
+  });
+}
+
+function releaseApplicantPhotoSlot(folderId: string): void {
+  const inFlight = (applicantUploadsInFlight.get(folderId) ?? 0) - 1;
+  if (inFlight > 0) applicantUploadsInFlight.set(folderId, inFlight);
+  else applicantUploadsInFlight.delete(folderId);
+}
+
+async function requirePendingApplicant(deps: ServerDeps, email: string): Promise<MemberDoc> {
+  const member = await getMember(deps.firestore, email);
+  if (!member || member.status !== 'pending') {
+    throw new AuthError('Zdjęcia można dodać tylko do zgłoszenia oczekującego na akceptację.', 403);
+  }
+  return member;
+}
+
+async function handleMembershipPhotosStart(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateSessionOnly(req, res);
+  const member = await requirePendingApplicant(deps, identity.email);
+  const folderId = await getOrCreateStagingFolder(deps, identity, member, `${member.lastName} ${member.firstName}`.trim());
+  const stored = await countStagedImages(deps.drive, folderId);
+  const submissionToken = issueSubmissionToken(
+    { folderId, sub: identity.sub, exp: Date.now() + SUBMISSION_TTL_MS },
+    deps.submissionTokenSecret,
+  );
+  sendJson(res, 200, {
+    folderId,
+    submissionToken,
+    remainingPhotos: Math.max(0, APPLICANT_MAX_PHOTOS - stored),
+    maxPhotoBytes: APPLICANT_MAX_PHOTO_BYTES,
+  });
+}
+
+async function handleMembershipPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateSessionOnly(req, res);
+  const folderId = url.searchParams.get('folderId');
+  const fileName = url.searchParams.get('fileName');
+  const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
+  const isMain = url.searchParams.get('isMain') === 'true';
+  if (!folderId || !fileName) throw new AuthError('Brak folderId lub fileName.', 400);
+  requireDriveId(folderId, 'Brak folderId lub fileName.');
+  requireAllowedMimeType(mimeType, deps.allowedMimeTypes);
+  // Fails fast on an honest oversized upload; validatedUploadStream below still enforces the cap
+  // on the actual bytes, whatever the header claims.
+  const declaredLength = Number(req.headers['content-length']);
+  if (Number.isFinite(declaredLength) && declaredLength > APPLICANT_MAX_PHOTO_BYTES) {
+    throw new AuthError(`Plik przekracza maksymalny dozwolony rozmiar (${APPLICANT_MAX_PHOTO_BYTES / 1024 / 1024} MB).`, 413);
+  }
+  const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
+  checkSubmissionOwnership(claims, folderId, identity.sub);
+  const member = await requirePendingApplicant(deps, identity.email);
+  if (member.stagingFolderId !== folderId) throw new AuthError('Nieprawidłowy folder zgłoszenia.', 403);
+
+  const targetName = isMain ? `!main.${extensionForMimeType(mimeType)}` : sanitizeUploadFileName(decodeURIComponent(fileName), mimeType);
+  const resource = { kind: 'memberSubmission' as const, key: `member:${identity.email.toLowerCase()}:submission:${folderId}`, display: folderId };
+  await executeAuditedExternalMutation(
+    deps.firestore,
+    {
+      action: 'profile.photo_submission.photo_added',
+      actor: { email: identity.email },
+      resource,
+      changes: [{ field: 'fileId', after: 'pending' }],
+    },
+    async () => {
+      if (!(await reserveApplicantPhotoSlot(deps.drive, folderId))) {
+        throw new AuthError(`Zgłoszenie może mieć najwyżej ${APPLICANT_MAX_PHOTOS} zdjęcia.`, 400);
+      }
+      try {
+        return await deps.drive.uploadFileStream(
+          folderId,
+          targetName,
+          mimeType,
+          validatedUploadStream(req, APPLICANT_MAX_PHOTO_BYTES, mimeType),
+        );
+      } finally {
+        releaseApplicantPhotoSlot(folderId);
+      }
+    },
+    {
+      eventInput: uploaded => ({
+        action: 'profile.photo_submission.photo_added',
+        actor: { email: identity.email },
+        resource,
+        changes: [{ field: 'fileId', after: uploaded.id }],
+      }),
+    },
+  );
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
+}
+
 // Lista Wyjazdowa (KRKG's trip-roster feature, Plan A) - same authenticateWojownicyUpload gate
 // as the rest of this cluster (live kruki Google Group membership), since every route here
 // reads or writes only the caller's own member/profile record, keyed by their session email.
@@ -2328,6 +2466,9 @@ const LW_MAX_DESCRIPTION_LENGTH = 500;
 // Event descriptions hold logistics prose (meeting point, links, what to bring) rather than the
 // one-line captions LW_MAX_DESCRIPTION_LENGTH bounds elsewhere, so they get their own, larger cap.
 const LW_MAX_EVENT_DESCRIPTION_LENGTH = 2000;
+// The registration form's "Napisz, kim jesteś, skąd się wziąłeś." - a few paragraphs, still well
+// inside maxJsonBodyBytes even in multi-byte Polish.
+const APPLICATION_MAX_DESCRIPTION_LENGTH = 2000;
 
 // The PUT bodies are untrusted JSON, not the typed shapes TypeScript's `Partial<...>` annotation
 // pretends they are: without these guards a `{"weaponIds": "x"}` reaches saveProfile's `.map()`
@@ -4859,6 +5000,10 @@ export function createRequestListener(deps: ServerDeps) {
         await handleMembershipSections(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/membership/apply') {
         await handleMembershipApply(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/membership/photos/start') {
+        await handleMembershipPhotosStart(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/membership/photo') {
+        await handleMembershipPhoto(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/galleries') {
         await handleGalleries(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/about-us') {
