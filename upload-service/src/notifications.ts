@@ -100,6 +100,24 @@ export function registrationSubmittedMessage(
   };
 }
 
+export function photosSubmittedMessage(
+  to: string,
+  uploader: { email: string; firstName: string; lastName: string; nickname?: string | null },
+  photoCount: number,
+  siteUrl: string,
+): MailMessage {
+  const fullName = `${uploader.firstName} ${uploader.lastName}`.trim() || uploader.email;
+  const nickname = uploader.nickname ? ` (${uploader.nickname})` : '';
+  return {
+    to,
+    subject: `Nowe zdjęcia do zatwierdzenia: ${fullName}`,
+    text:
+      `${fullName}${nickname} (${uploader.email}) przesłał(a) nowe zdjęcia: ${photoCount}.\n\n` +
+      `Zdjęcia czekają na zatwierdzenie w dziale Upload: ${siteUrl}/admin/publiczne-wizytowki/` +
+      SIGNATURE,
+  };
+}
+
 export function membershipDecisionMessage(to: string, decision: 'approved' | 'rejected', reason: string | null, siteUrl: string): MailMessage {
   if (decision === 'approved') {
     return {

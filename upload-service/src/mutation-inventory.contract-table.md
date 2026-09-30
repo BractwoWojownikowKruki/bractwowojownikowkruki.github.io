@@ -2,7 +2,7 @@
 TODO (needs a locally running agent - the istra tracker below is only on the maintainer's machine):
 the 2026-09-30 e-mail notifications change edited this table in the repo only. Copy this whole
 table into implementation-contract.md so the two match again: rows added for
-PUT /admin/people/photo/reject and PUT /admin/settings/notifications; rows changed for
+PUT /admin/people/photo/reject, PUT /admin/settings/notifications and POST /wojownicy-upload/finish; rows changed for
 POST /membership/apply, POST /admin/members/transition, PUT /admin/people/photo/approve and
 DELETE /lista-wyjazdowa/profile/photo. Remove this TODO once done. Until then the local-only
 drift test in mutation-inventory.test.ts is expected to fail on a machine that has the istra file.
@@ -51,6 +51,7 @@ Last synced with implementation-contract.md: 2026-09-30 (e-mail notifications: a
 | PUT `/admin/people/in-memoriam` | businessWrite — `profile.person.in_memoriam.changed` | person; Drive marker file | auditedOperationEnvelope |
 | POST `/wojownicy-upload/submit` | businessWrite — `profile.photo_submission.created` | member submission; Drive folder; provisional key then final submission folder key | auditedOperationEnvelope |
 | POST `/wojownicy-upload/photo` | businessWrite — `profile.photo_submission.photo_added` | member submission; Drive photo | auditedOperationEnvelope |
+| POST `/wojownicy-upload/finish` | transientNoBusinessWrite — verifies the caller's submission token and only sends the one "new photos waiting" e-mail per upload session | no business record | n/a |
 | DELETE `/lista-wyjazdowa/profile/photo` | businessWrite — `profile.photo_submission.photo_deleted` (default/`source=staging`, or `source=rejected`) or `profile.person.photo.deleted` (`source=public`) | member submission or person; Drive photo deletion, scoped to caller's own stagingFolderId, its Odrzucone subfolder, or driveFolderId | auditedOperationEnvelope |
 | POST `/lista-wyjazdowa/profile/photo/main` | businessWrite — `profile.person.photo.main.changed` | person; Drive file rename, scoped to caller's own driveFolderId | auditedOperationEnvelope |
 | PUT `/lista-wyjazdowa/member` | businessWrite — `profile.member.updated` | member; Firestore | requestAwaited |

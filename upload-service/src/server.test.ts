@@ -9880,3 +9880,63 @@ test('GET /admin/people?category=upload attaches rejectedPhotos without counting
     assert.deepEqual(person.rejectedPhotos.map((p: { id: string }) => p.id), ['rej-1']);
   });
 });
+
+test('POST /wojownicy-upload/finish sends one "new photos" e-mail to the configured roles, and checks the submission token', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'wojownik@gmail.com', seedMemberDoc({ email: 'wojownik@gmail.com', lastName: 'Nowak', firstName: 'Jan', nickname: 'Kruk' }));
+  client.seed('members', 'hovding@example.com', seedMemberDoc({ email: 'hovding@example.com', status: 'active' }));
+  client.seed('userRoles', 'hovding@example.com', { roles: ['hovding'] });
+  const { sent, mailer } = makeRecordingMailer();
+  const deps = makeDeps({
+    firestore: client,
+    mailer,
+    listAdminAllowlistEmails: async () => ['boss@example.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'wojownik@gmail.com' }),
+  });
+  const { issueSubmissionToken } = await import('./submission.ts');
+  const token = issueSubmissionToken({ folderId: 's1', sub: 'sub-1', exp: Date.now() + 60_000 }, deps.submissionTokenSecret);
+  const otherFolderToken = issueSubmissionToken({ folderId: 'other', sub: 'sub-1', exp: Date.now() + 60_000 }, deps.submissionTokenSecret);
+  await withServer(deps, async baseUrl => {
+    const post = (headers: Record<string, string>, body: unknown) => fetch(`${baseUrl}/wojownicy-upload/finish`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS, ...headers },
+      body: JSON.stringify(body),
+    });
+    assert.equal((await post({}, { folderId: 's1', photoCount: 3 })).status, 401);
+    assert.equal((await post({ 'X-Submission-Token': otherFolderToken }, { folderId: 's1', photoCount: 3 })).status, 403);
+    assert.equal((await post({ 'X-Submission-Token': token }, { folderId: 's1', photoCount: 0 })).status, 400);
+    assert.equal(sent.length, 0, 'no e-mail for a rejected request');
+    assert.equal((await post({ 'X-Submission-Token': token }, { folderId: 's1', photoCount: 3 })).status, 200);
+  });
+  assert.deepEqual(sent.map(m => m.to).sort(), ['boss@example.com', 'hovding@example.com']);
+  assert.match(sent[0].subject, /Nowe zdjęcia do zatwierdzenia: Jan Nowak/);
+  assert.match(sent[0].text, /Jan Nowak \(Kruk\) \(wojownik@gmail\.com\) przesłał\(a\) nowe zdjęcia: 3\./);
+  assert.match(sent[0].text, /\/admin\/publiczne-wizytowki\//);
+});
+
+test('GET /admin/people?category=upload identifies the uploader (name, category label, status) for the person pill', async () => {
+  resetAboutUsBootstrapForTests();
+  invalidateAboutUsCache();
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'ktos@gmail.com', seedMemberDoc({ email: 'ktos@gmail.com', lastName: 'Nowak', firstName: 'Jan', nickname: 'Kruk', categoryId: 'blachowi', status: 'active' }));
+  client.seed('lookupLists', 'categories', { items: [{ id: 'blachowi', label: 'Blachowi', retired: false }] });
+  const deps = makeDeps({
+    firestore: client,
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `cat-${name}`,
+      listGalleryFolders: async id => (id === 'cat-upload'
+        ? [{ id: 's1', name: 'Jan - ktos@gmail.com' }, { id: 's2', name: 'Bez właściciela' }]
+        : []) as never,
+      readTextFile: async (id, fileName) => (id === 's1' && fileName === '.owner-email' ? 'KTOS@gmail.com\n' : null),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const { people } = await (await fetch(`${baseUrl}/admin/people?category=upload`)).json();
+    const byId = new Map(people.map((p: { folderId: string }) => [p.folderId, p]));
+    assert.deepEqual((byId.get('s1') as { owner: unknown }).owner, {
+      email: 'ktos@gmail.com', firstName: 'Jan', lastName: 'Nowak', nickname: 'Kruk',
+      categoryId: 'blachowi', categoryLabel: 'Blachowi', status: 'active',
+    });
+    assert.equal((byId.get('s2') as { owner: unknown }).owner, null);
+  });
+});
