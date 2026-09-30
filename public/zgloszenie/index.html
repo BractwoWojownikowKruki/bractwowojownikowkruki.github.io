@@ -20,6 +20,8 @@
   <link rel="icon" type="image/png" href="../favicon.png" />
   <link rel="apple-touch-icon" href="../favicon.png" />
   <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../vendor/cropperjs/cropper.min.css" />
+  <link rel="stylesheet" href="zgloszenie.css" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -65,19 +67,56 @@
             <input type="text" id="zg-nickname" name="nickname" />
           </div>
           <div class="field">
-            <label for="zg-section">Sekcja</label>
+            <label for="zg-email">E-mail</label>
+            <input type="email" id="zg-email" name="email" readonly />
+          </div>
+          <p class="lw-hint">Adres z konta Google, którym się logujesz.</p>
+          <div class="field">
+            <label for="zg-section">Sekcja (miasto)</label>
             <select id="zg-section" name="sectionId" required></select>
           </div>
+          <div class="field">
+            <label for="zg-description">O sobie</label>
+            <textarea id="zg-description" name="description" rows="5" maxlength="2000" required placeholder="Napisz, kim jesteś, skąd się wziąłeś."></textarea>
+          </div>
+          <fieldset class="zg-photos">
+            <legend>Zdjęcia (opcjonalnie)</legend>
+            <div class="field">
+              <label for="zg-main-photo">Główne zdjęcie</label>
+              <input type="file" id="zg-main-photo" name="mainPhoto" accept="image/*" />
+            </div>
+            <div class="field">
+              <label for="zg-extra-photos">Dodatkowe zdjęcia</label>
+              <input type="file" id="zg-extra-photos" name="extraPhotos" accept="image/*" multiple />
+            </div>
+            <p class="lw-hint">Najwyżej 3 zdjęcia, każde do 10 MB. Pojawią się na stronie dopiero po zatwierdzeniu przez administratorów.</p>
+            <div id="zg-photo-preview" class="zg-photo-preview" hidden></div>
+          </fieldset>
           <p class="add-album-error" id="zg-form-error" hidden></p>
+          <p class="lw-hint" id="zg-progress" hidden></p>
           <button type="submit" class="btn-add-album" id="zg-form-submit">Wyślij zgłoszenie</button>
         </form>
       </section>
     </div>
   </main>
 
+  <div class="crop-modal" id="crop-modal" hidden>
+    <div class="crop-modal-inner">
+      <img id="crop-target" alt="" />
+    </div>
+    <p class="crop-modal-error" id="crop-modal-error" hidden>
+      Nie udało się otworzyć tego zdjęcia do kadrowania w tej przeglądarce. Zostanie przesłane w oryginalnej wersji.
+    </p>
+    <div class="crop-modal-actions">
+      <button type="button" class="add-album-submit" id="crop-save">Zapisz</button>
+      <button type="button" class="btn-cancel" id="crop-cancel">Anuluj</button>
+    </div>
+  </div>
+
   <!-- PARTIAL:footer -->
   <script src="../auth.js"></script>
   <script src="../nav.js"></script>
+  <script src="../vendor/cropperjs/cropper.min.js"></script>
   <script src="zgloszenie.js"></script>
 </body>
 </html>

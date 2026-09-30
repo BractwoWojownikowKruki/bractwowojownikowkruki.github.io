@@ -2,7 +2,8 @@
 TODO (needs a locally running agent - the istra tracker below is only on the maintainer's machine):
 the 2026-09-30 e-mail notifications change edited this table in the repo only. Copy this whole
 table into implementation-contract.md so the two match again: rows added for
-PUT /admin/people/photo/reject, PUT /admin/settings/notifications and POST /wojownicy-upload/finish; rows changed for
+PUT /admin/people/photo/reject, PUT /admin/settings/notifications, POST /wojownicy-upload/finish,
+POST /membership/photos/start and POST /membership/photo; rows changed for
 POST /membership/apply, POST /admin/members/transition, PUT /admin/people/photo/approve and
 DELETE /lista-wyjazdowa/profile/photo. Remove this TODO once done. Until then the local-only
 drift test in mutation-inventory.test.ts is expected to fail on a machine that has the istra file.
@@ -31,6 +32,8 @@ Last synced with implementation-contract.md: 2026-09-30 (e-mail notifications: a
 | POST `/session/logout` | transientNoBusinessWrite — clears only the session response/cookie | no business record | n/a |
 | POST `/application/pwa-installation` | businessWrite — `application.pwa.installation_reported` | application; Firestore marker (`applicationInstallations`) plus one canonical event | requestAwaited |
 | POST `/membership/apply` | businessWrite — `membership.application.submitted` | member; Firestore; best-effort e-mail to the configured recipient roles on a new application | requestAwaited |
+| POST `/membership/photos/start` | businessWrite — `profile.photo_submission.created` | member submission; Drive folder (pending applicant); provisional key then final submission folder key | auditedOperationEnvelope |
+| POST `/membership/photo` | businessWrite — `profile.photo_submission.photo_added` | member submission; Drive photo (pending applicant, max 3 photos of 10 MB) | auditedOperationEnvelope |
 | POST `/admin/social-media/refresh` | businessWrite — `site.social_cache.refreshed` | settings; cache mutation | requestAwaited |
 | POST `/admin/members/transition` | businessWrite — data-resolved membership status action; correlated `membership.sheet_backup.synchronized` if mirror is requested | member; Firestore, optional Sheets; best-effort e-mail to the member on approve/reject | Firestore requestAwaited; Sheets auditedOperationEnvelope |
 | PUT `/admin/members/drive-folder` | businessWrite — `profile.drive_folder.changed` | member; Firestore | requestAwaited |
