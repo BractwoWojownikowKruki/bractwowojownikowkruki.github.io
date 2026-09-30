@@ -1037,6 +1037,8 @@ initGoogleSignIn({
       const [lookupLists, currentSubmission] = await Promise.all([loadLookupLists(), loadCurrentSubmission()]);
       renderCurrentSubmission(currentSubmission);
       await initForm(lookupLists);
+      // Independent of the profile form - a failure there shows inside its own panel.
+      void initNotificationSettings();
     } catch (err) {
       const errorEl = document.getElementById('profile-form-error');
       showOnly(panels.form);

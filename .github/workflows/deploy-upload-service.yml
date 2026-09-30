@@ -144,6 +144,8 @@ jobs:
             GMAIL_CLIENT_ID=sheets-oauth-client-id:latest
             GMAIL_CLIENT_SECRET=sheets-oauth-client-secret:latest
             GMAIL_REFRESH_TOKEN=gmail-refresh-token:latest
+            VAPID_PUBLIC_KEY=vapid-public-key:latest
+            VAPID_PRIVATE_KEY=vapid-private-key:latest
 
       # KRKG-0032 drift check: confirms the identity actually running in Cloud Run right now
       # matches what we just asked for, rather than trusting the deploy call succeeded silently

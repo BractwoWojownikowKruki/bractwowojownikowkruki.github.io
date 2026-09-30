@@ -74,14 +74,19 @@
       </section>
 
       <section style="margin-bottom: 2rem;">
-        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Powiadomienia e-mail</h2>
+        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Powiadomienia</h2>
         <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
-          Osoby z zaznaczonymi rolami dostają e-mail, gdy ktoś złoży nowe zgłoszenie członkowskie.
-          Rola „Administrator” obejmuje też osoby z listy administratorów panelu.
+          Osoby z zaznaczonymi rolami dostają powiadomienie, gdy ktoś złoży nowe zgłoszenie członkowskie
+          albo prześle nowe zdjęcia do zatwierdzenia. Rola „Administrator” obejmuje też osoby z listy
+          administratorów panelu. Powiadomienia push przychodzą tylko na urządzenia, na których dana osoba
+          je włączyła (w swoim profilu). Każdy może też wyłączyć u siebie e-maile.
         </p>
         <form id="notification-settings-form">
           <fieldset id="notification-roles" style="border:none; padding:0; margin:0 0 0.75rem;">
-            <legend style="margin-bottom:0.5rem;">Powiadamiaj o nowych zgłoszeniach</legend>
+            <legend style="margin-bottom:0.5rem;">E-mail</legend>
+          </fieldset>
+          <fieldset id="notification-push-roles" style="border:none; padding:0; margin:0 0 0.75rem;">
+            <legend style="margin-bottom:0.5rem;">Push</legend>
           </fieldset>
           <button type="submit" class="btn-add-album">Zapisz</button>
         </form>

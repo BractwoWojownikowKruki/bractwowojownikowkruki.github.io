@@ -80,18 +80,22 @@ document.getElementById('facebook-settings-form').addEventListener('submit', asy
 
 const NOTIFICATION_ROLE_LABELS = { admin: 'Administrator', hovding: 'Hovding', accountant: 'Księgowy' };
 
+function renderNotificationRoleCheckboxes(fieldset, inputName, availableRoles, selectedRoles) {
+  fieldset.querySelectorAll('label').forEach(label => label.remove());
+  for (const role of availableRoles) {
+    const checked = selectedRoles.includes(role) ? ' checked' : '';
+    fieldset.insertAdjacentHTML(
+      'beforeend',
+      `<label style="display:block; margin-bottom:0.25rem;"><input type="checkbox" name="${escapeAttr(inputName)}" value="${escapeAttr(role)}"${checked} /> ${escapeHtml(NOTIFICATION_ROLE_LABELS[role] ?? role)}</label>`,
+    );
+  }
+}
+
 async function loadNotificationSettings() {
-  const fieldset = document.getElementById('notification-roles');
   try {
     const settings = await apiFetch('/admin/settings/notifications', { method: 'GET' }, showReauth, hideReauth);
-    fieldset.querySelectorAll('label').forEach(label => label.remove());
-    for (const role of settings.availableRoles) {
-      const checked = settings.registrationRecipientRoles.includes(role) ? ' checked' : '';
-      fieldset.insertAdjacentHTML(
-        'beforeend',
-        `<label style="display:block; margin-bottom:0.25rem;"><input type="checkbox" name="notification-role" value="${escapeAttr(role)}"${checked} /> ${escapeHtml(NOTIFICATION_ROLE_LABELS[role] ?? role)}</label>`,
-      );
-    }
+    renderNotificationRoleCheckboxes(document.getElementById('notification-roles'), 'notification-role', settings.availableRoles, settings.registrationRecipientRoles);
+    renderNotificationRoleCheckboxes(document.getElementById('notification-push-roles'), 'notification-push-role', settings.availableRoles, settings.pushRecipientRoles);
   } catch (err) {
     document.getElementById('notification-settings-status').textContent = `Błąd: ${err.message}`;
   }
@@ -102,13 +106,15 @@ document.getElementById('notification-settings-form').addEventListener('submit',
   const status = document.getElementById('notification-settings-status');
   status.textContent = 'Zapisywanie...';
   try {
-    const registrationRecipientRoles = Array.from(document.querySelectorAll('input[name="notification-role"]:checked')).map(input => input.value);
+    const checkedRoles = name => Array.from(document.querySelectorAll(`input[name="${name}"]:checked`)).map(input => input.value);
+    const registrationRecipientRoles = checkedRoles('notification-role');
+    const pushRecipientRoles = checkedRoles('notification-push-role');
     await window.MutationFeedback.confirmed({
-      control: document.getElementById('notification-roles'),
+      control: document.getElementById('notification-settings-form'),
       anchor: status,
       execute: () => apiFetch(
         '/admin/settings/notifications',
-        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registrationRecipientRoles }) },
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registrationRecipientRoles, pushRecipientRoles }) },
         showReauth,
         hideReauth,
       ),

@@ -24,6 +24,7 @@ import { resetSettingsBootstrapForTests } from './settings.ts';
 import { resetRateLimitForTests } from './rate-limit.ts';
 import { createInMemoryFirestoreClient } from './firestore.ts';
 import { createDisabledMailer, type MailMessage } from './mailer.ts';
+import { createDisabledPusher, type PushMessage, type PushSubscriptionRecord } from './pusher.ts';
 import { createDisabledSheetsClient } from './sheets.ts';
 import { createRoleAuthorizer } from './roles.ts';
 import { executeAuditedFirestoreMutation, startExternalOperation, completeExternalOperation } from './audit.ts';
@@ -200,6 +201,7 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     listGroupEmails: async () => [],
     sheetsClient: createDisabledSheetsClient(),
     mailer: createDisabledMailer(),
+    pusher: createDisabledPusher(),
     listAdminAllowlistEmails: async () => [],
     ...overrides,
   };
@@ -9787,6 +9789,158 @@ test('PUT /admin/settings/notifications stores the chosen roles, audits the chan
   const event = events.find(e => e.data.resource.key === 'settings:notifications');
   assert.equal(event?.data.action, 'site.settings.updated');
   assert.deepEqual(event?.data.changes, [{ field: 'recipientRoles', before: 'admin,hovding', after: 'hovding,accountant', visibility: 'roleRestricted' }]);
+});
+
+// ---- Push notifications and personal opt-outs (pusher.ts / notifications.ts) ----
+
+const TEST_PUSH_SUBSCRIPTION: PushSubscriptionRecord = {
+  endpoint: 'https://fcm.googleapis.com/fcm/send/device-1',
+  keys: { p256dh: 'B' + 'A'.repeat(86), auth: 'A'.repeat(22) },
+};
+
+function makeRecordingPusher() {
+  const pushed: Array<{ endpoint: string; message: PushMessage }> = [];
+  return {
+    pushed,
+    pusher: {
+      publicKey: 'test-public-key',
+      send: async (subscription: PushSubscriptionRecord, message: PushMessage) => { pushed.push({ endpoint: subscription.endpoint, message }); return 'sent' as const; },
+    },
+  };
+}
+
+test('PUT /admin/settings/notifications stores push roles separately and audits only a real push change', async () => {
+  const client = createInMemoryFirestoreClient();
+  const deps = makeDeps({ firestore: client });
+  await withServer(deps, async baseUrl => {
+    const put = (body: unknown) => fetch(`${baseUrl}/admin/settings/notifications`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify(body),
+    });
+    assert.equal((await put({ registrationRecipientRoles: ['admin'], pushRecipientRoles: ['member'] })).status, 400);
+    assert.equal((await put({ registrationRecipientRoles: ['hovding'], pushRecipientRoles: ['admin'] })).status, 200);
+    const body = await (await fetch(`${baseUrl}/admin/settings/notifications`)).json();
+    assert.deepEqual(body.registrationRecipientRoles, ['hovding']);
+    assert.deepEqual(body.pushRecipientRoles, ['admin']);
+  });
+  const events = await client.listDocs<{ resource: { key: string }; changes: Array<{ field: string; before: string; after: string }> }>('auditEvents');
+  const event = events.find(e => e.data.resource.key === 'settings:notifications');
+  assert.deepEqual(event?.data.changes.map(c => [c.field, c.before, c.after]), [
+    ['recipientRoles', 'admin,hovding', 'hovding'],
+    ['pushRecipientRoles', 'admin,hovding', 'admin'],
+  ]);
+});
+
+test('GET/PUT /profile/notifications: e-mail opt-out is stored per person and audited; push eligibility follows the push roles', async () => {
+  const client = createInMemoryFirestoreClient();
+  const { pusher } = makeRecordingPusher();
+  const deps = makeDeps({
+    firestore: client,
+    pusher,
+    listAdminAllowlistEmails: async () => ['alice@gmail.com'],
+  });
+  await withServer(deps, async baseUrl => {
+    const initial = await (await fetch(`${baseUrl}/profile/notifications`)).json();
+    assert.deepEqual(initial, { emailEnabled: true, push: { publicKey: 'test-public-key', eligible: true, endpoints: [] } });
+    const put = (body: unknown) => fetch(`${baseUrl}/profile/notifications`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify(body),
+    });
+    assert.equal((await put({ emailEnabled: 'no' })).status, 400);
+    const res = await put({ emailEnabled: false });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { emailEnabled: false });
+    assert.equal((await (await fetch(`${baseUrl}/profile/notifications`)).json()).emailEnabled, false);
+  });
+  const events = await client.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; before: unknown; after: unknown }> }>('auditEvents');
+  const event = events.find(e => e.data.action === 'profile.notifications.updated');
+  assert.equal(event?.data.resource.key, 'member:alice@gmail.com');
+  assert.deepEqual(event?.data.changes.map(c => [c.field, c.before, c.after]), [['emailNotifications', true, false]]);
+});
+
+test('GET /profile/notifications reports push unavailable (no key) and not eligible outside the push roles', async () => {
+  const client = createInMemoryFirestoreClient();
+  const deps = makeDeps({ firestore: client, listAdminAllowlistEmails: async () => ['alice@gmail.com'] });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/profile/notifications`)).json();
+    assert.deepEqual(body.push, { publicKey: null, eligible: false, endpoints: [] });
+  });
+  client.seed('notificationSettings', 'default', { registrationRecipientRoles: ['admin'], pushRecipientRoles: ['hovding'] });
+  const { pusher } = makeRecordingPusher();
+  await withServer(makeDeps({ firestore: client, pusher, listAdminAllowlistEmails: async () => ['alice@gmail.com'] }), async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/profile/notifications`)).json();
+    assert.equal(body.push.eligible, false);
+  });
+});
+
+test('POST/DELETE /profile/notifications/push add and remove this device, audited without the endpoint', async () => {
+  const client = createInMemoryFirestoreClient();
+  const { pusher } = makeRecordingPusher();
+  await withServer(makeDeps({ firestore: client }), async baseUrl => {
+    const res = await fetch(`${baseUrl}/profile/notifications/push`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ subscription: TEST_PUSH_SUBSCRIPTION }),
+    });
+    assert.equal(res.status, 503, 'push disabled without VAPID keys');
+  });
+  await withServer(makeDeps({ firestore: client, pusher }), async baseUrl => {
+    const send = (method: string, body: unknown) => fetch(`${baseUrl}/profile/notifications/push`, {
+      method,
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify(body),
+    });
+    assert.equal((await send('POST', { subscription: { ...TEST_PUSH_SUBSCRIPTION, endpoint: 'http://insecure.example.com/x' } })).status, 400);
+    const added = await send('POST', { subscription: TEST_PUSH_SUBSCRIPTION });
+    assert.equal(added.status, 200);
+    assert.deepEqual(await added.json(), { endpoints: [TEST_PUSH_SUBSCRIPTION.endpoint] });
+    assert.equal((await send('DELETE', { endpoint: 42 })).status, 400);
+    const removed = await send('DELETE', { endpoint: TEST_PUSH_SUBSCRIPTION.endpoint });
+    assert.equal(removed.status, 200);
+    assert.deepEqual(await removed.json(), { endpoints: [] });
+  });
+  const events = await client.listDocs<{ action: string; changes: Array<{ field: string; after: unknown }> }>('auditEvents');
+  const pushEvents = events.filter(e => e.data.action === 'profile.notifications.updated').map(e => e.data.changes.map(c => `${c.field}=${c.after}`).join());
+  assert.deepEqual(pushEvents.sort(), ['pushDevice=added', 'pushDevice=removed']);
+  assert.equal(JSON.stringify(events).includes('device-1'), false);
+});
+
+test('POST /membership/apply pushes to push-role holders devices and skips e-mail for anyone who opted out', async () => {
+  const client = makeListaWyjazdowaFirestore();
+  client.seed('members', 'hovding@example.com', seedMemberDoc({ email: 'hovding@example.com', status: 'active' }));
+  client.seed('userRoles', 'hovding@example.com', { roles: ['hovding'] });
+  // E-mail: admin + hovding. Push: admin only.
+  client.seed('notificationSettings', 'default', { registrationRecipientRoles: ['admin', 'hovding'], pushRecipientRoles: ['admin'] });
+  client.seed('notificationPreferences', 'sheet-admin@example.com', {
+    emailEnabled: false,
+    pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, createdAt: '2026-09-30T00:00:00.000Z' }],
+  });
+  client.seed('notificationPreferences', 'hovding@example.com', {
+    emailEnabled: true,
+    pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/hovding', createdAt: '2026-09-30T00:00:00.000Z' }],
+  });
+  const { sent, mailer } = makeRecordingMailer();
+  const { pushed, pusher } = makeRecordingPusher();
+  const deps = makeDeps({
+    firestore: client,
+    mailer,
+    pusher,
+    listAdminAllowlistEmails: async () => ['sheet-admin@example.com'],
+    authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'new@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/membership/apply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ lastName: 'Nowak', firstName: 'Jan', sectionId: 'krakow', description: 'Opis' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.deepEqual(sent.map(m => m.to), ['hovding@example.com']);
+  assert.deepEqual(pushed.map(p => p.endpoint), [TEST_PUSH_SUBSCRIPTION.endpoint]);
+  assert.deepEqual(pushed[0].message, { title: 'Nowe zgłoszenie członkowskie', body: 'Jan Nowak', url: '/admin/zgloszenia/' });
 });
 
 test('POST /admin/members/transition e-mails the applicant on reject with the admin comment, and on approve', async () => {

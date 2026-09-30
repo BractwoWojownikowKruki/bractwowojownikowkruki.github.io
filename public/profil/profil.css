@@ -60,6 +60,15 @@
   color: var(--text);
 }
 
+.lw-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+
 .lw-rows {
   display: flex;
   flex-direction: column;
