@@ -80,6 +80,7 @@ test('renders push and notificationclick handlers that only ever open a same-ori
   const source = renderServiceWorker({ cacheName: 'kruki-pwa-test', precachePaths: PRECACHE_PATHS });
   assert.match(source, /addEventListener\('push'/);
   assert.match(source, /showNotification\(/);
+  assert.match(source, /badge: '\/pwa-icons\/notification-badge\.png'/);
   assert.match(source, /addEventListener\('notificationclick'/);
   const safePath = new Function(`${source.match(/function safeNotificationPath[\s\S]*?\n}/)![0]}; return safeNotificationPath;`)() as (value: unknown) => string;
   assert.equal(safePath('/admin/zgloszenia/'), '/admin/zgloszenia/');

@@ -171,6 +171,8 @@ self.addEventListener('push', event => {
   event.waitUntil(self.registration.showNotification(title, {
     body: typeof data.body === 'string' ? data.body : '',
     icon: '/pwa-icons/icon-192.png',
+    // Android status-bar symbol: only its alpha is used (white raven silhouette, 96x96).
+    badge: '/pwa-icons/notification-badge.png',
     data: { url: safeNotificationPath(data.url) },
   }));
 });
