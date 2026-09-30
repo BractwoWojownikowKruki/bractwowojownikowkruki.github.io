@@ -116,6 +116,22 @@
             </fieldset>
           </section>
 
+          <!-- Personal notification choices: e-mail opt-out (every notification e-mail) and push
+               on this device (admin-facing alerts only, shown only to configured push recipients).
+               Saves immediately, like the panels below - see profil-notifications.js. -->
+          <section id="notifications-panel" hidden>
+            <fieldset class="lw-fieldset">
+              <legend>Powiadomienia</legend>
+              <p class="lw-hint">Zmiany zapisują się od razu, niezależnie od reszty profilu.</p>
+              <label class="lw-checkbox"><input type="checkbox" id="notify-email" /> Wysyłaj mi powiadomienia e-mail</label>
+              <div id="notify-push-row" hidden>
+                <label class="lw-checkbox"><input type="checkbox" id="notify-push" /> Powiadomienia push na tym urządzeniu (nowe zgłoszenia i zdjęcia do zatwierdzenia)</label>
+                <p class="lw-hint" id="notify-push-hint" hidden></p>
+              </div>
+              <p class="add-album-error" id="notifications-error" hidden></p>
+            </fieldset>
+          </section>
+
           <!-- KRKG-0087: accountless people attached to this member. Its own panel outside
                #profile-form so these controls never take part in the profile submit. -->
           <section id="persons-panel">
@@ -154,6 +170,7 @@
   <script src="../instagram-feed.js"></script>
   <script src="../youtube-feed.js"></script>
   <script src="../vendor/cropperjs/cropper.min.js"></script>
+  <script src="profil-notifications.js"></script>
   <script src="profil.js"></script>
 </body>
 </html>

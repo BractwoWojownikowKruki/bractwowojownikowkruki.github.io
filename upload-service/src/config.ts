@@ -64,6 +64,11 @@ export const config = {
   gmailClientSecret: process.env.GMAIL_CLIENT_SECRET,
   gmailRefreshToken: process.env.GMAIL_REFRESH_TOKEN,
   notificationSender: process.env.NOTIFICATION_SENDER ?? 'Bractwo Wojowników Kruki <bractwo.wojownikow.kruki@gmail.com>',
+  // Push notifications (pusher.ts) - optional/undefined until the one-time VAPID key setup
+  // (scripts/generate-vapid-keys.ts); unset disables push, never the service's boot.
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY?.trim() || undefined,
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY?.trim() || undefined,
+  vapidSubject: process.env.VAPID_SUBJECT ?? 'mailto:bractwo.wojownikow.kruki@gmail.com',
   googleOAuthClientId: requireEnv('GOOGLE_OAUTH_CLIENT_ID'),
   driveRefreshToken: requireEnv('DRIVE_REFRESH_TOKEN'),
   driveClientId: requireEnv('DRIVE_CLIENT_ID'),

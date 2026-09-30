@@ -35,7 +35,7 @@ test('action/category labels cover every registered action and category', () => 
     'profile.person.deleted', 'profile.person.photo.added', 'profile.person.photo.deleted',
     'profile.person.photo.main.changed', 'profile.person.photo.transferred', 'profile.person.in_memoriam.changed',
     'profile.photo_submission.created', 'profile.photo_submission.photo_added', 'profile.photo_submission.photo_deleted',
-    'profile.photo_submission.photo_rejected',
+    'profile.photo_submission.photo_rejected', 'profile.notifications.updated',
     'session.login.succeeded',
     'application.pwa.installation_reported',
     'gallery.created', 'gallery.registered', 'gallery.unregistered', 'gallery.deleted',

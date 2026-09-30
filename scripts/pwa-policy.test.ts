@@ -75,3 +75,15 @@ test('renders offline fallback only for navigation requests to eligible public p
   assert.match(source, /caches\.match\('\/offline\.html'\)/);
   assert.match(source, /isPwaExcludedPath\(url\.pathname\)/);
 });
+
+test('renders push and notificationclick handlers that only ever open a same-origin path', () => {
+  const source = renderServiceWorker({ cacheName: 'kruki-pwa-test', precachePaths: PRECACHE_PATHS });
+  assert.match(source, /addEventListener\('push'/);
+  assert.match(source, /showNotification\(/);
+  assert.match(source, /addEventListener\('notificationclick'/);
+  const safePath = new Function(`${source.match(/function safeNotificationPath[\s\S]*?\n}/)![0]}; return safeNotificationPath;`)() as (value: unknown) => string;
+  assert.equal(safePath('/admin/zgloszenia/'), '/admin/zgloszenia/');
+  assert.equal(safePath('https://evil.example.com/'), '/');
+  assert.equal(safePath('//evil.example.com/'), '/');
+  assert.equal(safePath(undefined), '/');
+});

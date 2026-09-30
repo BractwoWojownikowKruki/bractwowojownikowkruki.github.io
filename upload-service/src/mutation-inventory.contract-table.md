@@ -5,7 +5,9 @@ table into implementation-contract.md so the two match again: rows added for
 PUT /admin/people/photo/reject, PUT /admin/settings/notifications, POST /wojownicy-upload/finish,
 POST /membership/photos/start and POST /membership/photo; rows changed for
 POST /membership/apply, POST /admin/members/transition, PUT /admin/people/photo/approve and
-DELETE /lista-wyjazdowa/profile/photo. Remove this TODO once done. Until then the local-only
+DELETE /lista-wyjazdowa/profile/photo; and (push notifications change) rows added for
+PUT /profile/notifications, POST /profile/notifications/push and DELETE /profile/notifications/push,
+row changed for PUT /admin/settings/notifications. Remove this TODO once done. Until then the local-only
 drift test in mutation-inventory.test.ts is expected to fail on a machine that has the istra file.
 
 Checked-in copy of the "## Mutation inventory" table from implementation-contract.md.
@@ -23,7 +25,7 @@ table into this file in the same change. If you forget, this test will keep pass
 stale copy while the real contract document silently diverges - exactly the failure mode this
 fixture exists to prevent.
 
-Last synced with implementation-contract.md: 2026-09-30 (e-mail notifications: added PUT /admin/people/photo/reject, action profile.photo_submission.photo_rejected, and PUT /admin/settings/notifications, action site.settings.updated; DELETE /lista-wyjazdowa/profile/photo gained source=rejected; KRKG-0098: added PUT /lista-wyjazdowa/event-equipment, action equipment.event_going.changed; KRKG-0096: added POST/PUT/DELETE /equipment, actions equipment.added/updated/deleted; KRKG-0091: added DELETE /lista-wyjazdowa/persons/permanent, action person.purged; KRKG-0087 added the accountless-person record routes POST/PUT/DELETE /lista-wyjazdowa/persons, PUT /lista-wyjazdowa/persons/owner, PUT /lista-wyjazdowa/persons/account and POST /lista-wyjazdowa/signups/quick-add, actions person.created/updated/deleted/detached/merged).
+Last synced with implementation-contract.md: 2026-09-30 (push notifications: added PUT /profile/notifications, POST/DELETE /profile/notifications/push, action profile.notifications.updated; e-mail notifications: added PUT /admin/people/photo/reject, action profile.photo_submission.photo_rejected, and PUT /admin/settings/notifications, action site.settings.updated; DELETE /lista-wyjazdowa/profile/photo gained source=rejected; KRKG-0098: added PUT /lista-wyjazdowa/event-equipment, action equipment.event_going.changed; KRKG-0096: added POST/PUT/DELETE /equipment, actions equipment.added/updated/deleted; KRKG-0091: added DELETE /lista-wyjazdowa/persons/permanent, action person.purged; KRKG-0087 added the accountless-person record routes POST/PUT/DELETE /lista-wyjazdowa/persons, PUT /lista-wyjazdowa/persons/owner, PUT /lista-wyjazdowa/persons/account and POST /lista-wyjazdowa/signups/quick-add, actions person.created/updated/deleted/detached/merged).
 -->
 
 | Method and route | Classification and action | Resource and side effect | Execution |
@@ -75,7 +77,10 @@ Last synced with implementation-contract.md: 2026-09-30 (e-mail notifications: a
 | PUT `/lista-wyjazdowa/persons/account` | businessWrite — `person.merged` | person and member; Firestore | requestAwaited |
 | POST `/lista-wyjazdowa/signups/quick-add` | businessWrite — `person.created` + `signup.created` for `mode=new`; `signup.created` / `signup.updated` for `mode=existing` | person and signup; Firestore; one transaction | requestAwaited |
 | POST `/admin/settings` | businessWrite — `site.settings.updated` | settings; Drive text/config file | auditedOperationEnvelope |
-| PUT `/admin/settings/notifications` | businessWrite — `site.settings.updated` | settings; Firestore (`notificationSettings`) | requestAwaited |
+| PUT `/admin/settings/notifications` | businessWrite — `site.settings.updated` | settings; Firestore (`notificationSettings`: e-mail and push recipient roles) | requestAwaited |
+| PUT `/profile/notifications` | businessWrite — `profile.notifications.updated` | member; Firestore (`notificationPreferences`: e-mail opt-out) | requestAwaited |
+| POST `/profile/notifications/push` | businessWrite — `profile.notifications.updated` | member; Firestore (`notificationPreferences`: push device added) | requestAwaited |
+| DELETE `/profile/notifications/push` | businessWrite — `profile.notifications.updated` | member; Firestore (`notificationPreferences`: push device removed) | requestAwaited |
 | POST `/delete-drive-gallery` | businessWrite — `gallery.deleted` | gallery; Drive | auditedOperationEnvelope |
 | POST `/start` | businessWrite — `gallery.created` | gallery; Drive folder/public share; provisional key then final gallery folder key | auditedOperationEnvelope |
 | POST `/register` | businessWrite — `gallery.registered` | gallery; GitHub | auditedOperationEnvelope |

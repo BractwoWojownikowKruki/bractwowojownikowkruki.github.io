@@ -1,9 +1,10 @@
-// E-mail notification content and recipient resolution. Sending itself lives in mailer.ts; this
-// file decides WHO gets WHAT. Every entry point here is best-effort: it runs after the business
+// E-mail and push notification content and recipient resolution. Sending itself lives in
+// mailer.ts/pusher.ts; this file decides WHO gets WHAT. Every entry point here is best-effort: it runs after the business
 // write it describes has already committed, logs a failure, and never throws back into the
 // request handler.
 import type { FirestoreLikeClient, FirestoreTransaction } from './firestore.ts';
 import type { MailMessage, Mailer } from './mailer.ts';
+import type { PushMessage, PushSubscriptionRecord, Pusher } from './pusher.ts';
 import { listAllGrantedRoles } from './roles.ts';
 import { listAllMembers } from './members.ts';
 
@@ -13,11 +14,17 @@ export const NOTIFIABLE_ROLES = ['admin', 'hovding', 'accountant'] as const;
 export type NotifiableRole = (typeof NOTIFIABLE_ROLES)[number];
 
 export interface NotificationSettings {
+  // E-mail recipients of the admin-facing notifications (new application, new photos).
   registrationRecipientRoles: NotifiableRole[];
+  // Push recipients of the same notifications. Separate from e-mail so an admin can, say, e-mail
+  // hovdings but only push to administrators. A holder still only gets a push once they enable
+  // it on a device (/profil/).
+  pushRecipientRoles: NotifiableRole[];
 }
 
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   registrationRecipientRoles: ['admin', 'hovding'],
+  pushRecipientRoles: ['admin', 'hovding'],
 };
 
 const SETTINGS_COLLECTION = 'notificationSettings';
@@ -38,8 +45,11 @@ export function parseNotifiableRoles(value: unknown): NotifiableRole[] | null {
 // every membership application, which must never fail because of a notification setting.
 export async function getNotificationSettings(client: Pick<FirestoreLikeClient, 'getDoc'>): Promise<NotificationSettings> {
   const doc = await client.getDoc<Partial<NotificationSettings>>(SETTINGS_COLLECTION, SETTINGS_DOC_ID);
-  const roles = parseNotifiableRoles(doc?.registrationRecipientRoles);
-  return roles ? { registrationRecipientRoles: roles } : { ...DEFAULT_NOTIFICATION_SETTINGS };
+  return {
+    registrationRecipientRoles: parseNotifiableRoles(doc?.registrationRecipientRoles) ?? [...DEFAULT_NOTIFICATION_SETTINGS.registrationRecipientRoles],
+    // A doc saved before push existed has no pushRecipientRoles yet - it gets the default.
+    pushRecipientRoles: parseNotifiableRoles(doc?.pushRecipientRoles) ?? [...DEFAULT_NOTIFICATION_SETTINGS.pushRecipientRoles],
+  };
 }
 
 export async function setNotificationSettingsInTransaction(tx: FirestoreTransaction, settings: NotificationSettings): Promise<NotificationSettings> {
@@ -78,6 +88,63 @@ export async function resolveRegistrationRecipients(sources: RecipientSources, r
     }
   }
   return [...recipients].sort();
+}
+
+// Per-person choices, keyed by lowercased e-mail. A missing doc means the defaults: e-mail on, no
+// push devices.
+const PREFERENCES_COLLECTION = 'notificationPreferences';
+// Each browser/phone that enabled push is one subscription. Bounded so a person who keeps
+// clearing site data can't grow the doc without limit; the oldest is dropped first.
+export const MAX_PUSH_SUBSCRIPTIONS_PER_PERSON = 10;
+
+export interface StoredPushSubscription extends PushSubscriptionRecord {
+  createdAt: string;
+}
+
+export interface NotificationPreferences {
+  // false = the person opted out of every notification e-mail (admin-facing and personal ones).
+  emailEnabled: boolean;
+  pushSubscriptions: StoredPushSubscription[];
+}
+
+function normalizePreferences(doc: Partial<NotificationPreferences> | null): NotificationPreferences {
+  return {
+    emailEnabled: doc?.emailEnabled !== false,
+    pushSubscriptions: Array.isArray(doc?.pushSubscriptions) ? doc.pushSubscriptions : [],
+  };
+}
+
+export async function getNotificationPreferences(client: Pick<FirestoreLikeClient, 'getDoc'>, email: string): Promise<NotificationPreferences> {
+  return normalizePreferences(await client.getDoc<Partial<NotificationPreferences>>(PREFERENCES_COLLECTION, email.toLowerCase()));
+}
+
+export async function setEmailEnabledInTransaction(tx: FirestoreTransaction, email: string, emailEnabled: boolean): Promise<NotificationPreferences> {
+  const current = normalizePreferences(await tx.getDoc<Partial<NotificationPreferences>>(PREFERENCES_COLLECTION, email.toLowerCase()));
+  const next = { ...current, emailEnabled };
+  await tx.setDoc(PREFERENCES_COLLECTION, email.toLowerCase(), next);
+  return next;
+}
+
+/** Adds (or refreshes, same endpoint) one device's subscription. */
+export async function addPushSubscriptionInTransaction(
+  tx: FirestoreTransaction,
+  email: string,
+  subscription: PushSubscriptionRecord,
+  now: Date,
+): Promise<NotificationPreferences> {
+  const current = normalizePreferences(await tx.getDoc<Partial<NotificationPreferences>>(PREFERENCES_COLLECTION, email.toLowerCase()));
+  const others = current.pushSubscriptions.filter(existing => existing.endpoint !== subscription.endpoint);
+  const pushSubscriptions = [...others, { ...subscription, createdAt: now.toISOString() }].slice(-MAX_PUSH_SUBSCRIPTIONS_PER_PERSON);
+  const next = { ...current, pushSubscriptions };
+  await tx.setDoc(PREFERENCES_COLLECTION, email.toLowerCase(), next);
+  return next;
+}
+
+export async function removePushSubscriptionInTransaction(tx: FirestoreTransaction, email: string, endpoint: string): Promise<NotificationPreferences> {
+  const current = normalizePreferences(await tx.getDoc<Partial<NotificationPreferences>>(PREFERENCES_COLLECTION, email.toLowerCase()));
+  const next = { ...current, pushSubscriptions: current.pushSubscriptions.filter(existing => existing.endpoint !== endpoint) };
+  await tx.setDoc(PREFERENCES_COLLECTION, email.toLowerCase(), next);
+  return next;
 }
 
 const SIGNATURE = '\n\n--\nBractwo Wojowników Kruki\nWiadomość wysłana automatycznie - prosimy na nią nie odpowiadać.';
@@ -164,12 +231,68 @@ export function photoDecisionMessage(to: string, decision: 'approved' | 'rejecte
   };
 }
 
-/** Sends each message independently; one bad address or failed send never blocks the rest. */
-export async function sendNotifications(mailer: Mailer, messages: readonly MailMessage[]): Promise<void> {
-  await Promise.all(messages.map(message => mailer.send(message).catch(err => {
-    console.error('Wysłanie powiadomienia e-mail nie powiodło się:', err);
-    return 'failed' as const;
-  })));
+export function registrationSubmittedPush(applicant: { firstName: string; lastName: string; nickname?: string | null }): PushMessage {
+  const fullName = `${applicant.firstName} ${applicant.lastName}`.trim();
+  const nickname = applicant.nickname ? ` (${applicant.nickname})` : '';
+  return { title: 'Nowe zgłoszenie członkowskie', body: `${fullName}${nickname}`, url: '/admin/zgloszenia/' };
+}
+
+export function photosSubmittedPush(
+  uploader: { email: string; firstName: string; lastName: string; nickname?: string | null },
+  photoCount: number,
+): PushMessage {
+  const fullName = `${uploader.firstName} ${uploader.lastName}`.trim() || uploader.email;
+  const nickname = uploader.nickname ? ` (${uploader.nickname})` : '';
+  return { title: 'Nowe zdjęcia do zatwierdzenia', body: `${fullName}${nickname}: ${photoCount}`, url: '/admin/publiczne-wizytowki/' };
+}
+
+/**
+ * Sends each message independently; one bad address or failed send never blocks the rest.
+ * Recipients who opted out of e-mail (/profil/) are skipped; a failed preference read errs
+ * towards sending, the same "never lose a notification to a settings problem" rule as
+ * getNotificationSettings.
+ */
+export async function sendNotifications(
+  mailer: Mailer,
+  preferences: Pick<FirestoreLikeClient, 'getDoc'>,
+  messages: readonly MailMessage[],
+): Promise<void> {
+  await Promise.all(messages.map(async message => {
+    const optedOut = await getNotificationPreferences(preferences, message.to).then(prefs => !prefs.emailEnabled, err => {
+      console.error('Nie udało się odczytać preferencji powiadomień:', err);
+      return false;
+    });
+    if (optedOut) return 'skipped' as const;
+    return mailer.send(message).catch(err => {
+      console.error('Wysłanie powiadomienia e-mail nie powiodło się:', err);
+      return 'failed' as const;
+    });
+  }));
+}
+
+/**
+ * Pushes one message to every device of every recipient. A subscription the push service
+ * reports as gone is only logged, not removed here: removing it is a Firestore write with no
+ * acting person to audit it under. It drops off when the person re-enables push on that browser
+ * (new endpoint, oldest evicted past MAX_PUSH_SUBSCRIPTIONS_PER_PERSON) or disables it.
+ */
+export async function sendPushNotifications(
+  pusher: Pusher,
+  preferences: Pick<FirestoreLikeClient, 'getDoc'>,
+  recipients: readonly string[],
+  message: PushMessage,
+): Promise<void> {
+  if (!pusher.publicKey) return;
+  await Promise.all(recipients.map(async email => {
+    try {
+      const prefs = await getNotificationPreferences(preferences, email);
+      const results = await Promise.all(prefs.pushSubscriptions.map(subscription => pusher.send(subscription, message)));
+      const gone = results.filter(status => status === 'gone').length;
+      if (gone > 0) console.warn(`Wygasłe subskrypcje push (${gone}) dla ${email}.`);
+    } catch (err) {
+      console.error('Wysłanie powiadomienia push nie powiodło się:', err);
+    }
+  }));
 }
 
 /** Trims an optional admin comment; empty means "no comment" (the generic text is used). */

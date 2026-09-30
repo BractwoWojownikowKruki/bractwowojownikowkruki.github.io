@@ -155,5 +155,34 @@ self.addEventListener('fetch', event => {
     event.respondWith(caches.match(request).then(cached => cached ?? fetch(request)));
   }
 });
+
+// Admin push notifications (upload-service pusher.ts): payload is { title, body, url }. Only a
+// same-origin path is ever opened, whatever the payload says.
+function safeNotificationPath(value) {
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : '/';
+}
+
+self.addEventListener('push', event => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {}
+  const title = typeof data.title === 'string' && data.title ? data.title : 'Bractwo Wojowników Kruki';
+  event.waitUntil(self.registration.showNotification(title, {
+    body: typeof data.body === 'string' ? data.body : '',
+    icon: '/pwa-icons/icon-192.png',
+    data: { url: safeNotificationPath(data.url) },
+  }));
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const target = new URL(safeNotificationPath(event.notification.data && event.notification.data.url), self.location.origin).href;
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windows => {
+    const existing = windows.find(client => client.url === target);
+    if (existing) return existing.focus();
+    return self.clients.openWindow(target);
+  }));
+});
 `;
 }

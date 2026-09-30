@@ -57,19 +57,28 @@ import { applyForMembershipInTransaction, applyAdminTransitionInTransaction, lis
 import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
 import { createDisabledSheetsClient, createSheetsClient, type SheetsClient } from './sheets.ts';
-import { createDisabledMailer, createGmailMailer, type Mailer } from './mailer.ts';
+import { createDisabledMailer, createGmailMailer, type MailMessage, type Mailer } from './mailer.ts';
+import { createDisabledPusher, createWebPusher, parsePushSubscription, MAX_PUSH_ENDPOINT_LENGTH, type PushMessage, type Pusher } from './pusher.ts';
 import { ensureRejectedFolder, findRejectedFolder, forgetRejection, listRejectedPhotos, recordRejections, type RejectedPhoto } from './photo-rejections.ts';
 import {
+  addPushSubscriptionInTransaction,
+  getNotificationPreferences,
   getNotificationSettings,
   membershipDecisionMessage,
   normalizeRejectionReason,
   parseNotifiableRoles,
   photoDecisionMessage,
   photosSubmittedMessage,
+  photosSubmittedPush,
   registrationSubmittedMessage,
+  registrationSubmittedPush,
+  removePushSubscriptionInTransaction,
   resolveRegistrationRecipients,
   sendNotifications,
+  sendPushNotifications,
+  setEmailEnabledInTransaction,
   setNotificationSettingsInTransaction,
+  type NotificationSettings,
   NOTIFIABLE_ROLES,
   MAX_REJECTION_REASON_LENGTH,
 } from './notifications.ts';
@@ -217,6 +226,8 @@ export interface ServerDeps {
   sheetsClient: SheetsClient;
   // E-mail notifications (notifications.ts/mailer.ts). A disabled mailer when GMAIL_* is unset.
   mailer: Mailer;
+  // Push notifications (notifications.ts/pusher.ts). A disabled pusher when VAPID_* is unset.
+  pusher: Pusher;
   // The /admin allowlist sheet's emails - "admin" recipients of registration notifications
   // alongside Firestore 'admin' grants (see resolveRegistrationRecipients).
   listAdminAllowlistEmails: () => Promise<string[]>;
@@ -287,6 +298,9 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   equipmentUpdate: auditedRoute('PUT', '/equipment', ['equipment.updated']),
   equipmentDelete: auditedRoute('DELETE', '/equipment', ['equipment.deleted']),
   notificationSettings: auditedRoute('PUT', '/admin/settings/notifications', ['site.settings.updated']),
+  notificationPreferences: auditedRoute('PUT', '/profile/notifications', ['profile.notifications.updated']),
+  pushSubscriptionAdd: auditedRoute('POST', '/profile/notifications/push', ['profile.notifications.updated']),
+  pushSubscriptionRemove: auditedRoute('DELETE', '/profile/notifications/push', ['profile.notifications.updated']),
 } as const;
 
 export const AUDITED_MEMBER_MUTATION_ROUTE_DESCRIPTORS = Object.values(AUDITED_MEMBER_MUTATION_ROUTES);
@@ -1095,38 +1109,59 @@ async function handleMembershipApply(req: IncomingMessage, res: ServerResponse, 
   sendJson(res, 200, { member });
 }
 
-// Same recipients as a new registration (the roles configured under Powiadomienia e-mail).
+// Same recipients as a new registration (the roles configured under Powiadomienia).
 async function notifyPhotosSubmitted(
   deps: ServerDeps,
   uploader: { email: string; firstName: string; lastName: string; nickname?: string | null },
   photoCount: number,
 ): Promise<void> {
-  try {
-    const settings = await getNotificationSettings(deps.firestore);
-    const recipients = await resolveRegistrationRecipients(
-      { firestore: deps.firestore, listAdminAllowlistEmails: deps.listAdminAllowlistEmails },
-      settings.registrationRecipientRoles,
-    );
-    await sendNotifications(deps.mailer, recipients.map(to => photosSubmittedMessage(to, uploader, photoCount, deps.allowedOrigin)));
-  } catch (err) {
-    console.error('Nie udało się wysłać powiadomień o nowych zdjęciach:', err);
-  }
+  await notifyAdminRecipients(
+    deps,
+    to => photosSubmittedMessage(to, uploader, photoCount, deps.allowedOrigin),
+    photosSubmittedPush(uploader, photoCount),
+    'Nie udało się wysłać powiadomień o nowych zdjęciach:',
+  );
 }
 
 async function notifyRegistrationSubmitted(
   deps: ServerDeps,
   applicant: { email: string; firstName: string; lastName: string; nickname?: string | null },
 ): Promise<void> {
+  await notifyAdminRecipients(
+    deps,
+    to => registrationSubmittedMessage(to, applicant, deps.allowedOrigin),
+    registrationSubmittedPush(applicant),
+    'Nie udało się wysłać powiadomień o nowym zgłoszeniu członkowskim:',
+  );
+}
+
+// E-mail to the configured e-mail roles, push to the configured push roles - two independent,
+// best-effort channels, so a push outage never costs the e-mail and vice versa.
+async function notifyAdminRecipients(
+  deps: ServerDeps,
+  mailFor: (to: string) => MailMessage,
+  push: PushMessage,
+  failureLog: string,
+): Promise<void> {
+  const sources = { firestore: deps.firestore, listAdminAllowlistEmails: deps.listAdminAllowlistEmails };
+  let settings: NotificationSettings;
   try {
-    const settings = await getNotificationSettings(deps.firestore);
-    const recipients = await resolveRegistrationRecipients(
-      { firestore: deps.firestore, listAdminAllowlistEmails: deps.listAdminAllowlistEmails },
-      settings.registrationRecipientRoles,
-    );
-    await sendNotifications(deps.mailer, recipients.map(to => registrationSubmittedMessage(to, applicant, deps.allowedOrigin)));
+    settings = await getNotificationSettings(deps.firestore);
   } catch (err) {
-    console.error('Nie udało się wysłać powiadomień o nowym zgłoszeniu członkowskim:', err);
+    console.error(failureLog, err);
+    return;
   }
+  await Promise.all([
+    (async () => {
+      const recipients = await resolveRegistrationRecipients(sources, settings.registrationRecipientRoles);
+      await sendNotifications(deps.mailer, deps.firestore, recipients.map(mailFor));
+    })().catch(err => console.error(failureLog, err)),
+    (async () => {
+      if (!deps.pusher.publicKey) return;
+      const recipients = await resolveRegistrationRecipients(sources, settings.pushRecipientRoles);
+      await sendPushNotifications(deps.pusher, deps.firestore, recipients, push);
+    })().catch(err => console.error(failureLog, err)),
+  ]);
 }
 
 // Exchanges a raw Google ID token (verified once, here) for a first-party session cookie -
@@ -1361,24 +1396,125 @@ async function handleAdminGetNotificationSettings(req: IncomingMessage, res: Ser
 
 async function handleAdminUpdateNotificationSettings(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
-  const body = await readJsonBody<{ registrationRecipientRoles?: unknown }>(req, deps.maxJsonBodyBytes);
+  const body = await readJsonBody<{ registrationRecipientRoles?: unknown; pushRecipientRoles?: unknown }>(req, deps.maxJsonBodyBytes);
   const roles = parseNotifiableRoles(body.registrationRecipientRoles);
   if (!roles) throw new AuthError('Nieprawidłowa lista ról.', 400);
+  // Optional so a client that predates push keeps working; absent keeps the stored push roles.
+  const pushRoles = body.pushRecipientRoles === undefined ? undefined : parseNotifiableRoles(body.pushRecipientRoles);
+  if (pushRoles === null) throw new AuthError('Nieprawidłowa lista ról.', 400);
   const { result: settings } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.notificationSettings,
     'site.settings.updated',
     async tx => {
       const current = await getNotificationSettings(tx);
+      const pushBefore = current.pushRecipientRoles.join(',');
+      const pushAfter = (pushRoles ?? current.pushRecipientRoles).join(',');
       return {
         actor: { email: identity.email },
         resource: { kind: 'settings', key: 'settings:notifications', display: 'notifications' },
-        changes: [{ field: 'recipientRoles', before: current.registrationRecipientRoles.join(','), after: roles.join(',') }],
+        changes: [
+          { field: 'recipientRoles', before: current.registrationRecipientRoles.join(','), after: roles.join(',') },
+          ...(pushBefore !== pushAfter ? [{ field: 'pushRecipientRoles', before: pushBefore, after: pushAfter }] : []),
+        ],
       };
     },
-    tx => setNotificationSettingsInTransaction(tx, { registrationRecipientRoles: roles }),
+    async tx => {
+      const current = await getNotificationSettings(tx);
+      return setNotificationSettingsInTransaction(tx, { registrationRecipientRoles: roles, pushRecipientRoles: pushRoles ?? current.pushRecipientRoles });
+    },
   );
   sendJson(res, 200, settings);
+}
+
+// A person's own notification choices (/profil/): e-mail on/off for every notification e-mail,
+// and the push-enabled devices. `push.eligible` says whether this person is currently one of the
+// configured push recipients - the profile only offers the push switch when it would do anything.
+async function handleGetProfileNotifications(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const email = identity.email.toLowerCase();
+  const [preferences, settings] = await Promise.all([
+    getNotificationPreferences(deps.firestore, email),
+    getNotificationSettings(deps.firestore),
+  ]);
+  const pushRecipients = deps.pusher.publicKey
+    ? await resolveRegistrationRecipients({ firestore: deps.firestore, listAdminAllowlistEmails: deps.listAdminAllowlistEmails }, settings.pushRecipientRoles)
+    : [];
+  sendJson(res, 200, {
+    emailEnabled: preferences.emailEnabled,
+    push: {
+      publicKey: deps.pusher.publicKey,
+      eligible: pushRecipients.includes(email),
+      // Lets the page tell whether THIS browser's subscription is the one already registered.
+      endpoints: preferences.pushSubscriptions.map(subscription => subscription.endpoint),
+    },
+  });
+}
+
+async function handlePutProfileNotifications(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const email = identity.email.toLowerCase();
+  const body = await readJsonBody<{ emailEnabled?: unknown }>(req, deps.maxJsonBodyBytes);
+  if (typeof body.emailEnabled !== 'boolean') throw new AuthError('Nieprawidłowe ustawienie powiadomień.', 400);
+  const emailEnabled = body.emailEnabled;
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.notificationPreferences,
+    'profile.notifications.updated',
+    async tx => {
+      const current = await getNotificationPreferences(tx, email);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'member', key: `member:${email}`, display: 'member' },
+        changes: [{ field: 'emailNotifications', before: current.emailEnabled, after: emailEnabled }],
+      };
+    },
+    tx => setEmailEnabledInTransaction(tx, email, emailEnabled),
+  );
+  sendJson(res, 200, { emailEnabled: result.emailEnabled });
+}
+
+async function handlePostProfilePushSubscription(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const email = identity.email.toLowerCase();
+  if (!deps.pusher.publicKey) throw new AuthError('Powiadomienia push nie są skonfigurowane.', 503);
+  const body = await readJsonBody<{ subscription?: unknown }>(req, deps.maxJsonBodyBytes);
+  const subscription = parsePushSubscription(body.subscription);
+  if (!subscription) throw new AuthError('Nieprawidłowa subskrypcja push.', 400);
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.pushSubscriptionAdd,
+    'profile.notifications.updated',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'member', key: `member:${email}`, display: 'member' },
+      changes: [{ field: 'pushDevice', after: 'added' }],
+    },
+    tx => addPushSubscriptionInTransaction(tx, email, subscription, new Date()),
+  );
+  sendJson(res, 200, { endpoints: result.pushSubscriptions.map(existing => existing.endpoint) });
+}
+
+async function handleDeleteProfilePushSubscription(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const email = identity.email.toLowerCase();
+  const body = await readJsonBody<{ endpoint?: unknown }>(req, deps.maxJsonBodyBytes);
+  if (typeof body.endpoint !== 'string' || !body.endpoint || body.endpoint.length > MAX_PUSH_ENDPOINT_LENGTH) {
+    throw new AuthError('Nieprawidłowa subskrypcja push.', 400);
+  }
+  const endpoint = body.endpoint;
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.pushSubscriptionRemove,
+    'profile.notifications.updated',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'member', key: `member:${email}`, display: 'member' },
+      changes: [{ field: 'pushDevice', after: 'removed' }],
+    },
+    tx => removePushSubscriptionInTransaction(tx, email, endpoint),
+  );
+  sendJson(res, 200, { endpoints: result.pushSubscriptions.map(existing => existing.endpoint) });
 }
 
 const MEMBERSHIP_STATUSES = ['pending', 'active', 'suspended', 'removed', 'rejected'] as const;
@@ -1470,7 +1606,7 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
     },
   );
   if (transition === 'approve' || transition === 'reject') {
-    await sendNotifications(deps.mailer, [
+    await sendNotifications(deps.mailer, deps.firestore, [
       membershipDecisionMessage(body.email.toLowerCase(), transition === 'approve' ? 'approved' : 'rejected', reason, deps.allowedOrigin),
     ]);
   }
@@ -2115,7 +2251,7 @@ async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse
   }
 
   invalidateAboutUsCache();
-  await sendNotifications(deps.mailer, [photoDecisionMessage(ownerEmail, 'approved', fileIds.length, null, deps.allowedOrigin)]);
+  await sendNotifications(deps.mailer, deps.firestore, [photoDecisionMessage(ownerEmail, 'approved', fileIds.length, null, deps.allowedOrigin)]);
   sendJson(res, 200, { folderId: targetFolderId });
 }
 
@@ -2177,7 +2313,7 @@ async function handleAdminRejectPhoto(req: IncomingMessage, res: ServerResponse,
   }
 
   invalidateAboutUsCache();
-  await sendNotifications(deps.mailer, [photoDecisionMessage(ownerEmail, 'rejected', fileIds.length, reason, deps.allowedOrigin)]);
+  await sendNotifications(deps.mailer, deps.firestore, [photoDecisionMessage(ownerEmail, 'rejected', fileIds.length, reason, deps.allowedOrigin)]);
   sendJson(res, 200, { ok: true });
 }
 
@@ -5246,6 +5382,14 @@ export function createRequestListener(deps: ServerDeps) {
         if (!rejectIfRateLimited(req, res)) await handleFacebookPosts(res, deps);
       } else if (req.method === 'GET' && url.pathname === '/youtube-videos') {
         if (!rejectIfRateLimited(req, res)) await handleYouTubeVideos(res);
+      } else if (req.method === 'GET' && url.pathname === '/profile/notifications') {
+        await handleGetProfileNotifications(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/profile/notifications') {
+        await handlePutProfileNotifications(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/profile/notifications/push') {
+        await handlePostProfilePushSubscription(req, res, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/profile/notifications/push') {
+        await handleDeleteProfilePushSubscription(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/settings/notifications') {
         await handleAdminGetNotificationSettings(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/settings/notifications') {
@@ -5361,6 +5505,10 @@ async function startProductionServer(): Promise<void> {
           from: config.notificationSender,
         })
       : createDisabledMailer();
+  const pusher: Pusher =
+    config.vapidPublicKey && config.vapidPrivateKey
+      ? createWebPusher({ publicKey: config.vapidPublicKey, privateKey: config.vapidPrivateKey, subject: config.vapidSubject })
+      : createDisabledPusher();
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps, docsDriveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
@@ -5397,6 +5545,7 @@ async function startProductionServer(): Promise<void> {
     listGroupEmails: () => krukiGroupAllowlist.getEmails(),
     sheetsClient,
     mailer,
+    pusher,
     listAdminAllowlistEmails: () => adminAllowlist.getEmails(),
     auditReconcilerServiceAccountEmail: config.auditReconcilerServiceAccountEmail,
     auditReconcileAudience: config.auditReconcileAudience,
