@@ -325,6 +325,14 @@ function hasUploadPhotos(person) {
   return !!person.mainPhoto || person.photos.length > 0;
 }
 
+function renderAdminPanelLoading() {
+  const panel = document.createElement('section');
+  panel.className = 'dashboard-admin-panel dashboard-admin-panel--loading';
+  panel.setAttribute('role', 'status');
+  panel.innerHTML = `<span class="busy-sticker-aura busy-sticker-aura--compact" aria-hidden="true"><img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--compact" alt=""></span> Sprawdzanie zadań administracyjnych…`;
+  return panel;
+}
+
 function renderAdminPanel(pendingCount, uploadPendingCount) {
   const panel = document.createElement('section');
   panel.className = 'dashboard-admin-panel';
@@ -351,7 +359,13 @@ function renderAdminPanel(pendingCount, uploadPendingCount) {
       </a>
     `);
   }
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    // Same compact green confirmation row as the settled dues panel, so an admin can tell
+    // "checked, nothing pending" apart from "still loading".
+    panel.className = 'dashboard-admin-panel dashboard-admin-panel--clear';
+    panel.innerHTML = `<span aria-hidden="true">✓</span> Brak zadań administracyjnych — nic nie oczekuje na Twoją akceptację.`;
+    return panel;
+  }
   panel.innerHTML = `
     <h2><span aria-hidden="true">🛠</span> Wymaga Twojej uwagi (Zarządzanie)</h2>
     <div class="dashboard-action-list">${rows.join('')}</div>
@@ -381,17 +395,20 @@ initGoogleSignIn({
     // same time as this callback fires, so this adds no perceptible delay.
     const resolvedMemberGateState = await memberGateStatePromise;
     if (resolvedMemberGateState === 'forbidden' || resolvedMemberGateState === 'signedOut') return;
+    const slot = document.getElementById('app-admin-panel-slot');
+    slot.replaceChildren(renderAdminPanelLoading());
     try {
       const [{ members }, { people }] = await Promise.all([
         apiFetch('/admin/members?status=pending', { method: 'GET' }, showReauth, hideReauth),
         apiFetch('/admin/people?category=upload', { method: 'GET' }, showReauth, hideReauth),
       ]);
       const uploadPendingCount = people.filter(hasUploadPhotos).length;
-      const adminPanel = renderAdminPanel(members.length, uploadPendingCount);
-      if (adminPanel) document.getElementById('app-admin-panel-slot').replaceChildren(adminPanel);
+      slot.replaceChildren(renderAdminPanel(members.length, uploadPendingCount));
     } catch (err) {
       // Admin panel is a bonus for an admin who's already looking at their own dashboard - a
-      // failed fetch here must not disturb the member-facing content above/below it.
+      // failed fetch here must not disturb the member-facing content above/below it, so just
+      // drop the loading placeholder.
+      slot.replaceChildren();
     }
   },
 });

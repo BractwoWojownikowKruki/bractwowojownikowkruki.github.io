@@ -1893,6 +1893,22 @@ button.lw-edit-toggle.lw-share--active {
   align-items: center;
   gap: 0.4rem;
 }
+/* Loading placeholder and "nothing pending" state - both collapse to one compact row. The clear
+   state mirrors .dashboard-dues-panel--settled's green confirmation. */
+.dashboard-admin-panel--loading,
+.dashboard-admin-panel--clear {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1.25rem;
+}
+.dashboard-admin-panel--loading { color: var(--text-muted); }
+.dashboard-admin-panel--clear {
+  border-color: var(--border);
+  background: transparent;
+  color: #6fcf73;
+  font-weight: 700;
+}
 .dashboard-action-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .dashboard-action-item {
   display: flex;
