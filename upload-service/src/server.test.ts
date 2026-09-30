@@ -19,10 +19,11 @@ import type { SheetAllowlist } from './allowlist.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { DriveClient, DriveFileInfo } from './drive.ts';
 import type { GithubClient } from './github.ts';
-import { resetAboutUsBootstrapForTests } from './about-us.ts';
+import { invalidateAboutUsCache, resetAboutUsBootstrapForTests } from './about-us.ts';
 import { resetSettingsBootstrapForTests } from './settings.ts';
 import { resetRateLimitForTests } from './rate-limit.ts';
 import { createInMemoryFirestoreClient } from './firestore.ts';
+import { createDisabledMailer, type MailMessage } from './mailer.ts';
 import { createDisabledSheetsClient } from './sheets.ts';
 import { createRoleAuthorizer } from './roles.ts';
 import { executeAuditedFirestoreMutation, startExternalOperation, completeExternalOperation } from './audit.ts';
@@ -198,6 +199,8 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     listMemberEmails: async () => [],
     listGroupEmails: async () => [],
     sheetsClient: createDisabledSheetsClient(),
+    mailer: createDisabledMailer(),
+    listAdminAllowlistEmails: async () => [],
     ...overrides,
   };
 }
@@ -9583,5 +9586,297 @@ test('PUT /equipment accepts a retired categoryId that the item already has', as
     assert.equal(res.status, 200, 'a retired categoryId already on the item must still be accepted');
     const { equipment } = (await res.json()) as { equipment: { description: string } };
     assert.equal(equipment.description, 'Stary namiot, opisany na nowo');
+  });
+});
+
+// ---- E-mail notifications (notifications.ts / mailer.ts / photo-rejections.ts) ----
+
+function makeRecordingMailer() {
+  const sent: MailMessage[] = [];
+  return { sent, mailer: { send: async (message: MailMessage) => { sent.push(message); return 'sent' as const; } } };
+}
+
+test('POST /membership/apply e-mails every configured-role holder once, and not again when a still-pending application is re-saved', async () => {
+  const client = makeListaWyjazdowaFirestore();
+  client.seed('members', 'hovding@example.com', seedMemberDoc({ email: 'hovding@example.com', status: 'active' }));
+  client.seed('members', 'suspended-admin@example.com', seedMemberDoc({ email: 'suspended-admin@example.com', status: 'suspended' }));
+  client.seed('members', 'accountant@example.com', seedMemberDoc({ email: 'accountant@example.com', status: 'active' }));
+  client.seed('userRoles', 'hovding@example.com', { roles: ['hovding'] });
+  client.seed('userRoles', 'suspended-admin@example.com', { roles: ['admin'] });
+  client.seed('userRoles', 'accountant@example.com', { roles: ['accountant'] });
+  const { sent, mailer } = makeRecordingMailer();
+  const deps = makeDeps({
+    firestore: client,
+    mailer,
+    listAdminAllowlistEmails: async () => ['Sheet-Admin@example.com'],
+    authenticateSessionOnly: async () => fakeSessionClaims({ sub: 'sub-1', email: 'new@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    for (let i = 0; i < 2; i++) {
+      const res = await fetch(`${baseUrl}/membership/apply`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+        body: JSON.stringify({ lastName: 'Nowak', firstName: 'Jan', sectionId: 'krakow' }),
+      });
+      assert.equal(res.status, 200);
+    }
+  });
+  // Default roles are admin + hovding: the allowlist admin and the active hovding, never the
+  // suspended admin or the accountant - and only for the first submission.
+  assert.deepEqual(sent.map(m => m.to).sort(), ['hovding@example.com', 'sheet-admin@example.com']);
+  assert.match(sent[0].subject, /Jan Nowak/);
+  assert.match(sent[0].text, /new@example\.com/);
+});
+
+test('PUT /admin/settings/notifications stores the chosen roles, audits the change, and GET returns them', async () => {
+  const client = createInMemoryFirestoreClient();
+  const deps = makeDeps({ firestore: client });
+  await withServer(deps, async baseUrl => {
+    const bad = await fetch(`${baseUrl}/admin/settings/notifications`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ registrationRecipientRoles: ['member'] }),
+    });
+    assert.equal(bad.status, 400);
+    const res = await fetch(`${baseUrl}/admin/settings/notifications`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ registrationRecipientRoles: ['accountant', 'hovding'] }),
+    });
+    assert.equal(res.status, 200);
+    const get = await fetch(`${baseUrl}/admin/settings/notifications`);
+    const body = await get.json();
+    assert.deepEqual(body.registrationRecipientRoles, ['hovding', 'accountant']);
+    assert.deepEqual(body.availableRoles, ['admin', 'hovding', 'accountant']);
+  });
+  const events = await client.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; before: string; after: string }> }>('auditEvents');
+  const event = events.find(e => e.data.resource.key === 'settings:notifications');
+  assert.equal(event?.data.action, 'site.settings.updated');
+  assert.deepEqual(event?.data.changes, [{ field: 'recipientRoles', before: 'admin,hovding', after: 'hovding,accountant', visibility: 'roleRestricted' }]);
+});
+
+test('POST /admin/members/transition e-mails the applicant on reject with the admin comment, and on approve', async () => {
+  const client = createInMemoryFirestoreClient();
+  for (const email of ['a@example.com', 'b@example.com']) {
+    client.seed('members', email, seedMemberDoc({ email, status: 'pending' }));
+  }
+  const { sent, mailer } = makeRecordingMailer();
+  const deps = makeDeps({ firestore: client, mailer });
+  await withServer(deps, async baseUrl => {
+    const post = (body: unknown) => fetch(`${baseUrl}/admin/members/transition`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify(body),
+    });
+    assert.equal((await post({ email: 'a@example.com', transition: 'reject', reason: 'x'.repeat(1001) })).status, 400);
+    assert.equal((await post({ email: 'a@example.com', transition: 'reject', reason: '  Brak składki.  ' })).status, 200);
+    assert.equal((await post({ email: 'b@example.com', transition: 'approve' })).status, 200);
+  });
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0].to, 'a@example.com');
+  assert.match(sent[0].subject, /odrzucone/);
+  assert.match(sent[0].text, /Komentarz: Brak składki\.\n/);
+  assert.equal(sent[1].to, 'b@example.com');
+  assert.match(sent[1].subject, /zaakceptowane/);
+});
+
+test('POST /admin/members/transition still succeeds when sending the e-mail throws', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('members', 'a@example.com', seedMemberDoc({ email: 'a@example.com', status: 'pending' }));
+  const deps = makeDeps({ firestore: client, mailer: { send: async () => { throw new Error('gmail down'); } } });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/transition`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'a@example.com', transition: 'approve' }),
+    });
+    assert.equal(res.status, 200);
+  });
+});
+
+test('PUT /admin/people/photo/reject moves the selected photos into Odrzucone, stores the comment, audits each file and e-mails the owner', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 's1' }));
+  const moved: Array<[string, string]> = [];
+  const written: Record<string, string> = {};
+  const { sent, mailer } = makeRecordingMailer();
+  const deps = makeDeps({
+    firestore,
+    mailer,
+    drive: makePersonTreeDrive({
+      readTextFile: async (id, fileName) => {
+        if (id === 's1' && fileName === '.owner-email') return 'ktos@gmail.com';
+        return written[`${id}/${fileName}`] ?? null;
+      },
+      writeTextFile: async (id, fileName, content) => { written[`${id}/${fileName}`] = content; },
+      ensureFolder: async (parent, name) => (parent === 's1' && name === 'Odrzucone' ? 's1-rejected' : `cat-${name}`),
+      listImageFiles: async id => (id === 's1'
+        ? [{ id: 'f1', name: 'f1.jpg', thumbnailLink: null }, { id: 'f2', name: 'f2.jpg', thumbnailLink: null }, { id: 'f3', name: 'f3.jpg', thumbnailLink: null }]
+        : []),
+      moveFile: async (fileId, target) => { moved.push([fileId, target]); return { previousFolderId: 's1' }; },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const outside = await fetch(`${baseUrl}/admin/people/photo/reject`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: ['f1', 'not-mine'], stagingFolderId: 's1' }),
+    });
+    assert.equal(outside.status, 404);
+    assert.deepEqual(moved, [], 'a batch naming a file outside the staging folder must move nothing');
+    const res = await fetch(`${baseUrl}/admin/people/photo/reject`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: ['f1', 'f2'], stagingFolderId: 's1', reason: 'Nieostre.' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.deepEqual(moved, [['f1', 's1-rejected'], ['f2', 's1-rejected']]);
+  const sidecar = JSON.parse(written['s1-rejected/.odrzucone.json']);
+  assert.equal(sidecar.f1.comment, 'Nieostre.');
+  assert.equal(sidecar.f2.rejectedBy, 'admin@gmail.com');
+  const events = await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after: unknown }> }>('auditEvents');
+  const rejected = events.filter(e => e.data.action === 'profile.photo_submission.photo_rejected');
+  assert.equal(rejected.length, 2);
+  assert.equal(rejected[0].data.resource.key, 'member:ktos@gmail.com:submission:s1');
+  assert.ok(rejected.every(e => e.data.changes.some(c => c.field === 'reasonLength' && c.after === 9)));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, 'ktos@gmail.com');
+  assert.match(sent[0].text, /Odrzucone zdjęcia: 2/);
+  assert.match(sent[0].text, /Komentarz: Nieostre\./);
+});
+
+test('PUT /admin/people/photo/reject without a comment e-mails the generic hovding message', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 's1' }));
+  const { sent, mailer } = makeRecordingMailer();
+  const deps = makeDeps({
+    firestore,
+    mailer,
+    drive: makePersonTreeDrive({
+      readTextFile: async (id, fileName) => (id === 's1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
+      listImageFiles: async id => (id === 's1' ? [{ id: 'f1', name: 'f1.jpg', thumbnailLink: null }] : []),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/reject`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: ['f1'], stagingFolderId: 's1', reason: '   ' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.match(sent[0].subject, /zdjęcie zostało odrzucone/);
+  assert.match(sent[0].text, /skontaktuj się ze swoim hovdingiem/);
+});
+
+test('PUT /admin/people/photo/approve e-mails the owner that their photos were accepted', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 's1', driveFolderId: 'existing-public-folder' }));
+  const { sent, mailer } = makeRecordingMailer();
+  const deps = makeDeps({
+    firestore,
+    mailer,
+    drive: makePersonTreeDrive({
+      readTextFile: async (id, fileName) => (id === 's1' && fileName === '.owner-email' ? 'ktos@gmail.com' : null),
+      listImageFiles: async id => (id === 's1' ? [{ id: 'f1', name: 'f1.jpg', thumbnailLink: null }] : []),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: ['f1'], stagingFolderId: 's1' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, 'ktos@gmail.com');
+  assert.match(sent[0].subject, /zaakceptowane/);
+});
+
+test('GET /lista-wyjazdowa/profile/photo lists rejected photos with their comment, apart from pending ones', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'staging-folder' }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      findFolderByName: async (parent, name) => (parent === 'staging-folder' && name === 'Odrzucone' ? 'rejected-folder' : null),
+      listImageFiles: async id => {
+        if (id === 'staging-folder') return [{ id: 'pending-1', name: 'p.jpg', thumbnailLink: 'https://example.test/p=s220' }];
+        if (id === 'rejected-folder') return [
+          { id: 'rej-1', name: 'r1.jpg', thumbnailLink: 'https://example.test/r1=s220' },
+          { id: 'rej-2', name: 'r2.jpg', thumbnailLink: null },
+        ];
+        return [];
+      },
+      readTextFile: async (id, fileName) => (id === 'rejected-folder' && fileName === '.odrzucone.json'
+        ? JSON.stringify({ 'rej-1': { comment: 'Za ciemne.', rejectedAt: '2026-09-30T10:00:00.000Z', rejectedBy: 'admin@gmail.com' } })
+        : null),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo`)).json();
+    assert.deepEqual(body.pending.photos.map((p: { id: string }) => p.id), ['pending-1']);
+    assert.deepEqual(body.rejected.photos, [
+      { id: 'rej-1', url: 'https://example.test/r1=s300', comment: 'Za ciemne.', rejectedAt: '2026-09-30T10:00:00.000Z' },
+      { id: 'rej-2', url: null, comment: null, rejectedAt: null },
+    ]);
+    assert.ok(!JSON.stringify(body).includes('admin@gmail.com'), 'the rejecting admin is not exposed to the member');
+  });
+});
+
+test('DELETE /lista-wyjazdowa/profile/photo?source=rejected deletes only from the caller\'s own Odrzucone folder and drops its comment', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 's1' }));
+  const deleted: string[] = [];
+  const written: Record<string, string> = {
+    'rejected-folder/.odrzucone.json': JSON.stringify({ 'rej-1': { comment: 'x', rejectedAt: 't', rejectedBy: 'a' }, 'rej-2': { comment: 'y', rejectedAt: 't', rejectedBy: 'a' } }),
+  };
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      findFolderByName: async (parent, name) => (parent === 's1' && name === 'Odrzucone' ? 'rejected-folder' : null),
+      listImageFiles: async id => {
+        if (id === 's1') return [{ id: 'pending-1', name: 'p.jpg', thumbnailLink: null }];
+        if (id === 'rejected-folder') return [{ id: 'rej-1', name: 'r.jpg', thumbnailLink: null }, { id: 'rej-2', name: 'r2.jpg', thumbnailLink: null }];
+        return [];
+      },
+      readTextFile: async (id, fileName) => written[`${id}/${fileName}`] ?? null,
+      writeTextFile: async (id, fileName, content) => { written[`${id}/${fileName}`] = content; },
+      deleteFolder: async id => { deleted.push(id); },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const pendingViaRejected = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo?source=rejected&fileId=pending-1`, { method: 'DELETE' });
+    assert.equal(pendingViaRejected.status, 404);
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo?source=rejected&fileId=rej-1`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+  });
+  assert.deepEqual(deleted, ['rej-1']);
+  assert.deepEqual(Object.keys(JSON.parse(written['rejected-folder/.odrzucone.json'])), ['rej-2']);
+  const events = await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents');
+  assert.ok(events.some(e => e.data.action === 'profile.photo_submission.photo_deleted' && e.data.resource.key === 'member:ktos@gmail.com:submission:s1'));
+});
+
+test('GET /admin/people?category=upload attaches rejectedPhotos without counting them as pending photos', async () => {
+  resetAboutUsBootstrapForTests();
+  invalidateAboutUsCache();
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `cat-${name}`,
+      listGalleryFolders: async id => (id === 'cat-upload' ? [{ id: 's1', name: 'Jan - ktos@gmail.com - 2026-09-30' }] : []) as never,
+      findFolderByName: async (parent, name) => (parent === 's1' && name === 'Odrzucone' ? 's1-rejected' : null),
+      listImageFiles: async id => (id === 's1-rejected' ? [{ id: 'rej-1', name: 'r.jpg', thumbnailLink: null }] : []),
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/admin/people?category=upload`)).json();
+    const [person] = body.people;
+    assert.equal(person.mainPhoto, null);
+    assert.deepEqual(person.photos, []);
+    assert.deepEqual(person.rejectedPhotos.map((p: { id: string }) => p.id), ['rej-1']);
   });
 });

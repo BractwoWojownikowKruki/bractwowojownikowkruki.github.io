@@ -57,6 +57,21 @@ import { applyForMembershipInTransaction, applyAdminTransitionInTransaction, lis
 import type { MembershipStatus } from './members.ts';
 import { createFirestoreMemberAuthorizer, listActiveMemberEmails } from './membership-authorization.ts';
 import { createDisabledSheetsClient, createSheetsClient, type SheetsClient } from './sheets.ts';
+import { createDisabledMailer, createGmailMailer, type Mailer } from './mailer.ts';
+import { ensureRejectedFolder, findRejectedFolder, forgetRejection, listRejectedPhotos, recordRejections, type RejectedPhoto } from './photo-rejections.ts';
+import {
+  getNotificationSettings,
+  membershipDecisionMessage,
+  normalizeRejectionReason,
+  parseNotifiableRoles,
+  photoDecisionMessage,
+  registrationSubmittedMessage,
+  resolveRegistrationRecipients,
+  sendNotifications,
+  setNotificationSettingsInTransaction,
+  NOTIFIABLE_ROLES,
+  MAX_REJECTION_REASON_LENGTH,
+} from './notifications.ts';
 import { getProfile, listAllProfiles, saveProfile, setProfileWeaponIds, setWpisowePaid, type ListaWyjazdowaProfileDoc, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 // KRKG-0087: people without an account are real people on the roster, not entries inside a
 // member's profile - the roster below unions the two sources.
@@ -199,6 +214,11 @@ export interface ServerDeps {
   // KRKG-0046: Google Sheets disaster-recovery backup of the members collection. Never a runtime
   // fallback for authorization - see sheets.ts's SheetsClient doc comment.
   sheetsClient: SheetsClient;
+  // E-mail notifications (notifications.ts/mailer.ts). A disabled mailer when GMAIL_* is unset.
+  mailer: Mailer;
+  // The /admin allowlist sheet's emails - "admin" recipients of registration notifications
+  // alongside Firestore 'admin' grants (see resolveRegistrationRecipients).
+  listAdminAllowlistEmails: () => Promise<string[]>;
   // KRKG-0050: Cloud Scheduler's own OIDC-authenticated service account, and the audience its
   // token must be issued for - see config.ts's matching comment. Both undefined until the
   // Scheduler job is separately provisioned (reconciler-runbook.md); the reconcile route fails
@@ -265,6 +285,7 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   equipmentAdd: auditedRoute('POST', '/equipment', ['equipment.added']),
   equipmentUpdate: auditedRoute('PUT', '/equipment', ['equipment.updated']),
   equipmentDelete: auditedRoute('DELETE', '/equipment', ['equipment.deleted']),
+  notificationSettings: auditedRoute('PUT', '/admin/settings/notifications', ['site.settings.updated']),
 } as const;
 
 export const AUDITED_MEMBER_MUTATION_ROUTE_DESCRIPTORS = Object.values(AUDITED_MEMBER_MUTATION_ROUTES);
@@ -1042,12 +1063,16 @@ async function handleMembershipApply(req: IncomingMessage, res: ServerResponse, 
   const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
   const lookupLists = await getAllLookupLists(deps.firestore);
   requireKnownLookupId(lookupLists.sections, sectionId, 'Wybrana sekcja nie istnieje.');
+  // Captured inside the transaction (the last attempt's read wins on a retry) - decides below
+  // whether this is a new application or just an edit of one that is still pending.
+  let previousStatus: MembershipStatus | null = null;
   const { result: member } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.membershipApply,
     'membership.application.submitted',
     async tx => {
       const existing = await tx.getDoc<MemberDoc>('members', identity.email.toLowerCase());
+      previousStatus = existing?.status ?? null;
       return {
         actor: { email: identity.email },
         resource: { kind: 'member', key: `member:${identity.email.toLowerCase()}`, display: 'member' },
@@ -1056,7 +1081,28 @@ async function handleMembershipApply(req: IncomingMessage, res: ServerResponse, 
     },
     tx => applyForMembershipInTransaction(tx, identity.email, { lastName, firstName, nickname: nicknameInput, sectionId }),
   );
+  // Re-saving an application that is still pending is an edit, not a new registration - only the
+  // first submission (or a re-application after a rejection/removal) notifies.
+  if (previousStatus !== 'pending') {
+    await notifyRegistrationSubmitted(deps, { email: identity.email.toLowerCase(), firstName, lastName, nickname: nicknameInput });
+  }
   sendJson(res, 200, { member });
+}
+
+async function notifyRegistrationSubmitted(
+  deps: ServerDeps,
+  applicant: { email: string; firstName: string; lastName: string; nickname?: string | null },
+): Promise<void> {
+  try {
+    const settings = await getNotificationSettings(deps.firestore);
+    const recipients = await resolveRegistrationRecipients(
+      { firestore: deps.firestore, listAdminAllowlistEmails: deps.listAdminAllowlistEmails },
+      settings.registrationRecipientRoles,
+    );
+    await sendNotifications(deps.mailer, recipients.map(to => registrationSubmittedMessage(to, applicant, deps.allowedOrigin)));
+  } catch (err) {
+    console.error('Nie udało się wysłać powiadomień o nowym zgłoszeniu członkowskim:', err);
+  }
 }
 
 // Exchanges a raw Google ID token (verified once, here) for a first-party session cookie -
@@ -1281,6 +1327,36 @@ async function handleAdminUpdateSettings(req: IncomingMessage, res: ServerRespon
   sendJson(res, 200, { ok: true });
 }
 
+// Which roles receive the "new member application" e-mail (notifications.ts). Admin-only, same
+// gate as the Facebook setting above.
+async function handleAdminGetNotificationSettings(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdmin(req, res);
+  const settings = await getNotificationSettings(deps.firestore);
+  sendJson(res, 200, { ...settings, availableRoles: NOTIFIABLE_ROLES });
+}
+
+async function handleAdminUpdateNotificationSettings(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  const body = await readJsonBody<{ registrationRecipientRoles?: unknown }>(req, deps.maxJsonBodyBytes);
+  const roles = parseNotifiableRoles(body.registrationRecipientRoles);
+  if (!roles) throw new AuthError('Nieprawidłowa lista ról.', 400);
+  const { result: settings } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.notificationSettings,
+    'site.settings.updated',
+    async tx => {
+      const current = await getNotificationSettings(tx);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'settings', key: 'settings:notifications', display: 'notifications' },
+        changes: [{ field: 'recipientRoles', before: current.registrationRecipientRoles.join(','), after: roles.join(',') }],
+      };
+    },
+    tx => setNotificationSettingsInTransaction(tx, { registrationRecipientRoles: roles }),
+  );
+  sendJson(res, 200, settings);
+}
+
 const MEMBERSHIP_STATUSES = ['pending', 'active', 'suspended', 'removed', 'rejected'] as const;
 
 async function handleAdminListMembers(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
@@ -1310,12 +1386,15 @@ const ADMIN_TRANSITIONS = ['approve', 'reject', 'suspend', 'reactivate', 'remove
 // design.md's Sheets failure/consistency contract and the plan review that caught this).
 async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminOrHovdingWithStepUp(req, res);
-  const body = await readJsonBody<{ email?: string; transition?: string }>(req, deps.maxJsonBodyBytes);
+  const body = await readJsonBody<{ email?: string; transition?: string; reason?: unknown }>(req, deps.maxJsonBodyBytes);
   if (!body.email) throw new AuthError('Brak email.', 400);
   if (!body.transition || !(ADMIN_TRANSITIONS as readonly string[]).includes(body.transition)) {
     throw new AuthError('Nieprawidłowe przejście statusu.', 400);
   }
   const transition = body.transition as AdminTransition;
+  // Optional admin comment, only ever mailed to the applicant on a rejection - not stored.
+  const reason = normalizeRejectionReason(body.reason);
+  if (reason === undefined) throw new AuthError(`Komentarz może mieć najwyżej ${MAX_REJECTION_REASON_LENGTH} znaków.`, 400);
   const actionByTransition = {
     approve: 'membership.status.approved',
     reject: 'membership.status.rejected',
@@ -1366,6 +1445,11 @@ async function handleAdminMemberTransition(req: IncomingMessage, res: ServerResp
       }),
     },
   );
+  if (transition === 'approve' || transition === 'reject') {
+    await sendNotifications(deps.mailer, [
+      membershipDecisionMessage(body.email.toLowerCase(), transition === 'approve' ? 'approved' : 'rejected', reason, deps.allowedOrigin),
+    ]);
+  }
   sendJson(res, 200, { member, sheetSyncStatus });
 }
 
@@ -1596,8 +1680,11 @@ async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse
 async function enrichUploadEntryWithPublicStatus(
   deps: ServerDeps,
   person: Person,
-): Promise<Person & { publicFolderId: string | null; publicName: string | null; publicDescription: string | null }> {
-  const nullResult = { ...person, publicFolderId: null, publicName: null, publicDescription: null };
+): Promise<Person & { rejectedPhotos: RejectedPhoto[]; publicFolderId: string | null; publicName: string | null; publicDescription: string | null }> {
+  // Shown greyed-out with a stamp in the admin Upload view; never counted as pending work (they
+  // are not in person.mainPhoto/photos, which is all the pending counts look at).
+  const rejectedPhotos = await listRejectedPhotos(deps.drive, person.folderId);
+  const nullResult = { ...person, rejectedPhotos, publicFolderId: null, publicName: null, publicDescription: null };
   const ownerEmailRaw = await deps.drive.readTextFile(person.folderId, '.owner-email');
   const ownerEmail = ownerEmailRaw?.trim().toLowerCase();
   if (!ownerEmail) return nullResult;
@@ -1610,6 +1697,7 @@ async function enrichUploadEntryWithPublicStatus(
   if (folderName == null) return nullResult;
   return {
     ...person,
+    rejectedPhotos,
     publicFolderId: member.driveFolderId,
     publicName: parsePersonFolderName(folderName).name,
     publicDescription: description,
@@ -1894,31 +1982,7 @@ async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse
   // this at all (no category to pick, the folder is already fixed).
   const validCategory: AboutUsCategory | null = targetCategory ? parseAboutUsCategory(targetCategory) : null;
 
-  const ownerEmailRaw = await deps.drive.readTextFile(stagingFolderId, '.owner-email');
-  const ownerEmail = ownerEmailRaw?.trim().toLowerCase();
-  if (!ownerEmail) {
-    sendJson(res, 404, { error: 'Nie znaleziono właściciela tego zgłoszenia.' });
-    return;
-  }
-  const member = await getMember(deps.firestore, ownerEmail);
-  if (!member) {
-    sendJson(res, 404, { error: 'Nie znaleziono właściciela tego zgłoszenia.' });
-    return;
-  }
-  if (member.stagingFolderId !== stagingFolderId) {
-    sendJson(res, 404, { error: 'To nie jest aktualny folder zgłoszeniowy tej osoby.' });
-    return;
-  }
-  const stagingImages = await deps.drive.listImageFiles(stagingFolderId);
-  const stagingImageById = new Map(stagingImages.map(image => [image.id, image]));
-  // Validate the WHOLE batch before moving anything - fail-closed, consistent with every other
-  // check above: a request naming even one file outside this folder moves none of them.
-  for (const fileId of fileIds) {
-    if (!stagingImageById.has(fileId)) {
-      sendJson(res, 404, { error: 'Ten plik nie należy do tego folderu.' });
-      return;
-    }
-  }
+  const { ownerEmail, member, stagingImageById } = await loadStagingSubmission(deps, stagingFolderId, fileIds);
 
   let targetFolderId: string;
   if (member.driveFolderId) {
@@ -1998,7 +2062,70 @@ async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse
   }
 
   invalidateAboutUsCache();
+  await sendNotifications(deps.mailer, [photoDecisionMessage(ownerEmail, 'approved', fileIds.length, null, deps.allowedOrigin)]);
   sendJson(res, 200, { folderId: targetFolderId });
+}
+
+// Shared by the approve and reject handlers: resolves a staging folder's owner and checks that
+// every named file is one of that folder's pending (direct-child) images. Validates the WHOLE
+// batch before anything moves - fail-closed: a request naming even one file outside this folder
+// (including an already-rejected one, which lives in the Odrzucone subfolder) acts on none of them.
+async function loadStagingSubmission(deps: ServerDeps, stagingFolderId: string, fileIds: readonly string[]) {
+  const ownerEmailRaw = await deps.drive.readTextFile(stagingFolderId, '.owner-email');
+  const ownerEmail = ownerEmailRaw?.trim().toLowerCase();
+  if (!ownerEmail) throw new AuthError('Nie znaleziono właściciela tego zgłoszenia.', 404);
+  const member = await getMember(deps.firestore, ownerEmail);
+  if (!member) throw new AuthError('Nie znaleziono właściciela tego zgłoszenia.', 404);
+  if (member.stagingFolderId !== stagingFolderId) throw new AuthError('To nie jest aktualny folder zgłoszeniowy tej osoby.', 404);
+  const stagingImages = await deps.drive.listImageFiles(stagingFolderId);
+  const stagingImageById = new Map(stagingImages.map(image => [image.id, image]));
+  for (const fileId of fileIds) {
+    if (!stagingImageById.has(fileId)) throw new AuthError('Ten plik nie należy do tego folderu.', 404);
+  }
+  return { ownerEmail, member, stagingImageById };
+}
+
+// Moves the selected pending photos into the staging folder's "Odrzucone" subfolder (see
+// photo-rejections.ts), records the admin's optional comment next to them and e-mails the member.
+// The member then sees them on /profil/ stamped "Odrzucone" and can only remove them.
+async function handleAdminRejectPhoto(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  const body = await readJsonBody<{ fileIds?: string[]; stagingFolderId?: string; reason?: unknown }>(req, deps.maxJsonBodyBytes);
+  const { fileIds, stagingFolderId } = body;
+  if (!stagingFolderId || !Array.isArray(fileIds) || fileIds.length === 0) {
+    throw new AuthError('Brak fileIds lub stagingFolderId.', 400);
+  }
+  requireDriveId(stagingFolderId, 'Brak fileIds lub stagingFolderId.');
+  for (const fileId of fileIds) requireDriveId(fileId, 'Brak fileIds lub stagingFolderId.');
+  const reason = normalizeRejectionReason(body.reason);
+  if (reason === undefined) throw new AuthError(`Komentarz może mieć najwyżej ${MAX_REJECTION_REASON_LENGTH} znaków.`, 400);
+
+  const { ownerEmail } = await loadStagingSubmission(deps, stagingFolderId, fileIds);
+  const rejectedFolderId = await ensureRejectedFolder(deps.drive, stagingFolderId);
+  // Comment first, then the moves: a photo that reaches Odrzucone always has its comment, while
+  // a failure part-way leaves at most a harmless comment entry for a photo that is still pending.
+  await recordRejections(deps.drive, rejectedFolderId, fileIds, {
+    comment: reason,
+    rejectedAt: new Date().toISOString(),
+    rejectedBy: identity.email.toLowerCase(),
+  });
+  const resourceKey = `member:${ownerEmail}:submission:${stagingFolderId}`;
+  for (const fileId of fileIds) {
+    await executeAuditedExternalMutation(
+      deps.firestore,
+      {
+        action: 'profile.photo_submission.photo_rejected',
+        actor: { email: identity.email },
+        resource: { kind: 'memberSubmission', key: resourceKey, display: stagingFolderId },
+        changes: [{ field: 'fileId', after: fileId }, { field: 'reasonLength', after: reason?.length ?? 0 }],
+      },
+      async () => deps.drive.moveFile(fileId, rejectedFolderId),
+    );
+  }
+
+  invalidateAboutUsCache();
+  await sendNotifications(deps.mailer, [photoDecisionMessage(ownerEmail, 'rejected', fileIds.length, reason, deps.allowedOrigin)]);
+  sendJson(res, 200, { ok: true });
 }
 
 // Toggles the "Oznacz jako in memoriam" marker (see IN_MEMORIAM_FILE_NAME in about-us.ts) - the
@@ -2461,16 +2588,21 @@ async function handleListaWyjazdowaGetProfilePhoto(req: IncomingMessage, res: Se
   }
 
   let pendingSection: { photos: PersonPhoto[] } | null = null;
+  let rejectedSection: { photos: RejectedPhoto[] } | null = null;
   if (member?.stagingFolderId) {
     const exists = await deps.drive.folderExists(member.stagingFolderId);
     if (exists) {
-      const images = await deps.drive.listImageFiles(member.stagingFolderId);
+      const [images, rejectedPhotos] = await Promise.all([
+        deps.drive.listImageFiles(member.stagingFolderId),
+        listRejectedPhotos(deps.drive, member.stagingFolderId),
+      ]);
       const { mainPhoto, photos } = mapDriveImagesToPhotos(images);
       pendingSection = { photos: mainPhoto ? [mainPhoto, ...photos] : photos };
+      if (rejectedPhotos.length > 0) rejectedSection = { photos: rejectedPhotos };
     }
   }
 
-  sendJson(res, 200, { public: publicSection, pending: pendingSection });
+  sendJson(res, 200, { public: publicSection, pending: pendingSection, rejected: rejectedSection });
 }
 
 // KRKG-0070: lets a member delete a photo from their own pending staging folder before an admin
@@ -2485,11 +2617,18 @@ async function handleListaWyjazdowaDeleteProfilePhoto(req: IncomingMessage, res:
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const fileId = requireDriveId(url.searchParams.get('fileId'), 'Brak fileId.');
   const rawSource = url.searchParams.get('source') ?? 'staging';
-  if (rawSource !== 'staging' && rawSource !== 'public') throw new AuthError('Nieprawidłowa wartość source.', 400);
-  const source = rawSource as 'staging' | 'public';
+  if (rawSource !== 'staging' && rawSource !== 'public' && rawSource !== 'rejected') throw new AuthError('Nieprawidłowa wartość source.', 400);
+  const source = rawSource as 'staging' | 'public' | 'rejected';
 
   const member = await getMember(deps.firestore, identity.email);
-  const folderId = source === 'public' ? member?.driveFolderId ?? null : member?.stagingFolderId ?? null;
+  const stagingFolderId = member?.stagingFolderId ?? null;
+  // source=rejected: the caller's own staging folder's Odrzucone subfolder (photo-rejections.ts) -
+  // still resolved from the member doc, never from a client-supplied id.
+  const folderId = source === 'public'
+    ? member?.driveFolderId ?? null
+    : source === 'rejected'
+      ? stagingFolderId && await findRejectedFolder(deps.drive, stagingFolderId)
+      : stagingFolderId;
   if (!folderId) {
     sendJson(res, 404, { error: source === 'public' ? 'Nie znaleziono publicznego folderu.' : 'Nie znaleziono folderu zgłoszeniowego.' });
     return;
@@ -2524,11 +2663,12 @@ async function handleListaWyjazdowaDeleteProfilePhoto(req: IncomingMessage, res:
         // matches profile.photo_submission.{created,photo_added}'s own resource key
         // (`member:{actorEmail}:submission:{folderId}`, implementation-contract.md's canonical
         // notation) so this submission's full Historia stays reachable under one resourceKey filter.
-        resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${folderId}`, display: folderId },
+        resource: { kind: 'memberSubmission', key: `member:${identity.email.toLowerCase()}:submission:${stagingFolderId}`, display: stagingFolderId! },
         changes: [{ field: 'fileId', after: fileId }],
       },
       async () => deps.drive.deleteFolder(fileId),
     );
+    if (source === 'rejected') await forgetRejection(deps.drive, folderId, fileId);
   }
   invalidateAboutUsCache();
   sendJson(res, 200, { ok: true });
@@ -4803,6 +4943,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminTransferPhoto(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/photo/approve') {
         await handleAdminApprovePhoto(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/people/photo/reject') {
+        await handleAdminRejectPhoto(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/in-memoriam') {
         await handleAdminSetInMemoriam(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/wojownicy-upload/whoami') {
@@ -4889,6 +5031,10 @@ export function createRequestListener(deps: ServerDeps) {
         if (!rejectIfRateLimited(req, res)) await handleFacebookPosts(res, deps);
       } else if (req.method === 'GET' && url.pathname === '/youtube-videos') {
         if (!rejectIfRateLimited(req, res)) await handleYouTubeVideos(res);
+      } else if (req.method === 'GET' && url.pathname === '/admin/settings/notifications') {
+        await handleAdminGetNotificationSettings(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/settings/notifications') {
+        await handleAdminUpdateNotificationSettings(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/settings') {
         await handleAdminGetSettings(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/settings') {
@@ -4991,6 +5137,15 @@ async function startProductionServer(): Promise<void> {
           sheetId: config.membersBackupSheetId,
         })
       : createDisabledSheetsClient();
+  const mailer: Mailer =
+    config.gmailClientId && config.gmailClientSecret && config.gmailRefreshToken
+      ? createGmailMailer({
+          clientId: config.gmailClientId,
+          clientSecret: config.gmailClientSecret,
+          refreshToken: config.gmailRefreshToken,
+          from: config.notificationSender,
+        })
+      : createDisabledMailer();
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps, docsDriveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
@@ -5026,6 +5181,8 @@ async function startProductionServer(): Promise<void> {
     listMemberEmails: () => listActiveMemberEmails(firestoreClient),
     listGroupEmails: () => krukiGroupAllowlist.getEmails(),
     sheetsClient,
+    mailer,
+    listAdminAllowlistEmails: () => adminAllowlist.getEmails(),
     auditReconcilerServiceAccountEmail: config.auditReconcilerServiceAccountEmail,
     auditReconcileAudience: config.auditReconcileAudience,
   };

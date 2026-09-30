@@ -74,6 +74,22 @@
       </section>
 
       <section style="margin-bottom: 2rem;">
+        <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Powiadomienia e-mail</h2>
+        <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
+          Osoby z zaznaczonymi rolami dostają e-mail, gdy ktoś złoży nowe zgłoszenie członkowskie.
+          Rola „Administrator” obejmuje też osoby z listy administratorów panelu.
+        </p>
+        <form id="notification-settings-form">
+          <fieldset id="notification-roles" style="border:none; padding:0; margin:0 0 0.75rem;">
+            <legend style="margin-bottom:0.5rem;">Powiadamiaj o nowych zgłoszeniach</legend>
+          </fieldset>
+          <button type="submit" class="btn-add-album">Zapisz</button>
+        </form>
+        <p id="notification-settings-status" style="margin-top:0.5rem;"></p>
+        <a class="audyt-history-btn" href="/admin/audyt/?resourceKey=settings%3Anotifications" title="Historia" aria-label="Historia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
+      </section>
+
+      <section style="margin-bottom: 2rem;">
         <h2 style="color: var(--gold); margin-bottom: 0.75rem;">Przekierowania</h2>
         <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
           Alias otwiera się pod adresem kruki.org/&lt;alias&gt; i przekierowuje na docelowy adres. Zmiana pojawia się na

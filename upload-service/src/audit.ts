@@ -93,6 +93,9 @@ const profileFields = {
   order: 'roleRestricted',
   fileId: 'roleRestricted',
   fileCount: 'roleRestricted',
+  // Length only, never the text itself - same reasoning as descriptionLength: an admin's free-text
+  // rejection comment is mailed to the member and shown on their profile, not copied into audit.
+  reasonLength: 'roleRestricted',
   mainPhoto: 'roleRestricted',
   inMemoriam: 'roleRestricted',
   descriptionHash: 'roleRestricted',
@@ -144,7 +147,7 @@ const galleryFields = {
   // added a passing-case test for this exact path).
   folderId: 'memberVisible',
 } as const;
-const siteFields = { path: 'roleRestricted', target: 'roleRestricted', liveFetchPostCount: 'roleRestricted', status: 'roleRestricted' } as const;
+const siteFields = { path: 'roleRestricted', target: 'roleRestricted', liveFetchPostCount: 'roleRestricted', status: 'roleRestricted', recipientRoles: 'roleRestricted' } as const;
 // Plain club content, same visibility level as galleryFields - nothing here is sensitive, every
 // member can already see every field on the /pliki page itself.
 const filesFields = { name: 'memberVisible', url: 'memberVisible', description: 'memberVisible', docType: 'memberVisible' } as const;
@@ -210,6 +213,7 @@ export const ACTION_REGISTRY = {
   'profile.photo_submission.created': action('profile', 'adminOrHovding', ['memberSubmission'], profileFields),
   'profile.photo_submission.photo_added': action('profile', 'adminOrHovding', ['memberSubmission'], profileFields),
   'profile.photo_submission.photo_deleted': action('profile', 'adminOrHovding', ['memberSubmission'], profileFields),
+  'profile.photo_submission.photo_rejected': action('profile', 'adminOrHovding', ['memberSubmission'], profileFields),
   // KRKG-0087: accountless-person record actions. Created/updated/deleted/detached are staff
   // (admin/hovding) visible like the other profile-category actions; the account merge is an
   // administrator-only operation (design "Uprawnienia": "Scalanie konta — wyłącznie administrator").

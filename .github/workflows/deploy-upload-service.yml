@@ -141,6 +141,9 @@ jobs:
             SHEETS_CLIENT_SECRET=sheets-oauth-client-secret:latest
             SHEETS_REFRESH_TOKEN=sheets-refresh-token:latest
             MEMBERS_BACKUP_SHEET_ID=members-backup-sheet-id:latest
+            GMAIL_CLIENT_ID=sheets-oauth-client-id:latest
+            GMAIL_CLIENT_SECRET=sheets-oauth-client-secret:latest
+            GMAIL_REFRESH_TOKEN=gmail-refresh-token:latest
 
       # KRKG-0032 drift check: confirms the identity actually running in Cloud Run right now
       # matches what we just asked for, rather than trusting the deploy call succeeded silently

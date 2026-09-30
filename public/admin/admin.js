@@ -15,6 +15,7 @@ initGoogleSignIn({
     document.getElementById('admin-email').textContent = payload.email;
     document.getElementById('admin-panel').hidden = false;
     loadFacebookSettings();
+    loadNotificationSettings();
     loadRedirects();
   },
   onSignedOut: () => {
@@ -71,6 +72,48 @@ document.getElementById('facebook-settings-form').addEventListener('submit', asy
       ),
       apply: () => { status.textContent = ''; },
       refreshFragment: loadFacebookSettings,
+    });
+  } catch (err) {
+    status.textContent = `Błąd: ${err.message}`;
+  }
+});
+
+const NOTIFICATION_ROLE_LABELS = { admin: 'Administrator', hovding: 'Hovding', accountant: 'Księgowy' };
+
+async function loadNotificationSettings() {
+  const fieldset = document.getElementById('notification-roles');
+  try {
+    const settings = await apiFetch('/admin/settings/notifications', { method: 'GET' }, showReauth, hideReauth);
+    fieldset.querySelectorAll('label').forEach(label => label.remove());
+    for (const role of settings.availableRoles) {
+      const checked = settings.registrationRecipientRoles.includes(role) ? ' checked' : '';
+      fieldset.insertAdjacentHTML(
+        'beforeend',
+        `<label style="display:block; margin-bottom:0.25rem;"><input type="checkbox" name="notification-role" value="${escapeAttr(role)}"${checked} /> ${escapeHtml(NOTIFICATION_ROLE_LABELS[role] ?? role)}</label>`,
+      );
+    }
+  } catch (err) {
+    document.getElementById('notification-settings-status').textContent = `Błąd: ${err.message}`;
+  }
+}
+
+document.getElementById('notification-settings-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const status = document.getElementById('notification-settings-status');
+  status.textContent = 'Zapisywanie...';
+  try {
+    const registrationRecipientRoles = Array.from(document.querySelectorAll('input[name="notification-role"]:checked')).map(input => input.value);
+    await window.MutationFeedback.confirmed({
+      control: document.getElementById('notification-roles'),
+      anchor: status,
+      execute: () => apiFetch(
+        '/admin/settings/notifications',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registrationRecipientRoles }) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: () => { status.textContent = ''; },
+      refreshFragment: loadNotificationSettings,
     });
   } catch (err) {
     status.textContent = `Błąd: ${err.message}`;

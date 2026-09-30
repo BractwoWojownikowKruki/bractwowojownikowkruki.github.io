@@ -3535,3 +3535,46 @@ a.audyt-history-btn svg {
   margin: 0;
   color: var(--gold);
 }
+
+/* Rejected self-service photo (photo-rejections.ts): an old post-office style rubber stamp across
+   a greyed-out photo. Used on /profil/ (the owner, who can only remove it) and in the admin
+   Upload view (read-only, never counted as pending). Wrap the <img> in .rejected-photo and add a
+   .rejected-stamp sibling. */
+.rejected-photo {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+}
+
+.rejected-photo img {
+  filter: grayscale(1) brightness(0.7);
+}
+
+.rejected-stamp {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-18deg);
+  padding: 0.2em 0.5em;
+  border: 4px double #ef3b3b;
+  border-radius: 6px;
+  color: #ef3b3b;
+  background: rgba(0, 0, 0, 0.25);
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0.9;
+  box-shadow: 0 0 0 1px rgba(212, 42, 42, 0.35) inset;
+}
+
+.rejected-comment {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0.35rem 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}

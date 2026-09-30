@@ -24,14 +24,14 @@ initGoogleSignIn({
 
 // A pending application always leaves this list after either server-confirmed transition. Keeping
 // that small DOM update local preserves the administrator's scroll position and nearby focus.
-async function postMembershipTransition(row, email, transition) {
+async function postMembershipTransition(row, email, transition, reason) {
   const list = document.getElementById('membership-applications-list');
   const result = await window.MutationFeedback.confirmed({
     control: row.querySelector(`.${transition}-application`),
     anchor: list,
     execute: () => apiFetch(
       '/admin/members/transition',
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, transition }) },
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, transition, reason: reason || undefined }) },
       showReauth,
       hideReauth,
     ),
@@ -95,8 +95,14 @@ document.getElementById('membership-applications-list').addEventListener('click'
       const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
       if (sheetWarning) window.alert(sheetWarning);
     } else if (e.target.closest('.reject-application')) {
-      if (!window.confirm(`Na pewno odrzucić zgłoszenie ${email}?`)) return;
-      const sheetSyncStatus = await postMembershipTransition(row, email, 'reject');
+      // Doubles as the confirmation: Cancel (null) aborts, OK with an empty field rejects with the
+      // generic e-mail text instead of a comment.
+      const reason = window.prompt(
+        `Na pewno odrzucić zgłoszenie ${email}?\n\nKomentarz dla tej osoby (opcjonalnie, zostanie wysłany e-mailem):`,
+        '',
+      );
+      if (reason === null) return;
+      const sheetSyncStatus = await postMembershipTransition(row, email, 'reject', reason.trim().slice(0, 1000));
       const sheetWarning = sheetSyncStatusMessage(sheetSyncStatus);
       if (sheetWarning) window.alert(sheetWarning);
     }

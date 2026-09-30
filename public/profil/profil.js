@@ -50,6 +50,10 @@ function loadCurrentSubmission() {
   return apiFetch('/lista-wyjazdowa/profile/photo', { method: 'GET' }, showReauth, hideReauth);
 }
 
+// Same text the rejection e-mail uses when the admin left no comment (notifications.ts).
+const REJECTED_PHOTO_GENERIC_MESSAGE =
+  'Twoje zdjęcia zostały odrzucone z powodu problemów. Jeśli nie wiesz, o co chodzi, skontaktuj się ze swoim hovdingiem.';
+
 // Shows whatever the member has already uploaded (if anything) above the picker, so "did my
 // photo actually make it" has a real answer instead of the picker just going blank after save
 // (KRKG: driveFolderId/photo-display gap, design.md §6). Nothing here is editable - replacing the
@@ -64,9 +68,11 @@ function renderCurrentSubmission(response) {
   const container = document.getElementById('lw-current-submission');
   const publicSection = response?.public;
   const pendingSection = response?.pending;
+  const rejectedSection = response?.rejected;
   const hasPublic = !!publicSection && (publicSection.mainPhoto || publicSection.photos.length > 0);
   const hasPending = !!pendingSection && pendingSection.photos.length > 0;
-  if (!hasPublic && !hasPending) {
+  const hasRejected = !!rejectedSection && rejectedSection.photos.length > 0;
+  if (!hasPublic && !hasPending && !hasRejected) {
     container.hidden = true;
     container.innerHTML = '';
     return;
@@ -111,7 +117,47 @@ function renderCurrentSubmission(response) {
   `
     : '';
 
-  container.innerHTML = publicHtml + pendingHtml;
+  // Rejected by an admin (with their optional comment) - stamped "Odrzucone", and removing is
+  // the only thing a member can do with them.
+  const rejectedHtml = hasRejected
+    ? `
+    <p class="lw-hint">Odrzucone przez administratora - możesz je tylko usunąć.</p>
+    ${rejectedSection.photos
+      .map(
+        (photo) => `
+      <div class="lw-photo-thumb">
+        <div class="rejected-photo">
+          <img src="${escapeAttr(photo.url || '')}" alt="${photo.url ? 'Odrzucone zdjęcie' : 'Miniatura zdjęcia będzie dostępna później'}" />
+          <span class="rejected-stamp" aria-hidden="true">Odrzucone</span>
+        </div>
+        <p class="rejected-comment">${escapeHtml(photo.comment || REJECTED_PHOTO_GENERIC_MESSAGE)}</p>
+        <button type="button" class="lw-crop-btn lw-delete-rejected-btn" data-file-id="${escapeAttr(photo.id)}">Usuń</button>
+      </div>`,
+      )
+      .join('')}
+  `
+    : '';
+
+  container.innerHTML = publicHtml + pendingHtml + rejectedHtml;
+}
+
+// Removes one of the caller's own rejected photos (the Odrzucone subfolder of their staging
+// folder) - same flow as deletePendingPhoto, just source=rejected.
+async function deleteRejectedPhoto(control) {
+  const container = document.getElementById('lw-current-submission');
+  await window.MutationFeedback.confirmed({
+    control,
+    anchor: container,
+    viewRoot: document.getElementById('profile-form'),
+    refreshFragment: async () => renderCurrentSubmission(await loadCurrentSubmission()),
+    execute: () => apiFetch(
+      `/lista-wyjazdowa/profile/photo?source=rejected&fileId=${encodeURIComponent(control.dataset.fileId)}`,
+      { method: 'DELETE' },
+      showReauth,
+      hideReauth,
+    ),
+    apply: async () => renderCurrentSubmission(await loadCurrentSubmission()),
+  });
 }
 
 // Deletes one of the caller's own still-pending (staging-folder) photos, then re-renders the
@@ -177,15 +223,16 @@ async function setMainPhoto(control) {
 }
 
 document.getElementById('lw-current-submission').addEventListener('click', (e) => {
-  const deleteBtn = e.target.closest('.lw-delete-pending-btn, .lw-delete-public-btn');
+  const deleteBtn = e.target.closest('.lw-delete-pending-btn, .lw-delete-public-btn, .lw-delete-rejected-btn');
   if (deleteBtn) {
     // Confirm (public delete only) BEFORE disabling the button, not inside the async action -
     // cancelling resolves rather than rejects, so a confirm gate placed after disabling would
     // never reach the .catch below that re-enables it, leaving the button stuck disabled forever.
     const isPublic = deleteBtn.classList.contains('lw-delete-public-btn');
+    const isRejected = deleteBtn.classList.contains('lw-delete-rejected-btn');
     if (isPublic && !window.confirm('Usunąć to zdjęcie? Zniknie z publicznej strony „Wojownicy”.')) return;
     deleteBtn.disabled = true;
-    const action = isPublic ? deletePublicPhoto : deletePendingPhoto;
+    const action = isPublic ? deletePublicPhoto : isRejected ? deleteRejectedPhoto : deletePendingPhoto;
     action(deleteBtn).catch((err) => {
       deleteBtn.disabled = false;
       window.alert(`Nie udało się usunąć zdjęcia: ${err.message}`);

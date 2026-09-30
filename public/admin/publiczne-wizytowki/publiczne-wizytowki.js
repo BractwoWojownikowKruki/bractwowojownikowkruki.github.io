@@ -251,12 +251,50 @@ function uploadEditableFieldsHtml() {
     </div>`;
 }
 
+// Same text the rejection e-mail and /profil/ show when no comment was given (notifications.ts).
+const REJECTED_PHOTO_GENERIC_MESSAGE =
+  'Twoje zdjęcia zostały odrzucone z powodu problemów. Jeśli nie wiesz, o co chodzi, skontaktuj się ze swoim hovdingiem.';
+
+// A photo an admin already rejected (photo-rejections.ts): greyed out, stamped, read-only. It
+// waits for the member to remove it from /profil/ and is never counted as pending work.
+function uploadRejectedPhotoHtml(photo) {
+  return `
+    <div class="upload-rejected-item" data-file-id="${escapeAttr(photo.id)}" style="display:inline-block; width:120px; margin:0 0.5rem 0.5rem 0; vertical-align:top;">
+      <div class="rejected-photo">
+        <img src="${escapeAttr(photo.url || '')}" alt="${photo.url ? 'Odrzucone zdjęcie' : 'Miniatura zdjęcia będzie dostępna później'}" style="width:120px; height:120px; object-fit:cover; border-radius:4px; display:block; border:1px solid var(--border);" />
+        <span class="rejected-stamp" aria-hidden="true">Odrzucone</span>
+      </div>
+      <p class="rejected-comment">${escapeHtml(photo.comment || REJECTED_PHOTO_GENERIC_MESSAGE)}</p>
+    </div>`;
+}
+
+function uploadRejectedSectionHtml(rejectedPhotos) {
+  return `
+    <div class="upload-rejected" ${rejectedPhotos.length ? '' : 'hidden'} style="margin:0.75rem 0;">
+      <p style="margin:0 0 0.5rem; color:var(--text-muted); font-size:12px;">Odrzucone (czekają, aż osoba je usunie - nie wymagają akcji):</p>
+      <div class="upload-rejected-list">${rejectedPhotos.map(uploadRejectedPhotoHtml).join('')}</div>
+    </div>`;
+}
+
+function uploadDecisionControlsHtml(p) {
+  const isPublished = !!p.publicFolderId;
+  const nameDescHtml = isPublished ? uploadReadOnlyFieldsHtml(p.publicName, p.publicDescription) : uploadEditableFieldsHtml();
+  return `
+    <div class="upload-decision">
+      ${nameDescHtml}
+      <button class="approve-batch" data-folder-id="${p.folderId}" data-public-folder-id="${escapeAttr(p.publicFolderId ?? '')}">Przenieś</button>
+      <label style="display:block; margin:0.75rem 0 0.5rem;">Komentarz do odrzucenia (opcjonalnie, trafi do osoby)
+        <textarea class="upload-reject-reason" rows="2" maxlength="1000" placeholder="Np. zdjęcie jest nieostre" style="display:block; width:100%; margin-top:4px;"></textarea>
+      </label>
+      <button class="reject-batch" data-folder-id="${p.folderId}" style="color:var(--accent);">Odrzuć zaznaczone</button>
+    </div>`;
+}
+
 function uploadPersonCardHtml(p) {
   const galleryHtml = p.photos.length
     ? `<div class="person-gallery">${p.photos.map(photo => uploadPhotoPickHtml(p.folderId, photo, false)).join('')}</div>`
     : '';
-  const isPublished = !!p.publicFolderId;
-  const nameDescHtml = isPublished ? uploadReadOnlyFieldsHtml(p.publicName, p.publicDescription) : uploadEditableFieldsHtml();
+  const rejectedPhotos = p.rejectedPhotos || [];
   return `
     <div id="${personCardId(p.folderId)}" class="manage-person-card" data-folder-id="${escapeAttr(p.folderId)}" data-public-folder-id="${escapeAttr(p.publicFolderId ?? '')}" style="border:1px solid var(--border); border-radius:6px; padding:1rem;">
       <strong class="person-name">${escapeHtml(p.name)}</strong>
@@ -265,9 +303,22 @@ function uploadPersonCardHtml(p) {
         ${p.mainPhoto ? uploadPhotoPickHtml(p.folderId, p.mainPhoto, true) : ''}
         ${galleryHtml}
       </div>
-      ${nameDescHtml}
-      <button class="approve-batch" data-folder-id="${p.folderId}" data-public-folder-id="${escapeAttr(p.publicFolderId ?? '')}">Przenieś</button>
+      ${hasUploadPhotos(p) ? uploadDecisionControlsHtml(p) : ''}
+      ${uploadRejectedSectionHtml(rejectedPhotos)}
     </div>`;
+}
+
+// After the last pending photo leaves a card: drop the decision controls, and drop the whole card
+// too unless it still shows rejected photos.
+function settleUploadCard(card) {
+  if (card.querySelector('.upload-photo-item')) return;
+  const list = document.getElementById('manage-people-list');
+  if (card.querySelector('.upload-rejected-item')) {
+    card.querySelector('.upload-decision')?.remove();
+    return;
+  }
+  card.remove();
+  if (!list.querySelector('.manage-person-card')) list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
 }
 
 // A staging submission with no photos at all (e.g. every photo was deleted, by the member or an
@@ -283,7 +334,9 @@ function renderManageList(people, transferTargets) {
   transferTargetsCache = transferTargets;
   const currentCategory = document.getElementById('manage-category').value;
   if (currentCategory === 'upload') {
-    const withPhotos = people.filter(hasUploadPhotos);
+    // Rejected-only cards stay visible (read-only), but the banner below still counts only
+    // hasUploadPhotos - rejected photos are not pending work.
+    const withPhotos = people.filter(p => hasUploadPhotos(p) || (p.rejectedPhotos || []).length > 0);
     list.innerHTML = withPhotos.length ? withPhotos.map(uploadPersonCardHtml).join('') : '<p>Brak zgłoszeń ze zdjęciami w tej kategorii.</p>';
     return;
   }
@@ -441,10 +494,47 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       showReauth, hideReauth,
     ), () => {
       item.remove();
-      if (!card.querySelector('.upload-photo-item')) {
-        card.remove();
-        if (!list.querySelector('.manage-person-card')) list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
+      settleUploadCard(card);
+    }, list);
+    return;
+  }
+  const rejectBatchBtn = e.target.closest('.reject-batch');
+  if (rejectBatchBtn) {
+    const folderId = rejectBatchBtn.dataset.folderId;
+    const card = personCard(folderId);
+    const list = document.getElementById('manage-people-list');
+    const checked = Array.from(card.querySelectorAll('.upload-photo-select:checked'));
+    if (!checked.length) {
+      window.alert('Zaznacz co najmniej jedno zdjęcie do odrzucenia.');
+      return;
+    }
+    const fileIds = checked.map(cb => cb.dataset.fileId);
+    const reason = card.querySelector('.upload-reject-reason').value.trim();
+    const confirmText = fileIds.length === 1
+      ? 'Odrzucić zaznaczone zdjęcie? Osoba dostanie e-mail i zobaczy je na swoim profilu jako odrzucone.'
+      : `Odrzucić zaznaczone zdjęcia (${fileIds.length})? Osoba dostanie e-mail i zobaczy je na swoim profilu jako odrzucone.`;
+    if (!window.confirm(confirmText)) return;
+    await confirmedPersonWrite(rejectBatchBtn, card, () => apiFetch(
+      '/admin/people/photo/reject',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileIds, stagingFolderId: folderId, reason: reason || undefined }),
+      },
+      showReauth,
+      hideReauth,
+    ), () => {
+      const rejectedSection = card.querySelector('.upload-rejected');
+      const rejectedList = card.querySelector('.upload-rejected-list');
+      for (const fileId of fileIds) {
+        const item = card.querySelector(`.upload-photo-item[data-file-id="${fileId}"]`);
+        if (!item) continue;
+        rejectedList.insertAdjacentHTML('beforeend', uploadRejectedPhotoHtml({ id: fileId, url: item.querySelector('img')?.getAttribute('src') || null, comment: reason || null }));
+        item.remove();
       }
+      rejectedSection.hidden = false;
+      card.querySelector('.upload-reject-reason').value = '';
+      settleUploadCard(card);
     }, list);
     return;
   }
@@ -499,10 +589,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
         approveBatchBtn.dataset.publicFolderId = newPublicFolderId;
         card.querySelector('.upload-fields').outerHTML = uploadReadOnlyFieldsHtml(enteredName, enteredDescription || null);
       }
-      if (!card.querySelector('.upload-photo-item')) {
-        card.remove();
-        if (!list.querySelector('.manage-person-card')) list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
-      }
+      settleUploadCard(card);
     }, list);
     return;
   }

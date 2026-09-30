@@ -57,6 +57,13 @@ export const config = {
   sheetsClientSecret: process.env.SHEETS_CLIENT_SECRET,
   sheetsRefreshToken: process.env.SHEETS_REFRESH_TOKEN,
   membersBackupSheetId: process.env.MEMBERS_BACKUP_SHEET_ID,
+  // E-mail notifications (mailer.ts) - optional/undefined until the one-time OAuth setup
+  // (scripts/get-gmail-refresh-token.ts, gmail.send scope) is done, same fail-safe pattern as the
+  // Sheets backup above: unset disables sending, never the service's boot.
+  gmailClientId: process.env.GMAIL_CLIENT_ID,
+  gmailClientSecret: process.env.GMAIL_CLIENT_SECRET,
+  gmailRefreshToken: process.env.GMAIL_REFRESH_TOKEN,
+  notificationSender: process.env.NOTIFICATION_SENDER ?? 'Bractwo Wojowników Kruki <bractwo.wojownikow.kruki@gmail.com>',
   googleOAuthClientId: requireEnv('GOOGLE_OAUTH_CLIENT_ID'),
   driveRefreshToken: requireEnv('DRIVE_REFRESH_TOKEN'),
   driveClientId: requireEnv('DRIVE_CLIENT_ID'),

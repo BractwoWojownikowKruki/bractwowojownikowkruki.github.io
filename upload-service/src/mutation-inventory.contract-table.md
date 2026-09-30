@@ -14,7 +14,7 @@ table into this file in the same change. If you forget, this test will keep pass
 stale copy while the real contract document silently diverges - exactly the failure mode this
 fixture exists to prevent.
 
-Last synced with implementation-contract.md: 2026-09-20 (KRKG-0098: added PUT /lista-wyjazdowa/event-equipment, action equipment.event_going.changed; KRKG-0096: added POST/PUT/DELETE /equipment, actions equipment.added/updated/deleted; KRKG-0091: added DELETE /lista-wyjazdowa/persons/permanent, action person.purged; KRKG-0087 added the accountless-person record routes POST/PUT/DELETE /lista-wyjazdowa/persons, PUT /lista-wyjazdowa/persons/owner, PUT /lista-wyjazdowa/persons/account and POST /lista-wyjazdowa/signups/quick-add, actions person.created/updated/deleted/detached/merged).
+Last synced with implementation-contract.md: 2026-09-30 (e-mail notifications: added PUT /admin/people/photo/reject, action profile.photo_submission.photo_rejected, and PUT /admin/settings/notifications, action site.settings.updated; DELETE /lista-wyjazdowa/profile/photo gained source=rejected; KRKG-0098: added PUT /lista-wyjazdowa/event-equipment, action equipment.event_going.changed; KRKG-0096: added POST/PUT/DELETE /equipment, actions equipment.added/updated/deleted; KRKG-0091: added DELETE /lista-wyjazdowa/persons/permanent, action person.purged; KRKG-0087 added the accountless-person record routes POST/PUT/DELETE /lista-wyjazdowa/persons, PUT /lista-wyjazdowa/persons/owner, PUT /lista-wyjazdowa/persons/account and POST /lista-wyjazdowa/signups/quick-add, actions person.created/updated/deleted/detached/merged).
 -->
 
 | Method and route | Classification and action | Resource and side effect | Execution |
@@ -22,9 +22,9 @@ Last synced with implementation-contract.md: 2026-09-20 (KRKG-0098: added PUT /l
 | POST `/session/login` | businessWrite — `session.login.succeeded` | session; Firestore login state | requestAwaited |
 | POST `/session/logout` | transientNoBusinessWrite — clears only the session response/cookie | no business record | n/a |
 | POST `/application/pwa-installation` | businessWrite — `application.pwa.installation_reported` | application; Firestore marker (`applicationInstallations`) plus one canonical event | requestAwaited |
-| POST `/membership/apply` | businessWrite — `membership.application.submitted` | member; Firestore | requestAwaited |
+| POST `/membership/apply` | businessWrite — `membership.application.submitted` | member; Firestore; best-effort e-mail to the configured recipient roles on a new application | requestAwaited |
 | POST `/admin/social-media/refresh` | businessWrite — `site.social_cache.refreshed` | settings; cache mutation | requestAwaited |
-| POST `/admin/members/transition` | businessWrite — data-resolved membership status action; correlated `membership.sheet_backup.synchronized` if mirror is requested | member; Firestore, optional Sheets | Firestore requestAwaited; Sheets auditedOperationEnvelope |
+| POST `/admin/members/transition` | businessWrite — data-resolved membership status action; correlated `membership.sheet_backup.synchronized` if mirror is requested | member; Firestore, optional Sheets; best-effort e-mail to the member on approve/reject | Firestore requestAwaited; Sheets auditedOperationEnvelope |
 | PUT `/admin/members/drive-folder` | businessWrite — `profile.drive_folder.changed` | member; Firestore | requestAwaited |
 | PUT `/admin/members/profile` | businessWrite — `profile.member.updated` | member; Firestore | requestAwaited |
 | PUT `/admin/members/weapons` | businessWrite — `profile.member.updated` | member; Firestore | requestAwaited |
@@ -38,11 +38,12 @@ Last synced with implementation-contract.md: 2026-09-20 (KRKG-0098: added PUT /l
 | POST/DELETE `/admin/people/photo` | businessWrite — `profile.person.photo.added` / `profile.person.photo.deleted` | person; Drive/Firestore | auditedOperationEnvelope |
 | PUT `/admin/people/photo/main` | businessWrite — `profile.person.photo.main.changed` | person; Drive file rename | auditedOperationEnvelope |
 | PUT `/admin/people/photo/transfer` | businessWrite — `profile.person.photo.transferred` | person; Drive file move | auditedOperationEnvelope |
-| PUT `/admin/people/photo/approve` | businessWrite — `profile.person.created` / `profile.drive_folder.changed` / `profile.person.photo.transferred` / `profile.person.photo.main.changed` | person / member; Drive folder create + file move + optional rename, Firestore driveFolderId link | auditedOperationEnvelope |
+| PUT `/admin/people/photo/approve` | businessWrite — `profile.person.created` / `profile.drive_folder.changed` / `profile.person.photo.transferred` / `profile.person.photo.main.changed` | person / member; Drive folder create + file move + optional rename, Firestore driveFolderId link; best-effort e-mail to the member | auditedOperationEnvelope |
+| PUT `/admin/people/photo/reject` | businessWrite — `profile.photo_submission.photo_rejected` | member submission; Drive file move into the staging folder's Odrzucone subfolder plus comment sidecar; best-effort e-mail to the member | auditedOperationEnvelope |
 | PUT `/admin/people/in-memoriam` | businessWrite — `profile.person.in_memoriam.changed` | person; Drive marker file | auditedOperationEnvelope |
 | POST `/wojownicy-upload/submit` | businessWrite — `profile.photo_submission.created` | member submission; Drive folder; provisional key then final submission folder key | auditedOperationEnvelope |
 | POST `/wojownicy-upload/photo` | businessWrite — `profile.photo_submission.photo_added` | member submission; Drive photo | auditedOperationEnvelope |
-| DELETE `/lista-wyjazdowa/profile/photo` | businessWrite — `profile.photo_submission.photo_deleted` (default/`source=staging`) or `profile.person.photo.deleted` (`source=public`) | member submission or person; Drive photo deletion, scoped to caller's own stagingFolderId or driveFolderId | auditedOperationEnvelope |
+| DELETE `/lista-wyjazdowa/profile/photo` | businessWrite — `profile.photo_submission.photo_deleted` (default/`source=staging`, or `source=rejected`) or `profile.person.photo.deleted` (`source=public`) | member submission or person; Drive photo deletion, scoped to caller's own stagingFolderId, its Odrzucone subfolder, or driveFolderId | auditedOperationEnvelope |
 | POST `/lista-wyjazdowa/profile/photo/main` | businessWrite — `profile.person.photo.main.changed` | person; Drive file rename, scoped to caller's own driveFolderId | auditedOperationEnvelope |
 | PUT `/lista-wyjazdowa/member` | businessWrite — `profile.member.updated` | member; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/profile` | businessWrite — `profile.member.updated` | member; Firestore | requestAwaited |
@@ -62,6 +63,7 @@ Last synced with implementation-contract.md: 2026-09-20 (KRKG-0098: added PUT /l
 | PUT `/lista-wyjazdowa/persons/account` | businessWrite — `person.merged` | person and member; Firestore | requestAwaited |
 | POST `/lista-wyjazdowa/signups/quick-add` | businessWrite — `person.created` + `signup.created` for `mode=new`; `signup.created` / `signup.updated` for `mode=existing` | person and signup; Firestore; one transaction | requestAwaited |
 | POST `/admin/settings` | businessWrite — `site.settings.updated` | settings; Drive text/config file | auditedOperationEnvelope |
+| PUT `/admin/settings/notifications` | businessWrite — `site.settings.updated` | settings; Firestore (`notificationSettings`) | requestAwaited |
 | POST `/delete-drive-gallery` | businessWrite — `gallery.deleted` | gallery; Drive | auditedOperationEnvelope |
 | POST `/start` | businessWrite — `gallery.created` | gallery; Drive folder/public share; provisional key then final gallery folder key | auditedOperationEnvelope |
 | POST `/register` | businessWrite — `gallery.registered` | gallery; GitHub | auditedOperationEnvelope |
