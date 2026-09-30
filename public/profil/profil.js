@@ -476,6 +476,26 @@ async function uploadPhoto(folderId, submissionToken, entry, isMain) {
   );
 }
 
+// One call per upload session, after the last photo: tells the server to send admins a single
+// "new photos waiting for approval" e-mail. The photos are already saved by then, so a failure
+// here must not turn a successful upload into an error for the member.
+async function finishUploadSession(folderId, submissionToken, photoCount) {
+  try {
+    await apiFetch(
+      '/wojownicy-upload/finish',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Submission-Token': submissionToken },
+        body: JSON.stringify({ folderId, photoCount }),
+      },
+      showReauth,
+      hideReauth,
+    );
+  } catch (err) {
+    console.warn('Nie udało się wysłać powiadomienia o nowych zdjęciach:', err);
+  }
+}
+
 // ── Form ────────────────────────────────────────────────────────────────────────────────────
 
 // Clears the photo picker after a successful upload so a follow-up edit (see the "Edytuj profil"
@@ -916,6 +936,7 @@ async function initForm(lookupLists) {
           uploaded++;
           progressEl.textContent = `Przesyłanie zdjęć (${uploaded}/${total})...`;
         }
+        await finishUploadSession(folderId, submissionToken, uploaded);
         // Reflects the photo(s) that just landed - without this the "already uploaded" panel
         // above the picker would keep showing the previous submission (or nothing) until the
         // member reloads the page.

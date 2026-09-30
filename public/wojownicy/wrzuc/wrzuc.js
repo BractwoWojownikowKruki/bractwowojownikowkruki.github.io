@@ -228,6 +228,22 @@ document.getElementById('wrzuc-confirm').addEventListener('click', async () => {
       await uploadPhoto(folderId, submissionToken, extraEntries[i], false);
       progressEl.textContent = `Przesyłanie zdjęć (${i + 2}/${total})...`;
     }
+    // One "new photos waiting" e-mail to admins per session (see profil.js's
+    // finishUploadSession) - best-effort, the photos are already saved.
+    try {
+      await apiFetch(
+        '/wojownicy-upload/finish',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Submission-Token': submissionToken },
+          body: JSON.stringify({ folderId, photoCount: total }),
+        },
+        showReauth,
+        hideReauth,
+      );
+    } catch (err) {
+      console.warn('Nie udało się wysłać powiadomienia o nowych zdjęciach:', err);
+    }
 
       },
       apply: showSavedSubmission,

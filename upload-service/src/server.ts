@@ -65,6 +65,7 @@ import {
   normalizeRejectionReason,
   parseNotifiableRoles,
   photoDecisionMessage,
+  photosSubmittedMessage,
   registrationSubmittedMessage,
   resolveRegistrationRecipients,
   sendNotifications,
@@ -1094,6 +1095,24 @@ async function handleMembershipApply(req: IncomingMessage, res: ServerResponse, 
   sendJson(res, 200, { member });
 }
 
+// Same recipients as a new registration (the roles configured under Powiadomienia e-mail).
+async function notifyPhotosSubmitted(
+  deps: ServerDeps,
+  uploader: { email: string; firstName: string; lastName: string; nickname?: string | null },
+  photoCount: number,
+): Promise<void> {
+  try {
+    const settings = await getNotificationSettings(deps.firestore);
+    const recipients = await resolveRegistrationRecipients(
+      { firestore: deps.firestore, listAdminAllowlistEmails: deps.listAdminAllowlistEmails },
+      settings.registrationRecipientRoles,
+    );
+    await sendNotifications(deps.mailer, recipients.map(to => photosSubmittedMessage(to, uploader, photoCount, deps.allowedOrigin)));
+  } catch (err) {
+    console.error('Nie udało się wysłać powiadomień o nowych zdjęciach:', err);
+  }
+}
+
 async function notifyRegistrationSubmitted(
   deps: ServerDeps,
   applicant: { email: string; firstName: string; lastName: string; nickname?: string | null },
@@ -1682,20 +1701,44 @@ async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse
 // upload from an already-published member (name/description already fixed, shown read-only).
 // Only meaningful for "upload" (every submission there IS a stagingFolderId); every other
 // department gets null for all three fields, unused by the frontend outside "upload".
+interface UploadOwner {
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  nickname: string | null;
+  categoryId: string | null;
+  categoryLabel: string | null;
+  status: MembershipStatus | null;
+}
+
 async function enrichUploadEntryWithPublicStatus(
   deps: ServerDeps,
   person: Person,
-): Promise<Person & { rejectedPhotos: RejectedPhoto[]; publicFolderId: string | null; publicName: string | null; publicDescription: string | null; applicationDescription: string | null }> {
+  categoryLabels: ReadonlyMap<string, string>,
+): Promise<Person & { rejectedPhotos: RejectedPhoto[]; owner: UploadOwner | null; publicFolderId: string | null; publicName: string | null; publicDescription: string | null; applicationDescription: string | null }> {
   // Shown greyed-out with a stamp in the admin Upload view; never counted as pending work (they
   // are not in person.mainPhoto/photos, which is all the pending counts look at).
   const rejectedPhotos = await listRejectedPhotos(deps.drive, person.folderId);
   const ownerEmailRaw = await deps.drive.readTextFile(person.folderId, '.owner-email');
   const ownerEmail = ownerEmailRaw?.trim().toLowerCase();
   const member = ownerEmail ? await getMember(deps.firestore, ownerEmail) : null;
+  // Who uploaded this, for the admin card's person pill (opens their profile drawer) - so the
+  // submission can be matched to the member's account, category and status at a glance.
+  const owner: UploadOwner | null = ownerEmail
+    ? {
+        email: ownerEmail,
+        firstName: member?.firstName ?? null,
+        lastName: member?.lastName ?? null,
+        nickname: member?.nickname ?? null,
+        categoryId: member?.categoryId ?? null,
+        categoryLabel: member?.categoryId ? (categoryLabels.get(member.categoryId) ?? member.categoryId) : null,
+        status: member?.status ?? null,
+      }
+    : null;
   // The registration form's free-text description - prefills the admin's "Opis" for a first
   // publication.
   const applicationDescription = member?.description ?? null;
-  const nullResult = { ...person, rejectedPhotos, publicFolderId: null, publicName: null, publicDescription: null, applicationDescription };
+  const nullResult = { ...person, rejectedPhotos, owner, publicFolderId: null, publicName: null, publicDescription: null, applicationDescription };
   if (!member?.driveFolderId) return nullResult;
   const [folderName, description] = await Promise.all([
     deps.drive.getFolderName(member.driveFolderId),
@@ -1705,6 +1748,7 @@ async function enrichUploadEntryWithPublicStatus(
   return {
     ...person,
     rejectedPhotos,
+    owner,
     publicFolderId: member.driveFolderId,
     publicName: parsePersonFolderName(folderName).name,
     publicDescription: description,
@@ -1727,7 +1771,8 @@ async function handleAdminListPeople(req: IncomingMessage, res: ServerResponse, 
     sendJson(res, 200, { people });
     return;
   }
-  const enriched = await Promise.all(people.map(person => enrichUploadEntryWithPublicStatus(deps, person)));
+  const categoryLabels = new Map((await getLookupList(deps.firestore, 'categories')).map(c => [c.id, c.label]));
+  const enriched = await Promise.all(people.map(person => enrichUploadEntryWithPublicStatus(deps, person, categoryLabels)));
   sendJson(res, 200, { people: enriched });
 }
 
@@ -2451,6 +2496,29 @@ async function handleMembershipPhoto(req: IncomingMessage, res: ServerResponse, 
     },
   );
   invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true });
+}
+
+// Marks the end of one upload session (the browser calls it once, after its last
+// POST /wojownicy-upload/photo) so admins get ONE "new photos waiting" e-mail per session instead
+// of one per file. Same submission-token ownership check as the photo route. No business write:
+// the photos themselves were already audited one by one, this only notifies.
+async function handleWojownicyUploadFinish(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const { folderId, photoCount } = await readJsonBody<{ folderId?: string; photoCount?: unknown }>(req, deps.maxJsonBodyBytes);
+  requireDriveId(folderId, 'Brak folderId.');
+  const claims = verifySubmissionToken(requireSubmissionToken(req), deps.submissionTokenSecret);
+  checkSubmissionOwnership(claims, folderId!, identity.sub);
+  if (typeof photoCount !== 'number' || !Number.isInteger(photoCount) || photoCount < 1 || photoCount > deps.maxFilesPerSubmission) {
+    throw new AuthError('Nieprawidłowa liczba zdjęć.', 400);
+  }
+  const member = await getMember(deps.firestore, identity.email);
+  await notifyPhotosSubmitted(deps, {
+    email: identity.email.toLowerCase(),
+    firstName: member?.firstName ?? '',
+    lastName: member?.lastName ?? '',
+    nickname: member?.nickname ?? null,
+  }, photoCount);
   sendJson(res, 200, { ok: true });
 }
 
@@ -5096,6 +5164,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleWojownicyUploadWhoami(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/wojownicy-upload/submit') {
         await handleWojownicyUploadSubmit(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/wojownicy-upload/finish') {
+        await handleWojownicyUploadFinish(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/wojownicy-upload/photo') {
         await handleWojownicyUploadPhoto(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/wojownicy-docs') {

@@ -292,6 +292,35 @@ function uploadDecisionControlsHtml(p) {
     </div>`;
 }
 
+const MEMBERSHIP_STATUS_LABELS = {
+  pending: 'oczekuje na akceptację',
+  active: 'aktywny',
+  suspended: 'zawieszony',
+  removed: 'usunięty',
+  rejected: 'odrzucony',
+};
+
+// Who uploaded this submission: the same colored category pill used across the member pages,
+// clickable to open that person's profile drawer (shared/profile-panel.js), plus their e-mail and
+// membership status - so the "new photos" e-mail can be matched to the right account.
+function uploadOwnerHtml(owner) {
+  if (!owner) return '';
+  const pill = personPillHtml({
+    name: displayName(owner),
+    categoryId: owner.categoryId,
+    categoryLabel: owner.categoryLabel,
+    mode: 'person',
+    subline: personSubline(owner),
+  });
+  const status = owner.status ? MEMBERSHIP_STATUS_LABELS[owner.status] ?? owner.status : 'brak konta członkowskiego';
+  return `
+    <div class="upload-owner" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin:0.5rem 0;">
+      <span style="color:var(--text-muted); font-size:12px;">Przesłał(a):</span>
+      <button type="button" class="profile-trigger" data-profile-trigger data-email="${escapeAttr(owner.email)}">${pill}</button>
+      <span style="color:var(--text-muted); font-size:12px;">${escapeHtml(owner.email)} · ${escapeHtml(status)}</span>
+    </div>`;
+}
+
 function uploadPersonCardHtml(p) {
   const galleryHtml = p.photos.length
     ? `<div class="person-gallery">${p.photos.map(photo => uploadPhotoPickHtml(p.folderId, photo, false)).join('')}</div>`
@@ -301,6 +330,7 @@ function uploadPersonCardHtml(p) {
     <div id="${personCardId(p.folderId)}" class="manage-person-card" data-folder-id="${escapeAttr(p.folderId)}" data-public-folder-id="${escapeAttr(p.publicFolderId ?? '')}" style="border:1px solid var(--border); border-radius:6px; padding:1rem;">
       <strong class="person-name">${escapeHtml(p.name)}</strong>
       <a class="audyt-history-btn" style="margin-left:0.5rem; vertical-align:middle;" href="/admin/audyt/?resourceKey=${encodeURIComponent(`person:${p.folderId}`)}" title="Historia" aria-label="Historia">${HISTORY_ICON}</a>
+      ${uploadOwnerHtml(p.owner)}
       <div class="person-photos" style="margin:0.5rem 0;">
         ${p.mainPhoto ? uploadPhotoPickHtml(p.folderId, p.mainPhoto, true) : ''}
         ${galleryHtml}
