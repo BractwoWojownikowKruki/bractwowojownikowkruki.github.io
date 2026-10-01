@@ -22,7 +22,7 @@ class FakeElement {
 
 type InstallHarness = ReturnType<typeof createHarness>;
 
-function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDesktop?: boolean; manifest?: boolean } = {}) {
+function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDesktop?: boolean; manifest?: boolean; promptSupport?: boolean } = {}) {
   const controls = [new FakeElement(), new FakeElement()];
   const messages = [new FakeElement()];
   const panels = [new FakeElement()];
@@ -37,7 +37,7 @@ function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDeskt
     platform: options.iPadDesktop ? 'MacIntel' : 'Linux x86_64',
     maxTouchPoints: options.iPadDesktop ? 5 : 0,
   };
-  const window = {
+  const window: Record<string, unknown> = {
     addEventListener(type: string, listener: (event: unknown) => unknown) {
       listeners.set(type, [...(listeners.get(type) ?? []), listener]);
     },
@@ -46,6 +46,7 @@ function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDeskt
     },
     navigator,
   };
+  if (options.promptSupport) window.onbeforeinstallprompt = null;
   const document = {
     querySelector(selector: string) {
       if (selector === 'link[rel="manifest"][href="/manifest.webmanifest"]') {
@@ -100,6 +101,26 @@ test('reveals controls for an uninstalled browser session', async () => {
   harness.panels.forEach(panel => { panel.hidden = true; });
 
   await loadInstallController(harness);
+
+  assert.ok(harness.controls.every(control => !control.hidden));
+  assert.ok(harness.panels.every(panel => !panel.hidden));
+});
+
+test('keeps controls hidden in a Chromium browser until it offers the install prompt', async () => {
+  const harness = createHarness({ promptSupport: true });
+  harness.controls.forEach(control => { control.hidden = true; });
+  harness.panels.forEach(panel => { panel.hidden = true; });
+
+  await loadInstallController(harness);
+
+  assert.ok(harness.controls.every(control => control.hidden));
+  assert.ok(harness.panels.every(panel => panel.hidden));
+
+  await harness.emit('beforeinstallprompt', {
+    preventDefault() {},
+    prompt() {},
+    userChoice: Promise.resolve({ outcome: 'accepted' }),
+  });
 
   assert.ok(harness.controls.every(control => !control.hidden));
   assert.ok(harness.panels.every(panel => !panel.hidden));

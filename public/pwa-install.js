@@ -42,7 +42,11 @@
     return;
   }
 
-  showControls();
+  // Chromium browsers (Chrome, Brave, Edge) fire beforeinstallprompt only while the app is NOT
+  // installed in that browser, so there the button waits for it and stays hidden once installed.
+  // Safari and Firefox never fire it - they always show the button with manual guidance instead.
+  const supportsInstallPrompt = 'onbeforeinstallprompt' in window;
+  if (!supportsInstallPrompt) showControls();
 
   window.addEventListener('beforeinstallprompt', event => {
     event.preventDefault();
