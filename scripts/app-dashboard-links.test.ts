@@ -40,7 +40,8 @@ test('eventDetailHref builds the friendly ?do= trip detail URL', () => {
 });
 
 test('the nearest-trip card links straight to the trip, not to the generic list', () => {
-  assert.match(appSource, /widget\.href = eventDetailHref\(event\)/);
+  // The card now holds the attend toggle, so it cannot be one whole-card link; the name is the link.
+  assert.match(appSource, /nameLink\.href = eventDetailHref\(event\)/);
   assert.doesNotMatch(appSource, /widget\.href = '\/lista-wyjazdowa\/'/);
 });
 

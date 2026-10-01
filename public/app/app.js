@@ -72,6 +72,22 @@ function eventDetailHref(event) {
   return window.LwFriendlyUrl.eventUrl(event);
 }
 
+// State for the interactive "Najbliższy wyjazd" card (attend toggle + companion panel). Kept at
+// module level, like lista-wyjazdowa.js, because every change re-renders all the widgets that
+// derive from `events` ("Najbliższy wyjazd", "Twoje zapisy") and the composite dues panel.
+const dash = {
+  events: [],
+  galleriesWidget: null,
+  viewerEmail: null,
+  viewerPersonId: null,
+  canSignUp: false,
+  roster: [],
+  categories: [],
+  panelSignups: [],
+  openPanelEventId: null,
+  companionPromise: null,
+};
+
 // Same count badge as the Lista Wyjazdowa rows (.attendee-badge), so a trip's headcount looks
 // identical on every card and is shown exactly once per card.
 function attendeeBadge(count) {
@@ -91,23 +107,53 @@ function renderNearestEventWidget(events) {
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
   if (upcoming.length === 0) return null;
   const event = upcoming[0];
-  const widget = document.createElement('a');
-  widget.href = eventDetailHref(event);
+  // A plain <div> (not a whole-card <a>) since the card now holds interactive controls - the
+  // Jadę/Nie jadę toggle and the companion button - and nested interactive elements inside a link
+  // are invalid. The trip name is its own link instead, like in "Twoje zapisy".
+  const widget = document.createElement('div');
   widget.className = 'dashboard-widget';
+  const canManage = dash.canSignUp;
+  const canAddCompanion = canManage && event.viewerAttending;
+  const addCompanionHtml = canAddCompanion
+    ? window.CompanionAdd.buttonHtml({ ownerPersonId: dash.viewerPersonId, eventId: event.id, expanded: dash.openPanelEventId === event.id })
+    : '';
+  const toggleHtml = canManage
+    ? `<div class="lw-event-actions">
+        <button type="button" class="lw-attend-toggle" data-event-id="${event.id}" data-attending="${event.viewerAttending === true}" aria-pressed="${event.viewerAttending === true}">
+          <span class="lw-attend-toggle-track" aria-hidden="true"></span>
+          ${event.viewerAttending ? 'Jadę' : 'Nie jadę'}
+        </button>
+        ${addCompanionHtml}
+      </div>`
+    : '';
   widget.innerHTML = `
     <h3>Najbliższy wyjazd</h3>
-    <p class="dashboard-event-name"></p>
+    <p class="dashboard-event-name"><a class="dashboard-event-name-link"></a></p>
     <p class="dashboard-event-date">
       <span class="dashboard-event-date-text"></span>
-      ${event.viewerAttending ? '<span class="dashboard-event-signedup"><span aria-hidden="true">✓</span> Zapisany(a)</span>' : ''}
     </p>
     <p class="dashboard-event-countdown"></p>
+    ${toggleHtml}
+    <div class="dashboard-event-panel"></div>
+    <p class="add-album-error dashboard-widget-error" role="alert" hidden></p>
   `;
-  widget.querySelector('.dashboard-event-name').textContent = event.name;
+  const nameLink = widget.querySelector('.dashboard-event-name-link');
+  nameLink.href = eventDetailHref(event);
+  nameLink.textContent = event.name;
   widget.querySelector('.dashboard-event-date-text').textContent = formatDate(event.startDate);
   const days = daysUntil(event.startDate);
   widget.querySelector('.dashboard-event-countdown').textContent = `za ${days} ${days === 1 ? 'dzień' : 'dni'}`;
   widget.querySelector('.dashboard-event-date').append(attendeeBadge(event.attendingCount));
+  if (canAddCompanion && dash.openPanelEventId === event.id) {
+    const viewerMember = dash.roster.find((m) => m.personId === dash.viewerPersonId);
+    if (viewerMember) {
+      widget.querySelector('.dashboard-event-panel').innerHTML = `<div class="lw-inline-form lw-event-inline-form">${window.CompanionAdd.panelHtml(viewerMember, {
+        roster: dash.roster,
+        signups: dash.panelSignups,
+        categories: dash.categories,
+      })}</div>`;
+    }
+  }
   return widget;
 }
 
@@ -249,6 +295,218 @@ async function buildDuesOwedItems(events) {
   return owed;
 }
 
+// Same gate as the Lista Wyjazdowa page: signing up needs a roster account that isn't hidden and
+// a saved Lista Wyjazdowa profile. Failing the check only hides the controls, never the card.
+async function viewerCanSignUp() {
+  try {
+    const [{ member }, { profile }] = await Promise.all([
+      apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
+      apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
+    ]);
+    return Boolean(member && profile && member.hidden !== true);
+  } catch {
+    return false;
+  }
+}
+
+// (Re)builds every widget derived from dash.events. The signups card and the nearest-trip card
+// must stay in sync after an attend toggle or a companion add, so they always render together.
+function renderDashboardWidgets() {
+  const widgetGrid = document.createElement('div');
+  widgetGrid.className = 'dashboard-widget-grid';
+  const nearestWidget = renderNearestEventWidget(dash.events);
+  if (nearestWidget) widgetGrid.append(nearestWidget);
+  widgetGrid.append(renderMySignupsWidget(dash.events), dash.galleriesWidget);
+  document.getElementById('app-widget-grid-slot').replaceChildren(widgetGrid);
+}
+
+// Per-event składka depends on attendance, so the dues panel is refreshed after every change too.
+// A failure here keeps whatever the panel already shows: the signup itself already succeeded.
+async function refreshDuesPanel() {
+  try {
+    const owedItems = await buildDuesOwedItems(dash.events);
+    document.getElementById('app-dues-panel-slot').replaceChildren(renderDuesPanel(owedItems));
+  } catch {
+    // keep the previous panel
+  }
+}
+
+function showDashboardError(message) {
+  const el = document.querySelector('#app-widget-grid-slot .dashboard-widget-error');
+  if (!el) return;
+  el.textContent = message;
+  el.hidden = !message;
+}
+
+async function reloadDashboardEvents() {
+  const result = await apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth);
+  dash.events = result.events;
+  dash.openPanelEventId = null;
+  renderDashboardWidgets();
+  refreshDuesPanel();
+}
+
+function ensureDashCompanionData() {
+  if (!dash.companionPromise) {
+    dash.companionPromise = Promise.all([
+      apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
+      apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
+    ]).then(([rosterResult, lookup]) => {
+      dash.roster = rosterResult.roster;
+      dash.categories = lookup.categories ?? [];
+    }).catch((err) => {
+      dash.companionPromise = null;
+      throw err;
+    });
+  }
+  return dash.companionPromise;
+}
+
+async function setDashAttending(eventId, nextAttending, control) {
+  showDashboardError('');
+  control.disabled = true;
+  try {
+    await window.MutationFeedback.confirmed({
+      control,
+      // The slot outlives the re-render below (the buttons inside it do not), so the checkmark has
+      // somewhere stable to attach.
+      anchor: document.getElementById('app-widget-grid-slot'),
+      execute: () => apiFetch(
+        `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(dash.viewerEmail)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attending: nextAttending }) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: () => {
+        const event = dash.events.find((item) => item.id === eventId);
+        if (event) {
+          event.viewerAttending = nextAttending;
+          event.attendingCount = Math.max(0, (event.attendingCount ?? 0) + (nextAttending ? 1 : -1));
+        }
+        dash.openPanelEventId = null;
+        renderDashboardWidgets();
+        refreshDuesPanel();
+      },
+      viewRoot: panels.panel,
+      refreshFragment: reloadDashboardEvents,
+    });
+  } catch (err) {
+    showDashboardError(`Nie udało się zapisać zmiany: ${err.message}`);
+  } finally {
+    control.disabled = false;
+  }
+}
+
+async function quickAddDashCompanion(body, control) {
+  showDashboardError('');
+  control.disabled = true;
+  try {
+    await window.MutationFeedback.confirmed({
+      control,
+      anchor: document.getElementById('app-widget-grid-slot'),
+      execute: () => apiFetch(
+        '/lista-wyjazdowa/signups/quick-add',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: (result) => {
+        const event = dash.events.find((item) => item.id === body.eventId);
+        if (event && result?.signup?.attending) event.attendingCount = (event.attendingCount ?? 0) + 1;
+        // A brand-new companion must be offered as an existing person next time, so drop the cache.
+        dash.companionPromise = null;
+        dash.openPanelEventId = null;
+        renderDashboardWidgets();
+        refreshDuesPanel();
+      },
+      viewRoot: panels.panel,
+      refreshFragment: reloadDashboardEvents,
+    });
+  } catch (err) {
+    showDashboardError(`Nie udało się dodać osoby: ${err.message}`);
+  } finally {
+    control.disabled = false;
+  }
+}
+
+let dashboardWidgetEventsBound = false;
+function bindDashboardWidgetEvents() {
+  if (dashboardWidgetEventsBound) return;
+  dashboardWidgetEventsBound = true;
+  document.getElementById('app-widget-grid-slot').addEventListener('click', async (e) => {
+    const toggle = e.target.closest('.lw-attend-toggle');
+    if (toggle) {
+      await setDashAttending(toggle.dataset.eventId, toggle.dataset.attending !== 'true', toggle);
+      return;
+    }
+
+    const addBtn = e.target.closest('.lw-add-companion');
+    if (addBtn) {
+      const eventId = addBtn.dataset.eventId;
+      if (dash.openPanelEventId === eventId) {
+        dash.openPanelEventId = null;
+        renderDashboardWidgets();
+        return;
+      }
+      showDashboardError('');
+      addBtn.disabled = true;
+      try {
+        await ensureDashCompanionData();
+        if (!dash.roster.some((m) => m.personId === dash.viewerPersonId && !m.accountless)) {
+          throw new Error('nie znaleziono Twojej osoby na liście');
+        }
+        const { signups } = await apiFetch(
+          `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}`,
+          { method: 'GET' },
+          showReauth,
+          hideReauth,
+        );
+        dash.panelSignups = signups;
+        dash.openPanelEventId = eventId;
+        renderDashboardWidgets();
+      } catch (err) {
+        showDashboardError(`Nie udało się otworzyć panelu osoby towarzyszącej: ${err.message}`);
+      } finally {
+        addBtn.disabled = false;
+      }
+      return;
+    }
+
+    if (e.target.closest('.lw-inline-cancel')) {
+      dash.openPanelEventId = null;
+      renderDashboardWidgets();
+      return;
+    }
+
+    const addExistingBtn = e.target.closest('.lw-inline-add-existing');
+    if (addExistingBtn) {
+      const personId = document.getElementById('lw-inline-existing-select')?.value;
+      if (!personId) return;
+      await quickAddDashCompanion(
+        { eventId: dash.openPanelEventId, ownerPersonId: dash.viewerPersonId, mode: 'existing', personId },
+        addExistingBtn,
+      );
+      return;
+    }
+
+    const addNewBtn = e.target.closest('.lw-inline-add-new');
+    if (addNewBtn) {
+      const ksywka = document.getElementById('lw-inline-new-name')?.value.trim() ?? '';
+      const lastName = document.getElementById('lw-inline-new-last-name')?.value.trim() ?? '';
+      const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
+      const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
+      if (!ksywka || !lastName || !firstName || !categoryId) {
+        showDashboardError('Podaj ksywkę, nazwisko, imię i kategorię nowej osoby.');
+        return;
+      }
+      await quickAddDashCompanion(
+        { eventId: dash.openPanelEventId, ownerPersonId: dash.viewerPersonId, mode: 'new', ksywka, lastName, firstName, categoryId },
+        addNewBtn,
+      );
+    }
+  });
+}
+
 // Tracks how the member gate below resolved, so the independent admin gate at the end of this
 // file can tell whether it's safe to render (review finding: a confirmed admin who isn't in the
 // live Google Group would otherwise get onSignedIn firing on /admin/whoami while the member gate
@@ -266,7 +524,7 @@ const memberGateStatePromise = new Promise(resolve => { resolveMemberGateState =
 initGoogleSignIn({
   buttonIds: [],
   whoamiPath: '/wojownicy-upload/whoami',
-  onSignedIn: async () => {
+  onSignedIn: async (identity) => {
     memberGateState = 'panel';
     resolveMemberGateState('panel');
     showOnly(panels.panel);
@@ -278,21 +536,28 @@ initGoogleSignIn({
     const duesSlot = document.getElementById('app-dues-panel-slot');
     let events;
     try {
-      const [eventsResult, galleriesWidget] = await Promise.all([
+      const [eventsResult, galleriesWidget, canSignUp] = await Promise.all([
         apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
         renderNewGalleriesWidget(),
+        viewerCanSignUp(),
       ]);
       events = eventsResult.events;
-      const widgetGrid = document.createElement('div');
-      widgetGrid.className = 'dashboard-widget-grid';
-      const nearestWidget = renderNearestEventWidget(events);
-      if (nearestWidget) widgetGrid.append(nearestWidget);
-      widgetGrid.append(renderMySignupsWidget(events), galleriesWidget);
+      dash.events = events;
+      dash.galleriesWidget = galleriesWidget;
+      dash.viewerEmail = identity?.email ?? null;
+      dash.viewerPersonId = identity?.email?.toLowerCase() ?? null;
+      dash.canSignUp = canSignUp && dash.viewerPersonId !== null;
+      dash.roster = [];
+      dash.categories = [];
+      dash.panelSignups = [];
+      dash.openPanelEventId = null;
+      dash.companionPromise = null;
       // Render into this task's own fixed slot - never panels.panel.prepend(...) - so the final
       // vertical position is guaranteed by static HTML order (design.md §3), not by which of the
       // two independent initGoogleSignIn callbacks (this one and Task 8's admin-only one) happens
       // to resolve first.
-      widgetSlot.replaceChildren(widgetGrid);
+      renderDashboardWidgets();
+      bindDashboardWidgetEvents();
     } catch (err) {
       // A failed widget fetch degrades only the widgets, not the whole dashboard (design.md
       // §5a's error-isolation note) - the tile grid below still works regardless.
