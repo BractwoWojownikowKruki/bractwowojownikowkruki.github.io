@@ -210,7 +210,7 @@ test('adding an existing companion posts quick-add, closes the panel and bumps t
   assert.equal(post?.options.method, 'POST');
   assert.deepEqual(JSON.parse(String(post?.options.body)), { eventId: 'e1', ownerPersonId: 'viewer@example.com', mode: 'existing', personId: 'attached-uuid-1' });
   assert.doesNotMatch(list.innerHTML, /lw-inline-form/);
-  assert.match(list.innerHTML, /3 os\./);
+  assert.match(list.innerHTML, /attendee-badge-count">3</);
 });
 
 // KRKG-0103: quick-add's "new person" path now requires Nazwisko/Imię alongside Ksywka - it used
@@ -254,7 +254,7 @@ test('adding a new companion posts quick-add with ksywka+lastName+firstName+cate
     eventId: 'e1', ownerPersonId: 'viewer@example.com', mode: 'new', ksywka: 'Nowy', lastName: 'Kowalski', firstName: 'Jan', categoryId: 'kandydat',
   });
   assert.doesNotMatch(list.innerHTML, /lw-inline-form/);
-  assert.match(list.innerHTML, /3 os\./);
+  assert.match(list.innerHTML, /attendee-badge-count">3</);
 });
 
 test('a failed quick-add keeps the panel open and reports the error', async () => {
@@ -284,7 +284,7 @@ test('toggling to "Jadę" reveals the + and keeps the toggle track', async () =>
   assert.match(list.innerHTML, /lw-attend-toggle-track/);
   assert.match(list.innerHTML, /Jadę/);
   assert.match(list.innerHTML, /class="lw-add-companion"/);
-  assert.match(list.innerHTML, /3 os\./);
+  assert.match(list.innerHTML, /attendee-badge-count">3</);
 });
 
 test('the events list page loads the shared companion scripts and styles its inline panel', () => {
@@ -313,7 +313,7 @@ test('KRKG-0101: plus/figure and figure/name gaps are pulled tight', () => {
   assert.match(css, /\.person-pill-icon\s*\{[^}]*margin-right:\s*-0\.08rem/);
 });
 
-test('a newly created event shows 0 os. instead of undefined os. before the next reload', async () => {
+test('a newly created event shows a 0 attendee badge instead of undefined before the next reload', async () => {
   // POST /lista-wyjazdowa/events returns the bare event doc - no attendingCount/viewerAttending/
   // viewerSkladkaPaid, since those are only computed by the GET /events join against signups.
   const harness = createHarness();
@@ -328,8 +328,8 @@ test('a newly created event shows 0 os. instead of undefined os. before the next
 
   const listHtml = harness.elements.get('events-list')!.innerHTML;
   assert.match(listHtml, /Nowy wyjazd/);
-  assert.match(listHtml, /0 os\./);
-  assert.doesNotMatch(listHtml, /undefined os\./);
+  assert.match(listHtml, /attendee-badge-count">0</);
+  assert.doesNotMatch(listHtml, /undefined/);
 });
 
 test('the old lw-subnav pill row is gone, replaced by the shared sticky top bar', () => {

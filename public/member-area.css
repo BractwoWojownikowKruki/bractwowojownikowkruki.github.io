@@ -908,11 +908,19 @@
   white-space: nowrap;
 }
 
-.lw-event-count {
+/* Shared headcount pill: Lista Wyjazdowa rows and both dashboard trip cards. */
+.attendee-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(212, 175, 55, 0.15);
   color: var(--gold);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 0.78rem;
+  font-weight: 700;
   white-space: nowrap;
+  margin-left: 0.4rem;
 }
 
 /* KRKG-0101: the "Jadę/Nie jadę" toggle and the "+ osoba towarzysząca" control share one inline

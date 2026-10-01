@@ -160,7 +160,7 @@ function renderEvents() {
         <div class="lw-event-row">
           <a href="${escapeAttr(window.LwFriendlyUrl.eventUrl(e))}" class="lw-event-name">${escapeHtml(e.name)}${statusLabel}</a>
           <span class="lw-event-date">${escapeHtml(formatDate(e.startDate))}</span>
-          <span class="lw-event-count">${e.attendingCount} os.</span>
+          <span class="attendee-badge" title="Zgłoszone osoby: ${e.attendingCount ?? 0}" aria-label="Zgłoszone osoby: ${e.attendingCount ?? 0}"><span aria-hidden="true">👥</span> <span class="attendee-badge-count">${e.attendingCount ?? 0}</span></span>
           <div class="lw-event-actions">
             <button type="button" class="lw-attend-toggle" data-event-id="${e.id}" data-attending="${e.viewerAttending}" aria-pressed="${e.viewerAttending}">
               <span class="lw-attend-toggle-track" aria-hidden="true"></span>
