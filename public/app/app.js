@@ -72,6 +72,19 @@ function eventDetailHref(event) {
   return window.LwFriendlyUrl.eventUrl(event);
 }
 
+// Same count badge as the Lista Wyjazdowa rows (.attendee-badge), so a trip's headcount looks
+// identical on every card and is shown exactly once per card.
+function attendeeBadge(count) {
+  const n = count ?? 0;
+  const badge = document.createElement('span');
+  badge.className = 'attendee-badge';
+  badge.title = `Zgłoszone osoby: ${n}`;
+  badge.setAttribute('aria-label', `Zgłoszone osoby: ${n}`);
+  badge.innerHTML = '<span aria-hidden="true">👥</span> <span class="attendee-badge-count"></span>';
+  badge.querySelector('.attendee-badge-count').textContent = String(n);
+  return badge;
+}
+
 function renderNearestEventWidget(events) {
   const upcoming = events
     .filter((e) => e.status === 'active' && e.startDate >= todayIsoDate())
@@ -93,7 +106,8 @@ function renderNearestEventWidget(events) {
   widget.querySelector('.dashboard-event-name').textContent = event.name;
   widget.querySelector('.dashboard-event-date-text').textContent = formatDate(event.startDate);
   const days = daysUntil(event.startDate);
-  widget.querySelector('.dashboard-event-countdown').textContent = `za ${days} ${days === 1 ? 'dzień' : 'dni'} · ${event.attendingCount} ${event.attendingCount === 1 ? 'osoba zapisana' : 'osób zapisanych'}`;
+  widget.querySelector('.dashboard-event-countdown').textContent = `za ${days} ${days === 1 ? 'dzień' : 'dni'}`;
+  widget.querySelector('.dashboard-event-date').append(attendeeBadge(event.attendingCount));
   return widget;
 }
 
@@ -122,7 +136,9 @@ function renderMySignupsWidget(events) {
     const nameLink = items[i].querySelector('.dashboard-mini-item-name');
     nameLink.href = eventDetailHref(e);
     nameLink.textContent = e.name;
-    items[i].querySelector('.dashboard-mini-item-meta').textContent = formatDate(e.startDate);
+    const meta = items[i].querySelector('.dashboard-mini-item-meta');
+    meta.textContent = formatDate(e.startDate);
+    meta.append(attendeeBadge(e.attendingCount));
   });
   return widget;
 }
