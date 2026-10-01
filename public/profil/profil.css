@@ -344,3 +344,11 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Guidance on what the profile photo should look like (profile page and registration). */
+.lw-photo-guidance {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0 0 1rem;
+}
