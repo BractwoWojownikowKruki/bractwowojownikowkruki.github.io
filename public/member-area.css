@@ -920,8 +920,11 @@
   font-size: 0.78rem;
   font-weight: 700;
   white-space: nowrap;
-  margin-left: 0.4rem;
 }
+.attendee-badge-icon { height: 1.35em; width: auto; display: block; }
+
+/* Date + headcount badge share one line, also in the stacked mobile card. */
+.lw-event-meta { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: nowrap; }
 
 /* KRKG-0101: the "Jadę/Nie jadę" toggle and the "+ osoba towarzysząca" control share one inline
    strip. On desktop this is invisible (the row is already a single line), but on mobile the row
@@ -2058,7 +2061,7 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   color: var(--gold);
   text-decoration: underline;
 }
-.dashboard-mini-item-meta { color: var(--text-muted); font-size: 0.8rem; white-space: nowrap; }
+.dashboard-mini-item-meta { color: var(--text-muted); font-size: 0.8rem; white-space: nowrap; display: inline-flex; align-items: center; gap: 0.5rem; }
 
 .dashboard-gallery-thumbs { display: flex; gap: 0.5rem; }
 .dashboard-gallery-item {
