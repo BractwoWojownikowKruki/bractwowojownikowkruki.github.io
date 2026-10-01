@@ -8466,7 +8466,7 @@ test('GET /lista-wyjazdowa/dues/mine returns only the caller\'s own dues for the
   await withServer(makeDeps({ firestore }), async baseUrl => {
     const empty = await fetch(`${baseUrl}/lista-wyjazdowa/dues/mine?year=2027`);
     assert.equal(empty.status, 200);
-    assert.deepEqual(await empty.json(), { dues: null });
+    assert.deepEqual(await empty.json(), { dues: null, duesStatus: 'unpaid' });
   });
 
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
@@ -8488,9 +8488,38 @@ test('GET /lista-wyjazdowa/dues/mine returns only the caller\'s own dues for the
     const body = await res.json();
     assert.equal(body.dues.email, 'wojownik@gmail.com');
     assert.equal(body.dues.status, 'paid');
+    assert.equal(body.duesStatus, 'paid', 'the resolved status every page shows, not just the raw record');
 
     const wrongYear = await fetch(`${baseUrl}/lista-wyjazdowa/dues/mine?year=2026`);
     assert.deepEqual((await wrongYear.json()).dues, null);
+  });
+});
+
+// Mój profil, the dashboard and the profile drawer must all show the same składka roczna status -
+// /dues/mine resolves it with the same effectiveDuesStatus as GET /member-profile.
+test('GET /lista-wyjazdowa/dues/mine resolves duesStatus the same way as GET /member-profile', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { lastName: 'Wojownik', firstName: 'Jan', sectionId: 'krakow' });
+    const year = new Date().getFullYear();
+    const mine = async () => (await (await fetch(`${baseUrl}/lista-wyjazdowa/dues/mine?year=${year}`)).json()).duesStatus;
+    const drawer = async () => (await (await fetch(`${baseUrl}/member-profile?email=wojownik@gmail.com`)).json()).duesStatus;
+
+    assert.equal(await mine(), 'unpaid');
+    assert.equal(await mine(), await drawer());
+
+    // An emeryt with no stored record owes nothing - on every page.
+    const member = await firestore.getDoc<Record<string, unknown>>('members', 'wojownik@gmail.com');
+    await firestore.setDoc('members', 'wojownik@gmail.com', { ...member, categoryId: 'emeryt' });
+    assert.equal(await mine(), 'not_applicable');
+    assert.equal(await mine(), await drawer());
+
+    // A stored record always wins, including the current `status` shape.
+    await firestore.setDoc('duesAnnual', `wojownik@gmail.com_${year}`, {
+      email: 'wojownik@gmail.com', year, status: 'paid', updatedBy: 'accountant', updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    assert.equal(await mine(), 'paid');
+    assert.equal(await mine(), await drawer());
   });
 });
 

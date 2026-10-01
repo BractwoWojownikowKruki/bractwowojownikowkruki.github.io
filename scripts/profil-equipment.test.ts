@@ -6,6 +6,7 @@ import vm from 'node:vm';
 const page = readFileSync(new URL('../public/profil/index.html', import.meta.url), 'utf8');
 const script = readFileSync(new URL('../public/profil/profil.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/profil/profil.css', import.meta.url), 'utf8');
+const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
 
 // Minimal DOM stub - just enough for profil.js's top-level (module-load-time) statements to run
 // without throwing, so the function declarations below it (equipmentForOwner, equipmentItemHtml,
@@ -46,6 +47,7 @@ function createContext(overrides: { apiFetch?: (...args: unknown[]) => Promise<u
     Date,
     encodeURIComponent,
   };
+  vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
   vm.runInNewContext(script, context, { filename: 'profil.js' });
   return context;
 }
