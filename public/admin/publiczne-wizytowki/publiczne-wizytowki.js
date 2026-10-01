@@ -405,14 +405,6 @@ async function confirmedPersonWrite(control, card, execute, apply, anchor = card
   });
 }
 
-// Pending photos enlarge in the shared lightbox, stepping through that submission's photos.
-document.getElementById('manage-people-list').addEventListener('click', e => {
-  const img = e.target.closest('.upload-photo-item > img');
-  if (!img) return;
-  const images = [...img.closest('.manage-person-card').querySelectorAll('.upload-photo-item > img')];
-  window.PhotoLightbox.open(images.map(el => ({ url: el.getAttribute('src') })), images.indexOf(img));
-});
-
 document.getElementById('manage-people-list').addEventListener('click', async e => {
   try {
   const saveBtn = e.target.closest('.save-description');
@@ -636,6 +628,14 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
   } catch (err) {
     window.alert(`Błąd: ${err.message}`);
   }
+});
+
+// Pending photos enlarge in the shared lightbox, stepping through that submission's photos.
+document.getElementById('manage-people-list').addEventListener('click', e => {
+  const img = e.target.closest('.upload-photo-item > img');
+  if (!img) return;
+  const images = [...img.closest('.manage-person-card').querySelectorAll('.upload-photo-item > img')];
+  window.PhotoLightbox.open(images.map(el => ({ url: el.getAttribute('src') })), images.indexOf(img));
 });
 
 document.getElementById('manage-people-list').addEventListener('change', async e => {
