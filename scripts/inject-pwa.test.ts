@@ -56,11 +56,18 @@ test('build emits PWA markup and a bounded worker into an isolated output direct
     assert.equal(readFileSync(join(outputDir, 'pwa-install.js'), 'utf8').length > 0, true);
     assert.equal([...home.matchAll(/src="\/pwa-install\.js"/g)].length, 1);
 
-    for (const pathname of ['/admin/', '/galerie/', '/logowanie/', '/wojownicy/wrzuc/']) {
+    // Member-gated pages are installable too (the install button lives in Strefa Członków);
+    // they only stay out of the worker's offline handling.
+    for (const pathname of ['/admin/', '/app/', '/profil/', '/czlonkowie/', '/galerie/', '/logowanie/']) {
       const html = readFileSync(join(outputDir, pathname, 'index.html'), 'utf8');
+      assert.equal([...html.matchAll(/rel="manifest"/g)].length, 1, pathname);
+      assert.equal([...html.matchAll(/name="theme-color"/g)].length, 1, pathname);
+      assert.equal([...html.matchAll(/src="\/pwa-register\.js"/g)].length, 1, pathname);
+    }
+
+    for (const pathname of ['/404.html', '/offline.html']) {
+      const html = readFileSync(join(outputDir, pathname), 'utf8');
       assert.doesNotMatch(html, /rel="manifest"/, pathname);
-      assert.doesNotMatch(html, /name="theme-color"/, pathname);
-      assert.doesNotMatch(html, /src="\/pwa-register\.js"/, pathname);
     }
 
     const worker = readFileSync(join(outputDir, 'service-worker.js'), 'utf8');

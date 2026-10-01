@@ -65,6 +65,18 @@
               <div id="lw-photo-preview" class="lw-photo-preview" hidden></div>
             </fieldset>
 
+            <!-- Install box: shown by pwa-install.js only while the site isn't running as the
+                 installed app (same rule as the "Zainstaluj" button in Strefa Członków). -->
+            <div class="lw-install-box" data-pwa-install-panel hidden>
+              <img src="/pwa-icons/icon-192.png" alt="" class="lw-install-icon" width="56" height="56" />
+              <div class="lw-install-body">
+                <p class="lw-install-title">Kruki na Twoim telefonie</p>
+                <p class="lw-install-text">Zainstaluj skrót do strony jako apkę na swoim telefonie.</p>
+                <button type="button" class="add-album-submit lw-install-button" data-pwa-install aria-describedby="pwa-install-profile-message" hidden>Zainstaluj</button>
+                <p class="lw-install-message" id="pwa-install-profile-message" data-pwa-install-message role="status" aria-live="polite" hidden></p>
+              </div>
+            </div>
+
             <!-- Read-only wpisowe/składka roczna status (KRKG-0047 follow-up) - accountant/admin-
                  only to change (see the Składki page), but every member can see their own state
                  here without asking. Populated by renderDuesStatus() once profile+dues load. -->

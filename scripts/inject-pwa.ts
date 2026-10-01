@@ -10,7 +10,11 @@ export function classifyPwaPage(pathname: string): 'eligible' | 'excluded' | 'no
   throw new Error(`Unclassified PWA document: ${pathname}`);
 }
 
-/** Adds install metadata only to the explicitly approved public document set. */
+/**
+ * Adds install metadata (manifest + worker registration) to every entry page, member-gated ones
+ * included, so the "Zainstaluj" button works anywhere in Strefa Członków. Offline handling stays
+ * public-only: the worker itself still ignores navigations outside PUBLIC_PWA_PATHS.
+ */
 export function injectPwaMarkup(html: string): string {
   if (html.includes('rel="manifest"')) return html;
   return html
@@ -35,7 +39,7 @@ function main(): void {
     ? resolve(process.env.BUILD_OUTPUT_DIR)
     : new URL('../dist', import.meta.url).pathname;
   for (const file of visit(distDir)) {
-    if (classifyPwaPage(pathnameFor(distDir, file)) !== 'eligible') continue;
+    if (classifyPwaPage(pathnameFor(distDir, file)) === 'non-entry') continue;
     const html = readFileSync(file, 'utf8');
     writeFileSync(file, injectPwaMarkup(html));
   }
