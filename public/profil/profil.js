@@ -256,11 +256,13 @@ const CURRENT_YEAR = new Date().getFullYear();
 // paid/unpaid is accountant/admin-only to change (see the Lista Wyjazdowa Składki page); this
 // just lets a member see their own current state without asking. Same .lw-skladka-icon
 // badge/glyph convention as lista-wyjazdowa/skladki/skladki.js's paidIconHtml (wpisowe as a
-// check/cross, roczna as a coin, both colored red/green via member-area.css's data-paid rule),
-// but always a plain, unclickable <span> here - nothing on this page can toggle it.
-function renderDuesStatus(wpisowePaid, rocznaPaid) {
+// check/cross colored via member-area.css's data-paid rule, roczna as the same three-state
+// data-status coin as the profile drawer), but always a plain, unclickable <span> here - nothing
+// on this page can toggle it. duesStatus is the server-resolved value from GET
+// /lista-wyjazdowa/dues/mine (shared/dues-status.js explains why it is never re-derived here).
+function renderDuesStatus(wpisowePaid, duesStatus) {
   const container = document.getElementById('lw-dues-status');
-  const rocznaLabel = `Składka ${CURRENT_YEAR}: ${rocznaPaid ? 'opłacona' : 'nieopłacona'}`;
+  const rocznaLabel = duesStatusLabel(CURRENT_YEAR, duesStatus);
   // Wpisowe shows nothing at all once paid (KRKG-0047 follow-up, same as skladki.js's row) - this
   // page is read-only anyway, so there's no control being hidden, just a settled fact with nothing
   // left to say about it.
@@ -273,7 +275,7 @@ function renderDuesStatus(wpisowePaid, rocznaPaid) {
   container.innerHTML = `
     ${wpisoweHtml}
     <span class="lw-dues-status-item">
-      <span class="lw-skladka-icon" data-paid="${rocznaPaid}" aria-hidden="true">💰</span>
+      <span class="lw-skladka-icon" data-status="${escapeHtml(duesStatus)}" aria-hidden="true">💰</span>
       ${escapeHtml(rocznaLabel)}
     </span>
   `;
@@ -961,7 +963,7 @@ async function initForm(lookupLists) {
   // still renders every non-retired option - a usable blank form.
   let member = null;
   let profile = null;
-  let dues = null;
+  let duesStatus = 'unpaid';
   let roster = [];
   let loadError = null;
   try {
@@ -974,7 +976,7 @@ async function initForm(lookupLists) {
     ]);
     member = memberResponse.member;
     profile = profileResponse.profile;
-    dues = duesResponse.dues;
+    duesStatus = duesResponse.duesStatus;
     roster = rosterResponse.roster;
     equipmentItems = equipmentResponse.equipment;
   } catch (err) {
@@ -1005,7 +1007,7 @@ async function initForm(lookupLists) {
     }
   }
   if (!loadError) {
-    renderDuesStatus(profile?.wpisowePaid ?? false, dues?.paid ?? false);
+    renderDuesStatus(profile?.wpisowePaid ?? false, duesStatus);
     renderPersons(roster);
     wireEquipmentMiniList(document.getElementById('own-equipment'), viewerEmail.toLowerCase(), () => ownerSectionId);
   }

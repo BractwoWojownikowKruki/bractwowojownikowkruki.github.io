@@ -3803,11 +3803,17 @@ async function handleListaWyjazdowaGetDues(req: IncomingMessage, res: ServerResp
 // Self-scoped read (mirrors GET /lista-wyjazdowa/signups/mine) - Mój profil shows the caller's own
 // wpisowe/składka roczna status right under their photo, and has no business reading the whole
 // roster's dues (handleListaWyjazdowaGetDues above) just to find its own row in it.
+// duesStatus is resolved here with the same effectiveDuesStatus as GET /member-profile and the
+// roster, so every page shows one and the same status - clients use it as-is and never re-derive
+// it from the raw record (Mój profil once read a legacy `paid` field the record no longer has).
 async function handleListaWyjazdowaGetMyDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const year = requireYear(url.searchParams.get('year'), 'Nieprawidłowy rok.');
-  const dues = await getDues(deps.firestore, identity.email, year);
-  sendJson(res, 200, { dues });
+  const [dues, member] = await Promise.all([
+    getDues(deps.firestore, identity.email, year),
+    getMember(deps.firestore, identity.email),
+  ]);
+  sendJson(res, 200, { dues, duesStatus: effectiveDuesStatus(dues, member?.categoryId ?? null) });
 }
 
 async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {

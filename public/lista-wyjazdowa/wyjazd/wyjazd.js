@@ -446,10 +446,6 @@ let personById = new Map();
 // The raw categories lookup (id + label, in seed order) for the "new person" <select> in the
 // inline add panel - a Map would lose the display order the endpoint already returns.
 let categoryOptions = [];
-// "Emeryt" -> "emeryt". Duplicated from dues.ts's EMERYT_CATEGORY_ID, same convention as
-// skladki.js's own copy: a person created from the roster starts unpaid, except an Emeryt who
-// owes nothing - mirrors the server's effectiveDuesStatus default for a person with no record.
-const EMERYT_CATEGORY_ID = 'emeryt';
 
 function sectionSortLabel(member) {
   return member.sectionId ? (sectionLabelById.get(member.sectionId) ?? member.sectionId) : '';
@@ -598,7 +594,7 @@ function rosterEntryFromPerson(person) {
     categoryId: person.categoryId ?? null,
     weaponIds: person.weaponIds ?? [],
     wpisowePaid: false,
-    duesStatus: person.categoryId === EMERYT_CATEGORY_ID ? 'not_applicable' : 'unpaid',
+    duesStatus: effectiveDuesStatus(null, person.categoryId),
   };
 }
 

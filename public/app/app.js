@@ -164,11 +164,6 @@ async function renderNewGalleriesWidget() {
   return widget;
 }
 
-function effectiveDuesStatus(dues, categoryId) {
-  if (dues) return dues.status;
-  return categoryId === 'emeryt' ? 'not_applicable' : 'unpaid';
-}
-
 function renderDuesPanel(owedItems) {
   const panel = document.createElement('section');
   if (owedItems.length === 0) {
@@ -198,9 +193,8 @@ function renderDuesPanel(owedItems) {
 
 async function buildDuesOwedItems(events) {
   const year = new Date().getFullYear();
-  const [myDuesResponse, memberResult, profileResult] = await Promise.all([
+  const [myDuesResponse, profileResult] = await Promise.all([
     apiFetch(`/lista-wyjazdowa/dues/mine?year=${year}`, { method: 'GET' }, showReauth, hideReauth),
-    apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
   ]);
   const owed = [];
@@ -209,10 +203,9 @@ async function buildDuesOwedItems(events) {
   // payment status); this dashboard only needs yearFee.note/dueDate, and only when the viewer's
   // own roczna status is actually unpaid, so it's fetched here rather than eagerly for everyone
   // (design.md §2a's documented data-minimization trade-off - no self-scoped GET /dues/year-fee
-  // endpoint exists).
-  const categoryId = memberResult.member?.categoryId ?? null;
-  const rocznaStatus = effectiveDuesStatus(myDuesResponse.dues, categoryId);
-  if (rocznaStatus === 'unpaid') {
+  // endpoint exists). duesStatus is already resolved server-side (emeryt default included) - the
+  // same value Mój profil and the profile drawer show.
+  if (myDuesResponse.duesStatus === 'unpaid') {
     const duesResult = await apiFetch(`/lista-wyjazdowa/dues?year=${year}`, { method: 'GET' }, showReauth, hideReauth);
     owed.push({ name: `Roczna składka ${year}`, detail: duesResult.yearFee?.note ?? null, dueDate: duesResult.yearFee?.dueDate ?? null });
   }

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/shared/profile-panel.js', import.meta.url), 'utf8');
+const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
 
 class FakeClassList {
   add() {}
@@ -166,6 +167,7 @@ function createHarness(harnessOptions: {
     Object,
     JSON,
   };
+  vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
   vm.runInNewContext(source, context, { filename: 'profile-panel.js' });
   return {
     apiCalls,

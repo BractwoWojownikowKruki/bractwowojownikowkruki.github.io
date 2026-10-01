@@ -234,7 +234,7 @@
           <button type="button" class="add-album-submit profile-dues-save" data-profile-dues-save="wpisowe">Zapisz wpisowe</button>
           <label>Składka ${escapeHtml(profile.duesYear)}
             <select name="duesStatus">
-              ${['unpaid', 'paid', 'not_applicable'].map((status) => `<option value="${status}"${annualDuesDraft.status === status ? ' selected' : ''}>${({ unpaid: 'nieopłacona', paid: 'opłacona', not_applicable: 'nie dotyczy' })[status]}</option>`).join('')}
+              ${['unpaid', 'paid', 'not_applicable'].map((status) => `<option value="${status}"${annualDuesDraft.status === status ? ' selected' : ''}>${DUES_STATUS_LABELS[status]}</option>`).join('')}
             </select>
           </label>
           <button type="button" class="add-album-submit profile-dues-save" data-profile-dues-save="annual">Zapisz składkę</button>
@@ -435,8 +435,8 @@
     // handleMemberProfile. Same check/cross + coin convention as skladki.js's paidIconHtml, and the
     // same three-state roczna status (data-status, grey "nie dotyczy") as its rocznaIconHtml -
     // server.ts's effectiveDuesStatus already resolves an emeryt-with-no-record to
-    // 'not_applicable' before this ever sees it, so no category check is needed here.
-    const rocznaLabels = { unpaid: 'nieopłacona', paid: 'opłacona', not_applicable: 'nie dotyczy' };
+    // 'not_applicable' before this ever sees it, so no category check is needed here. Labels come
+    // from shared/dues-status.js, same as every other page showing this status.
     const duesStatusHtml = `
       <div class="lw-dues-status">
         <span class="lw-dues-status-item">
@@ -445,7 +445,7 @@
         </span>
         <span class="lw-dues-status-item">
           <span class="lw-skladka-icon" data-status="${profile.duesStatus}" aria-hidden="true">💰</span>
-          Składka ${profile.duesYear}: ${rocznaLabels[profile.duesStatus]}
+          ${escapeHtml(duesStatusLabel(profile.duesYear, profile.duesStatus))}
         </span>
       </div>
     `;
