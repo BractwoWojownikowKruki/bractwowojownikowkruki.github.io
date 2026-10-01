@@ -45,7 +45,8 @@ body {
   position: sticky;
   top: 0;
   background: var(--bg);
-  z-index: 10;
+  /* Above sticky in-page bars (.lw-topbar is 15) so the open members-zone menu isn't covered. */
+  z-index: 25;
 }
 
 .toolbar {
@@ -574,7 +575,7 @@ main { padding: 1.25rem 1.5rem 3rem; }
   .toolbar {
     position: sticky;
     top: 0;
-    z-index: 10;
+    z-index: 25;
     background: var(--bg);
     border-bottom: 1px solid var(--border);
     padding: 0.5rem 1rem;

@@ -80,7 +80,7 @@ function attendeeBadge(count) {
   badge.className = 'attendee-badge';
   badge.title = `Zgłoszone osoby: ${n}`;
   badge.setAttribute('aria-label', `Zgłoszone osoby: ${n}`);
-  badge.innerHTML = '<span aria-hidden="true">👥</span> <span class="attendee-badge-count"></span>';
+  badge.innerHTML = '<img class="attendee-badge-icon" src="/icons/attendees-badge.png" alt="" aria-hidden="true"> <span class="attendee-badge-count"></span>';
   badge.querySelector('.attendee-badge-count').textContent = String(n);
   return badge;
 }
