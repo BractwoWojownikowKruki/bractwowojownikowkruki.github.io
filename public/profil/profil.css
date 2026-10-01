@@ -28,6 +28,57 @@
   margin: -0.4rem 0 0.75rem;
 }
 
+/* "Zainstaluj" box under the photo fieldset - see pwa-install.js (data-pwa-install-panel). */
+.lw-install-box {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin: -0.5rem 0 1.5rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.lw-install-box[hidden],
+.lw-install-message[hidden] {
+  display: none;
+}
+
+.lw-install-icon {
+  flex-shrink: 0;
+  border-radius: 12px;
+}
+
+.lw-install-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.lw-install-box .lw-install-title {
+  margin: 0;
+  text-align: left;
+  font-size: 1rem;
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.lw-install-text,
+.lw-install-message {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.lw-install-box .lw-install-button {
+  width: auto;
+  margin: 0.2rem 0 0;
+  padding: 0.5rem 1.5rem;
+}
+
 /* Read-only wpisowe/składka roczna readout right under the photo fieldset (KRKG-0047 follow-up) -
    .lw-skladka-icon itself comes from member-area.css, already loaded on this page. */
 .lw-dues-status {

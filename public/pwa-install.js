@@ -1,16 +1,20 @@
 (() => {
   const controls = [...document.querySelectorAll('[data-pwa-install]')];
   const messages = [...document.querySelectorAll('[data-pwa-install-message]')];
+  // Whole install boxes (e.g. the one on /profil/) - shown and hidden together with the controls.
+  const panels = [...document.querySelectorAll('[data-pwa-install-panel]')];
   let deferredPrompt;
   let installed = false;
 
   const hideInstallUi = () => {
     controls.forEach(control => { control.hidden = true; });
     messages.forEach(message => { message.hidden = true; });
+    panels.forEach(panel => { panel.hidden = true; });
   };
 
   const showControls = () => {
     controls.forEach(control => { control.hidden = false; });
+    panels.forEach(panel => { panel.hidden = false; });
   };
 
   const setControlsDisabled = disabled => {

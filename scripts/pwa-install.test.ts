@@ -25,6 +25,7 @@ type InstallHarness = ReturnType<typeof createHarness>;
 function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDesktop?: boolean; manifest?: boolean } = {}) {
   const controls = [new FakeElement(), new FakeElement()];
   const messages = [new FakeElement()];
+  const panels = [new FakeElement()];
   const listeners = new Map<string, Array<(event: unknown) => unknown>>();
   const navigator = {
     standalone: options.standalone ?? false,
@@ -55,6 +56,7 @@ function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDeskt
     querySelectorAll(selector: string) {
       if (selector === '[data-pwa-install]') return controls;
       if (selector === '[data-pwa-install-message]') return messages;
+      if (selector === '[data-pwa-install-panel]') return panels;
       return [];
     },
   };
@@ -73,6 +75,7 @@ function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDeskt
       for (const listener of listeners.get(type) ?? []) await listener(event);
     },
     messages,
+    panels,
   };
 }
 
@@ -88,15 +91,27 @@ test('hides install controls and messages in standalone mode', async () => {
 
   assert.ok(harness.controls.every(control => control.hidden));
   assert.ok(harness.messages.every(message => message.hidden));
+  assert.ok(harness.panels.every(panel => panel.hidden));
 });
 
 test('reveals controls for an uninstalled browser session', async () => {
   const harness = createHarness();
   harness.controls.forEach(control => { control.hidden = true; });
+  harness.panels.forEach(panel => { panel.hidden = true; });
 
   await loadInstallController(harness);
 
   assert.ok(harness.controls.every(control => !control.hidden));
+  assert.ok(harness.panels.every(panel => !panel.hidden));
+});
+
+test('hides install panels once the app gets installed', async () => {
+  const harness = createHarness();
+  await loadInstallController(harness);
+
+  await harness.emit('appinstalled', {});
+
+  assert.ok(harness.panels.every(panel => panel.hidden));
 });
 
 test('defers the browser prompt until an install-control click', async () => {
