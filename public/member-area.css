@@ -921,7 +921,7 @@
   font-weight: 700;
   white-space: nowrap;
 }
-.attendee-badge-icon { height: 1.35em; width: auto; display: block; }
+.attendee-badge-icon { height: 1.6em; width: auto; display: block; }
 
 /* Date + headcount badge share one line, also in the stacked mobile card. */
 .lw-event-meta { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: nowrap; }
@@ -1129,6 +1129,10 @@ button.lw-skladka-icon:disabled {
   /* KRKG-0101: the roster's tight name cell keeps the icon-only form, but the all-events list has
      room for the label - show it there so the "+" figure is not a mystery tap target. */
   .lw-event-row .lw-add-companion-label {
+    display: inline;
+  }
+
+  .dashboard-widget .lw-add-companion-label {
     display: inline;
   }
 }
@@ -2041,6 +2045,13 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   font-weight: 700;
 }
 .dashboard-event-countdown { color: var(--text-muted); font-size: 0.85rem; }
+.dashboard-event-name-link { color: inherit; text-decoration: none; }
+.dashboard-event-name-link:hover,
+.dashboard-event-name-link:focus-visible { color: var(--gold); text-decoration: underline; }
+.dashboard-widget .lw-event-actions { margin-top: 0.6rem; flex-wrap: wrap; }
+.dashboard-event-panel:not(:empty) { margin-top: 0.5rem; }
+.dashboard-widget .lw-inline-form { margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px dashed var(--border); }
+.dashboard-widget .lw-inline-form-inner { padding-left: 0; }
 
 .dashboard-mini-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .dashboard-mini-item {
