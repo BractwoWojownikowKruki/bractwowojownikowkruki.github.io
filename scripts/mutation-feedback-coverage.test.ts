@@ -297,14 +297,14 @@ test('newly approved and deleted pending photos confirm after their local view a
 
 test('batch four forms and gallery uploads confirm only their completed mutation flows', async () => {
   const files = await Promise.all([
-    'public/zgloszenie/zgloszenie.js', 'public/profil/profil.js', 'public/wojownicy/wrzuc/wrzuc.js',
+    'public/zgloszenie/zgloszenie.js', 'public/profil/profil.js',
     'public/galerie/app.js', 'public/galerie/dodaj-galerie.js', 'public/galerie/dodaj-zdjecia.js',
   ].map(path => readFile(new URL(`../${path}`, import.meta.url), 'utf8')));
   for (const source of files) assert.match(source, /MutationFeedback\.confirmed/);
   for (const source of files) assert.doesNotMatch(source, /window\.location\.reload\(\)/);
   assert.match(files[0], /anchor: panels\.pending/);
-  assert.match(files[3], /const feedbackAnchor = document\.getElementById\('count'\)/);
-  const addPhotos = files[5];
+  assert.match(files[2], /const feedbackAnchor = document\.getElementById\('count'\)/);
+  const addPhotos = files[4];
   assert.match(extractNamedFunction(addPhotos, 'submitPhotos'), /\/gallery-photos\/start/);
   assert.match(extractNamedFunction(addPhotos, 'submitPhotos'), /\/gallery-photos\/finalize/);
   assert.match(extractListenerForElement(addPhotos, 'upload-form', 'submit'), /MutationFeedback\.confirmed/);

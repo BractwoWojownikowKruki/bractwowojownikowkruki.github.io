@@ -1,6 +1,5 @@
 User-agent: *
 Disallow: /admin/
 Disallow: /galerie/
-Disallow: /wojownicy/wrzuc/
 
 Sitemap: https://www.kruki.org/sitemap.xml
