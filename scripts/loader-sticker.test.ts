@@ -24,7 +24,6 @@ const staticLoaderSources = [
   'public/wojownicy/emeryci/index.html',
   'public/wojownicy/kandydaci/index.html',
   'public/wojownicy/niewiasty/index.html',
-  'public/wojownicy/wrzuc/index.html',
   'public/wojownicy/zalozyciele/index.html',
   'public/zasady-bractwa/index.html',
   'public/zgloszenie/index.html',

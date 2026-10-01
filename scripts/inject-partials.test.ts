@@ -149,7 +149,6 @@ test('member-zone partials provide initially hidden accessible PWA install contr
 test('protected entry points begin with the shared session-checking message, not a login control', async () => {
   const protectedPages = [
     '../public/logowanie/index.html',
-    '../public/wojownicy/wrzuc/index.html',
     '../public/galerie/dodaj-galerie.html',
     '../public/galerie/dodaj-zdjecia.html',
     '../public/galerie/index.html',
