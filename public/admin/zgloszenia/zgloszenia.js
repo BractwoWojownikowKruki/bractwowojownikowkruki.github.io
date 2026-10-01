@@ -86,9 +86,8 @@ function applicationFocusId(email, action) {
   return `membership-application-${encodeURIComponent(email)}-${action}`;
 }
 
-// Clicking a photo opens the same lightbox as the profile drawer and O nas (shared .lightbox*
-// styles; each page hand-copies the pattern - see shared/profile-panel.js) over that one
-// applicant's photos.
+// Clicking a photo opens the shared lightbox (shared/photo-lightbox.js - same look as the profile
+// drawer's and O nas's) over that one applicant's photos.
 let applicationPhotos = new Map();
 
 function applicationPhotosHtml(email, photos) {
@@ -98,98 +97,11 @@ function applicationPhotosHtml(email, photos) {
     .join('')}</div>`;
 }
 
-const ICON_CHEVRON_LEFT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
-const ICON_CHEVRON_RIGHT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
-let lightboxEls = null;
-let lightboxPhotos = [];
-let lightboxIndex = -1;
-
-// Drive thumbnail URLs end in =sNNN; a bigger number gives a sharper copy for the lightbox.
-function resizePhotoUrl(url, size) {
-  return url.replace(/=s\d+$/, `=s${size}`);
-}
-
-function ensureLightbox() {
-  if (lightboxEls) return lightboxEls;
-  const wrapper = document.createElement('div');
-  wrapper.innerHTML = `
-    <div class="lightbox" id="application-lightbox" hidden>
-      <button class="lightbox-close" id="application-lightbox-close" aria-label="Zamknij">&times;</button>
-      <button class="lightbox-prev" id="application-lightbox-prev" aria-label="Poprzednie">${ICON_CHEVRON_LEFT}</button>
-      <div class="lightbox-image-wrap">
-        <img id="application-lightbox-img" alt="" />
-        <span class="spinner"></span>
-      </div>
-      <button class="lightbox-next" id="application-lightbox-next" aria-label="Następne">${ICON_CHEVRON_RIGHT}</button>
-      <div class="lightbox-filmstrip" id="application-lightbox-filmstrip"></div>
-    </div>`;
-  const lightbox = wrapper.firstElementChild;
-  document.body.append(lightbox);
-  lightboxEls = {
-    lightbox,
-    img: lightbox.querySelector('#application-lightbox-img'),
-    filmstrip: lightbox.querySelector('#application-lightbox-filmstrip'),
-  };
-  return lightboxEls;
-}
-
-function setLightboxIndex(index) {
-  lightboxIndex = index;
-  const { img, filmstrip } = ensureLightbox();
-  const wrap = img.closest('.lightbox-image-wrap');
-  wrap.classList.remove('loaded');
-  img.addEventListener('load', () => wrap.classList.add('loaded'), { once: true });
-  img.addEventListener('error', () => wrap.classList.add('loaded'), { once: true });
-  img.src = resizePhotoUrl(lightboxPhotos[index].url, 1600);
-  filmstrip.querySelectorAll('.lightbox-filmstrip-thumb').forEach(btn => {
-    btn.classList.toggle('active', Number(btn.dataset.index) === index);
-  });
-}
-
-function openLightbox(photos, index) {
-  lightboxPhotos = photos;
-  const { lightbox, filmstrip } = ensureLightbox();
-  filmstrip.innerHTML = photos
-    .map((photo, i) => `<button class="lightbox-filmstrip-thumb" data-index="${i}" aria-label="Otwórz zdjęcie ${i + 1}"><img src="${escapeAttr(photo.url)}" alt="" loading="lazy" /></button>`)
-    .join('');
-  lightbox.hidden = false;
-  document.body.style.overflow = 'hidden';
-  setLightboxIndex(index);
-}
-
-function stepLightbox(delta) {
-  if (lightboxIndex === -1) return;
-  setLightboxIndex((lightboxIndex + delta + lightboxPhotos.length) % lightboxPhotos.length);
-}
-
-function closeLightbox() {
-  if (!lightboxEls || lightboxEls.lightbox.hidden) return;
-  lightboxEls.lightbox.hidden = true;
-  document.body.style.overflow = '';
-  lightboxIndex = -1;
-}
-
 document.addEventListener('click', e => {
   const thumb = e.target.closest('.membership-application-photo');
-  if (thumb) {
-    const photos = applicationPhotos.get(thumb.dataset.email);
-    if (photos?.length) openLightbox(photos, Number(thumb.dataset.photoIndex));
-    return;
-  }
-  if (e.target.id === 'application-lightbox' || e.target.closest('#application-lightbox-close')) closeLightbox();
-  else if (e.target.closest('#application-lightbox-prev')) stepLightbox(-1);
-  else if (e.target.closest('#application-lightbox-next')) stepLightbox(1);
-  else {
-    const filmThumb = e.target.closest('.lightbox-filmstrip-thumb');
-    if (filmThumb?.closest('#application-lightbox')) setLightboxIndex(Number(filmThumb.dataset.index));
-  }
-});
-
-document.addEventListener('keydown', e => {
-  if (lightboxIndex === -1) return;
-  if (e.key === 'Escape') closeLightbox();
-  if (e.key === 'ArrowLeft') stepLightbox(-1);
-  if (e.key === 'ArrowRight') stepLightbox(1);
+  if (!thumb) return;
+  const photos = applicationPhotos.get(thumb.dataset.email);
+  if (photos?.length) window.PhotoLightbox.open(photos, Number(thumb.dataset.photoIndex));
 });
 
 function renderMembershipApplications(members, { sectionLabels = new Map(), photosByEmail = new Map() } = {}) {
