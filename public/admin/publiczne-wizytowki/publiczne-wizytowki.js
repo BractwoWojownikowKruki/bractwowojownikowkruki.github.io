@@ -262,7 +262,7 @@ const REJECTED_PHOTO_GENERIC_MESSAGE =
 function uploadRejectedPhotoHtml(photo) {
   return `
     <div class="upload-rejected-item" data-file-id="${escapeAttr(photo.id)}" style="display:inline-block; width:120px; margin:0 0.5rem 0.5rem 0; vertical-align:top;">
-      <div class="rejected-photo">
+      <div class="rejected-photo"${photo.url ? ' style="cursor:zoom-in;"' : ''}>
         <img src="${escapeAttr(photo.url || '')}" alt="${photo.url ? 'Odrzucone zdjęcie' : 'Miniatura zdjęcia będzie dostępna później'}" style="width:120px; height:120px; object-fit:cover; border-radius:4px; display:block; border:1px solid var(--border);" />
         <span class="rejected-stamp" aria-hidden="true">Odrzucone</span>
       </div>
@@ -630,11 +630,16 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
   }
 });
 
-// Pending photos enlarge in the shared lightbox, stepping through that submission's photos.
+// Pending and rejected photos enlarge in the shared lightbox, stepping through that submission's
+// photos. The rejected photo's "Odrzucone" stamp sits over the <img>, so the click lands on the
+// .rejected-photo wrapper rather than the image itself.
+const UPLOAD_LIGHTBOX_IMAGES = '.upload-photo-item > img, .rejected-photo > img[src]:not([src=""])';
 document.getElementById('manage-people-list').addEventListener('click', e => {
-  const img = e.target.closest('.upload-photo-item > img');
-  if (!img) return;
-  const images = [...img.closest('.manage-person-card').querySelectorAll('.upload-photo-item > img')];
+  const clicked = e.target.closest('.upload-photo-item > img, .rejected-photo');
+  const img = clicked && (clicked.tagName === 'IMG' ? clicked : clicked.querySelector('img'));
+  const card = img && img.closest('.manage-person-card');
+  if (!card || !img.getAttribute('src')) return;
+  const images = [...card.querySelectorAll(UPLOAD_LIGHTBOX_IMAGES)];
   window.PhotoLightbox.open(images.map(el => ({ url: el.getAttribute('src') })), images.indexOf(img));
 });
 
