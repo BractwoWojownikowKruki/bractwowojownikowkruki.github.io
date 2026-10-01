@@ -83,8 +83,11 @@
     }
   }
 
-  async function confirmed({ execute, apply, refreshFragment, control, anchor, rollback, shouldShowCheck, viewRoot }) {
-    const feedbackAnchor = anchor || control;
+  // `fallbackAnchor` (element or function returning one, evaluated after apply()) is used only when
+  // the primary anchor was removed/replaced by apply() - so the checkmark still lands next to where
+  // the control was instead of somewhere far away on a wide container.
+  async function confirmed({ execute, apply, refreshFragment, control, anchor, fallbackAnchor, rollback, shouldShowCheck, viewRoot }) {
+    let feedbackAnchor = anchor || control;
     removeExistingChecks(feedbackAnchor);
     let result;
 
@@ -107,6 +110,11 @@
     } catch (error) {
       showRefreshError(connectedErrorAnchor(feedbackAnchor), refreshFragment, viewRoot || feedbackAnchor);
       throw error;
+    }
+
+    if ((!feedbackAnchor || !feedbackAnchor.isConnected) && fallbackAnchor) {
+      const fallback = typeof fallbackAnchor === 'function' ? fallbackAnchor() : fallbackAnchor;
+      if (fallback?.isConnected) feedbackAnchor = fallback;
     }
 
     if (!feedbackAnchor || !feedbackAnchor.isConnected) {

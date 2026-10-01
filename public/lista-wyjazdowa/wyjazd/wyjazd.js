@@ -170,10 +170,10 @@ function clearError() {
   document.getElementById('lw-error').hidden = true;
 }
 
-function confirmedEventMutation(control, execute, apply, anchor = control, rollback) {
+function confirmedEventMutation(control, execute, apply, fallbackAnchor = null, rollback) {
   return window.MutationFeedback.confirmed({
     control,
-    anchor,
+    fallbackAnchor,
     execute,
     apply,
     rollback,

@@ -362,15 +362,21 @@ function ensureDashCompanionData() {
   return dash.companionPromise;
 }
 
+// renderDashboardWidgets() replaces the clicked button, so the checkmark goes next to the same
+// event's freshly rendered attend toggle (falling back to the widget slot).
+function dashEventAnchor(eventId) {
+  const slot = document.getElementById('app-widget-grid-slot');
+  return () => slot.querySelector(`.lw-attend-toggle[data-event-id="${CSS.escape(String(eventId))}"]`) || slot;
+}
+
 async function setDashAttending(eventId, nextAttending, control) {
   showDashboardError('');
   control.disabled = true;
   try {
     await window.MutationFeedback.confirmed({
       control,
-      // The slot outlives the re-render below (the buttons inside it do not), so the checkmark has
-      // somewhere stable to attach.
-      anchor: document.getElementById('app-widget-grid-slot'),
+      // The re-render below replaces the buttons, so fall back to the same event's fresh toggle.
+      fallbackAnchor: dashEventAnchor(eventId),
       execute: () => apiFetch(
         `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(dash.viewerEmail)}`,
         { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attending: nextAttending }) },
@@ -403,7 +409,7 @@ async function quickAddDashCompanion(body, control) {
   try {
     await window.MutationFeedback.confirmed({
       control,
-      anchor: document.getElementById('app-widget-grid-slot'),
+      fallbackAnchor: dashEventAnchor(body.eventId),
       execute: () => apiFetch(
         '/lista-wyjazdowa/signups/quick-add',
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },

@@ -28,7 +28,7 @@ async function postMembershipTransition(row, email, transition, reason) {
   const list = document.getElementById('membership-applications-list');
   const result = await window.MutationFeedback.confirmed({
     control: row.querySelector(`.${transition}-application`),
-    anchor: list,
+    fallbackAnchor: list,
     execute: () => apiFetch(
       '/admin/members/transition',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, transition, reason: reason || undefined }) },

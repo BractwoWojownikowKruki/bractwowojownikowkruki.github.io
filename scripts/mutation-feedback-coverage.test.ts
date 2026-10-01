@@ -196,7 +196,7 @@ test('batch two admin mutations use confirmed local feedback without full-list s
   assert.match(memberTransition, /MutationFeedback\.confirmed\(/);
   assert.match(memberTransition, /apply:/);
   assert.match(memberTransition, /shouldShowCheck:\s*result\s*=>\s*!sheetSyncStatusMessage\(result\.sheetSyncStatus\)/);
-  assert.match(memberTransition, /anchor:\s*row\.closest\('table'\)/);
+  assert.match(memberTransition, /fallbackAnchor:\s*row\.closest\('table'\)/);
   assert.match(memberTransition, /viewRoot:\s*list/);
   assert.doesNotMatch(memberTransition, /loadMembershipMembers\(\);/);
 

@@ -324,3 +324,20 @@ test('the shared style defines visible feedback affordances without visible succ
   assert.match(css, /\.mutation-feedback-check\s*\{[^}]*color:/);
   assert.match(css, /\.mutation-feedback-error\s*\{[^}]*display:/);
 });
+
+test('puts the check next to the control and uses fallbackAnchor only when the control is removed', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  const control = new FakeElement('button');
+  const fallback = new FakeElement('div');
+
+  await feedback.confirmed({ control, fallbackAnchor: fallback, execute: async () => {}, apply: async () => {} });
+  assert.equal(control.insertedAfter.length, 1);
+  assert.equal(fallback.insertedAfter.length, 0);
+
+  const removed = new FakeElement('button');
+  removed.isConnected = false;
+  const fallback2 = new FakeElement('div');
+  await feedback.confirmed({ control: removed, fallbackAnchor: () => fallback2, execute: async () => {}, apply: async () => {} });
+  assert.equal(fallback2.insertedAfter.length, 1);
+});
