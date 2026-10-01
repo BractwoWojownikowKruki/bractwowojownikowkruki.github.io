@@ -46,12 +46,37 @@ async function postMembershipTransition(row, email, transition, reason) {
   return result.sheetSyncStatus;
 }
 
+// The application itself only carries the section id and no photos: the label comes from the
+// lookup lists and the photos from the applicant's upload-staging folder (matched by its owner
+// e-mail, like Publiczne wizytówki's Upload view). Both are best-effort - a failure there must not
+// hide the applications themselves.
+async function loadApplicationExtras() {
+  const [lookups, staging] = await Promise.allSettled([
+    apiFetch('/admin/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
+    apiFetch('/admin/people?category=upload', { method: 'GET' }, showReauth, hideReauth),
+  ]);
+  const sectionLabels = new Map(
+    (lookups.status === 'fulfilled' ? lookups.value.sections ?? [] : []).map(section => [section.id, section.label]),
+  );
+  const photosByEmail = new Map();
+  for (const person of staging.status === 'fulfilled' ? staging.value.people ?? [] : []) {
+    const email = person.owner?.email?.toLowerCase();
+    if (!email) continue;
+    const photos = [person.mainPhoto, ...(person.photos ?? [])].filter(photo => photo?.url);
+    photosByEmail.set(email, [...(photosByEmail.get(email) ?? []), ...photos]);
+  }
+  return { sectionLabels, photosByEmail };
+}
+
 async function loadMembershipApplications() {
   const list = document.getElementById('membership-applications-list');
   list.textContent = 'Ładowanie...';
   try {
-    const { members } = await apiFetch('/admin/members?status=pending', { method: 'GET' }, showReauth, hideReauth);
-    renderMembershipApplications(members);
+    const [{ members }, extras] = await Promise.all([
+      apiFetch('/admin/members?status=pending', { method: 'GET' }, showReauth, hideReauth),
+      loadApplicationExtras(),
+    ]);
+    renderMembershipApplications(members, extras);
   } catch (err) {
     list.textContent = `Błąd: ${err.message}`;
   }
@@ -61,20 +86,41 @@ function applicationFocusId(email, action) {
   return `membership-application-${encodeURIComponent(email)}-${action}`;
 }
 
-function renderMembershipApplications(members) {
+// Clicking a photo opens the shared lightbox (shared/photo-lightbox.js - same look as the profile
+// drawer's and O nas's) over that one applicant's photos.
+let applicationPhotos = new Map();
+
+function applicationPhotosHtml(email, photos) {
+  if (!photos?.length) return '<p class="membership-application-photos-empty" style="margin:0.25rem 0 0; color:var(--text-muted); font-size:12px;">Brak zdjęć.</p>';
+  return `<div class="membership-application-photos" style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.5rem;">${photos
+    .map((photo, index) => `<button type="button" class="membership-application-photo" data-email="${escapeAttr(email)}" data-photo-index="${index}" aria-label="Powiększ zdjęcie ${index + 1}" style="padding:0; border:0; background:none; cursor:zoom-in;"><img src="${escapeAttr(photo.url)}" alt="Zdjęcie ze zgłoszenia" style="width:100px; height:100px; object-fit:cover; border-radius:4px; display:block;" /></button>`)
+    .join('')}</div>`;
+}
+
+document.addEventListener('click', e => {
+  const thumb = e.target.closest('.membership-application-photo');
+  if (!thumb) return;
+  const photos = applicationPhotos.get(thumb.dataset.email);
+  if (photos?.length) window.PhotoLightbox.open(photos, Number(thumb.dataset.photoIndex));
+});
+
+function renderMembershipApplications(members, { sectionLabels = new Map(), photosByEmail = new Map() } = {}) {
   const list = document.getElementById('membership-applications-list');
   if (!members.length) {
     list.innerHTML = '<p>Brak oczekujących zgłoszeń.</p>';
     return;
   }
+  applicationPhotos = new Map(members.map(m => [m.email, photosByEmail.get(m.email.toLowerCase()) ?? []]));
   list.innerHTML = members
     .map(
       m => `
     <div class="membership-application" data-email="${escapeAttr(m.email)}" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; padding:0.5rem 0; border-bottom:1px solid var(--border);">
       <div style="flex:1; min-width:200px;">
         <strong>${escapeHtml(m.lastName ?? '')}, ${escapeHtml(m.firstName ?? '')}</strong>${m.nickname ? ` (${escapeHtml(m.nickname)})` : ''}
-        <br><span style="color:var(--text-muted);">${escapeHtml(m.email)} - ${escapeHtml(m.sectionId)}</span>
+        <br><span style="color:var(--text-muted);">${escapeHtml(m.email)}</span>
+        <br><span style="color:var(--text-muted);">Sekcja: ${escapeHtml(sectionLabels.get(m.sectionId) ?? m.sectionId ?? 'brak')}</span>
         ${m.description ? `<p class="membership-application-description" style="margin:0.25rem 0 0; white-space:pre-wrap;">${escapeHtml(m.description)}</p>` : ''}
+        ${applicationPhotosHtml(m.email, photosByEmail.get(m.email.toLowerCase()))}
       </div>
       <button id="${applicationFocusId(m.email, 'approve')}" class="approve-application" style="color:var(--gold);">Zatwierdź</button>
       <button id="${applicationFocusId(m.email, 'reject')}" class="reject-application" style="color:var(--accent);">Odrzuć</button>
