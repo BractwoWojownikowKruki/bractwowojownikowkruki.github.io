@@ -217,7 +217,7 @@ function uploadPhotoPickHtml(folderId, photo, isMain) {
   return `
     <div class="upload-photo-item${isMain ? ' person-main-photo' : ''}" data-file-id="${escapeAttr(photo.id)}" style="position:relative; display:inline-block;">
       <input type="checkbox" class="upload-photo-select" data-file-id="${escapeAttr(photo.id)}" style="position:absolute; top:6px; left:6px; width:18px; height:18px; z-index:1;" />
-      <img src="${escapeAttr(photo.url)}" alt="" />
+      <img src="${escapeAttr(photo.url)}" alt="" style="cursor:zoom-in;" />
       <button type="button" class="delete-pending-photo" data-folder-id="${escapeAttr(folderId)}" data-file-id="${escapeAttr(photo.id)}" style="position:absolute; bottom:4px; right:4px; z-index:1; font-size:10px; color:var(--accent); background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:2px 4px; cursor:pointer;">Usuń</button>
     </div>`;
 }
@@ -404,6 +404,14 @@ async function confirmedPersonWrite(control, card, execute, apply, anchor = card
     control, anchor, execute, apply, viewRoot: document.getElementById('manage-people-list'), refreshFragment: loadManageList,
   });
 }
+
+// Pending photos enlarge in the shared lightbox, stepping through that submission's photos.
+document.getElementById('manage-people-list').addEventListener('click', e => {
+  const img = e.target.closest('.upload-photo-item > img');
+  if (!img) return;
+  const images = [...img.closest('.manage-person-card').querySelectorAll('.upload-photo-item > img')];
+  window.PhotoLightbox.open(images.map(el => ({ url: el.getAttribute('src') })), images.indexOf(img));
+});
 
 document.getElementById('manage-people-list').addEventListener('click', async e => {
   try {
