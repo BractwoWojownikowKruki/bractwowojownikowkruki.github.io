@@ -1337,6 +1337,13 @@ main { padding: 1.25rem 1.5rem 3rem; }
   gap: 1rem;
 }
 
+/* The base .add-album-submit is full-width; sized to its own label here so the "saved" check
+   MutationFeedback inserts right after the button sits beside it, not below or above it. */
+.profile-form-actions .add-album-submit {
+  width: auto;
+  padding: 10px 20px;
+}
+
 .profile-form-saved {
   color: var(--gold);
   font-weight: 600;
