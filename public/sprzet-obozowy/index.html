@@ -53,6 +53,12 @@
             </div>
           </div>
 
+          <button type="button" class="member-action" id="equipment-taxonomy-toggle" aria-expanded="false" aria-controls="equipment-taxonomy">Edytuj grupy i kategorie</button>
+          <section id="equipment-taxonomy" class="pliki-add-form equipment-taxonomy" hidden>
+            <p style="color: var(--text-muted);">Usunąć można tylko kategorię, której nie używa żaden sprzęt, i grupę, której nie używa żadna kategoria.</p>
+            <div id="equipment-taxonomy-body"></div>
+          </section>
+
           <form id="equipment-add-form" class="pliki-add-form" hidden>
             <input type="hidden" id="equipment-add-editing-id" value="" />
             <label for="equipment-add-category">Kategoria</label>

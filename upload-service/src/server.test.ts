@@ -10257,3 +10257,85 @@ test('GET /admin/people?category=upload identifies the uploader (name, category 
     assert.equal((byId.get('s2') as { owner: unknown }).owner, null);
   });
 });
+
+// Camp-equipment taxonomy editor: POST/PUT/DELETE /equipment/groups and /equipment/categories.
+function makeTaxonomyFirestore() {
+  const firestore = makeEquipmentFirestore();
+  firestore.seed('lookupLists', 'equipmentGroups', { items: [{ id: 'budowle', label: 'Budowle', retired: false }] });
+  firestore.seed('lookupLists', 'equipmentCategories', {
+    items: [{ id: 'namiot', label: 'Namiot', groupId: 'budowle', retired: false }],
+  });
+  return firestore;
+}
+
+async function taxonomyRequest(baseUrl: string, method: string, path: string, body?: unknown) {
+  return fetch(`${baseUrl}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+test('POST /equipment/groups adds a group with a slug id and records an audit event', async () => {
+  const firestore = makeTaxonomyFirestore();
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await taxonomyRequest(baseUrl, 'POST', '/equipment/groups', { label: 'Sprzęt ogniowy' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(((await res.json()) as { group: { id: string } }).group.id, 'sprzet-ogniowy');
+    const dup = await taxonomyRequest(baseUrl, 'POST', '/equipment/groups', { label: 'budowle' });
+    assert.equal(dup.status, 409, 'labels are unique case-insensitively');
+    const lists = await (await fetch(`${baseUrl}/lista-wyjazdowa/lookup-lists`)).json() as { equipmentGroups: Array<{ id: string }> };
+    assert.deepEqual(lists.equipmentGroups.map(g => g.id), ['budowle', 'sprzet-ogniowy']);
+  });
+  const events = (await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents')).map(e => e.data);
+  assert.ok(events.some(e => e.action === 'equipment.group.added' && e.resource.key === 'equipmentGroup:sprzet-ogniowy'));
+});
+
+test('POST/PUT /equipment/categories validate the group and store groupId', async () => {
+  const firestore = makeTaxonomyFirestore();
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const bad = await taxonomyRequest(baseUrl, 'POST', '/equipment/categories', { label: 'Stół', groupId: 'nie-ma' });
+    assert.equal(bad.status, 400);
+    const added = await taxonomyRequest(baseUrl, 'POST', '/equipment/categories', { label: 'Misa ogniowa', groupId: 'budowle' });
+    assert.equal(added.status, 200);
+    assert.equal(((await added.json()) as { category: { id: string } }).category.id, 'misa-ogniowa');
+    const updated = await taxonomyRequest(baseUrl, 'PUT', '/equipment/categories?id=namiot', { label: 'Namiot', groupId: null });
+    assert.equal(updated.status, 200);
+    const lists = await (await fetch(`${baseUrl}/lista-wyjazdowa/lookup-lists`)).json() as { equipmentCategories: Array<{ id: string; groupId: string | null }> };
+    assert.equal(lists.equipmentCategories.find(c => c.id === 'namiot')?.groupId, null);
+    assert.equal(lists.equipmentCategories.find(c => c.id === 'misa-ogniowa')?.groupId, 'budowle');
+    assert.equal((await taxonomyRequest(baseUrl, 'PUT', '/equipment/categories?id=nie-ma', { label: 'X', groupId: null })).status, 404);
+  });
+});
+
+test('DELETE /equipment/categories refuses a category still used by equipment, with a 409 explanation', async () => {
+  const firestore = makeTaxonomyFirestore();
+  firestore.seed('equipment', 'tent-1', {
+    id: 'tent-1', categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: null,
+    description: '', createdAt: '2026-01-01T00:00:00.000Z', createdBy: 'ala@example.test',
+  });
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await taxonomyRequest(baseUrl, 'DELETE', '/equipment/categories?id=namiot');
+    assert.equal(res.status, 409);
+    assert.match(((await res.json()) as { error: string }).error, /używana przez 1 sprzęt/);
+    await firestore.deleteDoc('equipment', 'tent-1');
+    assert.equal((await taxonomyRequest(baseUrl, 'DELETE', '/equipment/categories?id=namiot')).status, 200);
+  });
+});
+
+test('DELETE /equipment/groups refuses a group still used by a category, then succeeds once it is free', async () => {
+  const firestore = makeTaxonomyFirestore();
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await taxonomyRequest(baseUrl, 'DELETE', '/equipment/groups?id=budowle');
+    assert.equal(res.status, 409);
+    assert.match(((await res.json()) as { error: string }).error, /używana przez 1 kategorii \(Namiot\)/);
+    await taxonomyRequest(baseUrl, 'PUT', '/equipment/categories?id=namiot', { label: 'Namiot', groupId: null });
+    assert.equal((await taxonomyRequest(baseUrl, 'DELETE', '/equipment/groups?id=budowle')).status, 200);
+  });
+  const actions = (await firestore.listDocs<{ action: string }>('auditEvents')).map(e => e.data.action);
+  assert.ok(actions.includes('equipment.group.deleted'));
+});

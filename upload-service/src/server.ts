@@ -100,7 +100,14 @@ import {
   type PersonMergeApplyResult,
   type PersonWritableFields,
 } from './persons.ts';
-import { getAllLookupLists, getLookupList } from './lookup-lists.ts';
+import {
+  getAllLookupLists,
+  getLookupList,
+  getLookupListInTransaction,
+  saveLookupListInTransaction,
+  uniqueLookupId,
+  type LookupItem,
+} from './lookup-lists.ts';
 import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWritableFields } from './events.ts';
 import {
   listAllSignups,
@@ -297,6 +304,12 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   equipmentAdd: auditedRoute('POST', '/equipment', ['equipment.added']),
   equipmentUpdate: auditedRoute('PUT', '/equipment', ['equipment.updated']),
   equipmentDelete: auditedRoute('DELETE', '/equipment', ['equipment.deleted']),
+  equipmentGroupAdd: auditedRoute('POST', '/equipment/groups', ['equipment.group.added']),
+  equipmentGroupUpdate: auditedRoute('PUT', '/equipment/groups', ['equipment.group.updated']),
+  equipmentGroupDelete: auditedRoute('DELETE', '/equipment/groups', ['equipment.group.deleted']),
+  equipmentCategoryAdd: auditedRoute('POST', '/equipment/categories', ['equipment.category.added']),
+  equipmentCategoryUpdate: auditedRoute('PUT', '/equipment/categories', ['equipment.category.updated']),
+  equipmentCategoryDelete: auditedRoute('DELETE', '/equipment/categories', ['equipment.category.deleted']),
   notificationSettings: auditedRoute('PUT', '/admin/settings/notifications', ['site.settings.updated']),
   notificationPreferences: auditedRoute('PUT', '/profile/notifications', ['profile.notifications.updated']),
   pushSubscriptionAdd: auditedRoute('POST', '/profile/notifications/push', ['profile.notifications.updated']),
@@ -1039,6 +1052,236 @@ async function handleDeleteEquipment(req: IncomingMessage, res: ServerResponse, 
       };
     },
     async (tx) => deleteEquipmentInTransaction(tx, id),
+  );
+  sendJson(res, 200, { ok: true });
+}
+
+// Camp-equipment taxonomy editor (Sprzęt obozowy -> "Edytuj grupy i kategorie"): lets any member
+// add/rename/delete equipmentGroups and equipmentCategories (both Firestore lookupLists docs)
+// without touching the database by hand. Referential integrity is enforced server-side: a category
+// still used by any equipment, or a group still used by any category, cannot be deleted (409 with
+// an explanatory message the page shows verbatim). The usage count for a category is read from the
+// equipment collection outside the transaction (a transaction has no list), so an item added in the
+// same instant could in theory slip through - accepted for a small club inventory.
+const EQUIPMENT_TAXONOMY_LABEL_MAX = 60;
+
+function parseTaxonomyLabel(body: Record<string, unknown>): string {
+  return requireTrimmedString(body.label, EQUIPMENT_TAXONOMY_LABEL_MAX, `Nazwa jest wymagana (najwyżej ${EQUIPMENT_TAXONOMY_LABEL_MAX} znaków).`);
+}
+
+function requireUniqueTaxonomyLabel(items: readonly LookupItem[], label: string, exceptId: string | null): void {
+  const needle = label.toLocaleLowerCase('pl');
+  if (items.some((item) => item.id !== exceptId && item.label.toLocaleLowerCase('pl') === needle)) {
+    throw new AuthError(`„${label}” już istnieje.`, 409);
+  }
+}
+
+function requireTaxonomyId(url: URL): string {
+  const id = url.searchParams.get('id');
+  if (!id) throw new AuthError('Brak id.', 400);
+  return id;
+}
+
+function parseCategoryGroupId(body: Record<string, unknown>): string | null {
+  return body.groupId == null || body.groupId === ''
+    ? null
+    : requireTrimmedString(body.groupId, LW_MAX_NAME_LENGTH, 'Nieprawidłowa grupa.');
+}
+
+function pluralizeEquipment(count: number): string {
+  return count === 1 ? '1 sprzęt' : `${count} sprzętów`;
+}
+
+async function handleAddEquipmentGroup(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const label = parseTaxonomyLabel(body);
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentGroupAdd,
+    'equipment.group.added',
+    {
+      afterResult: async (_tx, group: LookupItem) => ({
+        actor: { email: identity.email },
+        resource: { kind: 'equipmentGroup' as const, key: `equipmentGroup:${group.id}`, display: group.label },
+        changes: [{ field: 'label', after: group.label }],
+      }),
+    },
+    async (tx) => {
+      const groups = await getLookupListInTransaction(tx, 'equipmentGroups');
+      requireUniqueTaxonomyLabel(groups, label, null);
+      const group: LookupItem = { id: uniqueLookupId(groups, label), label, retired: false };
+      await saveLookupListInTransaction(tx, 'equipmentGroups', [...groups, group]);
+      return group;
+    },
+  );
+  sendJson(res, 200, { group: result });
+}
+
+async function handleUpdateEquipmentGroup(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const id = requireTaxonomyId(url);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const label = parseTaxonomyLabel(body);
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentGroupUpdate,
+    'equipment.group.updated',
+    {
+      afterResult: async (_tx, { before, after }: { before: LookupItem; after: LookupItem }) => ({
+        actor: { email: identity.email },
+        resource: { kind: 'equipmentGroup' as const, key: `equipmentGroup:${id}`, display: after.label },
+        changes: [{ field: 'label', before: before.label, after: after.label }],
+      }),
+    },
+    async (tx) => {
+      const groups = await getLookupListInTransaction(tx, 'equipmentGroups');
+      const before = groups.find((g) => g.id === id);
+      if (!before) throw new AuthError('Grupa nie istnieje.', 404);
+      requireUniqueTaxonomyLabel(groups, label, id);
+      const after = { ...before, label };
+      await saveLookupListInTransaction(tx, 'equipmentGroups', groups.map((g) => (g.id === id ? after : g)));
+      return { before, after };
+    },
+  );
+  sendJson(res, 200, { group: result.after });
+}
+
+async function handleDeleteEquipmentGroup(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const id = requireTaxonomyId(url);
+  await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentGroupDelete,
+    'equipment.group.deleted',
+    {
+      afterResult: async (_tx, removed: LookupItem) => ({
+        actor: { email: identity.email },
+        resource: { kind: 'equipmentGroup' as const, key: `equipmentGroup:${id}`, display: removed.label },
+        changes: [{ field: 'label', before: removed.label }],
+      }),
+    },
+    async (tx) => {
+      const groups = await getLookupListInTransaction(tx, 'equipmentGroups');
+      const existing = groups.find((g) => g.id === id);
+      if (!existing) throw new AuthError('Grupa nie istnieje.', 404);
+      const categories = await getLookupListInTransaction(tx, 'equipmentCategories');
+      const using = categories.filter((c) => c.groupId === id);
+      if (using.length > 0) {
+        throw new AuthError(
+          `Nie możesz usunąć grupy „${existing.label}”, ponieważ jest jeszcze używana przez ${using.length} kategorii (${using.map((c) => c.label).join(', ')}). Najpierw przypisz tym kategoriom inną grupę, a potem usuń tę.`,
+          409,
+        );
+      }
+      await saveLookupListInTransaction(tx, 'equipmentGroups', groups.filter((g) => g.id !== id));
+      return existing;
+    },
+  );
+  sendJson(res, 200, { ok: true });
+}
+
+async function requireKnownEquipmentGroup(tx: FirestoreTransaction, groupId: string | null): Promise<void> {
+  if (groupId === null) return;
+  const groups = await getLookupListInTransaction(tx, 'equipmentGroups');
+  requireKnownLookupId(groups, groupId, 'Wybrana grupa nie istnieje.');
+}
+
+async function handleAddEquipmentCategory(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const label = parseTaxonomyLabel(body);
+  const groupId = parseCategoryGroupId(body);
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentCategoryAdd,
+    'equipment.category.added',
+    {
+      afterResult: async (_tx, category: LookupItem) => ({
+        actor: { email: identity.email },
+        resource: { kind: 'equipmentCategory' as const, key: `equipmentCategory:${category.id}`, display: category.label },
+        changes: [
+          { field: 'label', after: category.label },
+          { field: 'groupId', after: category.groupId ?? null },
+        ],
+      }),
+    },
+    async (tx) => {
+      await requireKnownEquipmentGroup(tx, groupId);
+      const categories = await getLookupListInTransaction(tx, 'equipmentCategories');
+      requireUniqueTaxonomyLabel(categories, label, null);
+      const category: LookupItem = { id: uniqueLookupId(categories, label), label, groupId, retired: false };
+      await saveLookupListInTransaction(tx, 'equipmentCategories', [...categories, category]);
+      return category;
+    },
+  );
+  sendJson(res, 200, { category: result });
+}
+
+async function handleUpdateEquipmentCategory(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const id = requireTaxonomyId(url);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const label = parseTaxonomyLabel(body);
+  const groupId = parseCategoryGroupId(body);
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentCategoryUpdate,
+    'equipment.category.updated',
+    {
+      afterResult: async (_tx, { before, after }: { before: LookupItem; after: LookupItem }) => ({
+        actor: { email: identity.email },
+        resource: { kind: 'equipmentCategory' as const, key: `equipmentCategory:${id}`, display: after.label },
+        changes: [
+          { field: 'label', before: before.label, after: after.label },
+          { field: 'groupId', before: before.groupId ?? null, after: after.groupId ?? null },
+        ],
+      }),
+    },
+    async (tx) => {
+      const categories = await getLookupListInTransaction(tx, 'equipmentCategories');
+      const before = categories.find((c) => c.id === id);
+      if (!before) throw new AuthError('Kategoria nie istnieje.', 404);
+      await requireKnownEquipmentGroup(tx, groupId);
+      requireUniqueTaxonomyLabel(categories, label, id);
+      const after: LookupItem = { ...before, label, groupId };
+      await saveLookupListInTransaction(tx, 'equipmentCategories', categories.map((c) => (c.id === id ? after : c)));
+      return { before, after };
+    },
+  );
+  sendJson(res, 200, { category: result.after });
+}
+
+async function handleDeleteEquipmentCategory(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const id = requireTaxonomyId(url);
+  await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentCategoryDelete,
+    'equipment.category.deleted',
+    {
+      afterResult: async (_tx, removed: LookupItem) => ({
+        actor: { email: identity.email },
+        resource: { kind: 'equipmentCategory' as const, key: `equipmentCategory:${id}`, display: removed.label },
+        changes: [
+          { field: 'label', before: removed.label },
+          { field: 'groupId', before: removed.groupId ?? null },
+        ],
+      }),
+    },
+    async (tx) => {
+      const categories = await getLookupListInTransaction(tx, 'equipmentCategories');
+      const existing = categories.find((c) => c.id === id);
+      if (!existing) throw new AuthError('Kategoria nie istnieje.', 404);
+      const usedBy = (await listEquipment(deps.firestore)).filter((item) => item.categoryId === id).length;
+      if (usedBy > 0) {
+        throw new AuthError(
+          `Nie możesz usunąć kategorii „${existing.label}”, ponieważ jest jeszcze używana przez ${pluralizeEquipment(usedBy)}. Najpierw zmień tym sprzętom kategorię na inną, a potem usuń tę.`,
+          409,
+        );
+      }
+      await saveLookupListInTransaction(tx, 'equipmentCategories', categories.filter((c) => c.id !== id));
+      return existing;
+    },
   );
   sendJson(res, 200, { ok: true });
 }
@@ -5270,6 +5513,18 @@ export function createRequestListener(deps: ServerDeps) {
         await handleUpdateEquipment(req, res, url, deps);
       } else if (req.method === 'DELETE' && url.pathname === '/equipment') {
         await handleDeleteEquipment(req, res, url, deps);
+      } else if (req.method === 'POST' && url.pathname === '/equipment/groups') {
+        await handleAddEquipmentGroup(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/equipment/groups') {
+        await handleUpdateEquipmentGroup(req, res, url, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/equipment/groups') {
+        await handleDeleteEquipmentGroup(req, res, url, deps);
+      } else if (req.method === 'POST' && url.pathname === '/equipment/categories') {
+        await handleAddEquipmentCategory(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/equipment/categories') {
+        await handleUpdateEquipmentCategory(req, res, url, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/equipment/categories') {
+        await handleDeleteEquipmentCategory(req, res, url, deps);
       } else if (req.method === 'POST' && url.pathname === '/internal/audit/reconcile') {
         await handleInternalAuditReconcile(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/redirects') {

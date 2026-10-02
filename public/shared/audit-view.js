@@ -105,6 +105,12 @@
     'equipment.added': 'Dodanie sprzętu',
     'equipment.updated': 'Aktualizacja sprzętu',
     'equipment.deleted': 'Usunięcie sprzętu',
+    'equipment.group.added': 'Dodanie grupy sprzętu',
+    'equipment.group.updated': 'Zmiana grupy sprzętu',
+    'equipment.group.deleted': 'Usunięcie grupy sprzętu',
+    'equipment.category.added': 'Dodanie kategorii sprzętu',
+    'equipment.category.updated': 'Zmiana kategorii sprzętu',
+    'equipment.category.deleted': 'Usunięcie kategorii sprzętu',
   };
 
   const CATEGORY_LABELS = {
@@ -177,7 +183,17 @@
     ],
     site: ['site.redirect.created', 'site.redirect.deleted', 'site.settings.updated', 'site.social_cache.refreshed'],
     files: ['file.added', 'file.deleted'],
-    equipment: ['equipment.added', 'equipment.updated', 'equipment.deleted'],
+    equipment: [
+      'equipment.added',
+      'equipment.updated',
+      'equipment.deleted',
+      'equipment.group.added',
+      'equipment.group.updated',
+      'equipment.group.deleted',
+      'equipment.category.added',
+      'equipment.category.updated',
+      'equipment.category.deleted',
+    ],
   };
 
   function actionLabel(action) {
