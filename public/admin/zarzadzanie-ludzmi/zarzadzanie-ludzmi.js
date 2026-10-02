@@ -86,7 +86,6 @@ document.getElementById('membership-synchronize').addEventListener('click', asyn
   try {
     await window.MutationFeedback.confirmed({
       control: button,
-      anchor: status,
       execute: () => apiFetch('/admin/members/synchronize', { method: 'POST' }, showReauth, hideReauth).then(result => {
         sheetWarning = sheetSyncStatusMessage(result.sheetSyncStatus);
         if (sheetWarning) throw new Error(sheetWarning);
