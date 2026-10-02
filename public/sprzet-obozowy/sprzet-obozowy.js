@@ -1,9 +1,9 @@
 /**
  * Protected member-zone Sprzęt obozowy page (KRKG-0096 batch 2/5). Same panel-swap pattern as
- * pliki.js: lists the club's camp equipment (namiot/wiata) split into a drużynowy (team-owned,
+ * pliki.js: lists the club's camp equipment (budowle, meble, kuchnia - each category carries a group) split into a drużynowy (team-owned,
  * belongsToPersonId === null) and a prywatny (belongsToPersonId is a personId) table, lets any
  * signed-in member add/edit/delete any item against the /equipment HTTP contract (Batch 1), and
- * confirms every mutation through the shared MutationFeedback.confirmed() UX used site-wide.
+ * confirms every mutation with the shared MutationFeedback toast ("Zapisano").
  */
 const panels = {
   checking: document.getElementById('sprzet-checking'),
@@ -88,6 +88,9 @@ let equipment = [];
 let equipmentCategories = [];
 let sections = [];
 let categoryLabelById = new Map();
+let equipmentGroups = [];
+// categoryId -> group label (empty string when the category has no group).
+let categoryGroupById = new Map();
 let sectionLabelById = new Map();
 // personId -> { personId, accountless, email, lastName, firstName, nickname, sectionId, categoryId } -
 // covers both members (personId === lowercased e-mail) and accountless persons, mirroring
@@ -131,11 +134,13 @@ function equipmentActionsHtml(item) {
 function equipmentRowHtml(item, { includeOwner }) {
   const categoryLabel = categoryLabelById.get(item.categoryId) ?? item.categoryId;
   const sectionLabel = sectionLabelById.get(item.sectionId) ?? item.sectionId;
+  const groupLabel = categoryGroupById.get(item.categoryId) ?? '';
   const ownerCell = includeOwner ? `<td>${ownerCellHtml(item.belongsToPersonId)}</td>` : '';
   return `
     <tr data-equipment-id="${escapeAttr(item.id)}" data-section="${escapeAttr(item.sectionId ?? '')}">
       <td class="czl-section-cell" title="${escapeAttr(sectionLabel ?? '')}">${item.sectionId ? escapeHtml(sectionAbbr(item.sectionId)) : ''}</td>
-      <td>${escapeHtml(categoryLabel)}</td>
+      <td class="equipment-meta-cell">${groupLabel ? escapeHtml(groupLabel) : '<span class="czl-empty">—</span>'}</td>
+      <td class="equipment-meta-cell">${escapeHtml(categoryLabel)}</td>
       ${ownerCell}
       <td>${item.description ? escapeHtml(item.description) : '<span class="czl-empty">—</span>'}</td>
       <td>${equipmentActionsHtml(item)}</td>
@@ -162,6 +167,7 @@ function renderTeamTable() {
   const { team } = splitEquipmentByOwnership(equipment);
   const enriched = team.map(item => ({
     ...item,
+    groupLabel: categoryGroupById.get(item.categoryId) ?? '',
     categoryLabel: categoryLabelById.get(item.categoryId) ?? item.categoryId,
     sectionLabel: sectionLabelById.get(item.sectionId) ?? item.sectionId,
   }));
@@ -169,7 +175,7 @@ function renderTeamTable() {
   const tbody = document.getElementById('equipment-team-table-body');
   tbody.innerHTML = sorted.length
     ? sorted.map(item => equipmentRowHtml(item, { includeOwner: false })).join('')
-    : '<tr><td colspan="4" class="czl-empty">Brak sprzętu drużynowego.</td></tr>';
+    : '<tr><td colspan="5" class="czl-empty">Brak sprzętu drużynowego.</td></tr>';
 }
 
 function renderPrivateTable() {
@@ -178,6 +184,7 @@ function renderPrivateTable() {
     const owner = personById.get(item.belongsToPersonId);
     return {
       ...item,
+      groupLabel: categoryGroupById.get(item.categoryId) ?? '',
       categoryLabel: categoryLabelById.get(item.categoryId) ?? item.categoryId,
       sectionLabel: sectionLabelById.get(item.sectionId) ?? item.sectionId,
       ownerName: owner ? displayName(owner) : item.belongsToPersonId,
@@ -187,12 +194,147 @@ function renderPrivateTable() {
   const tbody = document.getElementById('equipment-private-table-body');
   tbody.innerHTML = sorted.length
     ? sorted.map(item => equipmentRowHtml(item, { includeOwner: true })).join('')
-    : '<tr><td colspan="5" class="czl-empty">Brak sprzętu prywatnego.</td></tr>';
+    : '<tr><td colspan="6" class="czl-empty">Brak sprzętu prywatnego.</td></tr>';
 }
 
 function renderBothTables() {
   renderTeamTable();
   renderPrivateTable();
+}
+
+// Takes a /lista-wyjazdowa/lookup-lists response and rebuilds every lookup-derived map. Shared by
+// the initial page load and by the taxonomy editor, which re-reads the lists after each change.
+function applyLookupLists(lookupLists) {
+  equipmentCategories = lookupLists.equipmentCategories ?? [];
+  equipmentGroups = lookupLists.equipmentGroups ?? [];
+  sections = lookupLists.sections ?? [];
+  categoryLabelById = new Map(equipmentCategories.map(c => [c.id, c.label]));
+  const groupLabelById = new Map(equipmentGroups.map(g => [g.id, g.label]));
+  categoryGroupById = new Map(equipmentCategories.map(c => [c.id, groupLabelById.get(c.groupId) ?? '']));
+  sectionLabelById = new Map(sections.map(s => [s.id, s.label]));
+}
+
+async function reloadLookupLists() {
+  applyLookupLists(await apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }));
+  populateCategorySelect(null);
+  renderTaxonomyEditor();
+  renderBothTables();
+}
+
+/**
+ * Editor for the equipmentGroups / equipmentCategories lookup lists ("Edytuj grupy i kategorie").
+ * Referential integrity (no deleting a category still used by equipment, nor a group still used
+ * by a category) is enforced by the server, which answers 409 with a message shown verbatim in an
+ * alert - the page itself only renders and wires the controls.
+ */
+function renderTaxonomyEditor() {
+  const byLabel = (a, b) => a.label.localeCompare(b.label, 'pl');
+  const usageByCategory = new Map();
+  for (const item of equipment) usageByCategory.set(item.categoryId, (usageByCategory.get(item.categoryId) ?? 0) + 1);
+  // "Inne" is the catch-all group. When it exists as a real group, a category without a group is
+  // shown (and defaults) as that one; otherwise an empty-value "Inne" option stands in for "no group".
+  const catchAllGroup = equipmentGroups.find(g => g.label.trim().toLocaleLowerCase('pl') === 'inne');
+  const defaultGroupId = catchAllGroup ? catchAllGroup.id : '';
+  const groupOptions = selected => (catchAllGroup ? [] : ['<option value="">Inne</option>'])
+    .concat([...equipmentGroups].sort(byLabel).map(g =>
+      `<option value="${escapeAttr(g.id)}"${g.id === selected ? ' selected' : ''}>${escapeHtml(g.label)}</option>`))
+    .join('');
+  const groupLabelOf = c => equipmentGroups.find(g => g.id === (c.groupId ?? defaultGroupId))?.label ?? 'Inne';
+  // Alphabetical by group first, then by category name within the group.
+  const byGroupThenLabel = (a, b) => groupLabelOf(a).localeCompare(groupLabelOf(b), 'pl') || byLabel(a, b);
+
+  const groupRows = [...equipmentGroups].sort(byLabel).map(g => `
+    <div class="equipment-taxonomy-row" data-group-id="${escapeAttr(g.id)}">
+      <input type="text" maxlength="60" value="${escapeAttr(g.label)}" aria-label="Nazwa grupy" data-field="label" />
+      <button type="button" class="member-action" data-taxonomy-action="save-group">Zapisz</button>
+      <button type="button" class="member-action" data-taxonomy-action="delete-group">Usuń</button>
+    </div>`).join('');
+
+  const categoryRows = [...equipmentCategories].sort(byGroupThenLabel).map(c => `
+    <div class="equipment-taxonomy-row" data-category-id="${escapeAttr(c.id)}">
+      <select aria-label="Grupa kategorii" data-field="groupId">${groupOptions(c.groupId ?? defaultGroupId)}</select>
+      <input type="text" maxlength="60" value="${escapeAttr(c.label)}" aria-label="Nazwa kategorii" data-field="label" />
+      <span class="equipment-count-pill" title="Liczba sprzętów w tej kategorii">${usageByCategory.get(c.id) ?? 0}</span>
+      <button type="button" class="member-action" data-taxonomy-action="save-category">Zapisz</button>
+      <button type="button" class="member-action" data-taxonomy-action="delete-category">Usuń</button>
+    </div>`).join('');
+
+  document.getElementById('equipment-taxonomy-body').innerHTML = `
+    <h3>Grupy</h3>
+    ${groupRows || '<p class="czl-empty">Brak grup.</p>'}
+    <div class="equipment-taxonomy-row" data-new="group">
+      <input type="text" maxlength="60" placeholder="Nowa grupa" aria-label="Nazwa nowej grupy" data-field="label" />
+      <button type="button" class="member-action" data-taxonomy-action="add-group">Dodaj grupę</button>
+    </div>
+    <h3>Kategorie</h3>
+    ${categoryRows || '<p class="czl-empty">Brak kategorii.</p>'}
+    <div class="equipment-taxonomy-row" data-new="category">
+      <select aria-label="Grupa nowej kategorii" data-field="groupId">${groupOptions(defaultGroupId)}</select>
+      <input type="text" maxlength="60" placeholder="Nowa kategoria" aria-label="Nazwa nowej kategorii" data-field="label" />
+      <button type="button" class="member-action" data-taxonomy-action="add-category">Dodaj kategorię</button>
+    </div>`;
+}
+
+// Every mutation on this page confirms with the "Zapisano" toast (toast: true) rather than an inline
+// checkmark: apply() re-renders the tables/editor wholesale, so there is no stable control to anchor a
+// check on. `control` only anchors the refresh-error message, hence the always-present toggle.
+async function runTaxonomyMutation(request, { confirmDelete } = {}) {
+  if (confirmDelete && !window.confirm(confirmDelete)) return;
+  try {
+    await window.MutationFeedback.confirmed({
+      execute: () => apiFetch(request.path, {
+        method: request.method,
+        headers: { 'Content-Type': 'application/json' },
+        body: request.body ? JSON.stringify(request.body) : undefined,
+      }),
+      apply: reloadLookupLists,
+      refreshFragment: reloadLookupLists,
+      toast: true,
+      control: document.getElementById('equipment-taxonomy-toggle'),
+      viewRoot: document.getElementById('equipment-taxonomy'),
+    });
+  } catch (err) {
+    // Includes the server's 409 "still in use" explanation - shown as a popup, as the page does
+    // for a failed equipment delete.
+    window.alert(err.message);
+  }
+}
+
+function wireTaxonomyEditor() {
+  const toggle = document.getElementById('equipment-taxonomy-toggle');
+  const panel = document.getElementById('equipment-taxonomy');
+  toggle.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    toggle.setAttribute('aria-expanded', String(!panel.hidden));
+    if (!panel.hidden) renderTaxonomyEditor();
+  });
+
+  panel.addEventListener('click', async e => {
+    const button = e.target.closest('[data-taxonomy-action]');
+    if (!button) return;
+    const row = button.closest('.equipment-taxonomy-row');
+    const label = row.querySelector('[data-field="label"]').value.trim();
+    const groupField = row.querySelector('[data-field="groupId"]');
+    const groupId = groupField ? (groupField.value || null) : null;
+    const groupLabel = row.dataset.groupId ? equipmentGroups.find(g => g.id === row.dataset.groupId)?.label : null;
+    const categoryLabel = row.dataset.categoryId ? categoryLabelById.get(row.dataset.categoryId) : null;
+    switch (button.dataset.taxonomyAction) {
+      case 'add-group':
+        return runTaxonomyMutation({ method: 'POST', path: '/equipment/groups', body: { label } });
+      case 'save-group':
+        return runTaxonomyMutation({ method: 'PUT', path: `/equipment/groups?id=${encodeURIComponent(row.dataset.groupId)}`, body: { label } });
+      case 'delete-group':
+        return runTaxonomyMutation({ method: 'DELETE', path: `/equipment/groups?id=${encodeURIComponent(row.dataset.groupId)}` },
+          { confirmDelete: `Usunąć grupę „${groupLabel}”?` });
+      case 'add-category':
+        return runTaxonomyMutation({ method: 'POST', path: '/equipment/categories', body: { label, groupId } });
+      case 'save-category':
+        return runTaxonomyMutation({ method: 'PUT', path: `/equipment/categories?id=${encodeURIComponent(row.dataset.categoryId)}`, body: { label, groupId } });
+      case 'delete-category':
+        return runTaxonomyMutation({ method: 'DELETE', path: `/equipment/categories?id=${encodeURIComponent(row.dataset.categoryId)}` },
+          { confirmDelete: `Usunąć kategorię „${categoryLabel}”?` });
+    }
+  });
 }
 
 function populateCategorySelect(currentId) {
@@ -391,6 +533,7 @@ function wireAddForm() {
         // Anchor on the always-visible header toggle, not submitButton: apply() hides
         // #equipment-add-form (and submitButton with it), which would bury the checkmark in a
         // hidden subtree - same reasoning as pliki.js's wireAddForm.
+        toast: true,
         control: document.getElementById('equipment-add-toggle'),
         viewRoot: document.getElementById('equipment-tables'),
       });
@@ -425,6 +568,7 @@ function wireTableActions() {
           refreshFragment: () => loadEquipment(),
           // Anchor on the always-visible header toggle, not the clicked button: apply() re-renders
           // the tables, detaching the clicked button - same reasoning as pliki.js's wireDeleteButtons.
+          toast: true,
           control: document.getElementById('equipment-add-toggle'),
           viewRoot: document.getElementById('equipment-tables'),
         });
@@ -451,6 +595,7 @@ initGoogleSignIn({
     showOnly(null);
     wireAddForm();
     wireTableActions();
+    wireTaxonomyEditor();
     try {
       // GET /lista-wyjazdowa/persons is staff-only (skladki access or admin/hovding - see
       // isPersonStaff in server.ts), so it cannot resolve owners for this page, which every
@@ -464,10 +609,7 @@ initGoogleSignIn({
         apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }),
         apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }),
       ]);
-      equipmentCategories = lookupLists.equipmentCategories ?? [];
-      sections = lookupLists.sections ?? [];
-      categoryLabelById = new Map(equipmentCategories.map(c => [c.id, c.label]));
-      sectionLabelById = new Map(sections.map(s => [s.id, s.label]));
+      applyLookupLists(lookupLists);
 
       const memberRows = members.map(m => ({
         personId: m.email,

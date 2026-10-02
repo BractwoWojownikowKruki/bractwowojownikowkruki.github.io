@@ -106,28 +106,19 @@ function paidIconHtml(personIdAttr, paid, label) {
   return `<button type="button" class="lw-skladka-icon" data-kind="wpisowe" data-person-id="${personIdAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">${glyph}</button>`;
 }
 
-// categories' fixed id set is seeded by upload-service/scripts/seed-lookup-lists.ts's slugify -
-// "Emeryt" -> "emeryt". Duplicated from dues.ts's own EMERYT_CATEGORY_ID (same convention as
-// SECTION_ABBR above) so this page can compute the same default client-side, without a request.
-const EMERYT_CATEGORY_ID = 'emeryt';
-
 // Składka roczna's third state (KRKG follow-up) - a member the club doesn't require this year's
 // due from at all: an Emeryt by default, or anyone else set this way by hand (e.g. someone who
-// joined partway through the year). Mirrors dues.ts's effectiveDuesStatus exactly: an explicit
-// stored record always wins (an emeryt who actually pays voluntarily just gets flipped to 'paid'
-// and stays there), this default only applies when no DuesDoc exists yet for that member+year.
-function effectiveDuesStatus(member, duesByPersonId) {
+// joined partway through the year). The default itself, the labels and EMERYT_CATEGORY_ID live in
+// shared/dues-status.js (mirroring dues.ts) - this only looks up the stored record for the row.
+function memberDuesStatus(member, duesByPersonId) {
   // KRKG-0087: dues are keyed by the canonical personId (a member's e-mail, an accountless
   // person's UUID), not by e-mail - a person row has email: null, so keying by e-mail both missed
   // their stored status and crashed on the null. For a member the value is identical.
-  const stored = duesByPersonId.get(member.personId)?.status;
-  if (stored) return stored;
-  return member.categoryId === EMERYT_CATEGORY_ID ? 'not_applicable' : 'unpaid';
+  return effectiveDuesStatus(duesByPersonId.get(member.personId)?.status, member.categoryId);
 }
 
-const DUES_STATUS_LABELS = { unpaid: 'nieopłacona', paid: 'opłacona', not_applicable: 'nie dotyczy' };
 function rocznaLabel(status) {
-  return `Składka ${selectedYear}: ${DUES_STATUS_LABELS[status]}`;
+  return duesStatusLabel(selectedYear, status);
 }
 
 // Click-to-cycle order for the roczna coin (see the click handler below) - unpaid -> paid keeps
@@ -196,15 +187,15 @@ function clearError() {
   document.getElementById('skladki-error').hidden = true;
 }
 
-// anchor defaults to control, but a caller whose apply() removes control from the DOM
-// (markWpisowePaid, whenever toRemove is control itself or an ancestor of it) must pass a
-// still-connected anchor instead - MutationFeedback requires its feedback anchor to stay
+// The checkmark goes right after control. A caller whose apply() removes control from the DOM
+// (markWpisowePaid, whenever toRemove is control itself or an ancestor of it) passes
+// fallbackAnchor 'toast' (or a still-connected element) for that case - MutationFeedback requires its feedback anchor to stay
 // isConnected after apply(), same reasoning as zarzadzanie-ludzmi.js's postMembershipTransition
 // anchoring to the table when apply() removes a row.
-function confirmedDuesMutation(control, execute, apply, anchor = control, rollback) {
+function confirmedDuesMutation(control, execute, apply, fallbackAnchor = null, rollback) {
   return window.MutationFeedback.confirmed({
     control,
-    anchor,
+    fallbackAnchor,
     execute,
     apply,
     rollback,
@@ -352,7 +343,7 @@ function renderSummary(roster, duesByPersonId) {
     if (wpisoweMode) {
       unpaid = !member.wpisowePaid;
     } else {
-      const status = effectiveDuesStatus(member, duesByPersonId);
+      const status = memberDuesStatus(member, duesByPersonId);
       if (status === 'not_applicable') {
         notApplicableCount += 1;
         continue;
@@ -474,7 +465,7 @@ function renderTable(roster, duesByPersonId) {
   const sortValue = (member) => {
     switch (skladkiSortState.key) {
       case 'name': return displayName(member);
-      case 'roczna': return ROCZNA_SORT_RANK[effectiveDuesStatus(member, duesByPersonId)];
+      case 'roczna': return ROCZNA_SORT_RANK[memberDuesStatus(member, duesByPersonId)];
       default: return sectionLabel(member.sectionId);
     }
   };
@@ -493,7 +484,7 @@ function renderTable(roster, duesByPersonId) {
         <td class="lw-roster-name-cell">
           ${nameCellHtml(member, personIdAttr, categoryLabel)}
         </td>
-        <td>${rocznaIconHtml(personIdAttr, effectiveDuesStatus(member, duesByPersonId))}</td>
+        <td>${rocznaIconHtml(personIdAttr, memberDuesStatus(member, duesByPersonId))}</td>
         ${canManageSkladki ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.personId))}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a></td>` : ''}
       </tr>`;
   };
@@ -513,7 +504,7 @@ function renderTable(roster, duesByPersonId) {
   const emeryciSortValue = (member) => {
     switch (emeryciSortState.key) {
       case 'name': return displayName(member);
-      case 'roczna': return ROCZNA_SORT_RANK[effectiveDuesStatus(member, duesByPersonId)];
+      case 'roczna': return ROCZNA_SORT_RANK[memberDuesStatus(member, duesByPersonId)];
       default: return sectionLabel(member.sectionId);
     }
   };
@@ -739,7 +730,7 @@ async function markWpisowePaid(personId, control, toRemove) {
       hideReauth,
     ), () => {
       toRemove.remove();
-    }, toRemove);
+    }, 'toast');
   } catch (err) {
     showError(`Nie udało się zaktualizować wpisowego: ${err.message}`);
   }

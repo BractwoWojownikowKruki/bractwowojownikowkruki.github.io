@@ -8466,7 +8466,7 @@ test('GET /lista-wyjazdowa/dues/mine returns only the caller\'s own dues for the
   await withServer(makeDeps({ firestore }), async baseUrl => {
     const empty = await fetch(`${baseUrl}/lista-wyjazdowa/dues/mine?year=2027`);
     assert.equal(empty.status, 200);
-    assert.deepEqual(await empty.json(), { dues: null });
+    assert.deepEqual(await empty.json(), { dues: null, duesStatus: 'unpaid' });
   });
 
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
@@ -8488,9 +8488,38 @@ test('GET /lista-wyjazdowa/dues/mine returns only the caller\'s own dues for the
     const body = await res.json();
     assert.equal(body.dues.email, 'wojownik@gmail.com');
     assert.equal(body.dues.status, 'paid');
+    assert.equal(body.duesStatus, 'paid', 'the resolved status every page shows, not just the raw record');
 
     const wrongYear = await fetch(`${baseUrl}/lista-wyjazdowa/dues/mine?year=2026`);
     assert.deepEqual((await wrongYear.json()).dues, null);
+  });
+});
+
+// Mój profil, the dashboard and the profile drawer must all show the same składka roczna status -
+// /dues/mine resolves it with the same effectiveDuesStatus as GET /member-profile.
+test('GET /lista-wyjazdowa/dues/mine resolves duesStatus the same way as GET /member-profile', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { lastName: 'Wojownik', firstName: 'Jan', sectionId: 'krakow' });
+    const year = new Date().getFullYear();
+    const mine = async () => (await (await fetch(`${baseUrl}/lista-wyjazdowa/dues/mine?year=${year}`)).json()).duesStatus;
+    const drawer = async () => (await (await fetch(`${baseUrl}/member-profile?email=wojownik@gmail.com`)).json()).duesStatus;
+
+    assert.equal(await mine(), 'unpaid');
+    assert.equal(await mine(), await drawer());
+
+    // An emeryt with no stored record owes nothing - on every page.
+    const member = await firestore.getDoc<Record<string, unknown>>('members', 'wojownik@gmail.com');
+    await firestore.setDoc('members', 'wojownik@gmail.com', { ...member, categoryId: 'emeryt' });
+    assert.equal(await mine(), 'not_applicable');
+    assert.equal(await mine(), await drawer());
+
+    // A stored record always wins, including the current `status` shape.
+    await firestore.setDoc('duesAnnual', `wojownik@gmail.com_${year}`, {
+      email: 'wojownik@gmail.com', year, status: 'paid', updatedBy: 'accountant', updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    assert.equal(await mine(), 'paid');
+    assert.equal(await mine(), await drawer());
   });
 });
 
@@ -8844,7 +8873,7 @@ test('GET /admin/audyt/events?eventId= returns event, eventFee, and signup rows 
   });
 });
 
-test('GET /audyt/events (member-zone) never exposes actor and hides an admin-only category entirely', async () => {
+test('GET /audyt/events (member-zone) shows the actor (full name when known, else e-mail) and hides an admin-only category entirely', async () => {
   const firestore = createInMemoryFirestoreClient();
   await seedAuditEvent(firestore, 'evt-public', '2026-01-01T00:00:00.000Z');
   await executeAuditedFirestoreMutation(
@@ -8859,7 +8888,16 @@ test('GET /audyt/events (member-zone) never exposes actor and hides an admin-onl
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.deepEqual(body.rows.map((r: { id: string }) => r.id), ['evt-public']);
-    assert.equal(body.rows[0].actor, undefined);
+    assert.equal(body.rows[0].actor.email, 'maja@example.test');
+    assert.equal(body.rows[0].actor.name, undefined); // no member record -> e-mail is the identity
+  });
+
+  await firestore.setDoc('members', 'maja@example.test', { email: 'maja@example.test', firstName: 'Maja', lastName: 'Kowalska' });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/audyt/events`)).json();
+    assert.equal(body.rows[0].actor.name, 'Maja Kowalska');
+    const detail = await (await fetch(`${baseUrl}/audyt/event?id=evt-public`)).json();
+    assert.equal(detail.actor.name, 'Maja Kowalska');
   });
 });
 
@@ -10227,4 +10265,86 @@ test('GET /admin/people?category=upload identifies the uploader (name, category 
     });
     assert.equal((byId.get('s2') as { owner: unknown }).owner, null);
   });
+});
+
+// Camp-equipment taxonomy editor: POST/PUT/DELETE /equipment/groups and /equipment/categories.
+function makeTaxonomyFirestore() {
+  const firestore = makeEquipmentFirestore();
+  firestore.seed('lookupLists', 'equipmentGroups', { items: [{ id: 'budowle', label: 'Budowle', retired: false }] });
+  firestore.seed('lookupLists', 'equipmentCategories', {
+    items: [{ id: 'namiot', label: 'Namiot', groupId: 'budowle', retired: false }],
+  });
+  return firestore;
+}
+
+async function taxonomyRequest(baseUrl: string, method: string, path: string, body?: unknown) {
+  return fetch(`${baseUrl}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+test('POST /equipment/groups adds a group with a slug id and records an audit event', async () => {
+  const firestore = makeTaxonomyFirestore();
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await taxonomyRequest(baseUrl, 'POST', '/equipment/groups', { label: 'Sprzęt ogniowy' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(((await res.json()) as { group: { id: string } }).group.id, 'sprzet-ogniowy');
+    const dup = await taxonomyRequest(baseUrl, 'POST', '/equipment/groups', { label: 'budowle' });
+    assert.equal(dup.status, 409, 'labels are unique case-insensitively');
+    const lists = await (await fetch(`${baseUrl}/lista-wyjazdowa/lookup-lists`)).json() as { equipmentGroups: Array<{ id: string }> };
+    assert.deepEqual(lists.equipmentGroups.map(g => g.id), ['budowle', 'sprzet-ogniowy']);
+  });
+  const events = (await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents')).map(e => e.data);
+  assert.ok(events.some(e => e.action === 'equipment.group.added' && e.resource.key === 'equipmentGroup:sprzet-ogniowy'));
+});
+
+test('POST/PUT /equipment/categories validate the group and store groupId', async () => {
+  const firestore = makeTaxonomyFirestore();
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const bad = await taxonomyRequest(baseUrl, 'POST', '/equipment/categories', { label: 'Stół', groupId: 'nie-ma' });
+    assert.equal(bad.status, 400);
+    const added = await taxonomyRequest(baseUrl, 'POST', '/equipment/categories', { label: 'Misa ogniowa', groupId: 'budowle' });
+    assert.equal(added.status, 200);
+    assert.equal(((await added.json()) as { category: { id: string } }).category.id, 'misa-ogniowa');
+    const updated = await taxonomyRequest(baseUrl, 'PUT', '/equipment/categories?id=namiot', { label: 'Namiot', groupId: null });
+    assert.equal(updated.status, 200);
+    const lists = await (await fetch(`${baseUrl}/lista-wyjazdowa/lookup-lists`)).json() as { equipmentCategories: Array<{ id: string; groupId: string | null }> };
+    assert.equal(lists.equipmentCategories.find(c => c.id === 'namiot')?.groupId, null);
+    assert.equal(lists.equipmentCategories.find(c => c.id === 'misa-ogniowa')?.groupId, 'budowle');
+    assert.equal((await taxonomyRequest(baseUrl, 'PUT', '/equipment/categories?id=nie-ma', { label: 'X', groupId: null })).status, 404);
+  });
+});
+
+test('DELETE /equipment/categories refuses a category still used by equipment, with a 409 explanation', async () => {
+  const firestore = makeTaxonomyFirestore();
+  firestore.seed('equipment', 'tent-1', {
+    id: 'tent-1', categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: null,
+    description: '', createdAt: '2026-01-01T00:00:00.000Z', createdBy: 'ala@example.test',
+  });
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await taxonomyRequest(baseUrl, 'DELETE', '/equipment/categories?id=namiot');
+    assert.equal(res.status, 409);
+    assert.match(((await res.json()) as { error: string }).error, /używana przez 1 sprzęt/);
+    await firestore.deleteDoc('equipment', 'tent-1');
+    assert.equal((await taxonomyRequest(baseUrl, 'DELETE', '/equipment/categories?id=namiot')).status, 200);
+  });
+});
+
+test('DELETE /equipment/groups refuses a group still used by a category, then succeeds once it is free', async () => {
+  const firestore = makeTaxonomyFirestore();
+  const deps = makeDeps({ firestore, authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await taxonomyRequest(baseUrl, 'DELETE', '/equipment/groups?id=budowle');
+    assert.equal(res.status, 409);
+    assert.match(((await res.json()) as { error: string }).error, /używana przez 1 kategorii \(Namiot\)/);
+    await taxonomyRequest(baseUrl, 'PUT', '/equipment/categories?id=namiot', { label: 'Namiot', groupId: null });
+    assert.equal((await taxonomyRequest(baseUrl, 'DELETE', '/equipment/groups?id=budowle')).status, 200);
+  });
+  const actions = (await firestore.listDocs<{ action: string }>('auditEvents')).map(e => e.data.action);
+  assert.ok(actions.includes('equipment.group.deleted'));
 });

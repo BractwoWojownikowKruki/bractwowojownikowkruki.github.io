@@ -58,9 +58,8 @@ async function postMembershipTransition(row, email, transition) {
   const list = document.getElementById('membership-members-list');
   const result = await window.MutationFeedback.confirmed({
     control: row.querySelector(`[data-transition="${transition}"]`),
-    // The row is removed by apply(), so the persistent table is the closest valid anchor for
-    // feedback. A span cannot be inserted as a child of the table body.
-    anchor: row.closest('table'),
+    // The row is removed by apply(), so there is nothing left to anchor on: show the "saved" toast.
+    fallbackAnchor: 'toast',
     execute: () => apiFetch(
       '/admin/members/transition',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, transition }) },
@@ -87,7 +86,6 @@ document.getElementById('membership-synchronize').addEventListener('click', asyn
   try {
     await window.MutationFeedback.confirmed({
       control: button,
-      anchor: status,
       execute: () => apiFetch('/admin/members/synchronize', { method: 'POST' }, showReauth, hideReauth).then(result => {
         sheetWarning = sheetSyncStatusMessage(result.sheetSyncStatus);
         if (sheetWarning) throw new Error(sheetWarning);
@@ -910,7 +908,7 @@ async function loadAccountless() {
 async function runAccountlessMutation(control, execute) {
   await window.MutationFeedback.confirmed({
     control,
-    anchor: document.getElementById('accountless-section'),
+    fallbackAnchor: 'toast',
     viewRoot: document.getElementById('accountless-section'),
     refreshFragment: loadAccountless,
     execute,

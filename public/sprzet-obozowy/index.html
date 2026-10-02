@@ -44,7 +44,7 @@
             <div>
               <h1>⛺ Sprzęt obozowy</h1>
               <p style="color: var(--text-muted);">
-                Spis namiotów i wiat Bractwa - drużynowych oraz prywatnych, użyczonych na wyjazdy. Każdy członek może dodać, edytować i usunąć dowolną pozycję.
+                Spis sprzętu obozowego Bractwa (namioty, wiaty, meble, kuchnia) - drużynowych oraz prywatnych, użyczonych na wyjazdy. Każdy członek może dodać, edytować i usunąć dowolną pozycję.
               </p>
             </div>
             <div class="pliki-header-actions">
@@ -52,6 +52,12 @@
               <button type="button" class="btn-add-album" id="equipment-add-toggle">Dodaj</button>
             </div>
           </div>
+
+          <button type="button" class="member-action" id="equipment-taxonomy-toggle" aria-expanded="false" aria-controls="equipment-taxonomy">Edytuj grupy i kategorie</button>
+          <section id="equipment-taxonomy" class="pliki-add-form equipment-taxonomy" hidden>
+            <p style="color: var(--text-muted);">Usunąć można tylko kategorię, której nie używa żaden sprzęt, i grupę, której nie używa żadna kategoria.</p>
+            <div id="equipment-taxonomy-body"></div>
+          </section>
 
           <form id="equipment-add-form" class="pliki-add-form" hidden>
             <input type="hidden" id="equipment-add-editing-id" value="" />
@@ -96,7 +102,8 @@
                 <thead>
                   <tr>
                     <th scope="col" class="czl-section-cell" data-sort-key="sectionLabel" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
-                    <th scope="col" data-sort-key="categoryLabel" aria-sort="none"><button type="button">Kategoria</button></th>
+                    <th scope="col" class="equipment-meta-cell" data-sort-key="groupLabel" aria-sort="none"><button type="button">Grupa</button></th>
+                    <th scope="col" class="equipment-meta-cell" data-sort-key="categoryLabel" aria-sort="none"><button type="button">Kategoria</button></th>
                     <th scope="col" data-sort-key="description" aria-sort="none"><button type="button">Opis</button></th>
                     <th scope="col"></th>
                   </tr>
@@ -111,7 +118,8 @@
                 <thead>
                   <tr>
                     <th scope="col" class="czl-section-cell" data-sort-key="sectionLabel" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
-                    <th scope="col" data-sort-key="categoryLabel" aria-sort="none"><button type="button">Kategoria</button></th>
+                    <th scope="col" class="equipment-meta-cell" data-sort-key="groupLabel" aria-sort="none"><button type="button">Grupa</button></th>
+                    <th scope="col" class="equipment-meta-cell" data-sort-key="categoryLabel" aria-sort="none"><button type="button">Kategoria</button></th>
                     <th scope="col" data-sort-key="ownerName" aria-sort="none"><button type="button">Właściciel</button></th>
                     <th scope="col" data-sort-key="description" aria-sort="none"><button type="button">Opis</button></th>
                     <th scope="col"></th>
@@ -134,6 +142,7 @@
   <script src="../nav.js"></script>
   <script src="../mutation-feedback.js"></script>
   <script src="../shared/display-name.js"></script>
+  <script src="../shared/dues-status.js"></script>
   <script src="../shared/profile-panel.js"></script>
   <script src="../shared/sortable-table.js"></script>
   <script src="../shared/person-pill.js"></script>

@@ -1,16 +1,20 @@
 (() => {
   const controls = [...document.querySelectorAll('[data-pwa-install]')];
   const messages = [...document.querySelectorAll('[data-pwa-install-message]')];
+  // Whole install boxes (e.g. the one on /profil/) - shown and hidden together with the controls.
+  const panels = [...document.querySelectorAll('[data-pwa-install-panel]')];
   let deferredPrompt;
   let installed = false;
 
   const hideInstallUi = () => {
     controls.forEach(control => { control.hidden = true; });
     messages.forEach(message => { message.hidden = true; });
+    panels.forEach(panel => { panel.hidden = true; });
   };
 
   const showControls = () => {
     controls.forEach(control => { control.hidden = false; });
+    panels.forEach(panel => { panel.hidden = false; });
   };
 
   const setControlsDisabled = disabled => {
@@ -38,7 +42,11 @@
     return;
   }
 
-  showControls();
+  // Chromium browsers (Chrome, Brave, Edge) fire beforeinstallprompt only while the app is NOT
+  // installed in that browser, so there the button waits for it and stays hidden once installed.
+  // Safari and Firefox never fire it - they always show the button with manual guidance instead.
+  const supportsInstallPrompt = 'onbeforeinstallprompt' in window;
+  if (!supportsInstallPrompt) showControls();
 
   window.addEventListener('beforeinstallprompt', event => {
     event.preventDefault();

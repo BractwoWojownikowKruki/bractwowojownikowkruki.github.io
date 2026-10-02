@@ -7,6 +7,7 @@ const source = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js'
 const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-form.js', import.meta.url), 'utf8');
 const lwFriendlyUrlSource = readFileSync(new URL('../public/shared/lw-friendly-url.js', import.meta.url), 'utf8');
 const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.meta.url), 'utf8');
+const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
 
 class Element {
   hidden = false;
@@ -81,6 +82,7 @@ function createHarness(search: string) {
   vm.runInNewContext(eventEditFormSource, context, { filename: 'event-edit-form.js' });
   vm.runInNewContext(lwFriendlyUrlSource, context, { filename: 'lw-friendly-url.js' });
   vm.runInNewContext(lwNavSource, context, { filename: 'lw-nav.js' });
+  vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   return { elements, calls, signIn: async () => signIn?.({ email: 'viewer@example.com' }) };
 }

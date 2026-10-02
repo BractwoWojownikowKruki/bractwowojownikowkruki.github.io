@@ -32,6 +32,8 @@ export type AuditResourceKind =
   | 'application'
   | 'file'
   | 'equipment'
+  | 'equipmentGroup'
+  | 'equipmentCategory'
   | 'eventEquipment';
 
 export interface AuditActionDefinition {
@@ -163,6 +165,9 @@ const equipmentFields = {
   belongsToPersonId: 'memberVisible',
   description: 'memberVisible',
 } as const;
+// Camp-equipment taxonomy (Grupy/Kategorie sprzętu): plain club labels, member-visible.
+const equipmentGroupFields = { label: 'memberVisible' } as const;
+const equipmentCategoryFields = { label: 'memberVisible', groupId: 'memberVisible' } as const;
 const eventEquipmentFields = {
   eventId: 'memberVisible',
   equipmentId: 'memberVisible',
@@ -248,6 +253,12 @@ export const ACTION_REGISTRY = {
   'equipment.added': action('equipment', 'members', ['equipment'], equipmentFields),
   'equipment.updated': action('equipment', 'members', ['equipment'], equipmentFields),
   'equipment.deleted': action('equipment', 'members', ['equipment'], equipmentFields),
+  'equipment.group.added': action('equipment', 'members', ['equipmentGroup'], equipmentGroupFields),
+  'equipment.group.updated': action('equipment', 'members', ['equipmentGroup'], equipmentGroupFields),
+  'equipment.group.deleted': action('equipment', 'members', ['equipmentGroup'], equipmentGroupFields),
+  'equipment.category.added': action('equipment', 'members', ['equipmentCategory'], equipmentCategoryFields),
+  'equipment.category.updated': action('equipment', 'members', ['equipmentCategory'], equipmentCategoryFields),
+  'equipment.category.deleted': action('equipment', 'members', ['equipmentCategory'], equipmentCategoryFields),
   'equipment.event_going.changed': action('equipment', 'members', ['eventEquipment'], eventEquipmentFields),
 } as const satisfies Record<string, AuditActionDefinition>;
 
@@ -1015,12 +1026,9 @@ export interface AuditEventRow {
  * "detail returns exactly one permitted projection" (implementation-contract.md) can never drift
  * from what the list already redacted.
  *
- * Actor identity is withheld from the `member` scope: the per-action stored-field allowlist table
- * calls out "actor email" as `roleRestricted` for every audience-`members` category (events,
- * signups, gallery), so an ordinary signed-in member sees the public value fields but never who
- * performed the action. Every admin-scope viewer permitted to see a category at all sees its
- * actor, since administrator/hovding viewers are privileged, authenticated roles, not the
- * general public this restriction targets.
+ * Actor identity is shown in both scopes: a signed-in member sees who performed an action in every
+ * audience-`members` category (events, signups, gallery, files, equipment), so the history is
+ * attributable. The member-scope handlers in `server.ts` swap in the actor's full name when known.
  */
 export function projectAuditEvent(event: CanonicalAuditEvent, viewer: AuditViewer): AuditEventRow | null {
   if (viewer.scope === 'member') {
@@ -1030,6 +1038,7 @@ export function projectAuditEvent(event: CanonicalAuditEvent, viewer: AuditViewe
     return {
       id: event.id,
       timestamp: event.timestamp,
+      actor: event.actor,
       category: event.category,
       action: event.action,
       resource: event.resource,

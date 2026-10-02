@@ -159,8 +159,10 @@ function renderEvents() {
       return `
         <div class="lw-event-row">
           <a href="${escapeAttr(window.LwFriendlyUrl.eventUrl(e))}" class="lw-event-name">${escapeHtml(e.name)}${statusLabel}</a>
-          <span class="lw-event-date">${escapeHtml(formatDate(e.startDate))}</span>
-          <span class="lw-event-count">${e.attendingCount} os.</span>
+          <span class="lw-event-meta">
+            <span class="lw-event-date">${escapeHtml(formatDate(e.startDate))}</span>
+            <span class="attendee-badge" title="Zgłoszone osoby: ${e.attendingCount ?? 0}" aria-label="Zgłoszone osoby: ${e.attendingCount ?? 0}"><img class="attendee-badge-icon" src="/icons/attendees-badge.png" alt="" aria-hidden="true"> <span class="attendee-badge-count">${e.attendingCount ?? 0}</span></span>
+          </span>
           <div class="lw-event-actions">
             <button type="button" class="lw-attend-toggle" data-event-id="${e.id}" data-attending="${e.viewerAttending}" aria-pressed="${e.viewerAttending}">
               <span class="lw-attend-toggle-track" aria-hidden="true"></span>
@@ -208,13 +210,20 @@ function applyQuickAdd(result) {
   renderEvents();
 }
 
+// renderEvents() rebuilds the whole list, so the clicked control is gone by the time the checkmark
+// is placed; point it at the same event's freshly rendered attend toggle (same row); the toast if it is gone.
+function eventRowAnchor(eventId) {
+  const list = document.getElementById('events-list');
+  return () => list.querySelector(`.lw-attend-toggle[data-event-id="${CSS.escape(String(eventId))}"]`) || null;
+}
+
 async function quickAddCompanion(body, control) {
   const errorEl = document.getElementById('events-error');
   errorEl.hidden = true;
   try {
     await window.MutationFeedback.confirmed({
       control,
-      anchor: document.getElementById('events-list'),
+      fallbackAnchor: eventRowAnchor(body.eventId),
       execute: () => apiFetch(
         '/lista-wyjazdowa/signups/quick-add',
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
@@ -258,7 +267,7 @@ async function saveEventEdit(eventId, idPrefix, control) {
   try {
     await window.MutationFeedback.confirmed({
       control,
-      anchor: document.getElementById('events-list'),
+      fallbackAnchor: eventRowAnchor(eventId),
       execute: () => apiFetch(
         `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
         { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
@@ -287,7 +296,7 @@ async function setEventStatusFromList(eventId, status, control) {
   try {
     await window.MutationFeedback.confirmed({
       control,
-      anchor: document.getElementById('events-list'),
+      fallbackAnchor: eventRowAnchor(eventId),
       execute: () => apiFetch(
         `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
         { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) },
@@ -441,9 +450,9 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
   try {
     await window.MutationFeedback.confirmed({
       control: btn,
-      // Anchor on the list container, not the button: apply re-renders the list (so the "+" appears
-      // or disappears with the new attendance), which would detach a button anchor.
-      anchor: document.getElementById('events-list'),
+      // apply re-renders the list (so the "+" appears or disappears with the new attendance),
+      // which detaches btn - fall back to the same event's freshly rendered toggle.
+      fallbackAnchor: eventRowAnchor(eventId),
       execute: () => apiFetch(
         `/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(viewerEmail)}`,
         {
@@ -554,7 +563,7 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
   try {
     await window.MutationFeedback.confirmed({
       control: submitBtn,
-      anchor: document.getElementById('events-list'),
+      toast: true, // the form closes on success, so there is no visible control to anchor on
       execute: () => apiFetch(
       '/lista-wyjazdowa/events',
       {

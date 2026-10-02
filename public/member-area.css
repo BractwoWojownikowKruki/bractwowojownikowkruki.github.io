@@ -908,12 +908,23 @@
   white-space: nowrap;
 }
 
-.lw-event-count {
+/* Shared headcount pill: Lista Wyjazdowa rows and both dashboard trip cards. */
+.attendee-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(212, 175, 55, 0.15);
   color: var(--gold);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 0.78rem;
+  font-weight: 700;
   white-space: nowrap;
 }
+.attendee-badge-icon { height: 1.6em; width: auto; display: block; }
+
+/* Date + headcount badge share one line, also in the stacked mobile card. */
+.lw-event-meta { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: nowrap; }
 
 /* KRKG-0101: the "Jadę/Nie jadę" toggle and the "+ osoba towarzysząca" control share one inline
    strip. On desktop this is invisible (the row is already a single line), but on mobile the row
@@ -983,6 +994,55 @@
 .lw-attend-toggle:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* Confirmation popover shown next to the toggle when changing someone else's attendance. */
+.lw-confirm-pop {
+  position: absolute;
+  z-index: 1000;
+  max-width: 260px;
+  padding: 0.75rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  font-size: 13px;
+}
+
+.lw-confirm-text {
+  margin: 0 0 0.6rem;
+}
+
+.lw-confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lw-confirm-btn {
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lw-confirm-btn--yes {
+  color: #4caf50;
+  border-color: #4caf50;
+  background: color-mix(in srgb, #4caf50 18%, var(--surface-deep));
+}
+
+.lw-confirm-btn--no {
+  color: #e57373;
+  border-color: #e57373;
+  background: color-mix(in srgb, #e57373 18%, var(--surface-deep));
+}
+
+.lw-confirm-btn:hover,
+.lw-confirm-btn:focus-visible {
+  filter: brightness(1.25);
 }
 
 /* Roster table's Status cell (KRKG-0053): label stacks under the toggle track, not beside it.
@@ -1118,6 +1178,10 @@ button.lw-skladka-icon:disabled {
   /* KRKG-0101: the roster's tight name cell keeps the icon-only form, but the all-events list has
      room for the label - show it there so the "+" figure is not a mystery tap target. */
   .lw-event-row .lw-add-companion-label {
+    display: inline;
+  }
+
+  .dashboard-widget .lw-add-companion-label {
     display: inline;
   }
 }
@@ -2030,6 +2094,13 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   font-weight: 700;
 }
 .dashboard-event-countdown { color: var(--text-muted); font-size: 0.85rem; }
+.dashboard-event-name-link { color: inherit; text-decoration: none; }
+.dashboard-event-name-link:hover,
+.dashboard-event-name-link:focus-visible { color: var(--gold); text-decoration: underline; }
+.dashboard-widget .lw-event-actions { margin-top: 0.6rem; flex-wrap: wrap; }
+.dashboard-event-panel:not(:empty) { margin-top: 0.5rem; }
+.dashboard-widget .lw-inline-form { margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px dashed var(--border); }
+.dashboard-widget .lw-inline-form-inner { padding-left: 0; }
 
 .dashboard-mini-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .dashboard-mini-item {
@@ -2050,7 +2121,7 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   color: var(--gold);
   text-decoration: underline;
 }
-.dashboard-mini-item-meta { color: var(--text-muted); font-size: 0.8rem; white-space: nowrap; }
+.dashboard-mini-item-meta { color: var(--text-muted); font-size: 0.8rem; white-space: nowrap; display: inline-flex; align-items: center; gap: 0.5rem; }
 
 .dashboard-gallery-thumbs { display: flex; gap: 0.5rem; }
 .dashboard-gallery-item {
@@ -2178,4 +2249,126 @@ a.dashboard-widget:hover { border-color: var(--gold); }
 #app-dues-panel-slot:empty,
 #app-widget-grid-slot:empty {
   display: none;
+}
+
+/* Camp-equipment page: Grupa/Kategoria columns are secondary info, so they run small with tight
+   side padding to leave the room to Opis. The th rule also has to reach the sort <button> inside
+   the header, which sets its own font and padding. */
+.czl-table td.equipment-meta-cell,
+.czl-table th.equipment-meta-cell,
+.czl-table th.equipment-meta-cell button {
+  font-size: 0.7em;
+}
+
+.czl-table td.equipment-meta-cell,
+.czl-table th.equipment-meta-cell {
+  padding-left: 0.3rem;
+  padding-right: 0.3rem;
+  /* Shrink-to-content: a 1% width makes the auto table layout give these columns only what their
+     text needs instead of splitting the spare width evenly. */
+  width: 1%;
+}
+
+.czl-table thead th.equipment-meta-cell[data-sort-key] {
+  padding: 0;
+}
+
+.czl-table thead th.equipment-meta-cell[data-sort-key] button {
+  padding: 0.4rem 0.3rem;
+}
+
+/* "Edytuj grupy i kategorie" editor. Fields and buttons mirror the site's dense-table look
+   (.czl-field inputs, .czl-table .member-action buttons) - those rules are scoped to .czl-table,
+   so they are restated here for controls that live outside a table. */
+#equipment-taxonomy-toggle,
+.equipment-taxonomy .member-action {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--gold);
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85em;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#equipment-taxonomy-toggle:hover,
+.equipment-taxonomy .member-action:hover {
+  border-color: var(--gold);
+}
+
+.equipment-taxonomy {
+  max-width: 42rem;
+  margin-top: 1rem;
+}
+
+.equipment-taxonomy h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+/* One line per row, also on a phone: the name field takes whatever width is left (capped), the
+   group <select> and the buttons keep their natural size, and nothing wraps. */
+.equipment-taxonomy-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.equipment-taxonomy-row input[type="text"],
+.equipment-taxonomy-row select {
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85em;
+  font-family: inherit;
+  min-width: 0;
+}
+
+.equipment-taxonomy-row input[type="text"] {
+  flex: 1 1 4rem;
+  max-width: 10rem;
+  cursor: text;
+}
+
+.equipment-taxonomy-row select {
+  flex: 0 1 7rem;
+  min-width: 4.5rem;
+  cursor: pointer;
+}
+
+.equipment-taxonomy-row .member-action {
+  flex: 0 0 auto;
+  padding: 0.3rem 0.5rem;
+  white-space: nowrap;
+}
+
+/* Number of equipment items in a category - a small round pill, no brackets. */
+.equipment-count-pill {
+  flex: 0 0 auto;
+  min-width: 1.4rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.75em;
+  font-weight: 700;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .equipment-taxonomy {
+    padding: 0.6rem;
+  }
+}
+
+.equipment-taxonomy-row input[type="text"]:focus,
+.equipment-taxonomy-row select:focus {
+  border-color: var(--accent);
+  outline: none;
 }

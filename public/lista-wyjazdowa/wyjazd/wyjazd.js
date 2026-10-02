@@ -170,10 +170,10 @@ function clearError() {
   document.getElementById('lw-error').hidden = true;
 }
 
-function confirmedEventMutation(control, execute, apply, anchor = control, rollback) {
+function confirmedEventMutation(control, execute, apply, fallbackAnchor = null, rollback) {
   return window.MutationFeedback.confirmed({
     control,
-    anchor,
+    fallbackAnchor,
     execute,
     apply,
     rollback,
@@ -334,7 +334,7 @@ async function toggleSkladkaPaid(personId, nextPaid, control) {
       const signup = cachedSignups.find(item => item.memberEmail === personId);
       if (signup) signup.skladkaPaid = nextPaid;
       renderRoster(cachedRoster, cachedSignups);
-    }, document.getElementById('roster-panel'));
+    }, 'toast');
   } catch (err) {
     showError(`Nie udało się zaktualizować składki: ${err.message}`);
   }
@@ -446,10 +446,6 @@ let personById = new Map();
 // The raw categories lookup (id + label, in seed order) for the "new person" <select> in the
 // inline add panel - a Map would lose the display order the endpoint already returns.
 let categoryOptions = [];
-// "Emeryt" -> "emeryt". Duplicated from dues.ts's EMERYT_CATEGORY_ID, same convention as
-// skladki.js's own copy: a person created from the roster starts unpaid, except an Emeryt who
-// owes nothing - mirrors the server's effectiveDuesStatus default for a person with no record.
-const EMERYT_CATEGORY_ID = 'emeryt';
 
 function sectionSortLabel(member) {
   return member.sectionId ? (sectionLabelById.get(member.sectionId) ?? member.sectionId) : '';
@@ -598,7 +594,7 @@ function rosterEntryFromPerson(person) {
     categoryId: person.categoryId ?? null,
     weaponIds: person.weaponIds ?? [],
     wpisowePaid: false,
-    duesStatus: person.categoryId === EMERYT_CATEGORY_ID ? 'not_applicable' : 'unpaid',
+    duesStatus: effectiveDuesStatus(null, person.categoryId),
   };
 }
 
@@ -765,10 +761,56 @@ async function toggleAttending(personId, nextAttending, control) {
       else cachedSignups.push(savedSignup);
       renderSummary(cachedRoster, cachedSignups);
       renderRoster(cachedRoster, cachedSignups);
-    }, document.getElementById('roster-panel'));
+    }, 'toast');
   } catch (err) {
     showError(`Nie udało się zapisać zgłoszenia: ${err.message}`);
   }
+}
+
+// Small confirmation popover next to the attendance toggle; at most one open at a time. Closes on
+// Nie, outside click or Escape.
+let attendConfirmEl = null;
+function closeAttendConfirm() {
+  if (!attendConfirmEl) return;
+  attendConfirmEl.remove();
+  attendConfirmEl = null;
+  document.removeEventListener('mousedown', onAttendConfirmOutside, true);
+  document.removeEventListener('keydown', onAttendConfirmKey, true);
+}
+function onAttendConfirmOutside(e) {
+  if (attendConfirmEl && !attendConfirmEl.contains(e.target)) closeAttendConfirm();
+}
+function onAttendConfirmKey(e) {
+  if (e.key === 'Escape') closeAttendConfirm();
+}
+function showAttendConfirm(anchor, name, nextAttending, onConfirm) {
+  closeAttendConfirm();
+  const pop = document.createElement('div');
+  pop.className = 'lw-confirm-pop';
+  pop.setAttribute('role', 'alertdialog');
+  pop.setAttribute('aria-label', 'Potwierdź zmianę statusu');
+  pop.innerHTML = `
+    <p class="lw-confirm-text">Czy na pewno zmienić status <strong>${escapeHtml(name)}</strong> na <strong>${nextAttending ? 'Jadę' : 'Nie jadę'}</strong>?</p>
+    <div class="lw-confirm-actions">
+      <button type="button" class="lw-confirm-btn lw-confirm-btn--yes" data-confirm="yes"><span aria-hidden="true">✓</span> Tak</button>
+      <button type="button" class="lw-confirm-btn lw-confirm-btn--no" data-confirm="no"><span aria-hidden="true">✕</span> Nie</button>
+    </div>`;
+  pop.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-confirm]');
+    if (!btn) return;
+    closeAttendConfirm();
+    if (btn.dataset.confirm === 'yes') onConfirm();
+  });
+  document.body.appendChild(pop);
+  attendConfirmEl = pop;
+  const rect = anchor.getBoundingClientRect();
+  const width = pop.offsetWidth;
+  const left = Math.max(8, Math.min(window.scrollX + rect.left, window.scrollX + document.documentElement.clientWidth - width - 8));
+  pop.style.left = `${left}px`;
+  pop.style.top = `${window.scrollY + rect.bottom + 6}px`;
+  document.addEventListener('mousedown', onAttendConfirmOutside, true);
+  document.addEventListener('keydown', onAttendConfirmKey, true);
+  pop.querySelector('[data-confirm="no"]').focus();
 }
 
 async function toggleEventEquipment(equipmentId, nextGoing, control) {
@@ -806,7 +848,7 @@ async function quickAddCompanion(body, control) {
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
       showReauth,
       hideReauth,
-    ), (result) => applyQuickAdd(result), document.getElementById('roster-panel'));
+    ), (result) => applyQuickAdd(result), 'toast');
   } catch (err) {
     showError(`Nie udało się dodać osoby: ${err.message}`);
   }
@@ -879,8 +921,20 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
   const attendBtn = e.target.closest('.lw-attend-toggle');
   if (attendBtn) {
     const nextAttending = attendBtn.dataset.attending !== 'true';
-    attendBtn.disabled = true;
-    toggleAttending(attendBtn.dataset.personId, nextAttending, attendBtn).finally(() => { attendBtn.disabled = false; });
+    const targetId = attendBtn.dataset.personId;
+    const runToggle = () => {
+      attendBtn.disabled = true;
+      toggleAttending(targetId, nextAttending, attendBtn).finally(() => { attendBtn.disabled = false; });
+    };
+    // Changing someone else's status (not the viewer's own or their companion's) asks first, in a
+    // small popover anchored to the toggle rather than a window.confirm.
+    const target = cachedRoster.find((m) => m.personId === targetId);
+    const isOwnOrCompanion = !target || target.personId === viewerPersonId || target.ownerPersonId === viewerPersonId;
+    if (isOwnOrCompanion) {
+      runToggle();
+    } else {
+      showAttendConfirm(attendBtn, displayName(target), nextAttending, runToggle);
+    }
     return;
   }
   const skladkaBtn = e.target.closest('.lw-skladka-icon');

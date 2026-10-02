@@ -22,9 +22,10 @@ class FakeElement {
 
 type InstallHarness = ReturnType<typeof createHarness>;
 
-function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDesktop?: boolean; manifest?: boolean } = {}) {
+function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDesktop?: boolean; manifest?: boolean; promptSupport?: boolean } = {}) {
   const controls = [new FakeElement(), new FakeElement()];
   const messages = [new FakeElement()];
+  const panels = [new FakeElement()];
   const listeners = new Map<string, Array<(event: unknown) => unknown>>();
   const navigator = {
     standalone: options.standalone ?? false,
@@ -36,7 +37,7 @@ function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDeskt
     platform: options.iPadDesktop ? 'MacIntel' : 'Linux x86_64',
     maxTouchPoints: options.iPadDesktop ? 5 : 0,
   };
-  const window = {
+  const window: Record<string, unknown> = {
     addEventListener(type: string, listener: (event: unknown) => unknown) {
       listeners.set(type, [...(listeners.get(type) ?? []), listener]);
     },
@@ -45,6 +46,7 @@ function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDeskt
     },
     navigator,
   };
+  if (options.promptSupport) window.onbeforeinstallprompt = null;
   const document = {
     querySelector(selector: string) {
       if (selector === 'link[rel="manifest"][href="/manifest.webmanifest"]') {
@@ -55,6 +57,7 @@ function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDeskt
     querySelectorAll(selector: string) {
       if (selector === '[data-pwa-install]') return controls;
       if (selector === '[data-pwa-install-message]') return messages;
+      if (selector === '[data-pwa-install-panel]') return panels;
       return [];
     },
   };
@@ -73,6 +76,7 @@ function createHarness(options: { standalone?: boolean; ios?: boolean; iPadDeskt
       for (const listener of listeners.get(type) ?? []) await listener(event);
     },
     messages,
+    panels,
   };
 }
 
@@ -88,15 +92,47 @@ test('hides install controls and messages in standalone mode', async () => {
 
   assert.ok(harness.controls.every(control => control.hidden));
   assert.ok(harness.messages.every(message => message.hidden));
+  assert.ok(harness.panels.every(panel => panel.hidden));
 });
 
 test('reveals controls for an uninstalled browser session', async () => {
   const harness = createHarness();
   harness.controls.forEach(control => { control.hidden = true; });
+  harness.panels.forEach(panel => { panel.hidden = true; });
 
   await loadInstallController(harness);
 
   assert.ok(harness.controls.every(control => !control.hidden));
+  assert.ok(harness.panels.every(panel => !panel.hidden));
+});
+
+test('keeps controls hidden in a Chromium browser until it offers the install prompt', async () => {
+  const harness = createHarness({ promptSupport: true });
+  harness.controls.forEach(control => { control.hidden = true; });
+  harness.panels.forEach(panel => { panel.hidden = true; });
+
+  await loadInstallController(harness);
+
+  assert.ok(harness.controls.every(control => control.hidden));
+  assert.ok(harness.panels.every(panel => panel.hidden));
+
+  await harness.emit('beforeinstallprompt', {
+    preventDefault() {},
+    prompt() {},
+    userChoice: Promise.resolve({ outcome: 'accepted' }),
+  });
+
+  assert.ok(harness.controls.every(control => !control.hidden));
+  assert.ok(harness.panels.every(panel => !panel.hidden));
+});
+
+test('hides install panels once the app gets installed', async () => {
+  const harness = createHarness();
+  await loadInstallController(harness);
+
+  await harness.emit('appinstalled', {});
+
+  assert.ok(harness.panels.every(panel => panel.hidden));
 });
 
 test('defers the browser prompt until an install-control click', async () => {
