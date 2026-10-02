@@ -392,7 +392,9 @@ test('the taxonomy editor is collapsed by default behind "Edytuj grupy i kategor
   const body = harness.elements.get('equipment-taxonomy-body')!.innerHTML;
   assert.match(body, /data-group-id="budowle"/);
   assert.match(body, /data-category-id="namiot"/);
-  assert.match(body, /\(2\)/, 'shows how many equipment items use the category');
+  assert.match(body, />2<\/span>/, "shows how many equipment items use the category, as a bare-number pill");
+  assert.match(body, /class="equipment-count-pill"/);
+  assert.doesNotMatch(body, /\(2\)/, "no brackets around the count");
 });
 
 function taxonomyClick(action: string, rowDataset: Record<string, string>, fields: Record<string, string>) {

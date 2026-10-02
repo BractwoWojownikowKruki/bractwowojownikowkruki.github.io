@@ -2307,11 +2307,13 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   font-size: 1rem;
 }
 
+/* One line per row, also on a phone: the name field takes whatever width is left (capped), the
+   group <select> and the buttons keep their natural size, and nothing wraps. */
 .equipment-taxonomy-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
   margin-bottom: 0.5rem;
 }
 
@@ -2321,24 +2323,48 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
-  padding: 0.3rem 0.5rem;
-  font-size: 0.9em;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85em;
   font-family: inherit;
-  cursor: text;
-}
-
-/* Fixed widths (not flex-grow): the text fields only hold a short name, and a growing input would
-   squeeze the group <select> down to a sliver where its chosen value cannot be read. */
-.equipment-taxonomy-row input[type="text"] {
-  flex: 0 1 10rem;
-  width: 10rem;
   min-width: 0;
 }
 
+.equipment-taxonomy-row input[type="text"] {
+  flex: 1 1 4rem;
+  max-width: 10rem;
+  cursor: text;
+}
+
 .equipment-taxonomy-row select {
-  flex: 0 0 auto;
-  min-width: 9rem;
+  flex: 0 1 7rem;
+  min-width: 4.5rem;
   cursor: pointer;
+}
+
+.equipment-taxonomy-row .member-action {
+  flex: 0 0 auto;
+  padding: 0.3rem 0.5rem;
+  white-space: nowrap;
+}
+
+/* Number of equipment items in a category - a small round pill, no brackets. */
+.equipment-count-pill {
+  flex: 0 0 auto;
+  min-width: 1.4rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.75em;
+  font-weight: 700;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .equipment-taxonomy {
+    padding: 0.6rem;
+  }
 }
 
 .equipment-taxonomy-row input[type="text"]:focus,
