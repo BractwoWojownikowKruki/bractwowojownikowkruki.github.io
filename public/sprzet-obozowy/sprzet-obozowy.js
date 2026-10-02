@@ -231,10 +231,17 @@ function renderTaxonomyEditor() {
   const byLabel = (a, b) => a.label.localeCompare(b.label, 'pl');
   const usageByCategory = new Map();
   for (const item of equipment) usageByCategory.set(item.categoryId, (usageByCategory.get(item.categoryId) ?? 0) + 1);
-  const groupOptions = selected => ['<option value="">— bez grupy —</option>']
+  // "Inne" is the catch-all group. When it exists as a real group, a category without a group is
+  // shown (and defaults) as that one; otherwise an empty-value "Inne" option stands in for "no group".
+  const catchAllGroup = equipmentGroups.find(g => g.label.trim().toLocaleLowerCase('pl') === 'inne');
+  const defaultGroupId = catchAllGroup ? catchAllGroup.id : '';
+  const groupOptions = selected => (catchAllGroup ? [] : ['<option value="">Inne</option>'])
     .concat([...equipmentGroups].sort(byLabel).map(g =>
       `<option value="${escapeAttr(g.id)}"${g.id === selected ? ' selected' : ''}>${escapeHtml(g.label)}</option>`))
     .join('');
+  const groupLabelOf = c => equipmentGroups.find(g => g.id === (c.groupId ?? defaultGroupId))?.label ?? 'Inne';
+  // Alphabetical by group first, then by category name within the group.
+  const byGroupThenLabel = (a, b) => groupLabelOf(a).localeCompare(groupLabelOf(b), 'pl') || byLabel(a, b);
 
   const groupRows = [...equipmentGroups].sort(byLabel).map(g => `
     <div class="equipment-taxonomy-row" data-group-id="${escapeAttr(g.id)}">
@@ -243,10 +250,10 @@ function renderTaxonomyEditor() {
       <button type="button" class="member-action" data-taxonomy-action="delete-group">Usuń</button>
     </div>`).join('');
 
-  const categoryRows = [...equipmentCategories].sort(byLabel).map(c => `
+  const categoryRows = [...equipmentCategories].sort(byGroupThenLabel).map(c => `
     <div class="equipment-taxonomy-row" data-category-id="${escapeAttr(c.id)}">
+      <select aria-label="Grupa kategorii" data-field="groupId">${groupOptions(c.groupId ?? defaultGroupId)}</select>
       <input type="text" maxlength="60" value="${escapeAttr(c.label)}" aria-label="Nazwa kategorii" data-field="label" />
-      <select aria-label="Grupa kategorii" data-field="groupId">${groupOptions(c.groupId ?? '')}</select>
       <span class="equipment-count-pill" title="Liczba sprzętów w tej kategorii">${usageByCategory.get(c.id) ?? 0}</span>
       <button type="button" class="member-action" data-taxonomy-action="save-category">Zapisz</button>
       <button type="button" class="member-action" data-taxonomy-action="delete-category">Usuń</button>
@@ -262,8 +269,8 @@ function renderTaxonomyEditor() {
     <h3>Kategorie</h3>
     ${categoryRows || '<p class="czl-empty">Brak kategorii.</p>'}
     <div class="equipment-taxonomy-row" data-new="category">
+      <select aria-label="Grupa nowej kategorii" data-field="groupId">${groupOptions(defaultGroupId)}</select>
       <input type="text" maxlength="60" placeholder="Nowa kategoria" aria-label="Nazwa nowej kategorii" data-field="label" />
-      <select aria-label="Grupa nowej kategorii" data-field="groupId">${groupOptions('')}</select>
       <button type="button" class="member-action" data-taxonomy-action="add-category">Dodaj kategorię</button>
     </div>`;
 }
