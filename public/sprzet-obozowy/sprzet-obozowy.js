@@ -139,8 +139,8 @@ function equipmentRowHtml(item, { includeOwner }) {
   return `
     <tr data-equipment-id="${escapeAttr(item.id)}" data-section="${escapeAttr(item.sectionId ?? '')}">
       <td class="czl-section-cell" title="${escapeAttr(sectionLabel ?? '')}">${item.sectionId ? escapeHtml(sectionAbbr(item.sectionId)) : ''}</td>
-      <td>${groupLabel ? escapeHtml(groupLabel) : '<span class="czl-empty">—</span>'}</td>
-      <td>${escapeHtml(categoryLabel)}</td>
+      <td class="equipment-meta-cell">${groupLabel ? escapeHtml(groupLabel) : '<span class="czl-empty">—</span>'}</td>
+      <td class="equipment-meta-cell">${escapeHtml(categoryLabel)}</td>
       ${ownerCell}
       <td>${item.description ? escapeHtml(item.description) : '<span class="czl-empty">—</span>'}</td>
       <td>${equipmentActionsHtml(item)}</td>
@@ -268,8 +268,12 @@ function renderTaxonomyEditor() {
     </div>`;
 }
 
-async function runTaxonomyMutation(request, confirmDelete) {
+// `button` is the control that was clicked; apply() re-renders the whole editor, which detaches it,
+// so the confirmation check is anchored on `twinSelector` - the freshly rendered equivalent of that
+// button (none for a delete: the row is gone, so MutationFeedback falls back to its toast).
+async function runTaxonomyMutation(request, { button, twinSelector, confirmDelete }) {
   if (confirmDelete && !window.confirm(confirmDelete)) return;
+  const panel = document.getElementById('equipment-taxonomy');
   try {
     await window.MutationFeedback.confirmed({
       execute: () => apiFetch(request.path, {
@@ -279,14 +283,19 @@ async function runTaxonomyMutation(request, confirmDelete) {
       }),
       apply: reloadLookupLists,
       refreshFragment: reloadLookupLists,
-      control: document.getElementById('equipment-taxonomy-toggle'),
-      viewRoot: document.getElementById('equipment-taxonomy'),
+      control: button,
+      fallbackAnchor: twinSelector ? () => panel.querySelector(twinSelector) : 'toast',
+      viewRoot: panel,
     });
   } catch (err) {
     // Includes the server's 409 "still in use" explanation - shown as a popup, as the page does
     // for a failed equipment delete.
     window.alert(err.message);
   }
+}
+
+function attrSelector(attr, value) {
+  return `[${attr}="${String(value).replace(/["\\]/g, '\\$&')}"]`;
 }
 
 function wireTaxonomyEditor() {
@@ -307,21 +316,27 @@ function wireTaxonomyEditor() {
     const groupId = groupField ? (groupField.value || null) : null;
     const groupLabel = row.dataset.groupId ? equipmentGroups.find(g => g.id === row.dataset.groupId)?.label : null;
     const categoryLabel = row.dataset.categoryId ? categoryLabelById.get(row.dataset.categoryId) : null;
+    const groupRow = attrSelector('data-group-id', row.dataset.groupId);
+    const categoryRow = attrSelector('data-category-id', row.dataset.categoryId);
     switch (button.dataset.taxonomyAction) {
       case 'add-group':
-        return runTaxonomyMutation({ method: 'POST', path: '/equipment/groups', body: { label } });
+        return runTaxonomyMutation({ method: 'POST', path: '/equipment/groups', body: { label } },
+          { button, twinSelector: '[data-new="group"] [data-taxonomy-action="add-group"]' });
       case 'save-group':
-        return runTaxonomyMutation({ method: 'PUT', path: `/equipment/groups?id=${encodeURIComponent(row.dataset.groupId)}`, body: { label } });
+        return runTaxonomyMutation({ method: 'PUT', path: `/equipment/groups?id=${encodeURIComponent(row.dataset.groupId)}`, body: { label } },
+          { button, twinSelector: `${groupRow} [data-taxonomy-action="save-group"]` });
       case 'delete-group':
         return runTaxonomyMutation({ method: 'DELETE', path: `/equipment/groups?id=${encodeURIComponent(row.dataset.groupId)}` },
-          `Usunąć grupę „${groupLabel}”?`);
+          { button, confirmDelete: `Usunąć grupę „${groupLabel}”?` });
       case 'add-category':
-        return runTaxonomyMutation({ method: 'POST', path: '/equipment/categories', body: { label, groupId } });
+        return runTaxonomyMutation({ method: 'POST', path: '/equipment/categories', body: { label, groupId } },
+          { button, twinSelector: '[data-new="category"] [data-taxonomy-action="add-category"]' });
       case 'save-category':
-        return runTaxonomyMutation({ method: 'PUT', path: `/equipment/categories?id=${encodeURIComponent(row.dataset.categoryId)}`, body: { label, groupId } });
+        return runTaxonomyMutation({ method: 'PUT', path: `/equipment/categories?id=${encodeURIComponent(row.dataset.categoryId)}`, body: { label, groupId } },
+          { button, twinSelector: `${categoryRow} [data-taxonomy-action="save-category"]` });
       case 'delete-category':
         return runTaxonomyMutation({ method: 'DELETE', path: `/equipment/categories?id=${encodeURIComponent(row.dataset.categoryId)}` },
-          `Usunąć kategorię „${categoryLabel}”?`);
+          { button, confirmDelete: `Usunąć kategorię „${categoryLabel}”?` });
     }
   });
 }

@@ -45,6 +45,8 @@ class Element {
   reset() { this.value = ''; }
   focus() {}
   setAttribute() {}
+  querySelector(selector: string) { return this.found.get(selector) ?? null; }
+  found = new Map<string, unknown>();
   querySelectorAll() { return []; }
 }
 
@@ -82,6 +84,7 @@ function createHarness() {
   let mutationResult: unknown = null;
   let mutationError: Error | null = null;
   let signIn: (() => Promise<void>) | undefined;
+  const confirmedCalls: Array<Record<string, any>> = [];
 
   const members = [
     { email: 'ala@example.com', lastName: 'Kowalska', firstName: 'Ala', nickname: null, sectionId: 'krakow', sectionLabel: 'Kraków', categoryId: 'wojownik', categoryLabel: 'Wojownik' },
@@ -104,7 +107,9 @@ function createHarness() {
       confirm: () => true,
       alert: () => {},
       MutationFeedback: {
-        confirmed: async ({ execute, apply, rollback }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown }) => {
+        confirmed: async (options: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown }) => {
+          const { execute, apply, rollback } = options;
+          confirmedCalls.push(options);
           let result: unknown;
           try {
             result = await execute();
@@ -142,6 +147,7 @@ function createHarness() {
     context,
     elements,
     apiCalls,
+    confirmedCalls,
     async signIn() { await signIn?.(); },
     setMutationResult(result: unknown) { mutationResult = result; mutationError = null; },
     setMutationError(error: Error) { mutationError = error; },
@@ -370,8 +376,8 @@ test('deleting an item sends DELETE with its id and removes it from its table', 
 test('both tables show a Grupa column resolved from the category\'s group, before Kategoria', async () => {
   const harness = createHarness();
   await harness.signIn();
-  assert.match(harness.elements.get('equipment-team-table-body')!.innerHTML, /<td>Budowle<\/td>\s*<td>Namiot<\/td>/);
-  assert.match(indexHtml, /data-sort-key="groupLabel"[^>]*><button type="button">Grupa<\/button>/);
+  assert.match(harness.elements.get('equipment-team-table-body')!.innerHTML, /<td class="equipment-meta-cell">Budowle<\/td>\s*<td class="equipment-meta-cell">Namiot<\/td>/);
+  assert.match(indexHtml, /class="equipment-meta-cell" data-sort-key="groupLabel"[^>]*><button type="button">Grupa<\/button>/);
 });
 
 test('the taxonomy editor is collapsed by default behind "Edytuj grupy i kategorie" and opens on click', async () => {
@@ -438,4 +444,41 @@ test('a refused delete shows the server\'s explanation in a popup', async () => 
   harness.setMutationError(new Error('Nie możesz usunąć kategorii „Namiot”, ponieważ jest jeszcze używana przez 2 sprzętów.'));
   await harness.elements.get('equipment-taxonomy')!.clickWith(taxonomyClick('delete-category', { categoryId: 'namiot' }, { label: 'Namiot' }));
   assert.deepEqual(alerts, ['Nie możesz usunąć kategorii „Namiot”, ponieważ jest jeszcze używana przez 2 sprzętów.']);
+});
+
+test('the saved checkmark is anchored on the clicked button\'s re-rendered twin, not on the editor toggle', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  await harness.elements.get('equipment-taxonomy-toggle')!.click();
+  const panel = harness.elements.get('equipment-taxonomy')!;
+  harness.setMutationResult({ ok: true });
+
+  const addButton = { dataset: { taxonomyAction: 'add-group' } };
+  const addClick = taxonomyClick('add-group', { new: 'group' }, { label: 'Sprzęt' });
+  addClick.closest = (selector: string) => (selector === '[data-taxonomy-action]' ? { ...addButton, closest: () => ({ dataset: { new: 'group' }, querySelector: () => ({ value: 'Sprzęt' }) }) } : null) as never;
+  const freshAddButton = {};
+  panel.found.set('[data-new="group"] [data-taxonomy-action="add-group"]', freshAddButton);
+  harness.confirmedCalls.length = 0;
+  await panel.clickWith(addClick);
+  const call = harness.confirmedCalls[0];
+  assert.notEqual(call.control, harness.elements.get('equipment-taxonomy-toggle'), 'never the "Edytuj grupy i kategorie" button');
+  assert.equal(call.control.dataset.taxonomyAction, 'add-group', 'the clicked button is the control');
+  assert.equal(call.fallbackAnchor(), freshAddButton, 'after the re-render the check lands on the new "Dodaj grupę" button');
+
+  const freshSave = {};
+  panel.found.set('[data-category-id="namiot"] [data-taxonomy-action="save-category"]', freshSave);
+  harness.confirmedCalls.length = 0;
+  await panel.clickWith(taxonomyClick('save-category', { categoryId: 'namiot' }, { label: 'Namiot', groupId: 'budowle' }));
+  assert.equal(harness.confirmedCalls[0].fallbackAnchor(), freshSave, 'saving a category anchors on its "Zapisz" button');
+
+  harness.confirmedCalls.length = 0;
+  await panel.clickWith(taxonomyClick('delete-category', { categoryId: 'namiot' }, { label: 'Namiot' }));
+  assert.equal(harness.confirmedCalls[0].fallbackAnchor, 'toast', 'a deleted row has no button left, so the toast is used');
+});
+
+test('Grupa and Kategoria cells use the smaller meta-cell font class', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  assert.match(harness.elements.get('equipment-team-table-body')!.innerHTML, /<td class="equipment-meta-cell">Namiot<\/td>/);
+  assert.match(indexHtml, /class="equipment-meta-cell" data-sort-key="categoryLabel"/);
 });

@@ -2251,9 +2251,42 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   display: none;
 }
 
+/* Camp-equipment page: Grupa/Kategoria columns are secondary info, so they run smaller. The th
+   rule also has to reach the sort <button> inside the header, which sets its own font. */
+.czl-table th.equipment-meta-cell button,
+.czl-table td.equipment-meta-cell,
+.czl-table th.equipment-meta-cell {
+  font-size: 0.8em;
+}
+
+/* "Edytuj grupy i kategorie" editor. Fields and buttons mirror the site's dense-table look
+   (.czl-field inputs, .czl-table .member-action buttons) - those rules are scoped to .czl-table,
+   so they are restated here for controls that live outside a table. */
+#equipment-taxonomy-toggle,
+.equipment-taxonomy .member-action {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--gold);
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85em;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#equipment-taxonomy-toggle:hover,
+.equipment-taxonomy .member-action:hover {
+  border-color: var(--gold);
+}
+
 .equipment-taxonomy {
   max-width: 42rem;
   margin-top: 1rem;
+}
+
+.equipment-taxonomy h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1rem;
 }
 
 .equipment-taxonomy-row {
@@ -2264,6 +2297,29 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   margin-bottom: 0.5rem;
 }
 
+.equipment-taxonomy-row input[type="text"],
+.equipment-taxonomy-row select {
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.3rem 0.5rem;
+  font-size: 0.9em;
+  font-family: inherit;
+  min-width: 0;
+  cursor: text;
+}
+
+.equipment-taxonomy-row select {
+  cursor: pointer;
+}
+
 .equipment-taxonomy-row input[type="text"] {
   flex: 1 1 10rem;
+}
+
+.equipment-taxonomy-row input[type="text"]:focus,
+.equipment-taxonomy-row select:focus {
+  border-color: var(--accent);
+  outline: none;
 }
