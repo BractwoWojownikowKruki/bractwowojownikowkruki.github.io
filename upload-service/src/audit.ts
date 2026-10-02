@@ -32,6 +32,8 @@ export type AuditResourceKind =
   | 'application'
   | 'file'
   | 'equipment'
+  | 'equipmentGroup'
+  | 'equipmentCategory'
   | 'eventEquipment';
 
 export interface AuditActionDefinition {
@@ -163,6 +165,9 @@ const equipmentFields = {
   belongsToPersonId: 'memberVisible',
   description: 'memberVisible',
 } as const;
+// Camp-equipment taxonomy (Grupy/Kategorie sprzętu): plain club labels, member-visible.
+const equipmentGroupFields = { label: 'memberVisible' } as const;
+const equipmentCategoryFields = { label: 'memberVisible', groupId: 'memberVisible' } as const;
 const eventEquipmentFields = {
   eventId: 'memberVisible',
   equipmentId: 'memberVisible',
@@ -248,6 +253,12 @@ export const ACTION_REGISTRY = {
   'equipment.added': action('equipment', 'members', ['equipment'], equipmentFields),
   'equipment.updated': action('equipment', 'members', ['equipment'], equipmentFields),
   'equipment.deleted': action('equipment', 'members', ['equipment'], equipmentFields),
+  'equipment.group.added': action('equipment', 'members', ['equipmentGroup'], equipmentGroupFields),
+  'equipment.group.updated': action('equipment', 'members', ['equipmentGroup'], equipmentGroupFields),
+  'equipment.group.deleted': action('equipment', 'members', ['equipmentGroup'], equipmentGroupFields),
+  'equipment.category.added': action('equipment', 'members', ['equipmentCategory'], equipmentCategoryFields),
+  'equipment.category.updated': action('equipment', 'members', ['equipmentCategory'], equipmentCategoryFields),
+  'equipment.category.deleted': action('equipment', 'members', ['equipmentCategory'], equipmentCategoryFields),
   'equipment.event_going.changed': action('equipment', 'members', ['eventEquipment'], eventEquipmentFields),
 } as const satisfies Record<string, AuditActionDefinition>;
 

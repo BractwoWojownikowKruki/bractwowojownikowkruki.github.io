@@ -104,6 +104,13 @@ const mutationFeedbackWiredRoutes = new Set([
   'POST /equipment',
   'PUT /equipment',
   'DELETE /equipment',
+  // Same page's "Edytuj grupy i kategorie" taxonomy editor, also via MutationFeedback.confirmed().
+  'POST /equipment/groups',
+  'PUT /equipment/groups',
+  'DELETE /equipment/groups',
+  'POST /equipment/categories',
+  'PUT /equipment/categories',
+  'DELETE /equipment/categories',
 ]);
 
 /**

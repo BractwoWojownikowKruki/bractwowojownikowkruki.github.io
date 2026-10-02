@@ -43,6 +43,8 @@ test('action/category labels cover every registered action and category', () => 
     'site.redirect.created', 'site.redirect.deleted', 'site.settings.updated', 'site.social_cache.refreshed',
     'file.added', 'file.deleted',
     'equipment.added', 'equipment.updated', 'equipment.deleted',
+    'equipment.group.added', 'equipment.group.updated', 'equipment.group.deleted',
+    'equipment.category.added', 'equipment.category.updated', 'equipment.category.deleted',
   ];
   for (const action of registeredActions) {
     assert.notEqual(AuditView.actionLabel(action), action, `missing Polish label for ${action}`);

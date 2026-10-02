@@ -42,16 +42,32 @@ const weapons = [
   { id: 'dunczyk', label: 'Duńczyk (D)' },
 ].map((w) => ({ ...w, retired: false }));
 
-const equipmentCategories = [
-  { id: 'namiot', label: 'Namiot', retired: false },
-  { id: 'wiata', label: 'Wiata', retired: false },
+// equipmentGroups/equipmentCategories are also editable from the /sprzet-obozowy/ page ("Edytuj
+// grupy i kategorie"), so re-seeding them overwrites anything members added there - run this only
+// for the initial setup or deliberately. A category's groupId points at an equipmentGroups id.
+const equipmentGroups = [
+  { id: 'budowle', label: 'Budowle', retired: false },
+  { id: 'meble', label: 'Meble', retired: false },
+  { id: 'kuchnia', label: 'Kuchnia', retired: false },
 ];
 
-const SEEDS: Record<string, { id: string; label: string; retired: boolean }[]> = {
+const equipmentCategories = [
+  { id: 'namiot', label: 'Namiot', groupId: 'budowle', retired: false },
+  { id: 'wiata', label: 'Wiata', groupId: 'budowle', retired: false },
+  { id: 'stol', label: 'Stół', groupId: 'meble', retired: false },
+  { id: 'lawka', label: 'Ławka', groupId: 'meble', retired: false },
+  { id: 'garnek', label: 'Garnek', groupId: 'kuchnia', retired: false },
+  { id: 'ruszt', label: 'Ruszt', groupId: 'kuchnia', retired: false },
+  { id: 'trojnog', label: 'Trójnóg', groupId: 'kuchnia', retired: false },
+  { id: 'misa-ogniowa', label: 'Misa ogniowa', groupId: 'kuchnia', retired: false },
+];
+
+const SEEDS: Record<string, { id: string; label: string; groupId?: string; retired: boolean }[]> = {
   sections,
   categories,
   weapons,
   equipmentCategories,
+  equipmentGroups,
 };
 const LIST_NAMES = Object.keys(SEEDS);
 

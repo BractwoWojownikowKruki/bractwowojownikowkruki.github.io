@@ -44,6 +44,7 @@ class Element {
   }
   reset() { this.value = ''; }
   focus() {}
+  setAttribute() {}
   querySelectorAll() { return []; }
 }
 
@@ -55,9 +56,11 @@ const elementIds = [
   'equipment-owner-datalist', 'equipment-add-description',
   'equipment-team-table', 'equipment-team-table-body', 'equipment-private-table', 'equipment-private-table-body',
   'equipment-tables',
+  'equipment-taxonomy-toggle', 'equipment-taxonomy', 'equipment-taxonomy-body',
 ];
 
-const equipmentCategories = [{ id: 'namiot', label: 'Namiot', retired: false }];
+const equipmentCategories = [{ id: 'namiot', label: 'Namiot', groupId: 'budowle', retired: false }];
+const equipmentGroups = [{ id: 'budowle', label: 'Budowle', retired: false }];
 const sections = [
   { id: 'krakow', label: 'Kraków', retired: false },
   { id: 'warszawa', label: 'Warszawa', retired: false },
@@ -73,6 +76,7 @@ function createHarness() {
   // would start in a state the real page (HTML `hidden`/`checked` attributes) never actually has.
   elements.get('equipment-add-form')!.hidden = true;
   elements.get('equipment-add-owner-wrap')!.hidden = true;
+  elements.get('equipment-taxonomy')!.hidden = true;
   elements.get('equipment-owner-mode-team')!.checked = true;
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   let mutationResult: unknown = null;
@@ -125,7 +129,7 @@ function createHarness() {
       if (url === '/equipment') return { equipment: [teamItem, privateItem] };
       if (url === '/members/directory') return { members };
       if (url === '/lista-wyjazdowa/roster') return { roster };
-      if (url === '/lista-wyjazdowa/lookup-lists') return { sections, categories: [], weapons: [], equipmentCategories };
+      if (url === '/lista-wyjazdowa/lookup-lists') return { sections, categories: [], weapons: [], equipmentCategories, equipmentGroups };
       throw new Error(`unexpected request: ${url}`);
     },
     initGoogleSignIn: (config: { onSignedIn: () => Promise<void> }) => { signIn = config.onSignedIn; },
@@ -220,7 +224,7 @@ test('an unresolved owner (e.g. a purged person) falls back to the raw id instea
     if (url === '/equipment') return { equipment: [{ ...privateItem, belongsToPersonId: 'gone-uuid' }] };
     if (url === '/members/directory') return { members: [] };
     if (url === '/lista-wyjazdowa/roster') return { roster: [] };
-    if (url === '/lista-wyjazdowa/lookup-lists') return { sections, categories: [], weapons: [], equipmentCategories };
+    if (url === '/lista-wyjazdowa/lookup-lists') return { sections, categories: [], weapons: [], equipmentCategories, equipmentGroups };
     throw new Error(`unexpected request: ${url}`);
   };
   await harness.signIn();
@@ -234,7 +238,7 @@ test('empty equipment lists render the "brak" placeholder row in each table', as
     if (url === '/equipment') return { equipment: [] };
     if (url === '/members/directory') return { members: [] };
     if (url === '/lista-wyjazdowa/roster') return { roster: [] };
-    if (url === '/lista-wyjazdowa/lookup-lists') return { sections, categories: [], weapons: [], equipmentCategories };
+    if (url === '/lista-wyjazdowa/lookup-lists') return { sections, categories: [], weapons: [], equipmentCategories, equipmentGroups };
     throw new Error(`unexpected request: ${url}`);
   };
   await harness.signIn();
@@ -361,4 +365,77 @@ test('deleting an item sends DELETE with its id and removes it from its table', 
   const del = harness.apiCalls.find((call) => call.options.method === 'DELETE');
   assert.equal(del?.url, '/equipment?id=eq-team-1');
   assert.doesNotMatch(harness.elements.get('equipment-team-table-body')!.innerHTML, /Namiot 4-osobowy/);
+});
+
+test('both tables show a Grupa column resolved from the category\'s group, before Kategoria', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  assert.match(harness.elements.get('equipment-team-table-body')!.innerHTML, /<td>Budowle<\/td>\s*<td>Namiot<\/td>/);
+  assert.match(indexHtml, /data-sort-key="groupLabel"[^>]*><button type="button">Grupa<\/button>/);
+});
+
+test('the taxonomy editor is collapsed by default behind "Edytuj grupy i kategorie" and opens on click', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const panel = harness.elements.get('equipment-taxonomy')!;
+  assert.match(indexHtml, /id="equipment-taxonomy"[^>]*hidden/);
+  assert.match(indexHtml, />Edytuj grupy i kategorie</);
+  assert.equal(panel.hidden, true);
+  await harness.elements.get('equipment-taxonomy-toggle')!.click();
+  assert.equal(panel.hidden, false);
+  const body = harness.elements.get('equipment-taxonomy-body')!.innerHTML;
+  assert.match(body, /data-group-id="budowle"/);
+  assert.match(body, /data-category-id="namiot"/);
+  assert.match(body, /\(2\)/, 'shows how many equipment items use the category');
+});
+
+function taxonomyClick(action: string, rowDataset: Record<string, string>, fields: Record<string, string>) {
+  const row = {
+    dataset: rowDataset,
+    querySelector: (selector: string) => {
+      const field = /data-field="(\w+)"/.exec(selector)?.[1];
+      return field && field in fields ? { value: fields[field] } : null;
+    },
+  };
+  const button = { dataset: { taxonomyAction: action }, closest: () => row };
+  return { closest: (selector: string) => (selector === '[data-taxonomy-action]' ? button : null) };
+}
+
+test('adding a category POSTs its label and group, then reloads the lookup lists', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  await harness.elements.get('equipment-taxonomy-toggle')!.click();
+  harness.apiCalls.length = 0;
+  harness.setMutationResult({ category: { id: 'stol' } });
+  await harness.elements.get('equipment-taxonomy')!.clickWith(taxonomyClick('add-category', { new: 'category' }, { label: 'Stół', groupId: 'budowle' }));
+  const post = harness.apiCalls.find(c => c.url === '/equipment/categories');
+  assert.equal(post?.options.method, 'POST');
+  assert.deepEqual(JSON.parse(post!.options.body as string), { label: 'Stół', groupId: 'budowle' });
+  assert.ok(harness.apiCalls.some(c => c.url === '/lista-wyjazdowa/lookup-lists'), 'lookup lists are re-read after the change');
+});
+
+test('saving a category with no group sends groupId null; deleting a group targets its id', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  await harness.elements.get('equipment-taxonomy-toggle')!.click();
+  harness.apiCalls.length = 0;
+  harness.setMutationResult({ ok: true });
+  const panel = harness.elements.get('equipment-taxonomy')!;
+  await panel.clickWith(taxonomyClick('save-category', { categoryId: 'namiot' }, { label: 'Namiot', groupId: '' }));
+  const put = harness.apiCalls.find(c => c.url === '/equipment/categories?id=namiot');
+  assert.equal(put?.options.method, 'PUT');
+  assert.deepEqual(JSON.parse(put!.options.body as string), { label: 'Namiot', groupId: null });
+  await panel.clickWith(taxonomyClick('delete-group', { groupId: 'budowle' }, { label: 'Budowle' }));
+  assert.equal(harness.apiCalls.find(c => c.url === '/equipment/groups?id=budowle')?.options.method, 'DELETE');
+});
+
+test('a refused delete shows the server\'s explanation in a popup', async () => {
+  const harness = createHarness();
+  const alerts: string[] = [];
+  (harness.context.window as { alert: (m: string) => void }).alert = (m: string) => { alerts.push(m); };
+  await harness.signIn();
+  await harness.elements.get('equipment-taxonomy-toggle')!.click();
+  harness.setMutationError(new Error('Nie możesz usunąć kategorii „Namiot”, ponieważ jest jeszcze używana przez 2 sprzętów.'));
+  await harness.elements.get('equipment-taxonomy')!.clickWith(taxonomyClick('delete-category', { categoryId: 'namiot' }, { label: 'Namiot' }));
+  assert.deepEqual(alerts, ['Nie możesz usunąć kategorii „Namiot”, ponieważ jest jeszcze używana przez 2 sprzętów.']);
 });
