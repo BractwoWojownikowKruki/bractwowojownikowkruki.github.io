@@ -446,34 +446,23 @@ test('a refused delete shows the server\'s explanation in a popup', async () => 
   assert.deepEqual(alerts, ['Nie możesz usunąć kategorii „Namiot”, ponieważ jest jeszcze używana przez 2 sprzętów.']);
 });
 
-test('the saved checkmark is anchored on the clicked button\'s re-rendered twin, not on the editor toggle', async () => {
+test('every mutation on the page confirms with the toast, never an inline checkmark', async () => {
   const harness = createHarness();
   await harness.signIn();
   await harness.elements.get('equipment-taxonomy-toggle')!.click();
   const panel = harness.elements.get('equipment-taxonomy')!;
   harness.setMutationResult({ ok: true });
-
-  const addButton = { dataset: { taxonomyAction: 'add-group' } };
-  const addClick = taxonomyClick('add-group', { new: 'group' }, { label: 'Sprzęt' });
-  addClick.closest = (selector: string) => (selector === '[data-taxonomy-action]' ? { ...addButton, closest: () => ({ dataset: { new: 'group' }, querySelector: () => ({ value: 'Sprzęt' }) }) } : null) as never;
-  const freshAddButton = {};
-  panel.found.set('[data-new="group"] [data-taxonomy-action="add-group"]', freshAddButton);
   harness.confirmedCalls.length = 0;
-  await panel.clickWith(addClick);
-  const call = harness.confirmedCalls[0];
-  assert.notEqual(call.control, harness.elements.get('equipment-taxonomy-toggle'), 'never the "Edytuj grupy i kategorie" button');
-  assert.equal(call.control.dataset.taxonomyAction, 'add-group', 'the clicked button is the control');
-  assert.equal(call.fallbackAnchor(), freshAddButton, 'after the re-render the check lands on the new "Dodaj grupę" button');
-
-  const freshSave = {};
-  panel.found.set('[data-category-id="namiot"] [data-taxonomy-action="save-category"]', freshSave);
-  harness.confirmedCalls.length = 0;
+  await panel.clickWith(taxonomyClick('add-group', { new: 'group' }, { label: 'Sprzęt' }));
   await panel.clickWith(taxonomyClick('save-category', { categoryId: 'namiot' }, { label: 'Namiot', groupId: 'budowle' }));
-  assert.equal(harness.confirmedCalls[0].fallbackAnchor(), freshSave, 'saving a category anchors on its "Zapisz" button');
-
-  harness.confirmedCalls.length = 0;
   await panel.clickWith(taxonomyClick('delete-category', { categoryId: 'namiot' }, { label: 'Namiot' }));
-  assert.equal(harness.confirmedCalls[0].fallbackAnchor, 'toast', 'a deleted row has no button left, so the toast is used');
+  assert.equal(harness.confirmedCalls.length, 3);
+  assert.ok(harness.confirmedCalls.every(call => call.toast === true), 'taxonomy mutations use toast: true');
+  assert.equal(
+    [...source.matchAll(/MutationFeedback\.confirmed\(\{/g)].length,
+    [...source.matchAll(/toast: true,/g)].length,
+    'every confirmed() call in the page source sets toast: true',
+  );
 });
 
 test('Grupa and Kategoria cells use the smaller meta-cell font class', async () => {

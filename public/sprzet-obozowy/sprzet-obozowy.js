@@ -3,7 +3,7 @@
  * pliki.js: lists the club's camp equipment (budowle, meble, kuchnia - each category carries a group) split into a drużynowy (team-owned,
  * belongsToPersonId === null) and a prywatny (belongsToPersonId is a personId) table, lets any
  * signed-in member add/edit/delete any item against the /equipment HTTP contract (Batch 1), and
- * confirms every mutation through the shared MutationFeedback.confirmed() UX used site-wide.
+ * confirms every mutation with the shared MutationFeedback toast ("Zapisano").
  */
 const panels = {
   checking: document.getElementById('sprzet-checking'),
@@ -268,12 +268,11 @@ function renderTaxonomyEditor() {
     </div>`;
 }
 
-// `button` is the control that was clicked; apply() re-renders the whole editor, which detaches it,
-// so the confirmation check is anchored on `twinSelector` - the freshly rendered equivalent of that
-// button (none for a delete: the row is gone, so MutationFeedback falls back to its toast).
-async function runTaxonomyMutation(request, { button, twinSelector, confirmDelete }) {
+// Every mutation on this page confirms with the "Zapisano" toast (toast: true) rather than an inline
+// checkmark: apply() re-renders the tables/editor wholesale, so there is no stable control to anchor a
+// check on. `control` only anchors the refresh-error message, hence the always-present toggle.
+async function runTaxonomyMutation(request, { confirmDelete } = {}) {
   if (confirmDelete && !window.confirm(confirmDelete)) return;
-  const panel = document.getElementById('equipment-taxonomy');
   try {
     await window.MutationFeedback.confirmed({
       execute: () => apiFetch(request.path, {
@@ -283,19 +282,15 @@ async function runTaxonomyMutation(request, { button, twinSelector, confirmDelet
       }),
       apply: reloadLookupLists,
       refreshFragment: reloadLookupLists,
-      control: button,
-      fallbackAnchor: twinSelector ? () => panel.querySelector(twinSelector) : 'toast',
-      viewRoot: panel,
+      toast: true,
+      control: document.getElementById('equipment-taxonomy-toggle'),
+      viewRoot: document.getElementById('equipment-taxonomy'),
     });
   } catch (err) {
     // Includes the server's 409 "still in use" explanation - shown as a popup, as the page does
     // for a failed equipment delete.
     window.alert(err.message);
   }
-}
-
-function attrSelector(attr, value) {
-  return `[${attr}="${String(value).replace(/["\\]/g, '\\$&')}"]`;
 }
 
 function wireTaxonomyEditor() {
@@ -316,27 +311,21 @@ function wireTaxonomyEditor() {
     const groupId = groupField ? (groupField.value || null) : null;
     const groupLabel = row.dataset.groupId ? equipmentGroups.find(g => g.id === row.dataset.groupId)?.label : null;
     const categoryLabel = row.dataset.categoryId ? categoryLabelById.get(row.dataset.categoryId) : null;
-    const groupRow = attrSelector('data-group-id', row.dataset.groupId);
-    const categoryRow = attrSelector('data-category-id', row.dataset.categoryId);
     switch (button.dataset.taxonomyAction) {
       case 'add-group':
-        return runTaxonomyMutation({ method: 'POST', path: '/equipment/groups', body: { label } },
-          { button, twinSelector: '[data-new="group"] [data-taxonomy-action="add-group"]' });
+        return runTaxonomyMutation({ method: 'POST', path: '/equipment/groups', body: { label } });
       case 'save-group':
-        return runTaxonomyMutation({ method: 'PUT', path: `/equipment/groups?id=${encodeURIComponent(row.dataset.groupId)}`, body: { label } },
-          { button, twinSelector: `${groupRow} [data-taxonomy-action="save-group"]` });
+        return runTaxonomyMutation({ method: 'PUT', path: `/equipment/groups?id=${encodeURIComponent(row.dataset.groupId)}`, body: { label } });
       case 'delete-group':
         return runTaxonomyMutation({ method: 'DELETE', path: `/equipment/groups?id=${encodeURIComponent(row.dataset.groupId)}` },
-          { button, confirmDelete: `Usunąć grupę „${groupLabel}”?` });
+          { confirmDelete: `Usunąć grupę „${groupLabel}”?` });
       case 'add-category':
-        return runTaxonomyMutation({ method: 'POST', path: '/equipment/categories', body: { label, groupId } },
-          { button, twinSelector: '[data-new="category"] [data-taxonomy-action="add-category"]' });
+        return runTaxonomyMutation({ method: 'POST', path: '/equipment/categories', body: { label, groupId } });
       case 'save-category':
-        return runTaxonomyMutation({ method: 'PUT', path: `/equipment/categories?id=${encodeURIComponent(row.dataset.categoryId)}`, body: { label, groupId } },
-          { button, twinSelector: `${categoryRow} [data-taxonomy-action="save-category"]` });
+        return runTaxonomyMutation({ method: 'PUT', path: `/equipment/categories?id=${encodeURIComponent(row.dataset.categoryId)}`, body: { label, groupId } });
       case 'delete-category':
         return runTaxonomyMutation({ method: 'DELETE', path: `/equipment/categories?id=${encodeURIComponent(row.dataset.categoryId)}` },
-          { button, confirmDelete: `Usunąć kategorię „${categoryLabel}”?` });
+          { confirmDelete: `Usunąć kategorię „${categoryLabel}”?` });
     }
   });
 }
@@ -537,6 +526,7 @@ function wireAddForm() {
         // Anchor on the always-visible header toggle, not submitButton: apply() hides
         // #equipment-add-form (and submitButton with it), which would bury the checkmark in a
         // hidden subtree - same reasoning as pliki.js's wireAddForm.
+        toast: true,
         control: document.getElementById('equipment-add-toggle'),
         viewRoot: document.getElementById('equipment-tables'),
       });
@@ -571,6 +561,7 @@ function wireTableActions() {
           refreshFragment: () => loadEquipment(),
           // Anchor on the always-visible header toggle, not the clicked button: apply() re-renders
           // the tables, detaching the clicked button - same reasoning as pliki.js's wireDeleteButtons.
+          toast: true,
           control: document.getElementById('equipment-add-toggle'),
           viewRoot: document.getElementById('equipment-tables'),
         });

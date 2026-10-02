@@ -2251,12 +2251,30 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   display: none;
 }
 
-/* Camp-equipment page: Grupa/Kategoria columns are secondary info, so they run smaller. The th
-   rule also has to reach the sort <button> inside the header, which sets its own font. */
-.czl-table th.equipment-meta-cell button,
+/* Camp-equipment page: Grupa/Kategoria columns are secondary info, so they run small with tight
+   side padding to leave the room to Opis. The th rule also has to reach the sort <button> inside
+   the header, which sets its own font and padding. */
+.czl-table td.equipment-meta-cell,
+.czl-table th.equipment-meta-cell,
+.czl-table th.equipment-meta-cell button {
+  font-size: 0.7em;
+}
+
 .czl-table td.equipment-meta-cell,
 .czl-table th.equipment-meta-cell {
-  font-size: 0.8em;
+  padding-left: 0.3rem;
+  padding-right: 0.3rem;
+  /* Shrink-to-content: a 1% width makes the auto table layout give these columns only what their
+     text needs instead of splitting the spare width evenly. */
+  width: 1%;
+}
+
+.czl-table thead th.equipment-meta-cell[data-sort-key] {
+  padding: 0;
+}
+
+.czl-table thead th.equipment-meta-cell[data-sort-key] button {
+  padding: 0.4rem 0.3rem;
 }
 
 /* "Edytuj grupy i kategorie" editor. Fields and buttons mirror the site's dense-table look
@@ -2306,16 +2324,21 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   padding: 0.3rem 0.5rem;
   font-size: 0.9em;
   font-family: inherit;
-  min-width: 0;
   cursor: text;
 }
 
-.equipment-taxonomy-row select {
-  cursor: pointer;
+/* Fixed widths (not flex-grow): the text fields only hold a short name, and a growing input would
+   squeeze the group <select> down to a sliver where its chosen value cannot be read. */
+.equipment-taxonomy-row input[type="text"] {
+  flex: 0 1 10rem;
+  width: 10rem;
+  min-width: 0;
 }
 
-.equipment-taxonomy-row input[type="text"] {
-  flex: 1 1 10rem;
+.equipment-taxonomy-row select {
+  flex: 0 0 auto;
+  min-width: 9rem;
+  cursor: pointer;
 }
 
 .equipment-taxonomy-row input[type="text"]:focus,
