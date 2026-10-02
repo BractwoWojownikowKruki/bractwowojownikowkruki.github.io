@@ -3,6 +3,8 @@ import type { FirestoreLikeClient } from './firestore.ts';
 export interface LookupItem {
   id: string;
   label: string;
+  /** Optional grouping label (used by equipmentCategories, e.g. "Budowle"). */
+  group?: string;
   retired: boolean;
 }
 

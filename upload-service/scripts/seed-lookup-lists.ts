@@ -42,12 +42,20 @@ const weapons = [
   { id: 'dunczyk', label: 'Duńczyk (D)' },
 ].map((w) => ({ ...w, retired: false }));
 
+// "group" is optional display metadata on equipmentCategories items (Grupa column on
+// /sprzet-obozowy/) - a plain label, not a separate lookup list.
 const equipmentCategories = [
-  { id: 'namiot', label: 'Namiot', retired: false },
-  { id: 'wiata', label: 'Wiata', retired: false },
+  { id: 'namiot', label: 'Namiot', group: 'Budowle', retired: false },
+  { id: 'wiata', label: 'Wiata', group: 'Budowle', retired: false },
+  { id: 'stol', label: 'Stół', group: 'Meble', retired: false },
+  { id: 'lawka', label: 'Ławka', group: 'Meble', retired: false },
+  { id: 'garnek', label: 'Garnek', group: 'Kuchnia', retired: false },
+  { id: 'ruszt', label: 'Ruszt', group: 'Kuchnia', retired: false },
+  { id: 'trojnog', label: 'Trójnóg', group: 'Kuchnia', retired: false },
+  { id: 'misa-ogniowa', label: 'Misa ogniowa', group: 'Kuchnia', retired: false },
 ];
 
-const SEEDS: Record<string, { id: string; label: string; retired: boolean }[]> = {
+const SEEDS: Record<string, { id: string; label: string; group?: string; retired: boolean }[]> = {
   sections,
   categories,
   weapons,

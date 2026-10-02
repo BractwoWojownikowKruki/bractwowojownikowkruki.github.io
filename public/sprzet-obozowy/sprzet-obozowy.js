@@ -1,6 +1,6 @@
 /**
  * Protected member-zone Sprzęt obozowy page (KRKG-0096 batch 2/5). Same panel-swap pattern as
- * pliki.js: lists the club's camp equipment (namiot/wiata) split into a drużynowy (team-owned,
+ * pliki.js: lists the club's camp equipment (budowle, meble, kuchnia - each category carries a group) split into a drużynowy (team-owned,
  * belongsToPersonId === null) and a prywatny (belongsToPersonId is a personId) table, lets any
  * signed-in member add/edit/delete any item against the /equipment HTTP contract (Batch 1), and
  * confirms every mutation through the shared MutationFeedback.confirmed() UX used site-wide.
@@ -88,6 +88,7 @@ let equipment = [];
 let equipmentCategories = [];
 let sections = [];
 let categoryLabelById = new Map();
+let categoryGroupById = new Map();
 let sectionLabelById = new Map();
 // personId -> { personId, accountless, email, lastName, firstName, nickname, sectionId, categoryId } -
 // covers both members (personId === lowercased e-mail) and accountless persons, mirroring
@@ -131,10 +132,12 @@ function equipmentActionsHtml(item) {
 function equipmentRowHtml(item, { includeOwner }) {
   const categoryLabel = categoryLabelById.get(item.categoryId) ?? item.categoryId;
   const sectionLabel = sectionLabelById.get(item.sectionId) ?? item.sectionId;
+  const groupLabel = categoryGroupById.get(item.categoryId) ?? '';
   const ownerCell = includeOwner ? `<td>${ownerCellHtml(item.belongsToPersonId)}</td>` : '';
   return `
     <tr data-equipment-id="${escapeAttr(item.id)}" data-section="${escapeAttr(item.sectionId ?? '')}">
       <td class="czl-section-cell" title="${escapeAttr(sectionLabel ?? '')}">${item.sectionId ? escapeHtml(sectionAbbr(item.sectionId)) : ''}</td>
+      <td>${groupLabel ? escapeHtml(groupLabel) : '<span class="czl-empty">—</span>'}</td>
       <td>${escapeHtml(categoryLabel)}</td>
       ${ownerCell}
       <td>${item.description ? escapeHtml(item.description) : '<span class="czl-empty">—</span>'}</td>
@@ -162,6 +165,7 @@ function renderTeamTable() {
   const { team } = splitEquipmentByOwnership(equipment);
   const enriched = team.map(item => ({
     ...item,
+    groupLabel: categoryGroupById.get(item.categoryId) ?? '',
     categoryLabel: categoryLabelById.get(item.categoryId) ?? item.categoryId,
     sectionLabel: sectionLabelById.get(item.sectionId) ?? item.sectionId,
   }));
@@ -169,7 +173,7 @@ function renderTeamTable() {
   const tbody = document.getElementById('equipment-team-table-body');
   tbody.innerHTML = sorted.length
     ? sorted.map(item => equipmentRowHtml(item, { includeOwner: false })).join('')
-    : '<tr><td colspan="4" class="czl-empty">Brak sprzętu drużynowego.</td></tr>';
+    : '<tr><td colspan="5" class="czl-empty">Brak sprzętu drużynowego.</td></tr>';
 }
 
 function renderPrivateTable() {
@@ -178,6 +182,7 @@ function renderPrivateTable() {
     const owner = personById.get(item.belongsToPersonId);
     return {
       ...item,
+      groupLabel: categoryGroupById.get(item.categoryId) ?? '',
       categoryLabel: categoryLabelById.get(item.categoryId) ?? item.categoryId,
       sectionLabel: sectionLabelById.get(item.sectionId) ?? item.sectionId,
       ownerName: owner ? displayName(owner) : item.belongsToPersonId,
@@ -187,7 +192,7 @@ function renderPrivateTable() {
   const tbody = document.getElementById('equipment-private-table-body');
   tbody.innerHTML = sorted.length
     ? sorted.map(item => equipmentRowHtml(item, { includeOwner: true })).join('')
-    : '<tr><td colspan="5" class="czl-empty">Brak sprzętu prywatnego.</td></tr>';
+    : '<tr><td colspan="6" class="czl-empty">Brak sprzętu prywatnego.</td></tr>';
 }
 
 function renderBothTables() {
@@ -467,6 +472,7 @@ initGoogleSignIn({
       equipmentCategories = lookupLists.equipmentCategories ?? [];
       sections = lookupLists.sections ?? [];
       categoryLabelById = new Map(equipmentCategories.map(c => [c.id, c.label]));
+      categoryGroupById = new Map(equipmentCategories.map(c => [c.id, c.group ?? '']));
       sectionLabelById = new Map(sections.map(s => [s.id, s.label]));
 
       const memberRows = members.map(m => ({
