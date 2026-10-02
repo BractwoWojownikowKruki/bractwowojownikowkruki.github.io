@@ -363,10 +363,10 @@ function ensureDashCompanionData() {
 }
 
 // renderDashboardWidgets() replaces the clicked button, so the checkmark goes next to the same
-// event's freshly rendered attend toggle (falling back to the widget slot).
+// event's freshly rendered attend toggle (falling back to the toast).
 function dashEventAnchor(eventId) {
   const slot = document.getElementById('app-widget-grid-slot');
-  return () => slot.querySelector(`.lw-attend-toggle[data-event-id="${CSS.escape(String(eventId))}"]`) || slot;
+  return () => slot.querySelector(`.lw-attend-toggle[data-event-id="${CSS.escape(String(eventId))}"]`) || null;
 }
 
 async function setDashAttending(eventId, nextAttending, control) {

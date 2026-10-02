@@ -334,7 +334,7 @@ async function toggleSkladkaPaid(personId, nextPaid, control) {
       const signup = cachedSignups.find(item => item.memberEmail === personId);
       if (signup) signup.skladkaPaid = nextPaid;
       renderRoster(cachedRoster, cachedSignups);
-    }, document.getElementById('roster-panel'));
+    }, 'toast');
   } catch (err) {
     showError(`Nie udało się zaktualizować składki: ${err.message}`);
   }
@@ -761,7 +761,7 @@ async function toggleAttending(personId, nextAttending, control) {
       else cachedSignups.push(savedSignup);
       renderSummary(cachedRoster, cachedSignups);
       renderRoster(cachedRoster, cachedSignups);
-    }, document.getElementById('roster-panel'));
+    }, 'toast');
   } catch (err) {
     showError(`Nie udało się zapisać zgłoszenia: ${err.message}`);
   }
@@ -802,7 +802,7 @@ async function quickAddCompanion(body, control) {
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
       showReauth,
       hideReauth,
-    ), (result) => applyQuickAdd(result), document.getElementById('roster-panel'));
+    ), (result) => applyQuickAdd(result), 'toast');
   } catch (err) {
     showError(`Nie udało się dodać osoby: ${err.message}`);
   }

@@ -188,8 +188,8 @@ function clearError() {
 }
 
 // The checkmark goes right after control. A caller whose apply() removes control from the DOM
-// (markWpisowePaid, whenever toRemove is control itself or an ancestor of it) passes a
-// still-connected fallbackAnchor for that case - MutationFeedback requires its feedback anchor to stay
+// (markWpisowePaid, whenever toRemove is control itself or an ancestor of it) passes
+// fallbackAnchor 'toast' (or a still-connected element) for that case - MutationFeedback requires its feedback anchor to stay
 // isConnected after apply(), same reasoning as zarzadzanie-ludzmi.js's postMembershipTransition
 // anchoring to the table when apply() removes a row.
 function confirmedDuesMutation(control, execute, apply, fallbackAnchor = null, rollback) {
@@ -730,7 +730,7 @@ async function markWpisowePaid(personId, control, toRemove) {
       hideReauth,
     ), () => {
       toRemove.remove();
-    }, toRemove);
+    }, 'toast');
   } catch (err) {
     showError(`Nie udało się zaktualizować wpisowego: ${err.message}`);
   }

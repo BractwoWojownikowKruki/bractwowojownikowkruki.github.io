@@ -24,6 +24,32 @@
     insertAfter(anchor, check);
   }
 
+  const TOAST_VISIBLE_MS = 2500;
+  const TOAST_FADE_MS = 400;
+  let toastTimers = [];
+
+  // Generic, reusable "saved" toast: a fixed, bottom-centre pill that fades out by itself. For
+  // mutations that have no sensible spot for an inline check (the control is gone after a re-render).
+  function showToast(message = 'Zapisano') {
+    let toast = document.getElementById('mutation-feedback-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'mutation-feedback-toast';
+      toast.className = 'mutation-feedback-toast';
+      toast.setAttribute('role', 'status');
+      toast.setAttribute('aria-live', 'polite');
+      document.body.append(toast);
+    }
+    toastTimers.forEach(clearTimeout);
+    toast.textContent = '✓ ' + message;
+    toast.classList.remove('is-hiding');
+    toast.classList.add('is-visible');
+    toastTimers = [
+      setTimeout(() => toast.classList.add('is-hiding'), TOAST_VISIBLE_MS),
+      setTimeout(() => toast.classList.remove('is-visible', 'is-hiding'), TOAST_VISIBLE_MS + TOAST_FADE_MS),
+    ];
+  }
+
   function connectedErrorAnchor(anchor) {
     if (anchor && anchor.isConnected) return anchor;
     if (document.body && document.body.isConnected) return document.body;
@@ -83,10 +109,13 @@
     }
   }
 
-  // `fallbackAnchor` (element or function returning one, evaluated after apply()) is used only when
-  // the primary anchor was removed/replaced by apply() - so the checkmark still lands next to where
-  // the control was instead of somewhere far away on a wide container.
-  async function confirmed({ execute, apply, refreshFragment, control, anchor, fallbackAnchor, rollback, shouldShowCheck, viewRoot }) {
+  // Where the success confirmation goes:
+  //  - `toast: true`            -> always the toast (no good inline spot at all);
+  //  - anchor / control         -> inline check right after it while it is still connected;
+  //  - `fallbackAnchor`         -> used only when apply() removed that element: an element or a
+  //    function (evaluated after apply()) returning one, e.g. the freshly rendered twin of the
+  //    control. If it is 'toast', or resolves to nothing connected, the toast is shown instead.
+  async function confirmed({ execute, apply, refreshFragment, control, anchor, fallbackAnchor, toast, rollback, shouldShowCheck, viewRoot }) {
     let feedbackAnchor = anchor || control;
     removeExistingChecks(feedbackAnchor);
     let result;
@@ -112,9 +141,18 @@
       throw error;
     }
 
+    if (toast) {
+      showToast();
+      return result;
+    }
+
     if ((!feedbackAnchor || !feedbackAnchor.isConnected) && fallbackAnchor) {
       const fallback = typeof fallbackAnchor === 'function' ? fallbackAnchor() : fallbackAnchor;
       if (fallback?.isConnected) feedbackAnchor = fallback;
+      else {
+        showToast();
+        return result;
+      }
     }
 
     if (!feedbackAnchor || !feedbackAnchor.isConnected) {
@@ -132,5 +170,5 @@
   // fixed anchor up front: they pass `shouldShowCheck: () => false` to skip confirmed()'s own
   // placement, then call this directly once apply() has re-rendered and they can look up the
   // freshly-rendered control to anchor the checkmark next to.
-  window.MutationFeedback = { confirmed, showCheck };
+  window.MutationFeedback = { confirmed, showCheck, showToast };
 }());

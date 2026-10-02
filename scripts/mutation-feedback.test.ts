@@ -24,7 +24,12 @@ class FakeElement {
 
   get classList() {
     const self = this;
-    return { contains: (cls: string) => self.className.split(/\s+/).includes(cls) };
+    const list = () => self.className.split(/\s+/).filter(Boolean);
+    return {
+      contains: (cls: string) => list().includes(cls),
+      add: (...cls: string[]) => { self.className = [...new Set([...list(), ...cls])].join(' '); },
+      remove: (...cls: string[]) => { self.className = list().filter(c => !cls.includes(c)).join(' '); },
+    };
   }
 
   setAttribute(name: string, value: string) {
@@ -88,8 +93,11 @@ function createHarness() {
       return element;
     },
   };
+  const timers: Array<{ fn: () => void; ms: number }> = [];
   const context = vm.createContext({
     document,
+    setTimeout: (fn: () => void, ms: number) => timers.push({ fn, ms }),
+    clearTimeout: () => { timers.length = 0; },
     window: {
       scrollX: 12,
       scrollY: 34,
@@ -99,7 +107,7 @@ function createHarness() {
     },
   });
 
-  return { body, context, created, document, elementsById, scrollToCalls };
+  return { body, context, created, document, elementsById, scrollToCalls, timers };
 }
 
 async function loadMutationFeedback(harness: ReturnType<typeof createHarness>) {
@@ -340,4 +348,40 @@ test('puts the check next to the control and uses fallbackAnchor only when the c
   const fallback2 = new FakeElement('div');
   await feedback.confirmed({ control: removed, fallbackAnchor: () => fallback2, execute: async () => {}, apply: async () => {} });
   assert.equal(fallback2.insertedAfter.length, 1);
+});
+
+test('shows a self-fading toast when the control is gone and the fallback is "toast"', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  const removed = new FakeElement('button');
+
+  await feedback.confirmed({
+    control: removed,
+    fallbackAnchor: 'toast',
+    execute: async () => {},
+    apply: async () => { removed.isConnected = false; },
+  });
+
+  const toast = harness.body.children[0];
+  assert.equal(toast.id, 'mutation-feedback-toast');
+  assert.equal(toast.textContent, '✓ Zapisano');
+  assert.equal(toast.attributes.get('role'), 'status');
+  assert.ok(toast.classList.contains('is-visible'));
+  assert.equal(removed.insertedAfter.length, 0);
+
+  harness.timers[0].fn();
+  assert.ok(toast.classList.contains('is-hiding'));
+  harness.timers[1].fn();
+  assert.ok(!toast.classList.contains('is-visible'));
+});
+
+test('toast: true skips the inline check even when the control is still connected', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  const control = new FakeElement('button');
+
+  await feedback.confirmed({ control, toast: true, execute: async () => {}, apply: async () => {} });
+
+  assert.equal(control.insertedAfter.length, 0);
+  assert.equal(harness.body.children.length, 1);
 });

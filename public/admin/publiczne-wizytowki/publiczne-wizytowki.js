@@ -400,8 +400,8 @@ function personCard(folderId) {
 }
 
 // The checkmark sits right after the clicked control; `fallbackAnchor` is used only when apply()
-// removes that control (photo/person removed), defaulting to the person's card.
-async function confirmedPersonWrite(control, card, execute, apply, fallbackAnchor = card) {
+// removes that control (photo/person removed), defaulting to the "saved" toast.
+async function confirmedPersonWrite(control, card, execute, apply, fallbackAnchor = 'toast') {
   return window.MutationFeedback.confirmed({
     control, fallbackAnchor, execute, apply, viewRoot: document.getElementById('manage-people-list'), refreshFragment: loadManageList,
   });
@@ -429,7 +429,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       card.remove();
       const list = document.getElementById('manage-people-list');
       if (!list.querySelector('.manage-person-card')) list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
-    }, document.getElementById('manage-people-list'));
+    });
     return;
   }
   const saveOrderBtn = e.target.closest('.save-order');
@@ -462,7 +462,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
         body: JSON.stringify({ folderId, category: select.value }),
       },
       showReauth, hideReauth,
-    ), () => { if (select.value !== document.getElementById('manage-category').value) card.remove(); }, document.getElementById('manage-people-list'));
+    ), () => { if (select.value !== document.getElementById('manage-category').value) card.remove(); });
     return;
   }
   const deletePhotoBtn = e.target.closest('.delete-photo');
@@ -532,7 +532,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
     ), () => {
       item.remove();
       settleUploadCard(card);
-    }, list);
+    });
     return;
   }
   const rejectBatchBtn = e.target.closest('.reject-batch');
@@ -572,7 +572,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       rejectedSection.hidden = false;
       card.querySelector('.upload-reject-reason').value = '';
       settleUploadCard(card);
-    }, list);
+    });
     return;
   }
   const approveBatchBtn = e.target.closest('.approve-batch');
@@ -627,7 +627,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
         card.querySelector('.upload-fields').outerHTML = uploadReadOnlyFieldsHtml(enteredName, enteredDescription || null);
       }
       settleUploadCard(card);
-    }, list);
+    });
     return;
   }
   } catch (err) {

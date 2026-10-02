@@ -211,11 +211,10 @@ function applyQuickAdd(result) {
 }
 
 // renderEvents() rebuilds the whole list, so the clicked control is gone by the time the checkmark
-// is placed; point it at the same event's freshly rendered attend toggle (same row) instead of the
-// far-away list container.
+// is placed; point it at the same event's freshly rendered attend toggle (same row); the toast if it is gone.
 function eventRowAnchor(eventId) {
   const list = document.getElementById('events-list');
-  return () => list.querySelector(`.lw-attend-toggle[data-event-id="${CSS.escape(String(eventId))}"]`) || list;
+  return () => list.querySelector(`.lw-attend-toggle[data-event-id="${CSS.escape(String(eventId))}"]`) || null;
 }
 
 async function quickAddCompanion(body, control) {
@@ -564,7 +563,7 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
   try {
     await window.MutationFeedback.confirmed({
       control: submitBtn,
-      anchor: document.getElementById('events-list'),
+      toast: true, // the form closes on success, so there is no visible control to anchor on
       execute: () => apiFetch(
       '/lista-wyjazdowa/events',
       {

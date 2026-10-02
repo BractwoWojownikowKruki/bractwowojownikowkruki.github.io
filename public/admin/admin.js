@@ -200,7 +200,7 @@ document.getElementById('redirects-list').addEventListener('click', async e => {
     const list = document.getElementById('redirects-list');
     await window.MutationFeedback.confirmed({
       control: deleteBtn,
-      fallbackAnchor: list,
+      fallbackAnchor: 'toast',
       execute: () => apiFetch(`/admin/redirects?path=${encodeURIComponent(deleteBtn.dataset.path)}`, { method: 'DELETE' }, showReauth, hideReauth),
       apply: () => {
         deleteBtn.closest('div').remove();

@@ -147,7 +147,7 @@ async function deleteRejectedPhoto(control) {
   const container = document.getElementById('lw-current-submission');
   await window.MutationFeedback.confirmed({
     control,
-    fallbackAnchor: container,
+    fallbackAnchor: 'toast',
     viewRoot: document.getElementById('profile-form'),
     refreshFragment: async () => renderCurrentSubmission(await loadCurrentSubmission()),
     execute: () => apiFetch(
@@ -167,7 +167,7 @@ async function deletePendingPhoto(control) {
   const container = document.getElementById('lw-current-submission');
   await window.MutationFeedback.confirmed({
     control,
-    fallbackAnchor: container,
+    fallbackAnchor: 'toast',
     viewRoot: document.getElementById('profile-form'),
     refreshFragment: async () => renderCurrentSubmission(await loadCurrentSubmission()),
     execute: () => apiFetch(
@@ -189,7 +189,7 @@ async function deletePublicPhoto(control) {
   const container = document.getElementById('lw-current-submission');
   await window.MutationFeedback.confirmed({
     control,
-    fallbackAnchor: container,
+    fallbackAnchor: 'toast',
     viewRoot: document.getElementById('profile-form'),
     refreshFragment: async () => renderCurrentSubmission(await loadCurrentSubmission()),
     execute: () => apiFetch(
@@ -209,7 +209,7 @@ async function setMainPhoto(control) {
   const container = document.getElementById('lw-current-submission');
   await window.MutationFeedback.confirmed({
     control,
-    fallbackAnchor: container,
+    fallbackAnchor: 'toast',
     viewRoot: document.getElementById('profile-form'),
     refreshFragment: async () => renderCurrentSubmission(await loadCurrentSubmission()),
     execute: () => apiFetch(
@@ -577,7 +577,7 @@ async function addPersonEquipmentItem(container, ownerId, getSectionId, control)
   if (!categoryId) return;
   await window.MutationFeedback.confirmed({
     control,
-    fallbackAnchor: container,
+    fallbackAnchor: 'toast',
     viewRoot: container,
     execute: () => apiFetch(
       '/equipment',
@@ -604,7 +604,7 @@ async function addPersonEquipmentItem(container, ownerId, getSectionId, control)
 async function deletePersonEquipmentItem(container, ownerId, itemId, control) {
   await window.MutationFeedback.confirmed({
     control,
-    fallbackAnchor: container,
+    fallbackAnchor: 'toast',
     viewRoot: container,
     execute: () => apiFetch(`/equipment?id=${encodeURIComponent(itemId)}`, { method: 'DELETE' }, showReauth, hideReauth),
     apply: () => {
@@ -769,7 +769,7 @@ async function runPersonMutation(control, execute) {
   const panel = document.getElementById('persons-panel');
   await window.MutationFeedback.confirmed({
     control,
-    fallbackAnchor: panel,
+    fallbackAnchor: 'toast',
     viewRoot: panel,
     refreshFragment: loadPersons,
     execute,
