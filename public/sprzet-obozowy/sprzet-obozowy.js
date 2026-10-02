@@ -247,7 +247,7 @@ function renderTaxonomyEditor() {
     <div class="equipment-taxonomy-row" data-category-id="${escapeAttr(c.id)}">
       <input type="text" maxlength="60" value="${escapeAttr(c.label)}" aria-label="Nazwa kategorii" data-field="label" />
       <select aria-label="Grupa kategorii" data-field="groupId">${groupOptions(c.groupId ?? '')}</select>
-      <span class="czl-empty" title="Liczba sprzętów w tej kategorii">(${usageByCategory.get(c.id) ?? 0})</span>
+      <span class="equipment-count-pill" title="Liczba sprzętów w tej kategorii">${usageByCategory.get(c.id) ?? 0}</span>
       <button type="button" class="member-action" data-taxonomy-action="save-category">Zapisz</button>
       <button type="button" class="member-action" data-taxonomy-action="delete-category">Usuń</button>
     </div>`).join('');
