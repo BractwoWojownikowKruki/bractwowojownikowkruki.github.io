@@ -473,3 +473,49 @@ test('Grupa and Kategoria cells use the smaller meta-cell font class', async () 
   assert.match(harness.elements.get('equipment-team-table-body')!.innerHTML, /<td class="equipment-meta-cell">Namiot<\/td>/);
   assert.match(indexHtml, /class="equipment-meta-cell" data-sort-key="categoryLabel"/);
 });
+
+test('category rows put the group select first and sort alphabetically by group, then name', async () => {
+  const harness = createHarness();
+  harness.context.apiFetch = async (url: string) => {
+    if (url === '/equipment') return { equipment: [] };
+    if (url === '/members/directory') return { members: [] };
+    if (url === '/lista-wyjazdowa/roster') return { roster: [] };
+    if (url === '/lista-wyjazdowa/lookup-lists') {
+      return {
+        sections, categories: [], weapons: [],
+        equipmentGroups: [
+          { id: 'meble', label: 'Meble', retired: false },
+          { id: 'inne', label: 'Inne', retired: false },
+          { id: 'budowle', label: 'Budowle', retired: false },
+        ],
+        equipmentCategories: [
+          { id: 'stol', label: 'Stół', groupId: 'meble', retired: false },
+          { id: 'zeton', label: 'Żeton', groupId: null, retired: false },
+          { id: 'wiata', label: 'Wiata', groupId: 'budowle', retired: false },
+          { id: 'namiot', label: 'Namiot', groupId: 'budowle', retired: false },
+        ],
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  };
+  await harness.signIn();
+  await harness.elements.get('equipment-taxonomy-toggle')!.click();
+  const body = harness.elements.get('equipment-taxonomy-body')!.innerHTML;
+  const order = [...body.matchAll(/data-category-id="([^"]+)"/g)].map(m => m[1]);
+  assert.deepEqual(order, ['namiot', 'wiata', 'zeton', 'stol'], 'Budowle (Namiot, Wiata), Inne (Żeton), Meble (Stół)');
+  const row = /<div class="equipment-taxonomy-row" data-category-id="namiot">([\s\S]*?)<\/div>/.exec(body)![1];
+  assert.ok(row.indexOf('<select') < row.indexOf('<input'), 'the group select is the first control in the row');
+  assert.doesNotMatch(body, /bez grupy/);
+  assert.match(body, /<option value="inne" selected>Inne<\/option>/, 'a category without a group shows the real "Inne" group');
+  const newRow = /data-new="category">([\s\S]*?)<\/div>/.exec(body)![1];
+  assert.match(newRow, /<option value="inne" selected>/, 'new categories default to "Inne"');
+  assert.ok(newRow.indexOf('<select') < newRow.indexOf('<input'));
+});
+
+test('without a real "Inne" group, an "Inne" option stands in for no group', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  await harness.elements.get('equipment-taxonomy-toggle')!.click();
+  const body = harness.elements.get('equipment-taxonomy-body')!.innerHTML;
+  assert.match(body, /<option value="">Inne<\/option>/);
+});
