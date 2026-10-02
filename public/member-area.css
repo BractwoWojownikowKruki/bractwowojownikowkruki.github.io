@@ -996,6 +996,55 @@
   cursor: default;
 }
 
+/* Confirmation popover shown next to the toggle when changing someone else's attendance. */
+.lw-confirm-pop {
+  position: absolute;
+  z-index: 1000;
+  max-width: 260px;
+  padding: 0.75rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  font-size: 13px;
+}
+
+.lw-confirm-text {
+  margin: 0 0 0.6rem;
+}
+
+.lw-confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lw-confirm-btn {
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lw-confirm-btn--yes {
+  color: #4caf50;
+  border-color: #4caf50;
+  background: color-mix(in srgb, #4caf50 18%, var(--surface-deep));
+}
+
+.lw-confirm-btn--no {
+  color: #e57373;
+  border-color: #e57373;
+  background: color-mix(in srgb, #e57373 18%, var(--surface-deep));
+}
+
+.lw-confirm-btn:hover,
+.lw-confirm-btn:focus-visible {
+  filter: brightness(1.25);
+}
+
 /* Roster table's Status cell (KRKG-0053): label stacks under the toggle track, not beside it.
    Scoped to .czl-table - lista-wyjazdowa.js reuses .lw-attend-toggle inline, side-by-side. */
 .czl-table .lw-attend-toggle {

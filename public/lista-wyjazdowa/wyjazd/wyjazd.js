@@ -767,6 +767,52 @@ async function toggleAttending(personId, nextAttending, control) {
   }
 }
 
+// Small confirmation popover next to the attendance toggle; at most one open at a time. Closes on
+// Nie, outside click or Escape.
+let attendConfirmEl = null;
+function closeAttendConfirm() {
+  if (!attendConfirmEl) return;
+  attendConfirmEl.remove();
+  attendConfirmEl = null;
+  document.removeEventListener('mousedown', onAttendConfirmOutside, true);
+  document.removeEventListener('keydown', onAttendConfirmKey, true);
+}
+function onAttendConfirmOutside(e) {
+  if (attendConfirmEl && !attendConfirmEl.contains(e.target)) closeAttendConfirm();
+}
+function onAttendConfirmKey(e) {
+  if (e.key === 'Escape') closeAttendConfirm();
+}
+function showAttendConfirm(anchor, name, nextAttending, onConfirm) {
+  closeAttendConfirm();
+  const pop = document.createElement('div');
+  pop.className = 'lw-confirm-pop';
+  pop.setAttribute('role', 'alertdialog');
+  pop.setAttribute('aria-label', 'Potwierdź zmianę statusu');
+  pop.innerHTML = `
+    <p class="lw-confirm-text">Czy na pewno zmienić status <strong>${escapeHtml(name)}</strong> na <strong>${nextAttending ? 'Jadę' : 'Nie jadę'}</strong>?</p>
+    <div class="lw-confirm-actions">
+      <button type="button" class="lw-confirm-btn lw-confirm-btn--yes" data-confirm="yes"><span aria-hidden="true">✓</span> Tak</button>
+      <button type="button" class="lw-confirm-btn lw-confirm-btn--no" data-confirm="no"><span aria-hidden="true">✕</span> Nie</button>
+    </div>`;
+  pop.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-confirm]');
+    if (!btn) return;
+    closeAttendConfirm();
+    if (btn.dataset.confirm === 'yes') onConfirm();
+  });
+  document.body.appendChild(pop);
+  attendConfirmEl = pop;
+  const rect = anchor.getBoundingClientRect();
+  const width = pop.offsetWidth;
+  const left = Math.max(8, Math.min(window.scrollX + rect.left, window.scrollX + document.documentElement.clientWidth - width - 8));
+  pop.style.left = `${left}px`;
+  pop.style.top = `${window.scrollY + rect.bottom + 6}px`;
+  document.addEventListener('mousedown', onAttendConfirmOutside, true);
+  document.addEventListener('keydown', onAttendConfirmKey, true);
+  pop.querySelector('[data-confirm="no"]').focus();
+}
+
 async function toggleEventEquipment(equipmentId, nextGoing, control) {
   clearError();
   try {
@@ -875,8 +921,20 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
   const attendBtn = e.target.closest('.lw-attend-toggle');
   if (attendBtn) {
     const nextAttending = attendBtn.dataset.attending !== 'true';
-    attendBtn.disabled = true;
-    toggleAttending(attendBtn.dataset.personId, nextAttending, attendBtn).finally(() => { attendBtn.disabled = false; });
+    const targetId = attendBtn.dataset.personId;
+    const runToggle = () => {
+      attendBtn.disabled = true;
+      toggleAttending(targetId, nextAttending, attendBtn).finally(() => { attendBtn.disabled = false; });
+    };
+    // Changing someone else's status (not the viewer's own or their companion's) asks first, in a
+    // small popover anchored to the toggle rather than a window.confirm.
+    const target = cachedRoster.find((m) => m.personId === targetId);
+    const isOwnOrCompanion = !target || target.personId === viewerPersonId || target.ownerPersonId === viewerPersonId;
+    if (isOwnOrCompanion) {
+      runToggle();
+    } else {
+      showAttendConfirm(attendBtn, displayName(target), nextAttending, runToggle);
+    }
     return;
   }
   const skladkaBtn = e.target.closest('.lw-skladka-icon');
