@@ -325,12 +325,9 @@
   const MEMBER_IDENTITY_FIELDS = ['memberEmail', 'contributorEmail'];
 
   /**
-   * The "User" column value for one row. Admin-scope rows always carry `actor` (per
-   * implementation-contract.md, even for accountant/hovding-only viewers) and use it directly.
-   * Member-scope rows never carry `actor` at all (deliberately withheld - see this module's file
-   * header and implementation-contract.md's role-visibility rules), so this looks for the best
-   * available identity-shaped field inside `changes` instead, falling back to an em dash when the
-   * action genuinely carries none (e.g. `gallery.created`, `event.*`).
+   * The "User" column value for one row. Both scopes carry `actor` (member-scope rows get the
+   * actor's full name from the server when known) and use it directly. Rows without one (older
+   * events) fall back to the best identity-shaped field inside `changes`, then an em dash.
    */
   function resolveUserColumn(row) {
     if (row.actor) return row.actor.name || row.actor.email;

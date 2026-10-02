@@ -8873,7 +8873,7 @@ test('GET /admin/audyt/events?eventId= returns event, eventFee, and signup rows 
   });
 });
 
-test('GET /audyt/events (member-zone) never exposes actor and hides an admin-only category entirely', async () => {
+test('GET /audyt/events (member-zone) shows the actor (full name when known, else e-mail) and hides an admin-only category entirely', async () => {
   const firestore = createInMemoryFirestoreClient();
   await seedAuditEvent(firestore, 'evt-public', '2026-01-01T00:00:00.000Z');
   await executeAuditedFirestoreMutation(
@@ -8888,7 +8888,16 @@ test('GET /audyt/events (member-zone) never exposes actor and hides an admin-onl
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.deepEqual(body.rows.map((r: { id: string }) => r.id), ['evt-public']);
-    assert.equal(body.rows[0].actor, undefined);
+    assert.equal(body.rows[0].actor.email, 'maja@example.test');
+    assert.equal(body.rows[0].actor.name, undefined); // no member record -> e-mail is the identity
+  });
+
+  await firestore.setDoc('members', 'maja@example.test', { email: 'maja@example.test', firstName: 'Maja', lastName: 'Kowalska' });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/audyt/events`)).json();
+    assert.equal(body.rows[0].actor.name, 'Maja Kowalska');
+    const detail = await (await fetch(`${baseUrl}/audyt/event?id=evt-public`)).json();
+    assert.equal(detail.actor.name, 'Maja Kowalska');
   });
 });
 

@@ -42,6 +42,7 @@ import {
   AuditQueryError,
   type AuditAction,
   type AuditCategory,
+  type AuditEventRow,
   type AuditPrimarySelector,
   type AuditQueryOptions,
   type AuditViewer,
@@ -5224,10 +5225,25 @@ async function handleAdminAuditDiagnostics(req: IncomingMessage, res: ServerResp
   sendJson(res, 200, { rows });
 }
 
+// Member-scope rows carry the actor's e-mail only; show "Imię Nazwisko" from the members
+// collection when there is one, otherwise the e-mail stays the displayed identity.
+async function withActorNames(deps: ServerDeps, rows: readonly AuditEventRow[]): Promise<AuditEventRow[]> {
+  const names = new Map<string, string | undefined>();
+  for (const email of new Set(rows.flatMap(row => (row.actor ? [row.actor.email] : [])))) {
+    const member = await getMember(deps.firestore, email);
+    const fullName = member ? `${member.firstName} ${member.lastName}`.trim() : '';
+    names.set(email, fullName || undefined);
+  }
+  return rows.map(row => {
+    const name = row.actor && names.get(row.actor.email);
+    return row.actor && name ? { ...row, actor: { ...row.actor, name } } : { ...row };
+  });
+}
+
 async function handleAuditEventsListPublic(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   await deps.authenticate(req, res);
   const page = await queryAuditEvents(deps.firestore, parseAuditQueryOptions(url), { scope: 'member' });
-  sendJson(res, 200, page);
+  sendJson(res, 200, { ...page, rows: await withActorNames(deps, page.rows) });
 }
 
 async function handleAuditEventDetailPublic(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
@@ -5236,7 +5252,7 @@ async function handleAuditEventDetailPublic(req: IncomingMessage, res: ServerRes
   if (!id) throw new AuthError('Brak id.', 400);
   const row = await getAuditEventDetail(deps.firestore, id, { scope: 'member' });
   if (!row) throw new AuthError('Nie znaleziono.', 404);
-  sendJson(res, 200, row);
+  sendJson(res, 200, (await withActorNames(deps, [row]))[0]);
 }
 
 /**

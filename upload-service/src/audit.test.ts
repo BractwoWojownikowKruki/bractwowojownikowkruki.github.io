@@ -559,7 +559,7 @@ test('dues.event_fee.changed accepts a dueDate field', () => {
   assert.equal(event.changes[0].field, 'dueDate');
 });
 
-test('projectAuditEvent: admin-scope hovding sees actor and every field; member never sees actor', () => {
+test('projectAuditEvent: admin-scope hovding sees actor and every field; member sees actor but only member-visible fields', () => {
   const duesEvent = createCanonicalAuditEvent(
     {
       action: 'dues.annual.changed',
@@ -588,7 +588,7 @@ test('projectAuditEvent: admin-scope hovding sees actor and every field; member 
   const member: AuditViewer = { scope: 'member' };
   const memberRow = projectAuditEvent(galleryEvent, member);
   assert.ok(memberRow);
-  assert.equal(memberRow!.actor, undefined); // actor is never shown to the public member scope
+  assert.equal(memberRow!.actor?.email, 'maja@example.test');
   assert.equal(memberRow!.changes[0].after, 'Wolin');
   // member scope never sees an admin-only category at all
   assert.equal(projectAuditEvent(duesEvent, member), null);
