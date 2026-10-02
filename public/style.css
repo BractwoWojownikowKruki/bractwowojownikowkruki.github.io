@@ -786,6 +786,13 @@ main { padding: 1.25rem 1.5rem 3rem; }
 
 .add-album-submit:hover { background: var(--accent-dark); }
 
+/* The full-width submit shrinks to its label once MutationFeedback adds its "saved" check right
+   after it, so the check sits beside the button instead of wrapping onto its own line. */
+.add-album-submit:has(+ .mutation-feedback-check) {
+  width: auto;
+  padding-inline: 20px;
+}
+
 .add-album-submit:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -1335,6 +1342,13 @@ main { padding: 1.25rem 1.5rem 3rem; }
   display: flex;
   align-items: center;
   gap: 1rem;
+}
+
+/* The base .add-album-submit is full-width; sized to its own label here so the "saved" check
+   MutationFeedback inserts right after the button sits beside it, not below or above it. */
+.profile-form-actions .add-album-submit {
+  width: auto;
+  padding: 10px 20px;
 }
 
 .profile-form-saved {

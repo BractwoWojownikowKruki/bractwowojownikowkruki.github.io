@@ -861,7 +861,6 @@ async function initForm(lookupLists) {
     try {
       await window.MutationFeedback.confirmed({
         control: submitBtn,
-        anchor: progressEl,
         viewRoot: form,
         refreshFragment: refreshProfileFragment,
         execute: async () => {

@@ -36,7 +36,6 @@ document.getElementById('refresh-social-cache').addEventListener('click', async 
   try {
     await window.MutationFeedback.confirmed({
       control: button,
-      anchor: status,
       execute: () => apiFetch('/admin/social-media/refresh', { method: 'POST' }, showReauth, hideReauth),
       apply: () => { status.textContent = ''; },
       refreshFragment: async () => { status.textContent = ''; },
@@ -63,7 +62,8 @@ document.getElementById('facebook-settings-form').addEventListener('submit', asy
     const liveFetchPostCount = parseInt(document.getElementById('facebook-live-count').value, 10);
     await window.MutationFeedback.confirmed({
       control: document.getElementById('facebook-live-count'),
-      anchor: status,
+      // Right after the form's own save button, not after the status line below the form.
+      anchor: document.querySelector('#facebook-settings-form button[type="submit"]'),
       execute: () => apiFetch(
         '/admin/settings',
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ liveFetchPostCount }) },
@@ -111,7 +111,8 @@ document.getElementById('notification-settings-form').addEventListener('submit',
     const pushRecipientRoles = checkedRoles('notification-push-role');
     await window.MutationFeedback.confirmed({
       control: document.getElementById('notification-settings-form'),
-      anchor: status,
+      // Right after the form's own save button, not after the status line below the form.
+      anchor: document.querySelector('#notification-settings-form button[type="submit"]'),
       execute: () => apiFetch(
         '/admin/settings/notifications',
         { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registrationRecipientRoles, pushRecipientRoles }) },
@@ -171,7 +172,8 @@ document.getElementById('add-redirect-form').addEventListener('submit', async e 
   try {
     await window.MutationFeedback.confirmed({
       control: document.getElementById('redirect-target'),
-      anchor: status,
+      // Right after the form's own save button, not after the status line below the form.
+      anchor: document.querySelector('#add-redirect-form button[type="submit"]'),
       execute: () => apiFetch(
         '/admin/redirects',
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, target }) },
