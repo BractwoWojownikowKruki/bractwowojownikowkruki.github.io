@@ -370,6 +370,42 @@ main { padding: 1.25rem 1.5rem 3rem; }
   font-weight: 700;
 }
 
+.mutation-feedback-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+  transform: translate(-50%, 0.5rem);
+  z-index: 10000;
+  padding: 0.6rem 1.1rem;
+  border: 1px solid var(--border-hover);
+  border-radius: 999px;
+  background: var(--surface);
+  color: #61c46e;
+  font-weight: 700;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.4s ease, transform 0.4s ease, visibility 0s linear 0.4s;
+}
+
+.mutation-feedback-toast.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.mutation-feedback-toast.is-visible.is-hiding {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mutation-feedback-toast,
+  .mutation-feedback-toast.is-visible { transition: none; }
+}
+
 .mutation-feedback-error {
   display: inline-flex;
   align-items: center;

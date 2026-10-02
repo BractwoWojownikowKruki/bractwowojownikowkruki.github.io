@@ -196,7 +196,7 @@ test('batch two admin mutations use confirmed local feedback without full-list s
   assert.match(memberTransition, /MutationFeedback\.confirmed\(/);
   assert.match(memberTransition, /apply:/);
   assert.match(memberTransition, /shouldShowCheck:\s*result\s*=>\s*!sheetSyncStatusMessage\(result\.sheetSyncStatus\)/);
-  assert.match(memberTransition, /anchor:\s*row\.closest\('table'\)/);
+  assert.match(memberTransition, /fallbackAnchor:\s*'toast'/);
   assert.match(memberTransition, /viewRoot:\s*list/);
   assert.doesNotMatch(memberTransition, /loadMembershipMembers\(\);/);
 
@@ -318,8 +318,8 @@ test('batch five events and dues mutations use local confirmed feedback', async 
   ].map(path => readFile(new URL(`../${path}`, import.meta.url), 'utf8')));
   for (const source of files) assert.match(source, /MutationFeedback\.confirmed/);
   assert.doesNotMatch(extractListenerForElement(files[0], 'add-event-form', 'submit'), /window\.location\.href/);
-  assert.match(extractListenerForElement(files[0], 'add-event-form', 'submit'), /anchor: document\.getElementById\('events-list'\)/);
-  assert.match(files[1], /document\.getElementById\('roster-panel'\)/);
+  assert.match(extractListenerForElement(files[0], 'add-event-form', 'submit'), /toast: true/);
+  assert.match(files[1], /'toast'\)/);
   assert.doesNotMatch(files[1], /\}, document\.getElementById\('roster-content'\)\)/);
   // The status lives on the coin icon itself (data-status/title/aria-label), not a separate status
   // node - toggleRoczna's apply callback must still patch it in place after a confirmed write.

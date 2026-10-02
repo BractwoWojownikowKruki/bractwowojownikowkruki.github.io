@@ -399,9 +399,11 @@ function personCard(folderId) {
   return document.getElementById(personCardId(folderId));
 }
 
-async function confirmedPersonWrite(control, card, execute, apply, anchor = card) {
+// The checkmark sits right after the clicked control; `fallbackAnchor` is used only when apply()
+// removes that control (photo/person removed), defaulting to the "saved" toast.
+async function confirmedPersonWrite(control, card, execute, apply, fallbackAnchor = 'toast') {
   return window.MutationFeedback.confirmed({
-    control, anchor, execute, apply, viewRoot: document.getElementById('manage-people-list'), refreshFragment: loadManageList,
+    control, fallbackAnchor, execute, apply, viewRoot: document.getElementById('manage-people-list'), refreshFragment: loadManageList,
   });
 }
 
@@ -427,7 +429,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       card.remove();
       const list = document.getElementById('manage-people-list');
       if (!list.querySelector('.manage-person-card')) list.innerHTML = '<p>Brak osób w tej kategorii.</p>';
-    }, document.getElementById('manage-people-list'));
+    });
     return;
   }
   const saveOrderBtn = e.target.closest('.save-order');
@@ -460,23 +462,25 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
         body: JSON.stringify({ folderId, category: select.value }),
       },
       showReauth, hideReauth,
-    ), () => { if (select.value !== document.getElementById('manage-category').value) card.remove(); }, document.getElementById('manage-people-list'));
+    ), () => { if (select.value !== document.getElementById('manage-category').value) card.remove(); });
     return;
   }
   const deletePhotoBtn = e.target.closest('.delete-photo');
   if (deletePhotoBtn) {
     if (!window.confirm('Na pewno usunąć to zdjęcie?')) return;
     const item = deletePhotoBtn.closest('.manage-photo-item');
+    const personPhotos = item.closest('.person-photos');
     await confirmedPersonWrite(deletePhotoBtn, personCard(deletePhotoBtn.dataset.folderId), () => apiFetch(
       `/admin/people/photo?fileId=${encodeURIComponent(deletePhotoBtn.dataset.fileId)}&folderId=${encodeURIComponent(deletePhotoBtn.dataset.folderId)}`,
       { method: 'DELETE' },
       showReauth, hideReauth,
-    ), () => item.remove());
+    ), () => item.remove(), personPhotos);
     return;
   }
   const setMainBtn = e.target.closest('.set-main-photo');
   if (setMainBtn) {
     const card = personCard(setMainBtn.dataset.folderId);
+    const mainControl = setMainBtn.closest('.main-photo-control');
     await confirmedPersonWrite(setMainBtn, card, () => apiFetch(
       '/admin/people/photo/main',
       {
@@ -489,7 +493,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       const prior = card.querySelector('.main-photo-control strong')?.closest('.main-photo-control');
       if (prior) prior.innerHTML = `<button class="set-main-photo" data-folder-id="${setMainBtn.dataset.folderId}" data-file-id="${prior.closest('.manage-photo-item').dataset.fileId}">Ustaw główne</button>`;
       setMainBtn.closest('.main-photo-control').innerHTML = '<strong>Główne</strong>';
-    });
+    }, () => mainControl);
     return;
   }
   const transferBtn = e.target.closest('.transfer-photo');
@@ -501,6 +505,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       return;
     }
     const item = transferBtn.closest('.manage-photo-item');
+    const personPhotos = item.closest('.person-photos');
     await confirmedPersonWrite(transferBtn, personCard(item.closest('.manage-person-card').dataset.folderId), () => apiFetch(
       '/admin/people/photo/transfer',
       {
@@ -509,7 +514,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
         body: JSON.stringify({ fileId, targetFolderId: select.value }),
       },
       showReauth, hideReauth,
-    ), () => item.remove());
+    ), () => item.remove(), personPhotos);
     return;
   }
   const deletePendingBtn = e.target.closest('.delete-pending-photo');
@@ -527,7 +532,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
     ), () => {
       item.remove();
       settleUploadCard(card);
-    }, list);
+    });
     return;
   }
   const rejectBatchBtn = e.target.closest('.reject-batch');
@@ -567,7 +572,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       rejectedSection.hidden = false;
       card.querySelector('.upload-reject-reason').value = '';
       settleUploadCard(card);
-    }, list);
+    });
     return;
   }
   const approveBatchBtn = e.target.closest('.approve-batch');
@@ -622,7 +627,7 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
         card.querySelector('.upload-fields').outerHTML = uploadReadOnlyFieldsHtml(enteredName, enteredDescription || null);
       }
       settleUploadCard(card);
-    }, list);
+    });
     return;
   }
   } catch (err) {
