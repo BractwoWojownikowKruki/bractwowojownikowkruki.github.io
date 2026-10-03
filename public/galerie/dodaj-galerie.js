@@ -18,16 +18,12 @@ function hideError(errorElId) {
   document.getElementById(errorElId).hidden = true;
 }
 
-function showReauth() {
-  document.getElementById('upload-reauth').hidden = false;
-}
-
-function hideReauth() {
-  document.getElementById('upload-reauth').hidden = true;
-}
+// apiFetch's opt-in for the shared reauth modal (auth.js) - nothing page-specific to show.
+function showReauth() {}
+function hideReauth() {}
 
 initGoogleSignIn({
-  buttonIds: ['google-signin-button', 'google-reauth-button'],
+  buttonIds: ['google-signin-button'],
   onSignedIn: payload => {
     document.getElementById('upload-checking').hidden = true;
     document.getElementById('upload-signin').hidden = true;

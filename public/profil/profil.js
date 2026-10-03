@@ -20,12 +20,9 @@
  * state instead of manual hidden-toggling.
  */
 
-function showReauth() {
-  document.getElementById('lw-reauth').hidden = false;
-}
-function hideReauth() {
-  document.getElementById('lw-reauth').hidden = true;
-}
+// apiFetch's opt-in for the shared reauth modal (auth.js) - nothing page-specific to show.
+function showReauth() {}
+function hideReauth() {}
 
 const panels = {
   checking: document.getElementById('profile-checking'),
@@ -1059,7 +1056,7 @@ async function initForm(lookupLists) {
 }
 
 initGoogleSignIn({
-  buttonIds: ['google-signin-button', 'google-reauth-button'],
+  buttonIds: ['google-signin-button'],
   whoamiPath: '/wojownicy-upload/whoami',
   onSignedIn: async identity => {
     try {

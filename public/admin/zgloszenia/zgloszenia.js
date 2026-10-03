@@ -2,7 +2,7 @@
 // original single-page admin.js. showReauth/hideReauth/escapeHtml/escapeAttr/sheetSyncStatusMessage
 // come from ../admin-shared.js, loaded before this file.
 initGoogleSignIn({
-  buttonIds: ['google-signin-button', 'google-reauth-button'],
+  buttonIds: ['google-signin-button'],
   whoamiPath: '/admin/whoami',
   onSignedIn: payload => {
     document.getElementById('admin-checking').hidden = true;

@@ -30,13 +30,9 @@ function showForbidden() {
   document.getElementById('doc-content').hidden = true;
 }
 
-function showReauth() {
-  document.getElementById('doc-reauth').hidden = false;
-}
-
-function hideReauth() {
-  document.getElementById('doc-reauth').hidden = true;
-}
+// apiFetch's opt-in for the shared reauth modal (auth.js) - nothing page-specific to show.
+function showReauth() {}
+function hideReauth() {}
 
 async function showContent() {
   document.getElementById('doc-checking').hidden = true;
