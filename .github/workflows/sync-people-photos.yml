@@ -1,8 +1,8 @@
 name: Sync people photos
 
-# Nightly cache of the public people photos (About Us categories / member profiles) into
-# public/people-photos/, so pages serve them as static files instead of fetching each one from
-# Google Drive. Event galleries are NOT part of this. Idempotent: photos are stored under
+# Nightly cache of the public people data (About Us categories / member profiles): photos into
+# public/people-photos/ and one JSON snapshot per category into public/people-data/, so pages
+# serve them as static files instead of calling the backend / Google Drive. Event galleries are NOT part of this. Idempotent: photos are stored under
 # content-addressed names (<driveFileId>-<size>-<md5>.<ext>), so a run with nothing new downloads
 # nothing and commits nothing. Standalone cron, like sync-facebook.yml. 02:30 UTC = 03:30/04:30
 # Polish time. Also runnable on demand: Actions -> "Sync people photos" -> Run workflow.
@@ -10,6 +10,11 @@ on:
   schedule:
     - cron: '30 2 * * *'
   workflow_dispatch:
+    inputs:
+      debounce_seconds:
+        description: 'Wait this long before reading the data (the backend passes 120 so a burst of edits is picked up by one run)'
+        required: false
+        default: '0'
 
 permissions:
   contents: write
@@ -41,14 +46,25 @@ jobs:
       - name: Run tests
         run: npm test
 
+      # Started by the upload-service right after an admin/member change. Waiting here (rather
+      # than in the backend, which Cloud Run may freeze) lets several quick edits land first; the
+      # concurrency group above keeps at most one further run queued behind this one.
+      - name: Debounce
+        if: inputs.debounce_seconds != '' && inputs.debounce_seconds != '0'
+        env:
+          DEBOUNCE_SECONDS: ${{ inputs.debounce_seconds }}
+        run: |
+          case "$DEBOUNCE_SECONDS" in (*[!0-9]*) echo "debounce_seconds must be a number"; exit 1;; esac
+          sleep "$(( DEBOUNCE_SECONDS > 300 ? 300 : DEBOUNCE_SECONDS ))"
+
       - name: Sync people photos
         run: npm run sync-people-photos
 
       - name: Commit generated files
         id: commit
         run: |
-          git add -A public/people-photos
-          if [ -n "$(git status --porcelain public/people-photos)" ]; then
+          git add -A public/people-photos public/people-data
+          if [ -n "$(git status --porcelain public/people-photos public/people-data)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git commit -m "chore: sync people photos"

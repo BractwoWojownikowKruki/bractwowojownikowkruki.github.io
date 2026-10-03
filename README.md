@@ -18,7 +18,13 @@ Zdjęcia osób (kategorie „Wojownicy” oraz zdjęcia opublikowane w profilach
 - **Job:** [`sync-people-photos.yml`](.github/workflows/sync-people-photos.yml) — codziennie o 02:30 UTC oraz ręcznie (Actions → „Sync people photos” → „Run workflow”). Lokalnie: `npm run sync-people-photos`.
 - **Bez duplikatów:** plik nazywa się `<id pliku Drive>-<rozmiar>-<md5>.<rozszerzenie>`, więc „czy zdjęcie jest już w cache” oznacza „czy istnieje plik o tej nazwie”. Zdjęcie edytowane w miejscu dostaje nowy md5, więc jest pobierane ponownie; pliki usuniętych osób/zdjęć są kasowane. Bez zmian = brak pobrań i brak commita.
 - **`manifest.json`:** lista tego, co faktycznie jest w cache. Strony (`people-photos.js`) użyją kopii statycznej tylko gdy manifest zawiera dane zdjęcie w aktualnej wersji; w przeciwnym razie ładują je z Drive, jak dotychczas (nowe zdjęcia pojawiają się w cache następnej nocy).
-- Powiększenie w lightboxie (1600 px) nadal ładuje się z Drive.
+- Powiększenie w lightboxie (1600 px) nadal ładuje się z Drive (adres pobierany z API dopiero po otwarciu lightboxa).
+
+### Statyczne dane osób
+
+Ten sam job zapisuje też `public/people-data/<kategoria>.json` (imię, opis, kolejność, in memoriam, zdjęcia). Strony „Wojownicy” czytają najpierw ten plik — bez pytania backendu — a do API wracają tylko, gdy pliku brakuje lub jest nieprawidłowy. Kolejność osób o tym samym numerze jest nadal losowana w przeglądarce.
+
+Odświeżenie poza nocnym uruchomieniem: backend (`upload-service/src/people-sync.ts`) wywołuje `workflow_dispatch` tego workflow z `debounce_seconds=120` po każdej zmianie wykonanej w panelu admina oraz gdy członek zmieni swoje zdjęcie główne. Workflow czeka tyle sekund (kilka szybkich edycji = jeden przebieg), a jego `concurrency` trzyma w kolejce najwyżej jeden kolejny przebieg. Usunięcie zdjęcia przez członka czeka na przebieg nocny. Wymaga, by `GITHUB_TOKEN` backendu miał uprawnienie *Actions: write*; bez niego zmiany pojawią się następnej nocy (błąd jest tylko logowany).
 
 ---
 

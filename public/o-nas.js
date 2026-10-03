@@ -22,6 +22,14 @@ async function loadAboutUsCategory() {
   const grid = document.getElementById('people-grid');
   if (!category || !grid) return;
 
+  // Static snapshot first (written by the sync job; no backend round trip). Only if it is missing
+  // or invalid do we fall back to the live API, as before.
+  const staticPeople = await PeoplePhotoCache.loadStaticPeople(category);
+  if (staticPeople) {
+    renderPeople(staticPeople);
+    return;
+  }
+
   try {
     const res = await fetch(`${ABOUT_US_BACKEND_URL}/about-us?category=${encodeURIComponent(category)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -30,6 +38,27 @@ async function loadAboutUsCategory() {
   } catch (err) {
     grid.innerHTML = '<p class="empty">Nie udało się załadować tej sekcji. Spróbuj odświeżyć stronę.</p>';
   }
+}
+
+// Fresh Drive thumbnail URLs by photo id, for the 1600px lightbox size. The static snapshot
+// cannot store them (they expire within about an hour), so they are fetched from the live API -
+// once, and only when a lightbox is actually opened on a statically served page.
+let liveUrlsPromise = null;
+function loadLivePhotoUrls() {
+  if (!liveUrlsPromise) {
+    const category = document.body.dataset.category;
+    liveUrlsPromise = fetch(`${ABOUT_US_BACKEND_URL}/about-us?category=${encodeURIComponent(category)}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        const byId = new Map();
+        for (const person of data?.people || []) {
+          for (const photo of [person.mainPhoto, ...(person.photos || [])]) if (photo) byId.set(photo.id, photo.url);
+        }
+        return byId;
+      })
+      .catch(() => new Map());
+  }
+  return liveUrlsPromise;
 }
 
 // Google Drive thumbnail URLs (both mainPhoto's 800px and photos[]'s 300px versions) end in
@@ -108,8 +137,22 @@ function setLightboxIndex(photoIndex) {
   const photo = photos[photoIndex];
 
   const img = document.getElementById('person-lightbox-img');
-  img.src = resizeUrl(photo.remoteUrl || photo.url, 1600);
+  // A statically served photo shows its cached copy straight away, then upgrades to the 1600px
+  // Drive version once a fresh URL is known (if that fails, the cached copy simply stays).
+  img.src = photo.fromStatic ? photo.url : resizeUrl(photo.remoteUrl || photo.url, 1600);
   watchImageLoad(img);
+  if (photo.fromStatic) {
+    const personIndex = lightboxPersonIndex;
+    loadLivePhotoUrls().then(byId => {
+      const liveUrl = byId.get(photo.id);
+      if (!liveUrl || lightboxPersonIndex !== personIndex || lightboxPhotoIndex !== photoIndex) return;
+      const full = new Image();
+      full.onload = () => {
+        if (lightboxPersonIndex === personIndex && lightboxPhotoIndex === photoIndex) img.src = full.src;
+      };
+      full.src = resizeUrl(liveUrl, 1600);
+    });
+  }
 
   document.querySelectorAll('#person-lightbox-filmstrip .lightbox-filmstrip-thumb').forEach(btn => {
     btn.classList.toggle('active', Number(btn.dataset.index) === photoIndex);

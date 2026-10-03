@@ -7,6 +7,7 @@ import { checkSubmissionOwnership, issueSubmissionToken, verifySubmissionToken }
 import { checkReauthFreshness, issueSessionToken, maybeRenewSessionToken, verifySessionToken, type SessionClaims, type SessionSigningKey } from './session.ts';
 import type { SheetAllowlist } from './allowlist.ts';
 import { createDriveClient, resizeThumbnailUrl, type DriveClient } from './drive.ts';
+import { createPeopleSyncTrigger, type PeopleSyncTrigger } from './people-sync.ts';
 import { createGithubClient, isValidRedirectPath, isValidRedirectTarget, type GithubClient } from './github.ts';
 import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSniff.ts';
 import { fetchInstagramPosts, fetchFacebookPosts, fetchYouTubeVideos, clearSocialMediaCache } from './social-media.ts';
@@ -158,6 +159,9 @@ const SUBMISSION_TTL_MS = 6 * 60 * 60 * 1000;
 export interface ServerDeps {
   drive: DriveClient;
   github: GithubClient;
+  // Starts the debounced refresh of the static people data after a public person/photo change
+  // (people-sync.ts). Optional so tests that don't care can omit it; production always sets it.
+  peopleSync?: PeopleSyncTrigger;
   // Lista Wyjazdowa's own document store (Task 1) - Firestore rather than a Sheet/Drive file,
   // since these routes read/write structured per-member records (member profile, equipment,
   // lookup lists) keyed by email, not a flat list a human edits directly.
@@ -2226,6 +2230,7 @@ async function handleAdminUpdateDescription(req: IncomingMessage, res: ServerRes
   const value = description ?? '';
   await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.description.updated', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'descriptionHash', after: createHash('sha256').update(value).digest('hex') }, { field: 'descriptionLength', after: value.length }] }, async () => deps.drive.writeTextFile(folderId, 'Opis.txt', value));
   invalidateAboutUsCache();
+  await deps.peopleSync?.request();
   sendJson(res, 200, { ok: true });
 }
 
@@ -2235,6 +2240,7 @@ async function handleAdminDeletePerson(req: IncomingMessage, res: ServerResponse
   await requirePersonFolder(deps, folderId);
   await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.deleted', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'folderId', after: folderId }] }, async () => deps.drive.deleteFolder(folderId));
   invalidateAboutUsCache();
+  await deps.peopleSync?.request();
   sendJson(res, 200, { ok: true });
 }
 
@@ -2333,6 +2339,7 @@ async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerRes
   await requirePersonFolder(deps, folderId);
   await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.order.updated', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: name.trim() }, changes: [{ field: 'name', after: name.trim() }, { field: 'order', after: order ?? null }] }, async () => deps.drive.renameFolder(folderId, buildPersonFolderName(name, order ?? null)));
   invalidateAboutUsCache();
+  await deps.peopleSync?.request();
   sendJson(res, 200, { ok: true });
 }
 
@@ -2360,6 +2367,7 @@ async function handleAdminReorderPeople(req: IncomingMessage, res: ServerRespons
     await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.order.updated', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: name }, changes: [{ field: 'name', after: name }, { field: 'order', after: order }] }, async () => deps.drive.renameFolder(folderId, newName));
   }
   invalidateAboutUsCache();
+  await deps.peopleSync?.request();
   sendJson(res, 200, { ok: true, changed: renames.length });
 }
 
@@ -2391,6 +2399,7 @@ async function handleAdminMovePerson(req: IncomingMessage, res: ServerResponse, 
   });
 
   invalidateAboutUsCache();
+  await deps.peopleSync?.request();
   sendJson(res, 200, { ok: true });
 }
 
@@ -2406,6 +2415,7 @@ async function handleAdminUploadPhoto(req: IncomingMessage, res: ServerResponse,
   const safeFileName = sanitizeUploadFileName(decodeURIComponent(fileName), mimeType);
   const { result: uploaded } = await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: 'pending' }] }, async () => deps.drive.uploadFileStream(folderId, safeFileName, mimeType, validatedUploadStream(req, deps.maxFileBytes, mimeType)), { eventInput: file => ({ action: 'profile.person.photo.added', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: file.id }] }) });
   invalidateAboutUsCache();
+  await deps.peopleSync?.request();
   // Drive may acknowledge the write before it has generated thumbnailLink. The response still
   // proves the file was saved, while null tells the client to use only a temporary local preview.
   let uploadedImage: Awaited<ReturnType<DriveClient['listImageFiles']>>[number] | undefined;
@@ -2444,6 +2454,7 @@ async function handleAdminDeletePhoto(req: IncomingMessage, res: ServerResponse,
   await requireImageInFolder(deps, folderId, fileId);
   await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.photo.deleted', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'fileId', after: fileId }] }, async () => deps.drive.deleteFolder(fileId));
   invalidateAboutUsCache();
+  await deps.peopleSync?.request();
   sendJson(res, 200, { ok: true });
 }
 
@@ -2463,6 +2474,7 @@ async function handleAdminSetMainPhoto(req: IncomingMessage, res: ServerResponse
   await requireImageInFolder(deps, folderId, fileId);
   await auditedSetMainPhoto(deps, identity.email, folderId, fileId);
   invalidateAboutUsCache();
+  await deps.peopleSync?.request();
   sendJson(res, 200, { ok: true });
 }
 
@@ -2535,6 +2547,7 @@ async function handleAdminTransferPhoto(req: IncomingMessage, res: ServerRespons
   await requirePersonFolder(deps, targetFolderId);
   await transferOnePhoto(deps, identity.email, fileId, targetFolderId);
   invalidateAboutUsCache();
+  await deps.peopleSync?.request();
   sendJson(res, 200, { ok: true });
 }
 
@@ -2697,6 +2710,7 @@ async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse
   }
 
   invalidateAboutUsCache();
+  await deps.peopleSync?.request();
   await sendNotifications(deps.mailer, deps.firestore, [photoDecisionMessage(ownerEmail, 'approved', fileIds.length, null, deps.allowedOrigin)]);
   sendJson(res, 200, { folderId: targetFolderId });
 }
@@ -2773,6 +2787,7 @@ async function handleAdminSetInMemoriam(req: IncomingMessage, res: ServerRespons
   await requirePersonFolder(deps, folderId);
   await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.in_memoriam.changed', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'inMemoriam', after: inMemoriam }] }, async () => deps.drive.writeTextFile(folderId, IN_MEMORIAM_FILE_NAME, inMemoriam ? 'true' : 'false'));
   invalidateAboutUsCache();
+  await deps.peopleSync?.request();
   sendJson(res, 200, { ok: true });
 }
 
@@ -3505,6 +3520,7 @@ async function handleListaWyjazdowaSetMainPhoto(req: IncomingMessage, res: Serve
 
   await auditedSetMainPhoto(deps, identity.email, folderId, fileId);
   invalidateAboutUsCache();
+  await deps.peopleSync?.request();
   sendJson(res, 200, { ok: true });
 }
 
@@ -6047,6 +6063,7 @@ async function startProductionServer(): Promise<void> {
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps, docsDriveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
+    peopleSync: createPeopleSyncTrigger({ token: config.githubToken, repo: config.githubRepo, fetchImpl: fetch }),
     firestore: firestoreClient,
     fetchImpl: fetch,
     authenticate: (req, res) => verifySessionRequest(req, res, sessionVerifyConfig, memberAuthorizer),

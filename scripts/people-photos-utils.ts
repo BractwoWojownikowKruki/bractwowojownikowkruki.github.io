@@ -103,7 +103,10 @@ export function planSync(wanted: WantedPhoto[], existingFiles: string[]): SyncPl
 // that is not there. Only wanted photos are listed (a file left over from a failed prune is not).
 export function buildManifest(wanted: WantedPhoto[], filesOnDisk: string[]): Manifest {
   const photos: Manifest['photos'] = {};
-  for (const w of wanted) {
+  // Sorted so the output never depends on the order the API happened to list photos in (it
+  // shuffles people), otherwise an unchanged cache would rewrite the manifest every night.
+  const ordered = [...wanted].sort((a, b) => a.id.localeCompare(b.id) || a.size - b.size);
+  for (const w of ordered) {
     const name = filesOnDisk.find(f => {
       const p = parseFileName(f);
       return p && p.id === w.id && p.size === w.size && p.version === w.version;
@@ -121,4 +124,78 @@ export function extensionForContentType(contentType: string | null): string | nu
   if (type === 'image/png') return 'png';
   if (type === 'image/webp') return 'webp';
   return null;
+}
+
+// ---- Static people data (public/people-data/<slug>.json) --------------------------------------
+// The About Us pages read these files first and only fall back to the live /about-us API when a
+// file is missing or invalid, so the common case needs no Cloud Run round trip at all.
+
+// ASCII file names for the category pages; the key is the category name the API/pages use.
+export const CATEGORY_SLUGS: Record<(typeof PEOPLE_PHOTO_CATEGORIES)[number], string> = {
+  'Założyciele': 'zalozyciele',
+  Blachowi: 'blachowi',
+  Niewiasty: 'niewiasty',
+  Emeryci: 'emeryci',
+  Kandydaci: 'kandydaci',
+};
+
+export interface RemotePersonFull extends RemotePerson {
+  name: string;
+  order: number | null;
+  description: string;
+  inMemoriam: boolean;
+}
+
+export interface StaticPhoto {
+  id: string;
+  url: string;
+}
+
+export interface StaticPerson {
+  name: string;
+  order: number | null;
+  description: string;
+  inMemoriam: boolean;
+  mainPhoto: StaticPhoto | null;
+  photos: StaticPhoto[];
+}
+
+export interface PeopleSnapshot {
+  version: 1;
+  people: StaticPerson[];
+}
+
+// The API shuffles people that share an order number on every request. A snapshot must be
+// deterministic (or every nightly run would produce a different file and a pointless commit), so
+// it is sorted stably here - numbered people by order then name, unnumbered by name, as the API
+// does - and the browser re-applies the random shuffle within equal order numbers.
+export function sortPeopleDeterministically<T extends { name: string; order: number | null }>(people: T[]): T[] {
+  const byName = (a: T, b: T) => a.name.localeCompare(b.name, 'pl');
+  const numbered = people.filter(p => p.order !== null).sort((a, b) => a.order! - b.order! || byName(a, b));
+  const unnumbered = people.filter(p => p.order === null).sort(byName);
+  return [...numbered, ...unnumbered];
+}
+
+// A photo is included only if its cached copy is in the manifest, so the snapshot never points
+// at an image that is not deployed (a failed download just leaves it out until tomorrow). Drive
+// thumbnail URLs are deliberately not stored: they expire within about an hour.
+export function buildSnapshot(people: RemotePersonFull[], manifest: Manifest): PeopleSnapshot {
+  const toStatic = (photo: RemotePhoto | null): StaticPhoto | null => {
+    if (!photo) return null;
+    const size = sizeFromUrl(photo.url);
+    const file = size === null ? undefined : manifest.photos[photo.id]?.files[String(size)];
+    return file ? { id: photo.id, url: `/${file}` } : null;
+  };
+  const sorted = sortPeopleDeterministically(people);
+  return {
+    version: 1,
+    people: sorted.map(p => ({
+      name: p.name,
+      order: p.order,
+      description: p.description,
+      inMemoriam: p.inMemoriam,
+      mainPhoto: toStatic(p.mainPhoto),
+      photos: p.photos.map(toStatic).filter((x): x is StaticPhoto => x !== null),
+    })),
+  };
 }
