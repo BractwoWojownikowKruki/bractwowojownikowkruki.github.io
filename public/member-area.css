@@ -2297,7 +2297,7 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   border-color: var(--gold);
 }
 
-/* Three controls (Historia, "Edytuj grupy i kategorie", "Dodaj sprzęt") - let them wrap on a
+/* Three controls (Historia, "Dodaj sprzęt", "Edytuj grupy i kategorie") - let them wrap on a
    phone instead of overflowing the page. */
 .equipment-header-actions {
   flex-wrap: wrap;

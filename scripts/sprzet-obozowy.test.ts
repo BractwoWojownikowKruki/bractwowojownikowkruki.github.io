@@ -521,11 +521,11 @@ test('without a real "Inne" group, an "Inne" option stands in for no group', asy
   assert.match(body, /<option value="">Inne<\/option>/);
 });
 
-test('the taxonomy toggle sits in the header next to the "Dodaj sprzęt" button', () => {
+test('the taxonomy toggle sits in the header right after the "Dodaj sprzęt" button', () => {
   const actions = /<div class="pliki-header-actions[^"]*">([\s\S]*?)<\/div>/.exec(indexHtml)![1];
   assert.match(actions, /id="equipment-taxonomy-toggle"/);
   assert.match(actions, /id="equipment-add-toggle">Dodaj sprzęt</);
-  assert.ok(actions.indexOf('equipment-taxonomy-toggle') < actions.indexOf('equipment-add-toggle'));
+  assert.ok(actions.indexOf('equipment-add-toggle') < actions.indexOf('equipment-taxonomy-toggle'));
 });
 
 function filterButton(target: { dataset: Record<string, string> }) {
