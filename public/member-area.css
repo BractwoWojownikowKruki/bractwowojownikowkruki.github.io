@@ -1683,6 +1683,12 @@ button.lw-edit-toggle.lw-share--active {
   border-color: var(--gold);
 }
 
+/* Checkbox row in the add/edit event forms. Deliberately not a .field: that pattern styles every
+   input as a full-width text box (style.css), which turns a checkbox into an empty bar. */
+.lw-event-checkbox-row {
+  margin-bottom: 1rem;
+}
+
 /* Collapsible "edit this event" panel opened by the meta row's Edytuj toggle - reuses the shared
    .field pattern (style.css) for Nazwa/Data/Opis like the add-event form does, so the two forms
    stay visually identical. */

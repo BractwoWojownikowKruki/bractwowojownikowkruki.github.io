@@ -55,8 +55,8 @@
         <label for="${idPrefix}-description">Opis</label>
         <textarea id="${idPrefix}-description" rows="4" placeholder="Informacje o wyjeździe: miejsce, linki, co zabrać...">${escapeHtml(description)}</textarea>
       </div>
-      <div class="field">
-        <label for="${idPrefix}-no-camp-equipment"><input type="checkbox" id="${idPrefix}-no-camp-equipment"${event.noCampEquipment ? ' checked' : ''}> Bez sprzętu obozowego</label>
+      <div class="lw-event-checkbox-row">
+        <label class="lw-filter-check" for="${idPrefix}-no-camp-equipment"><input type="checkbox" id="${idPrefix}-no-camp-equipment"${event.noCampEquipment ? ' checked' : ''}> Bez sprzętu obozowego</label>
       </div>
       <p class="add-album-error" id="${idPrefix}-error" hidden></p>
       <div class="lw-event-edit-actions">
