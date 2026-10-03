@@ -55,7 +55,7 @@ class Element {
 const elementIds = [
   'sprzet-checking', 'signed-out-panel', 'forbidden-panel', 'main-content',
   'equipment-add-toggle', 'equipment-add-form', 'equipment-add-cancel', 'equipment-add-submit', 'equipment-add-error',
-  'equipment-add-editing-id', 'equipment-add-category', 'equipment-add-section',
+  'equipment-add-editing-id', 'equipment-add-category', 'equipment-add-section', 'equipment-add-section-wrap',
   'equipment-owner-mode-team', 'equipment-owner-mode-private', 'equipment-add-owner-wrap', 'equipment-add-owner',
   'equipment-owner-datalist', 'equipment-add-description',
   'equipment-team-table', 'equipment-team-table-body', 'equipment-private-table', 'equipment-private-table-body',
@@ -258,7 +258,7 @@ test('empty equipment lists render the "brak" placeholder row in each table', as
   assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /Brak sprzętu prywatnego/);
 });
 
-test('switching the add form to Prywatny reveals the owner field, and picking a known owner auto-fills and disables Sekcja', async () => {
+test('switching the add form to Prywatny reveals the owner field and hides Sekcja', async () => {
   const harness = createHarness();
   await harness.signIn();
   const ownerWrap = harness.elements.get('equipment-add-owner-wrap')!;
@@ -273,19 +273,18 @@ test('switching the add form to Prywatny reveals the owner field, and picking a 
   privateRadio.checked = true;
   await privateRadio.change();
   assert.equal(ownerWrap.hidden, false, 'switching to Prywatny reveals the owner field');
-  assert.equal(sectionSelect.disabled, false, 'Sekcja stays editable until an owner is actually picked');
+  const sectionWrap = harness.elements.get('equipment-add-section-wrap')!;
+  assert.equal(sectionWrap.hidden, true, 'Prywatny hides Sekcja - private equipment follows its owner');
+  assert.equal(sectionSelect.disabled, true, 'the hidden Sekcja is disabled so its `required` cannot block submit');
 
   ownerInput.value = 'Młody';
   await ownerInput.input();
-  assert.equal(sectionSelect.disabled, true, 'Sekcja is disabled once a known owner is picked');
-  assert.equal(sectionSelect.value, 'warszawa', "Sekcja auto-fills from the owner's own sectionId");
   const datalist = harness.elements.get('equipment-owner-datalist')!;
   assert.match(datalist.innerHTML, /Młody/, 'typing narrows the datalist to the matching candidate');
   assert.doesNotMatch(datalist.innerHTML, /Ala Kowalska/, 'typing narrows the datalist away from non-matching candidates');
 
   ownerInput.value = 'nikt taki';
   await ownerInput.input();
-  assert.equal(sectionSelect.disabled, false, 'an unresolved owner re-enables Sekcja');
   assert.equal(datalist.innerHTML, '', 'no match narrows the datalist down to nothing');
 
   ownerInput.value = '';
@@ -299,6 +298,7 @@ test('switching the add form to Prywatny reveals the owner field, and picking a 
   privateRadio.checked = false;
   await teamRadio.change();
   assert.equal(ownerWrap.hidden, true, 'switching back to Drużyna hides the owner field');
+  assert.equal(sectionWrap.hidden, false, 'switching back to Drużyna shows Sekcja again');
   assert.equal(sectionSelect.disabled, false, 'switching back to Drużyna re-enables Sekcja');
   assert.equal(ownerInput.value, '', 'switching back to Drużyna clears the owner field');
 });
@@ -320,6 +320,27 @@ test('adding a team item posts to /equipment with belongsToPersonId null and app
   const post = harness.apiCalls.find((call) => call.url === '/equipment' && call.options.method === 'POST');
   assert.deepEqual(JSON.parse(String(post?.options.body)), { categoryId: 'namiot', sectionId: 'krakow', description: 'Nowy namiot', belongsToPersonId: null });
   assert.match(harness.elements.get('equipment-team-table-body')!.innerHTML, /Nowy namiot/);
+});
+
+test('adding a private item sends sectionId null - private equipment follows its owner\'s section', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const privateRadio = harness.elements.get('equipment-owner-mode-private')!;
+  harness.elements.get('equipment-owner-mode-team')!.checked = false;
+  privateRadio.checked = true;
+  await privateRadio.change();
+  harness.elements.get('equipment-add-category')!.value = 'namiot';
+  const ownerInput = harness.elements.get('equipment-add-owner')!;
+  ownerInput.value = 'Młody';
+  await ownerInput.input();
+  harness.elements.get('equipment-add-description')!.value = 'Namiot Młodego';
+  harness.setMutationResult({ equipment: { id: 'eq-private-2', categoryId: 'namiot', sectionId: null, belongsToPersonId: 'person-uuid-1', description: 'Namiot Młodego', createdAt: '2026-01-02T00:00:00.000Z', createdBy: 'ala@example.com' } });
+
+  await harness.elements.get('equipment-add-form')!.submit();
+
+  const post = harness.apiCalls.find((call) => call.url === '/equipment' && call.options.method === 'POST');
+  assert.deepEqual(JSON.parse(String(post?.options.body)), { categoryId: 'namiot', sectionId: null, description: 'Namiot Młodego', belongsToPersonId: 'person-uuid-1' });
+  assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /title="Warszawa"/, "the new row shows the owner's section");
 });
 
 // Regression test (review finding, task-3 fix round): neither POST nor PUT /equipment's response

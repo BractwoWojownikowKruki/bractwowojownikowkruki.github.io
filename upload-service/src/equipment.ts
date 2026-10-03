@@ -11,7 +11,9 @@ export interface EquipmentPhoto {
 export interface EquipmentDoc {
   id: string;
   categoryId: string;
-  sectionId: string;
+  /** Set only on drużynowy equipment (belongsToPersonId === null). Prywatny equipment stores null
+   * and takes its section from the owner's current one, so a section change never leaves it behind. */
+  sectionId: string | null;
   belongsToPersonId: string | null;
   description: string;
   // First entry = main photo, same "one main + any number of extras" model as a person's photos.
@@ -25,7 +27,7 @@ export interface EquipmentDoc {
 
 export interface EquipmentWritableFields {
   categoryId: string;
-  sectionId: string;
+  sectionId: string | null;
   belongsToPersonId: string | null;
   description: string;
 }
@@ -39,7 +41,8 @@ const MAX_DESCRIPTION_LENGTH = 500;
 
 /** Runtime validation of the fields the model requires - mirrors persons.ts's own validation
  * function for the same reason: TypeScript's required properties don't stop a request body from
- * carrying empty strings. categoryId/sectionId are checked here for non-emptiness only - referential
+ * carrying empty strings. sectionId is required on drużynowy equipment and must be null on prywatny
+ * equipment (which follows its owner's section). categoryId/sectionId are checked here for non-emptiness only - referential
  * validation against the equipmentCategories/sections lookup lists (and belongsToPersonId's
  * resolution to a live member or person) lives in server.ts's validateEquipmentReferences, which
  * uses the same requireKnownLookupId convention as parseMemberWritableFields/
@@ -47,7 +50,11 @@ const MAX_DESCRIPTION_LENGTH = 500;
  * has it, since this module has no access to the lookup lists on its own. */
 export function validateEquipmentFields(fields: EquipmentWritableFields): void {
   if (!fields.categoryId?.trim()) throw new InvalidEquipmentError('Kategoria jest wymagana.');
-  if (!fields.sectionId?.trim()) throw new InvalidEquipmentError('Sekcja jest wymagana.');
+  if (fields.belongsToPersonId === null) {
+    if (!fields.sectionId?.trim()) throw new InvalidEquipmentError('Sekcja jest wymagana.');
+  } else if (fields.sectionId !== null) {
+    throw new InvalidEquipmentError('Sprzęt prywatny nie ma własnej sekcji.');
+  }
   if (fields.description.length > MAX_DESCRIPTION_LENGTH) {
     throw new InvalidEquipmentError(`Opis może mieć najwyżej ${MAX_DESCRIPTION_LENGTH} znaków.`);
   }

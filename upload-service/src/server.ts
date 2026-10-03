@@ -90,8 +90,11 @@ import {
   applyPersonMerge,
   createPerson,
   detachPerson,
+  findCompanionsFollowingSection,
   getPerson,
+  listCompanionIds,
   listPersons,
+  moveCompanionsToSection,
   personDisplayName,
   planPersonMerge,
   resolvePersonId,
@@ -939,6 +942,15 @@ async function handleListEquipment(req: IncomingMessage, res: ServerResponse, de
   sendJson(res, 200, { equipment: equipment.map((item) => ({ ...item, canEdit: true, canDelete: true })) });
 }
 
+// Drużynowy equipment carries its own section; prywatny equipment always stores null and follows
+// its owner's current section (sprzet-obozowy.js/wyjazd.js resolve it from the roster). A
+// sectionId sent for a prywatny item (e.g. by a page cached from before this change) is ignored
+// rather than rejected, so such a client keeps working.
+function readEquipmentSectionId(body: Record<string, unknown>, belongsToPersonId: string | null): string | null {
+  if (belongsToPersonId !== null) return null;
+  return requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
+}
+
 // Referential validation shared by handleAddEquipment/handleUpdateEquipment - design.md §5's
 // "categoryId i sectionId wymagane i muszą istnieć w odpowiednich lookup listach" requirement,
 // checked the same way parseMemberWritableFields/handleListaWyjazdowaPutProfile validate
@@ -951,12 +963,12 @@ async function handleListEquipment(req: IncomingMessage, res: ServerResponse, de
 async function validateEquipmentReferences(
   deps: ServerDeps,
   categoryId: string,
-  sectionId: string,
+  sectionId: string | null,
   belongsToPersonId: string | null,
 ): Promise<void> {
   const lookupLists = await getAllLookupLists(deps.firestore);
   requireKnownLookupId(lookupLists.equipmentCategories, categoryId, 'Wybrana kategoria nie istnieje.');
-  requireKnownLookupId(lookupLists.sections, sectionId, 'Wybrana sekcja nie istnieje.');
+  if (sectionId !== null) requireKnownLookupId(lookupLists.sections, sectionId, 'Wybrana sekcja nie istnieje.');
   if (belongsToPersonId !== null) {
     const target = await resolvePersonWriteTarget(deps, belongsToPersonId);
     if (!target.accountless) {
@@ -970,9 +982,9 @@ async function handleAddEquipment(req: IncomingMessage, res: ServerResponse, dep
   const identity = await deps.authenticate(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const categoryId = requireTrimmedString(body.categoryId, LW_MAX_NAME_LENGTH, 'Kategoria jest wymagana.');
-  const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
   const description = optionalTrimmedString(body.description, LW_MAX_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 500 znaków.') ?? '';
   const belongsToPersonId = body.belongsToPersonId == null ? null : requireTrimmedString(body.belongsToPersonId, LW_MAX_NAME_LENGTH, 'Nieprawidłowy właściciel.');
+  const sectionId = readEquipmentSectionId(body, belongsToPersonId);
   await validateEquipmentReferences(deps, categoryId, sectionId, belongsToPersonId);
   let doc: EquipmentDoc;
   try {
@@ -1009,9 +1021,9 @@ async function handleUpdateEquipment(req: IncomingMessage, res: ServerResponse, 
   if (!id) throw new AuthError('Brak id.', 400);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const categoryId = requireTrimmedString(body.categoryId, LW_MAX_NAME_LENGTH, 'Kategoria jest wymagana.');
-  const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
   const description = optionalTrimmedString(body.description, LW_MAX_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 500 znaków.') ?? '';
   const belongsToPersonId = body.belongsToPersonId == null ? null : requireTrimmedString(body.belongsToPersonId, LW_MAX_NAME_LENGTH, 'Nieprawidłowy właściciel.');
+  const sectionId = readEquipmentSectionId(body, belongsToPersonId);
   await validateEquipmentReferences(deps, categoryId, sectionId, belongsToPersonId);
   const { result } = await executeDeclaredAuditedMutation(
     deps,
@@ -3144,12 +3156,18 @@ async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerRe
   const targetEmail = targetEmailParam ?? identity.email;
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const fields = await parseMemberWritableFields(deps, body);
+  const companionIds = await listCompanionIds(deps.firestore, targetEmail);
+  // Filled by the audit factory, which runs first in the same transaction attempt - every read
+  // (member, companions) happens there, before the writes below.
+  let existing: MemberDoc | null = null;
+  let followingCompanions: PersonDoc[] = [];
   const { result: member } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.tripMember,
     'profile.member.updated',
     async tx => {
-      const existing = await tx.getDoc<MemberDoc>('members', targetEmail.toLowerCase());
+      existing = await tx.getDoc<MemberDoc>('members', targetEmail.toLowerCase());
+      followingCompanions = await findCompanionsFollowingSection(tx, targetEmail, companionIds, existing?.sectionId, fields.sectionId);
       return {
         actor: { email: identity.email },
         resource: { kind: 'member', key: `member:${targetEmail.toLowerCase()}`, display: 'member' },
@@ -3158,10 +3176,15 @@ async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerRe
           { field: 'firstName', ...(existing ? { before: existing.firstName } : {}), after: fields.firstName },
           { field: 'nickname', ...(existing ? { before: existing.nickname } : {}), after: fields.nickname },
           { field: 'sectionId', ...(existing ? { before: existing.sectionId } : {}), after: fields.sectionId },
+          ...(followingCompanions.length ? [{ field: 'movedCompanions', after: followingCompanions.length }] : []),
         ],
       };
     },
-    tx => saveMember(tx, targetEmail, fields, identity.email),
+    async tx => {
+      const saved = await saveMember(tx, targetEmail, fields, identity.email, existing);
+      await moveCompanionsToSection(tx, followingCompanions, fields.sectionId, identity.email);
+      return saved;
+    },
   );
   sendJson(res, 200, { member });
 }
@@ -3194,6 +3217,7 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
   // name/section fields already showing.
   const hasMemberFields = body.lastName !== undefined || body.firstName !== undefined || body.nickname !== undefined || body.sectionId !== undefined;
   const fields = hasMemberFields ? await parseMemberWritableFields(deps, body) : undefined;
+  const companionIds = fields ? await listCompanionIds(deps.firestore, email) : [];
   let categoryId: string | null | undefined;
   if (body.categoryId !== undefined) {
     const categoryIdRaw = body.categoryId;
@@ -3215,12 +3239,17 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
     sendJson(res, 200, { member: existing });
     return;
   }
+  // Filled by the audit factory below, which runs first in the same transaction attempt.
+  let followingCompanions: PersonDoc[] = [];
   const { result: member } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.memberProfile,
     'profile.member.updated',
     async tx => {
       const current = await tx.getDoc<MemberDoc>('members', email.toLowerCase());
+      followingCompanions = fields
+        ? await findCompanionsFollowingSection(tx, email, companionIds, current?.sectionId, fields.sectionId)
+        : [];
       return {
         actor: { email: identity.email },
         resource: { kind: 'member', key: `member:${email.toLowerCase()}`, display: 'member' },
@@ -3230,6 +3259,7 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
             { field: 'firstName', before: current?.firstName ?? null, after: fields.firstName },
             { field: 'nickname', before: current?.nickname ?? null, after: fields.nickname },
             { field: 'sectionId', before: current?.sectionId ?? null, after: fields.sectionId },
+            ...(followingCompanions.length ? [{ field: 'movedCompanions', after: followingCompanions.length }] : []),
           ] : []),
           ...(categoryId !== undefined ? [{ field: 'category', before: current?.categoryId ?? null, after: categoryId }] : []),
           ...(hidden !== undefined ? [{ field: 'hidden', before: current?.hidden ?? false, after: hidden }] : []),
@@ -3251,6 +3281,7 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
         await setMemberHidden(tx, email, hidden, currentDoc);
         saved.hidden = hidden;
       }
+      if (fields) await moveCompanionsToSection(tx, followingCompanions, fields.sectionId, identity.email);
       return saved;
     },
   );

@@ -538,9 +538,9 @@ function ownerCellHtml(personId) {
   return `<button type="button" class="profile-trigger" data-profile-trigger ${triggerAttr}>${pill}</button>`;
 }
 
-// Private equipment follows its owner's *current* section (the sectionId stored on the item is a
-// snapshot from when it was saved) - same rule as sprzet-obozowy.js's itemFilterSectionId. Falls
-// back to the stored sectionId for team equipment and for an owner the roster cannot resolve.
+// Private equipment has no section of its own (stored as null) and follows its owner's *current*
+// section - same rule as sprzet-obozowy.js's itemFilterSectionId. Team equipment uses its own
+// sectionId; the fallback also covers private items saved before sections were cleared.
 function equipmentSectionId(item) {
   if (!item.belongsToPersonId) return item.sectionId;
   return personById.get(item.belongsToPersonId)?.sectionId ?? item.sectionId;
