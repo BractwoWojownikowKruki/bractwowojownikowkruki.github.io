@@ -1566,7 +1566,7 @@ button.lw-filter-chip {
   border: 0;
   border-radius: 0;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.55;
   white-space: pre-wrap;
 }
@@ -1596,12 +1596,28 @@ button.lw-filter-chip {
   color: var(--text-muted);
 }
 
-.lw-deadline-pill[data-overdue="true"] {
-  border-color: #c0504d;
+.lw-deadline-pill[data-state="paid"] {
+  border-color: #3f9a5a;
 }
 
-.lw-deadline-pill[data-overdue="true"] .lw-deadline-days {
+.lw-deadline-pill[data-state="paid"] .lw-deadline-mark,
+.lw-deadline-pill[data-state="paid"] .lw-deadline-days {
+  color: #5cc47c;
+}
+
+.lw-deadline-pill[data-state="unpaid-overdue"] {
+  border-color: #c0504d;
+  background: rgba(192, 80, 77, 0.12);
+}
+
+.lw-deadline-pill[data-state="unpaid-overdue"] .lw-deadline-mark,
+.lw-deadline-pill[data-state="unpaid-overdue"] .lw-deadline-days {
   color: #e07a77;
+  font-weight: 700;
+}
+
+.lw-deadline-mark {
+  font-weight: 700;
 }
 
 /* Event date, right end of the title row: more prominent than the Udostępnij/Edytuj buttons. */
