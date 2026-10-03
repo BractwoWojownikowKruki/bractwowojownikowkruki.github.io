@@ -28,6 +28,9 @@ class Element {
   async clickWith(target: unknown) {
     await Promise.all((this.listeners.get('click') ?? []).map(listener => listener({ target })));
   }
+  fire(type: string) {
+    for (const listener of this.listeners.get(type) ?? []) listener({ target: this });
+  }
   setAttribute() {}
   scrollIntoView() {}
 }
@@ -39,11 +42,11 @@ const elementIds = [
   'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni', 'event-title',
   'event-meta', 'event-description', 'event-edit-toggle', 'event-edit-panel', 'event-history-link',
   'skladka-fee-history-link', 'lw-inline-existing-select', 'lw-inline-new-name',
-  'lw-inline-new-category', 'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note', 'event-equipment-summary', 'event-date-pill', 'skladka-fee-duedate-pill', 'event-description-panel',
+  'lw-inline-new-category', 'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note', 'event-equipment-summary', 'equipment-controls', 'equipment-filter-niezgloszone', 'equipment-filter-zgloszone', 'event-date-pill', 'skladka-fee-duedate-pill', 'event-description-panel',
   'event-equipment-content', 'lw-nav-container', 'event-share-button', 'event-share-button-text',
 ];
 
-function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Record<string, unknown> = {}) {
+function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Record<string, unknown> = {}, signupRows: Array<Record<string, unknown>> = []) {
   const elements = new Map(elementIds.map(id => [id, new Element()]));
   elements.get('roster-filter-zgloszeni')!.checked = true;
   const calls: Array<{ url: string; options: Record<string, unknown> }> = [];
@@ -74,7 +77,7 @@ function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Re
       if (options.method === 'PUT') return { item: { eventId: 'e1', equipmentId: 'tent-1', going: true, lastChangedBy: 'viewer@example.com', lastChangedAt: '2026-09-20T20:00:00.000Z' } };
       if (url === '/lista-wyjazdowa/events') return { events: [{ id: 'e1', name: 'Wyjazd', startDate: '2026-10-10', status: 'active', ...eventOverrides }] };
       if (url.startsWith('/lista-wyjazdowa/roster?')) return { roster: [{ personId: 'owner@example.com', email: 'owner@example.com', lastName: 'Właściciel', firstName: '', accountless: false, sectionId: 'krakow', categoryId: 'kandydat', weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' }] };
-      if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups: [] };
+      if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups: signupRows };
       if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: false, canManagePeople: false };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [{ id: 'krakow', label: 'Kraków' }], categories: [{ id: 'kandydat', label: 'Kandydat' }], weapons: [], equipmentCategories: [{ id: 'tent', label: 'Namiot' }, { id: 'namiot', label: 'Namiot', groupId: 'budowle' }, { id: 'wiata', label: 'Wiata', groupId: 'budowle' }, { id: 'stol', label: 'Stół', groupId: 'meble' }, { id: 'garnek', label: 'Garnek', groupId: 'kuchnia' }], equipmentGroups: [{ id: 'budowle', label: 'Budowle' }, { id: 'meble', label: 'Meble' }, { id: 'kuchnia', label: 'Kuchnia' }] };
       if (url.startsWith('/lista-wyjazdowa/event-equipment?')) return { items };
@@ -87,7 +90,12 @@ function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Re
   vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
   vm.runInNewContext(summaryFilterSource, context, { filename: 'summary-filter.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
-  return { elements, calls, signIn: async () => signIn?.({ email: 'viewer@example.com' }) };
+  const setEquipmentFilter = (notGoing: boolean, going: boolean) => {
+    elements.get('equipment-filter-niezgloszone')!.checked = notGoing;
+    elements.get('equipment-filter-zgloszone')!.checked = going;
+    elements.get('equipment-filter-zgloszone')!.fire('change');
+  };
+  return { elements, calls, setEquipmentFilter, signIn: async () => signIn?.({ email: 'viewer@example.com' }) };
 }
 
 test('Wyjazd page loads, renders and locally toggles event equipment', async () => {
@@ -101,6 +109,7 @@ test('Wyjazd page loads, renders and locally toggles event equipment', async () 
     id: 'tent-1', categoryId: 'tent', sectionId: 'krakow', belongsToPersonId: 'owner@example.com', description: 'Duży namiot', going: false,
   }]);
   await harness.signIn();
+  harness.setEquipmentFilter(true, true);
 
   const equipment = harness.elements.get('event-equipment-content')!;
   assert.match(equipment.innerHTML, /class="czl-section-cell"[^>]*>KRK<\/td>/);
@@ -153,6 +162,7 @@ test('Wyjazd equipment shows a private item under its owner\'s current section, 
     description: 'Stary namiot', going: false,
   }]);
   await harness.signIn();
+  harness.setEquipmentFilter(true, true);
   const equipment = harness.elements.get('event-equipment-content')!;
   assert.match(equipment.innerHTML, /<tr data-section="krakow">/);
   assert.match(equipment.innerHTML, /class="czl-section-cell"[^>]*>KRK<\/td>/);
@@ -202,4 +212,36 @@ test('Wyjazd date pill, deadline pill with days left, and equipment category fil
   const table = harness.elements.get('event-equipment-content')!;
   assert.match(table.innerHTML, /n1/);
   assert.match(table.innerHTML, /g1/);
+});
+
+test('Wyjazd equipment checkboxes: Zgłoszone by default, Niezgłoszone on request, both, or neither', async () => {
+  const item = (id: string, going: boolean) => ({ id, categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: null, description: id, going });
+  const harness = createHarness([item('item-go', true), item('item-stay', false)]);
+  await harness.signIn();
+  const table = harness.elements.get('event-equipment-content')!;
+  assert.match(table.innerHTML, /item-go/);
+  assert.doesNotMatch(table.innerHTML, /item-stay/);
+  harness.setEquipmentFilter(true, false);
+  assert.doesNotMatch(table.innerHTML, /item-go/);
+  assert.match(table.innerHTML, /item-stay/);
+  harness.setEquipmentFilter(true, true);
+  assert.match(table.innerHTML, /item-go/);
+  assert.match(table.innerHTML, /item-stay/);
+  harness.setEquipmentFilter(false, false);
+  assert.match(table.innerHTML, /Brak sprzętu dla wybranych filtrów/);
+});
+
+test('Wyjazd deadline pill: green once the viewer paid, red when unpaid past the deadline, neutral otherwise', async () => {
+  const past = '2020-01-01';
+  const paid = createHarness([], { skladkaFee: '50 zł', dueDate: past }, [{ memberEmail: 'viewer@example.com', attending: true, skladkaStatus: 'paid' }]);
+  await paid.signIn();
+  assert.equal(paid.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'paid');
+  assert.match(paid.elements.get('skladka-fee-duedate-pill')!.innerHTML, /✓/);
+  const unpaid = createHarness([], { skladkaFee: '50 zł', dueDate: past }, [{ memberEmail: 'viewer@example.com', attending: true, skladkaStatus: 'unpaid' }]);
+  await unpaid.signIn();
+  assert.equal(unpaid.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'unpaid-overdue');
+  assert.match(unpaid.elements.get('skladka-fee-duedate-pill')!.innerHTML, /nie zapłacona/);
+  const notAttending = createHarness([], { skladkaFee: '50 zł', dueDate: past });
+  await notAttending.signIn();
+  assert.equal(notAttending.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'neutral');
 });

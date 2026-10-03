@@ -154,6 +154,17 @@
             <h2>Sprzęt obozowy</h2>
             <div id="event-equipment-summary"></div>
             <p id="event-equipment-disabled-note" class="lw-equipment-disabled-note" hidden>Na ten wyjazd zaznaczono opcję «bez sprzętu obozowego», dlatego tabela ze sprzętem nie jest dostępna.</p>
+            <div class="lw-roster-controls" id="equipment-controls">
+              <span class="lw-roster-filter-heading">Pokaż:</span>
+              <label class="lw-filter-check">
+                <input type="checkbox" id="equipment-filter-niezgloszone" />
+                <span>Niezgłoszone</span>
+              </label>
+              <label class="lw-filter-check">
+                <input type="checkbox" id="equipment-filter-zgloszone" checked />
+                <span>Zgłoszone</span>
+              </label>
+            </div>
             <div class="czl-table-wrap" id="event-equipment-table-wrap">
               <table class="czl-table" id="event-equipment-table">
                 <thead>

@@ -261,6 +261,27 @@ function normalizeSkladkaDueDate(value) {
 // event.skladkaFee is a free-text field (e.g. "50 zł / 25 zł dzieci"); textContent is used below
 // so no HTML-escaping is needed for the display span, same reasoning as event-title/event-meta
 // above it in loadAll().
+// A due date only ever exists alongside a fee (see updateSkladkaFeeFormState), so it is never shown
+// on its own even for legacy data that still carries an orphaned date. It sits in the section
+// header as a pill, with the days left computed against today on every render. Its colour follows
+// the viewer's own payment: paid is green (on time or late), unpaid past the deadline is red and
+// says so, anything else stays neutral.
+function renderDeadlinePill(event) {
+  const pill = document.getElementById('skladka-fee-duedate-pill');
+  const fee = normalizeSkladkaFee(event.skladkaFee);
+  const dueDate = normalizeSkladkaDueDate(event.dueDate);
+  pill.hidden = !(fee && dueDate);
+  if (pill.hidden) return;
+  const days = daysUntil(dueDate);
+  const mySignup = cachedSignups.find((s) => s.memberEmail === viewerPersonId);
+  const myStatus = mySignup?.attending ? (mySignup.skladkaStatus ?? 'unpaid') : null;
+  const state = myStatus === 'paid' ? 'paid' : myStatus === 'unpaid' && days < 0 ? 'unpaid-overdue' : 'neutral';
+  pill.dataset.state = state;
+  const mark = state === 'paid' ? '<span class="lw-deadline-mark" aria-hidden="true">✓</span>' : '';
+  const note = state === 'paid' ? ' · opłacona' : state === 'unpaid-overdue' ? ' · nie zapłacona' : '';
+  pill.innerHTML = `${mark}<small>termin</small> ${escapeHtml(formatDate(dueDate))} <span class="lw-deadline-days">(${escapeHtml(daysUntilLabel(days))}${note})</span>`;
+}
+
 function renderSkladkaFee(event) {
   const display = document.getElementById('skladka-fee-display');
   const editToggle = document.getElementById('skladka-fee-edit-toggle');
@@ -268,17 +289,7 @@ function renderSkladkaFee(event) {
   const fee = normalizeSkladkaFee(event.skladkaFee);
   const dueDate = normalizeSkladkaDueDate(event.dueDate);
   display.textContent = fee || 'Nie ustalono';
-  // A due date only ever exists alongside a fee (see updateSkladkaFeeFormState), so it is never
-  // shown on its own even for legacy data that still carries an orphaned date. It sits in the
-  // section header as a pill, with the days left computed against today on every render.
-  const deadlinePill = document.getElementById('skladka-fee-duedate-pill');
-  const showDeadline = Boolean(fee && dueDate);
-  deadlinePill.hidden = !showDeadline;
-  if (showDeadline) {
-    const days = daysUntil(dueDate);
-    deadlinePill.dataset.overdue = String(days < 0);
-    deadlinePill.innerHTML = `<small>termin</small> ${escapeHtml(formatDate(dueDate))} <span class="lw-deadline-days">(${escapeHtml(daysUntilLabel(days))})</span>`;
-  }
+  renderDeadlinePill(event);
   // KRKG-0102: the Edytuj toggle only exists for members who can actually save a change (server
   // re-checks anyway) - the form itself stays collapsed by default even for them, tracked by
   // skladkaEditOpen, instead of always being shown the moment they have the role.
@@ -367,6 +378,7 @@ async function toggleSkladkaStatus(personId, nextStatus, control) {
       const signup = cachedSignups.find(item => item.memberEmail === personId);
       if (signup) signup.skladkaStatus = nextStatus;
       renderRoster(cachedRoster, cachedSignups);
+      renderDeadlinePill(cachedEvent);
     }, 'toast');
   } catch (err) {
     showError(`Nie udało się zaktualizować składki: ${err.message}`);
@@ -524,6 +536,8 @@ function renderEquipmentSummary(allItems) {
 // viewer's own row, so someone who hasn't signed up yet can still find themselves; "Niezgłoszeni"
 // (default off) adds the members who haven't signed up. Both off means an empty list. Re-applied
 // locally from the roster/signups already fetched by loadAll() - no network round-trip needed.
+let showNotGoingEquipment = false;
+let showGoingEquipment = true;
 let showNotSignedUp = false;
 let showSignedUpAndMe = true;
 let cachedRoster = [];
@@ -688,6 +702,7 @@ function eventEquipmentSortValue(item) {
 function renderEventEquipment(allItems) {
   const noEquipment = Boolean(cachedEvent?.noCampEquipment);
   document.getElementById('event-equipment-table-wrap').hidden = noEquipment;
+  document.getElementById('equipment-controls').hidden = noEquipment;
   document.getElementById('event-equipment-disabled-note').hidden = !noEquipment;
   renderEquipmentSummary(allItems);
   if (noEquipment) return;
@@ -696,7 +711,8 @@ function renderEventEquipment(allItems) {
     tbody.innerHTML = '<tr><td colspan="5" class="czl-empty">Brak sprzętu obozowego.</td></tr>';
     return;
   }
-  const items = allItems.filter((item) => summaryFilterMatches(rosterFilter, { section: equipmentSectionId(item) })
+  const items = allItems.filter((item) => (item.going === true ? showGoingEquipment : showNotGoingEquipment))
+    .filter((item) => summaryFilterMatches(rosterFilter, { section: equipmentSectionId(item) })
     && summaryFilterMatches(equipmentFilter, { equipmentCategory: item.categoryId }));
   if (items.length === 0) {
     tbody.innerHTML = '<tr><td colspan="5" class="czl-empty">Brak sprzętu dla wybranych filtrów.</td></tr>';
@@ -1026,6 +1042,17 @@ function applyRosterFilter() {
   renderRoster(cachedRoster, cachedSignups);
 }
 
+// Same two checkboxes for the equipment table: Zgłoszone (going) and Niezgłoszone (not going).
+function applyEquipmentFilter() {
+  showNotGoingEquipment = document.getElementById('equipment-filter-niezgloszone').checked;
+  showGoingEquipment = document.getElementById('equipment-filter-zgloszone').checked;
+  renderEventEquipment(cachedEventEquipment);
+}
+
+for (const id of ['equipment-filter-niezgloszone', 'equipment-filter-zgloszone']) {
+  document.getElementById(id).addEventListener('change', applyEquipmentFilter);
+}
+
 for (const id of ['roster-filter-niezgloszeni', 'roster-filter-zgloszeni']) {
   document.getElementById(id).addEventListener('change', applyRosterFilter);
 }
@@ -1188,6 +1215,8 @@ async function loadAll() {
   cachedRoster = roster;
   cachedSignups = signups;
   cachedEventEquipment = eventEquipmentItems;
+  // The deadline pill's colour depends on the viewer's own signup, which was only just loaded.
+  renderDeadlinePill(event);
   personById = new Map(roster.map((person) => [person.personId, person]));
   renderSummary(roster, signups);
   renderRoster(roster, signups);
