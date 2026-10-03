@@ -1,0 +1,73 @@
+name: Sync people photos
+
+# Nightly cache of the public people photos (About Us categories / member profiles) into
+# public/people-photos/, so pages serve them as static files instead of fetching each one from
+# Google Drive. Event galleries are NOT part of this. Idempotent: photos are stored under
+# content-addressed names (<driveFileId>-<size>-<md5>.<ext>), so a run with nothing new downloads
+# nothing and commits nothing. Standalone cron, like sync-facebook.yml. 02:30 UTC = 03:30/04:30
+# Polish time. Also runnable on demand: Actions -> "Sync people photos" -> Run workflow.
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: sync-people-photos
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Sync people photos
+        run: npm run sync-people-photos
+
+      - name: Commit generated files
+        id: commit
+        run: |
+          git add -A public/people-photos
+          if [ -n "$(git status --porcelain public/people-photos)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "chore: sync people photos"
+            for attempt in 1 2 3 4 5; do
+              git push && break
+              echo "Push rejected (attempt $attempt/5) - rebasing onto latest main and retrying..."
+              git pull --rebase origin main
+              sleep 3
+            done
+            echo "committed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "People photos are up to date."
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # pages.yml skips runs authored by github-actions[bot], so the commit above would never be
+      # deployed on its own - dispatch it explicitly (same approach as sync-facebook.yml).
+      - name: Trigger Pages deploy
+        if: steps.commit.outputs.committed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run pages.yml --ref main

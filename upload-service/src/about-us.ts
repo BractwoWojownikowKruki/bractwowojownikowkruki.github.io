@@ -159,6 +159,17 @@ export function sortPeopleByFolderName<T extends { folderName: string }>(items: 
 export interface PersonPhoto {
   id: string;
   url: string;
+  // Drive content checksum (see DriveImageInfo.md5Checksum) - lets the static photo cache know
+  // whether its stored copy is still current. Omitted when Drive has none.
+  md5?: string;
+}
+
+function toPersonPhoto(img: DriveImageInfo & { thumbnailLink: string }, size: number): PersonPhoto {
+  return {
+    id: img.id,
+    url: resizeThumbnailUrl(img.thumbnailLink, size),
+    ...(img.md5Checksum ? { md5: img.md5Checksum } : {}),
+  };
 }
 
 // Shared by handleListaWyjazdowaGetProfilePhoto and handleMemberProfile (server.ts) - both read
@@ -169,10 +180,10 @@ export interface PersonPhoto {
 export function mapDriveImagesToPhotos(images: DriveImageInfo[]): { mainPhoto: PersonPhoto | null; photos: PersonPhoto[] } {
   const [mainImage, ...restImages] = images;
   const mainPhoto: PersonPhoto | null =
-    mainImage?.thumbnailLink != null ? { id: mainImage.id, url: resizeThumbnailUrl(mainImage.thumbnailLink, 800) } : null;
+    mainImage?.thumbnailLink != null ? toPersonPhoto({ ...mainImage, thumbnailLink: mainImage.thumbnailLink }, 800) : null;
   const photos: PersonPhoto[] = restImages
     .filter((img): img is typeof img & { thumbnailLink: string } => img.thumbnailLink != null)
-    .map(img => ({ id: img.id, url: resizeThumbnailUrl(img.thumbnailLink, 300) }));
+    .map(img => toPersonPhoto(img, 300));
   return { mainPhoto, photos };
 }
 
@@ -280,10 +291,10 @@ export async function fetchCategoryPeople(drive: DriveClient, categoryFolderId: 
       ]);
       const [mainImage, ...restImages] = images;
       const mainPhoto: PersonPhoto | null =
-        mainImage?.thumbnailLink != null ? { id: mainImage.id, url: resizeThumbnailUrl(mainImage.thumbnailLink, 800) } : null;
+        mainImage?.thumbnailLink != null ? toPersonPhoto({ ...mainImage, thumbnailLink: mainImage.thumbnailLink }, 800) : null;
       const photos: PersonPhoto[] = restImages
         .filter((img): img is typeof img & { thumbnailLink: string } => img.thumbnailLink != null)
-        .map(img => ({ id: img.id, url: resizeThumbnailUrl(img.thumbnailLink, 300) }));
+        .map(img => toPersonPhoto(img, 300));
       return {
         folderId: folder.id,
         name,

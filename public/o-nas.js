@@ -26,7 +26,7 @@ async function loadAboutUsCategory() {
     const res = await fetch(`${ABOUT_US_BACKEND_URL}/about-us?category=${encodeURIComponent(category)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    renderPeople(data.people || []);
+    renderPeople(await PeoplePhotoCache.applyToPeople(data.people || []));
   } catch (err) {
     grid.innerHTML = '<p class="empty">Nie udało się załadować tej sekcji. Spróbuj odświeżyć stronę.</p>';
   }
@@ -108,7 +108,7 @@ function setLightboxIndex(photoIndex) {
   const photo = photos[photoIndex];
 
   const img = document.getElementById('person-lightbox-img');
-  img.src = resizeUrl(photo.url, 1600);
+  img.src = resizeUrl(photo.remoteUrl || photo.url, 1600);
   watchImageLoad(img);
 
   document.querySelectorAll('#person-lightbox-filmstrip .lightbox-filmstrip-thumb').forEach(btn => {
