@@ -171,13 +171,13 @@ async function loadRolesByEmail() {
   return new Map(roles.map(r => [r.email, r.roles]));
 }
 
-// GET /lista-wyjazdowa/roster is the only endpoint that already carries wpisowePaid for every
+// GET /lista-wyjazdowa/roster is the only endpoint that already carries wpisoweStatus for every
 // member at once (built for the Składki page) - reused here rather than adding a second one.
 async function loadWpisoweByEmail() {
   if (!canManageSkladki) return new Map();
   try {
     const { roster } = await apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth);
-    return new Map(roster.map(m => [m.email, m.wpisowePaid]));
+    return new Map(roster.map(m => [m.email, m.wpisoweStatus]));
   } catch {
     return new Map();
   }
@@ -400,7 +400,8 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       case 'hidden': return member.hidden === true;
       case 'email': return member.email;
       case 'lastLogin': return member.lastLoginAt ?? '';
-      case 'wpisowe': return wpisoweByEmail.get(member.email) ?? false;
+      // unpaid < nie dotyczy < paid - who still owes first, same order as the Składki page.
+      case 'wpisowe': return { unpaid: 0, not_applicable: 1, paid: 2 }[wpisoweByEmail.get(member.email) ?? 'unpaid'];
       default: return sectionLabel(member.sectionId);
     }
   };
@@ -455,10 +456,9 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
       <td class="member-weapons-cell">${weaponCheckboxesHtml(m.email, weapons, m.weaponIds)}</td>
       <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(m.email, rolesByEmail.get(m.email))}${inactiveRolesHintHtml(status, rolesByEmail.get(m.email))}</td>
       <td ${canManageSkladki ? '' : 'hidden'}>
-        <label class="member-role-label">
-          <input id="${memberFocusId(m.email, 'wpisowe')}" type="checkbox" class="member-wpisowe-checkbox" data-email="${escapeAttr(m.email)}" ${wpisoweByEmail.get(m.email) ? 'checked' : ''} />
-          Opłacone
-        </label>
+        <select id="${memberFocusId(m.email, 'wpisowe')}" class="czl-field member-wpisowe-select" data-email="${escapeAttr(m.email)}" aria-label="Wpisowe">
+          ${['unpaid', 'paid', 'not_applicable'].map(status => `<option value="${status}"${(wpisoweByEmail.get(m.email) ?? 'unpaid') === status ? ' selected' : ''}>${WPISOWE_STATUS_LABELS[status]}</option>`).join('')}
+        </select>
       </td>
       <td>
         ${actions.map(a => `<button id="${memberFocusId(m.email, `action-${a.transition}`)}" class="member-action" data-transition="${a.transition}">${a.label}</button>`).join('')}
@@ -603,28 +603,26 @@ async function saveMemberWeapons(email, nextWeaponIds, control) {
   }
 }
 
-// Wpisowe is now hidden entirely from the Składki page's row once paid (KRKG-0047 follow-up) - no
-// UI there can undo a mistaken "opłacone" any more, so this checkbox is the only remaining way to
-// flip it back. Marking it *paid* is confirmed first (see the change handler below); un-marking it
-// is not, the same asymmetry as membership-status-filter's Zawieś/Usuń needing confirmation only
-// for the harder-to-undo actions.
-async function saveMemberWpisowe(email, nextPaid, control) {
-  const previousPaid = membershipMembersCache.wpisoweByEmail.get(email) ?? false;
+// Three-state wpisowe (unpaid/paid/not_applicable), same as the Składki page. Marking it *paid* is
+// confirmed first (see the change handler below); the other changes are not, the same asymmetry as
+// membership-status-filter's Zawieś/Usuń needing confirmation only for the harder-to-undo actions.
+async function saveMemberWpisowe(email, nextStatus, control) {
+  const previousStatus = membershipMembersCache.wpisoweByEmail.get(email) ?? 'unpaid';
   try {
     await window.MutationFeedback.confirmed({
       control,
       execute: () => apiFetch(
         `/lista-wyjazdowa/wpisowe?personId=${encodeURIComponent(email)}`,
-        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: nextPaid }) },
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: nextStatus }) },
         showReauth,
         hideReauth,
       ),
       apply: () => {
-        membershipMembersCache.wpisoweByEmail.set(email, nextPaid);
+        membershipMembersCache.wpisoweByEmail.set(email, nextStatus);
       },
       viewRoot: control.closest('tbody'),
       refreshFragment: loadMembershipMembers,
-      rollback: () => { control.checked = previousPaid; },
+      rollback: () => { control.value = previousStatus; },
     });
   } catch (err) {
     window.alert(`Błąd zapisu: ${err.message}`);
@@ -632,14 +630,14 @@ async function saveMemberWpisowe(email, nextPaid, control) {
 }
 
 document.getElementById('membership-members-list').addEventListener('change', async e => {
-  const wpisoweCheckbox = e.target.closest('.member-wpisowe-checkbox');
-  if (wpisoweCheckbox) {
-    const nextPaid = wpisoweCheckbox.checked;
-    if (nextPaid && !window.confirm('Czy na pewno chcesz zaznaczyć, że wpisowe zostało opłacone?')) {
-      wpisoweCheckbox.checked = false;
+  const wpisoweSelect = e.target.closest('.member-wpisowe-select');
+  if (wpisoweSelect) {
+    const nextStatus = wpisoweSelect.value;
+    if (nextStatus === 'paid' && !window.confirm('Czy na pewno chcesz zaznaczyć, że wpisowe zostało opłacone?')) {
+      wpisoweSelect.value = membershipMembersCache.wpisoweByEmail.get(wpisoweSelect.dataset.email) ?? 'unpaid';
       return;
     }
-    await saveMemberWpisowe(wpisoweCheckbox.dataset.email, nextPaid, wpisoweCheckbox);
+    await saveMemberWpisowe(wpisoweSelect.dataset.email, nextStatus, wpisoweSelect);
     return;
   }
 

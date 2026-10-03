@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { effectiveDuesStatus as serverEffectiveDuesStatus, type DuesDoc, type DuesStatus } from '../upload-service/src/dues.ts';
+import { effectiveDuesStatus as serverEffectiveDuesStatus, effectiveWpisoweStatus as serverEffectiveWpisoweStatus, type DuesDoc, type DuesStatus } from '../upload-service/src/dues.ts';
 
 const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
 const profilSource = readFileSync(new URL('../public/profil/profil.js', import.meta.url), 'utf8');
@@ -57,25 +57,44 @@ test('Mój profil renders the server-resolved duesStatus, the same status the pr
   };
   vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
   vm.runInNewContext(profilSource, context, { filename: 'profil.js' });
-  const renderDuesStatus = context.renderDuesStatus as (wpisowePaid: boolean, duesStatus: string) => void;
+  const renderDuesStatus = context.renderDuesStatus as (wpisoweStatus: string, duesStatus: string) => void;
   const year = new Date().getFullYear();
 
-  renderDuesStatus(true, 'paid');
+  renderDuesStatus('unpaid', 'paid');
+  assert.match(elements.get('lw-dues-status')!.innerHTML, /Wpisowe: nieopłacone/);
+  renderDuesStatus('not_applicable', 'paid');
+  assert.doesNotMatch(elements.get('lw-dues-status')!.innerHTML, /Wpisowe/);
+
+  renderDuesStatus('paid', 'paid');
   assert.match(elements.get('lw-dues-status')!.innerHTML, new RegExp(`Składka ${year}: opłacona`));
   assert.match(elements.get('lw-dues-status')!.innerHTML, /data-status="paid"/);
 
-  renderDuesStatus(true, 'not_applicable');
+  renderDuesStatus('paid', 'not_applicable');
   assert.match(elements.get('lw-dues-status')!.innerHTML, /nie dotyczy/);
 
-  renderDuesStatus(true, 'unpaid');
+  renderDuesStatus('paid', 'unpaid');
   assert.match(elements.get('lw-dues-status')!.innerHTML, /nieopłacona/);
 
   assert.doesNotMatch(profilSource, /dues\?\.paid/);
   assert.match(profilSource, /duesResponse\.duesStatus/);
+  assert.match(profilSource, /duesResponse\.wpisoweStatus/);
+});
+
+test('shared effectiveWpisoweStatus matches upload-service dues.ts (Bobo defaults to nie dotyczy)', () => {
+  const context: Record<string, unknown> = {};
+  vm.runInNewContext(`${duesStatusSource}\n;globalThis.__f = effectiveWpisoweStatus;`, context, { filename: 'dues-status.js' });
+  const clientEffectiveWpisoweStatus = context.__f as (stored: string | null, categoryId: string | null) => string;
+  for (const stored of [null, 'unpaid', 'paid', 'not_applicable'] as Array<DuesStatus | null>) {
+    for (const categoryId of [null, 'bobo', 'emeryt', 'blacha']) {
+      const profile = stored ? { wpisoweStatus: stored } : null;
+      assert.equal(clientEffectiveWpisoweStatus(stored, categoryId), serverEffectiveWpisoweStatus(profile, categoryId), `stored=${stored} category=${categoryId}`);
+    }
+  }
 });
 
 test('the dashboard trusts the server-resolved duesStatus instead of re-deriving it', () => {
   assert.match(appSource, /myDuesResponse\.duesStatus === 'unpaid'/);
+  assert.match(appSource, /myDuesResponse\.wpisoweStatus === 'unpaid'/);
   assert.doesNotMatch(appSource, /function effectiveDuesStatus/);
 });
 

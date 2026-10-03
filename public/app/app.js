@@ -255,10 +255,7 @@ function renderDuesPanel(owedItems) {
 
 async function buildDuesOwedItems(events) {
   const year = new Date().getFullYear();
-  const [myDuesResponse, profileResult] = await Promise.all([
-    apiFetch(`/lista-wyjazdowa/dues/mine?year=${year}`, { method: 'GET' }, showReauth, hideReauth),
-    apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
-  ]);
+  const myDuesResponse = await apiFetch(`/lista-wyjazdowa/dues/mine?year=${year}`, { method: 'GET' }, showReauth, hideReauth);
   const owed = [];
 
   // Roczna - GET /lista-wyjazdowa/dues?year= returns the whole club's dues array (every member's
@@ -272,10 +269,9 @@ async function buildDuesOwedItems(events) {
     owed.push({ name: `Roczna składka ${year}`, detail: duesResult.yearFee?.note ?? null, dueDate: duesResult.yearFee?.dueDate ?? null });
   }
 
-  // Wpisowe - profile may be null if the member never saved a Lista Wyjazdowa profile; treat that
-  // identically to wpisowePaid === false (design.md §2a, round-2 advisory #3).
-  const wpisowePaid = profileResult.profile?.wpisowePaid === true;
-  if (!wpisowePaid) {
+  // Wpisowe - resolved server-side by GET /dues/mine (a missing profile counts as unpaid, a Bobo
+  // defaults to not_applicable); only 'unpaid' is a debt.
+  if (myDuesResponse.wpisoweStatus === 'unpaid') {
     owed.push({ name: 'Wpisowe', detail: null, dueDate: null });
   }
 
@@ -287,7 +283,7 @@ async function buildDuesOwedItems(events) {
   // skladkaFee is required too - until the accountant/admin sets it (design.md's "nie ustalono"
   // state, skladkaFee === null), there's no amount to owe yet, so it must not appear as a debt.
   for (const event of events) {
-    if (event.status === 'active' && event.viewerAttending && !event.viewerSkladkaPaid && event.skladkaFee) {
+    if (event.status === 'active' && event.viewerAttending && event.viewerSkladkaStatus === 'unpaid' && event.skladkaFee) {
       owed.push({ name: `Składka — ${event.name}`, detail: event.skladkaFee, dueDate: event.dueDate ?? null });
     }
   }

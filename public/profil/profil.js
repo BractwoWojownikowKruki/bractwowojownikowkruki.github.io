@@ -250,23 +250,21 @@ document.getElementById('lw-current-submission').addEventListener('click', (e) =
 const CURRENT_YEAR = new Date().getFullYear();
 
 // Read-only wpisowe/składka roczna status shown right under the photo (KRKG-0047 follow-up) -
-// paid/unpaid is accountant/admin-only to change (see the Lista Wyjazdowa Składki page); this
-// just lets a member see their own current state without asking. Same .lw-skladka-icon
-// badge/glyph convention as lista-wyjazdowa/skladki/skladki.js's paidIconHtml (wpisowe as a
-// check/cross colored via member-area.css's data-paid rule, roczna as the same three-state
-// data-status coin as the profile drawer), but always a plain, unclickable <span> here - nothing
-// on this page can toggle it. duesStatus is the server-resolved value from GET
-// /lista-wyjazdowa/dues/mine (shared/dues-status.js explains why it is never re-derived here).
-function renderDuesStatus(wpisowePaid, duesStatus) {
+// status is accountant/admin-only to change (see the Lista Wyjazdowa Składki page); this just
+// lets a member see their own current state without asking. Same .lw-skladka-icon badge/glyph
+// convention as lista-wyjazdowa/skladki/skladki.js's wpisoweIconHtml/rocznaIconHtml (three-state
+// data-status), but always a plain, unclickable <span> here - nothing on this page can toggle it.
+// wpisoweStatus/duesStatus are the server-resolved values from GET /lista-wyjazdowa/dues/mine
+// (shared/dues-status.js explains why they are never re-derived here).
+function renderDuesStatus(wpisoweStatus, duesStatus) {
   const container = document.getElementById('lw-dues-status');
   const rocznaLabel = duesStatusLabel(CURRENT_YEAR, duesStatus);
-  // Wpisowe shows nothing at all once paid (KRKG-0047 follow-up, same as skladki.js's row) - this
-  // page is read-only anyway, so there's no control being hidden, just a settled fact with nothing
-  // left to say about it.
-  const wpisoweHtml = wpisowePaid ? '' : `
+  // Wpisowe shows only while it is still owed (KRKG-0047 follow-up) - paid or "nie dotyczy" is a
+  // settled fact with nothing left to say about it on this read-only page.
+  const wpisoweHtml = wpisoweStatus !== 'unpaid' ? '' : `
     <span class="lw-dues-status-item">
-      <span class="lw-skladka-icon" data-paid="false" aria-hidden="true">✕</span>
-      ${escapeHtml('Wpisowe: nieopłacone')}
+      <span class="lw-skladka-icon" data-status="unpaid" aria-hidden="true">${duesStatusGlyph('unpaid')}</span>
+      ${escapeHtml(wpisoweStatusLabel('unpaid'))}
     </span>
   `;
   container.innerHTML = `
@@ -994,6 +992,7 @@ async function initForm(lookupLists) {
   let member = null;
   let profile = null;
   let duesStatus = 'unpaid';
+  let wpisoweStatus = 'unpaid';
   let roster = [];
   let loadError = null;
   try {
@@ -1007,6 +1006,7 @@ async function initForm(lookupLists) {
     member = memberResponse.member;
     profile = profileResponse.profile;
     duesStatus = duesResponse.duesStatus;
+    wpisoweStatus = duesResponse.wpisoweStatus ?? 'unpaid';
     roster = rosterResponse.roster;
     equipmentOwnerById = new Map(roster.map((person) => [person.personId, person]));
     equipmentItems = equipmentResponse.equipment;
@@ -1038,7 +1038,7 @@ async function initForm(lookupLists) {
     }
   }
   if (!loadError) {
-    renderDuesStatus(profile?.wpisowePaid ?? false, duesStatus);
+    renderDuesStatus(wpisoweStatus, duesStatus);
     renderPersons(roster);
     wireEquipmentMiniList(document.getElementById('own-equipment'), viewerEmail.toLowerCase());
   }

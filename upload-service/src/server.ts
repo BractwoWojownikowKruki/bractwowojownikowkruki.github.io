@@ -83,7 +83,7 @@ import {
   NOTIFIABLE_ROLES,
   MAX_REJECTION_REASON_LENGTH,
 } from './notifications.ts';
-import { getProfile, listAllProfiles, saveProfile, setProfileWeaponIds, setWpisowePaid, type ListaWyjazdowaProfileDoc, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
+import { getProfile, listAllProfiles, saveProfile, setProfileWeaponIds, setWpisoweStatus, type ListaWyjazdowaProfileDoc, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 // KRKG-0087: people without an account are real people on the roster, not entries inside a
 // member's profile - the roster below unions the two sources.
 import {
@@ -118,12 +118,12 @@ import {
   listSignupsForEvent,
   getSignup,
   saveSignup,
-  setSkladkaPaid,
+  setSkladkaStatus,
   type SignupDoc,
   type SignupWritableFields,
 } from './signups.ts';
 import { getGrantedRoles, getEffectiveRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, createRoleAuthorizer } from './roles.ts';
-import { listDuesForYear, saveDues, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, type DuesYearFeeWritableFields, getDues, normalizeDuesStatus, effectiveDuesStatus } from './dues.ts';
+import { listDuesForYear, saveDues, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, type DuesYearFeeWritableFields, getDues, normalizeDuesStatus, effectiveDuesStatus, effectiveWpisoweStatus, isDuesStatus, normalizeSkladkaStatus, type DuesStatus } from './dues.ts';
 import { buildSharedFileDoc, saveFileInTransaction, deleteFileInTransaction, getFileInTransaction, listFiles, InvalidFileUrlError, type SharedFileDoc } from './files.ts';
 import {
   buildEquipmentDoc,
@@ -3596,7 +3596,7 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
     // Same visibility as the Lista Wyjazdowa Składki page itself (read-only for every signed-in
     // member, design.md §8/§9) - showing it again here in the shared profile drawer is not a new
     // exposure, just the same fact in a second place.
-    wpisowePaid: profile?.wpisowePaid ?? false,
+    wpisoweStatus: effectiveWpisoweStatus(profile, member?.categoryId ?? null),
     duesYear,
     duesStatus: effectiveDuesStatus(dues, member?.categoryId ?? null),
     ...editorCapabilities,
@@ -3606,7 +3606,7 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
 async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
-  // wpisowePaid is accountant/admin-only (design.md §7a) and is simply never read out of the
+  // wpisowePaid/wpisoweStatus are accountant/admin-only (design.md §7a) and are simply never read out of the
   // body here - saveProfile carries the stored value forward, so sending it has no effect.
   const fields: ProfileWritableFields = {
     weaponIds: requireArray(body.weaponIds, 'Lista broni ma nieprawidłowy format.').map((id) =>
@@ -3658,21 +3658,21 @@ async function handleListaWyjazdowaGetEvents(req: IncomingMessage, res: ServerRe
   const allSignups = await listAllSignups(deps.firestore);
   const attendingCountByEvent = new Map<string, number>();
   const viewerAttendingByEvent = new Set<string>();
-  const viewerSkladkaPaidByEvent = new Set<string>();
+  const viewerSkladkaStatusByEvent = new Map<string, DuesStatus>();
   const viewerEmail = identity.email.toLowerCase();
   for (const { data } of allSignups) {
     if (!data.attending) continue;
     attendingCountByEvent.set(data.eventId, (attendingCountByEvent.get(data.eventId) ?? 0) + 1);
     if (data.memberEmail === viewerEmail) {
       viewerAttendingByEvent.add(data.eventId);
-      if (data.skladkaPaid) viewerSkladkaPaidByEvent.add(data.eventId);
+      viewerSkladkaStatusByEvent.set(data.eventId, normalizeSkladkaStatus(data));
     }
   }
   const withSummary = events.map((e) => ({
     ...e,
     attendingCount: attendingCountByEvent.get(e.id) ?? 0,
     viewerAttending: viewerAttendingByEvent.has(e.id),
-    viewerSkladkaPaid: viewerSkladkaPaidByEvent.has(e.id),
+    viewerSkladkaStatus: viewerSkladkaStatusByEvent.get(e.id) ?? 'unpaid',
   }));
   sendJson(res, 200, { events: withSummary });
 }
@@ -3957,11 +3957,11 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       sectionId: member?.sectionId ?? null,
       categoryId: member?.categoryId ?? null,
       weaponIds: profile?.weaponIds ?? [],
-      // wpisowePaid is independent of whether the member has ever filled in "Mój profil" -
-      // setWpisowePaid (lista-wyjazdowa-profile.ts) creates a profile document with empty
+      // wpisoweStatus is independent of whether the member has ever filled in "Mój profil" -
+      // setWpisoweStatus (lista-wyjazdowa-profile.ts) creates a profile document with empty
       // weaponIds on first use if none exists yet, so there is no "no
       // profile to record this on" case left to distinguish here.
-      wpisowePaid: profile?.wpisowePaid ?? false,
+      wpisoweStatus: effectiveWpisoweStatus(profile, member?.categoryId ?? null),
       // Current-year składka roczna status (KRKG-0074, see the listDuesForYear fetch above) -
       // the event page's roster badge reads only this, never the raw dues docs.
       duesStatus: effectiveDuesStatus(duesByEmail.get(email) ?? null, member?.categoryId ?? null),
@@ -3996,7 +3996,7 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       sectionId: person.sectionId,
       categoryId: person.categoryId,
       weaponIds: person.weaponIds,
-      wpisowePaid: profile?.wpisowePaid ?? false,
+      wpisoweStatus: effectiveWpisoweStatus(profile, person.categoryId),
       duesStatus: effectiveDuesStatus(duesByEmail.get(person.personId) ?? null, person.categoryId),
       approvedAt: null,
     };
@@ -4057,7 +4057,7 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
       pendingPhotos: [],
       published: false,
       description: null,
-      wpisowePaid: profile?.wpisowePaid ?? false,
+      wpisoweStatus: effectiveWpisoweStatus(profile, person.categoryId),
       duesStatus: effectiveDuesStatus(dues, person.categoryId),
       duesYear: year,
       ...editorCapabilities,
@@ -4137,6 +4137,15 @@ async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerRe
   });
 }
 
+// Wpisowe and a trip's składka take the same three-state body as PUT /dues ({ status }). The old
+// boolean { paid } body is still accepted (true -> paid, false -> unpaid) for a client that has
+// not reloaded since the change.
+function requireDuesStatusBody(body: Record<string, unknown>): DuesStatus {
+  if (isDuesStatus(body.status)) return body.status;
+  if (body.status === undefined && typeof body.paid === 'boolean') return body.paid ? 'paid' : 'unpaid';
+  throw new AuthError('Pole status musi być jednym z: unpaid, paid, not_applicable.', 400);
+}
+
 async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   await requireSkladkiAccess(req, res, deps, identity.email);
@@ -4146,8 +4155,7 @@ async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: Ser
   if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
   const target = await resolvePersonWriteTarget(deps, personIdParam);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
-  if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
-  const paid = body.paid;
+  const status = requireDuesStatusBody(body);
   const { result: signup } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.signupFee,
@@ -4160,12 +4168,12 @@ async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: Ser
         resource: { kind: 'signup', key: `signup:${eventId}:${target.personId}`, display: target.display },
         changes: [
           { field: 'memberEmail', after: target.personId },
-          { field: 'paid', before: existing.skladkaPaid, after: paid },
+          { field: 'status', before: normalizeSkladkaStatus(existing), after: status },
         ],
       };
     },
     async tx => {
-      const updated = await setSkladkaPaid(tx, eventId, target.personId, paid, identity.email);
+      const updated = await setSkladkaStatus(tx, eventId, target.personId, status, identity.email);
       if (!updated) throw new AuthError('Ta osoba nie jest zapisana na ten wyjazd.', 404);
       return updated;
     },
@@ -4180,10 +4188,9 @@ async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerR
   if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
   const target = await resolvePersonWriteTarget(deps, personIdParam);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
-  if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
-  const paid = body.paid;
+  const status = requireDuesStatusBody(body);
   // Wpisowe is a club due, not a Lista Wyjazdowa feature - whether this person has ever filled in
-  // "Mój profil" must not gate whether they can be marked as having paid it (setWpisowePaid
+  // "Mój profil" must not gate whether they can be marked as having paid it (setWpisoweStatus
   // upserts a profile with empty weaponIds if none exists yet).
   const { result: profile } = await executeDeclaredAuditedMutation(
     deps,
@@ -4191,6 +4198,9 @@ async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerR
     'dues.entry_fee.changed',
     async tx => {
       const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', target.personId);
+      const categoryId = target.accountless
+        ? ((await tx.getDoc<{ categoryId?: string | null }>('persons', target.personId))?.categoryId ?? null)
+        : ((await tx.getDoc<{ categoryId?: string | null }>('members', target.personId))?.categoryId ?? null);
       return {
         actor: { email: identity.email },
         // Same resource key as składka roczna below (due:{personId}, no :entry_fee/:{year} suffix) -
@@ -4198,10 +4208,10 @@ async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerR
         // page's single combined history button. The action field (dues.entry_fee.changed vs
         // dues.annual.changed) already tells the two apart in that timeline.
         resource: { kind: 'due', key: `due:${target.personId}`, display: target.display },
-        changes: [{ field: 'paid', ...(existing ? { before: existing.wpisowePaid } : {}), after: paid }],
+        changes: [{ field: 'status', before: effectiveWpisoweStatus(existing, categoryId), after: status }],
       };
     },
-    tx => setWpisowePaid(tx, target.personId, paid, identity.email),
+    tx => setWpisoweStatus(tx, target.personId, status, identity.email),
   );
   sendJson(res, 200, { profile });
 }
@@ -4234,11 +4244,18 @@ async function handleListaWyjazdowaGetDues(req: IncomingMessage, res: ServerResp
 async function handleListaWyjazdowaGetMyDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const year = requireYear(url.searchParams.get('year'), 'Nieprawidłowy rok.');
-  const [dues, member] = await Promise.all([
+  const [dues, member, profile] = await Promise.all([
     getDues(deps.firestore, identity.email, year),
     getMember(deps.firestore, identity.email),
+    getProfile(deps.firestore, identity.email),
   ]);
-  sendJson(res, 200, { dues, duesStatus: effectiveDuesStatus(dues, member?.categoryId ?? null) });
+  sendJson(res, 200, {
+    dues,
+    duesStatus: effectiveDuesStatus(dues, member?.categoryId ?? null),
+    // Same resolved wpisowe status as the roster and the profile drawer (Bobo default included) -
+    // Mój profil and the dashboard read it from here rather than from the raw profile document.
+    wpisoweStatus: effectiveWpisoweStatus(profile, member?.categoryId ?? null),
+  });
 }
 
 async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {

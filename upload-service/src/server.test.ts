@@ -6117,7 +6117,7 @@ test('GET /member-profile returns basic fields, no photos, no description when t
   });
 });
 
-test('GET /member-profile includes wpisowePaid and the current year\'s składka roczna status', async () => {
+test('GET /member-profile includes wpisoweStatus and the current year\'s składka roczna status', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
   const currentYear = new Date().getFullYear();
@@ -6142,7 +6142,7 @@ test('GET /member-profile includes wpisowePaid and the current year\'s składka 
     const res = await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com`);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.equal(body.wpisowePaid, true);
+    assert.equal(body.wpisoweStatus, 'paid');
     assert.equal(body.duesYear, currentYear);
     assert.equal(body.duesStatus, 'paid');
   });
@@ -6167,7 +6167,7 @@ test('GET /member-profile defaults an Emeryt with no dues record for the year to
   });
 });
 
-test('GET /member-profile defaults wpisowePaid to false and duesStatus to unpaid for a member with neither a profile nor a dues record', async () => {
+test('GET /member-profile defaults wpisoweStatus and duesStatus to unpaid for a member with neither a profile nor a dues record', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
@@ -6182,7 +6182,7 @@ test('GET /member-profile defaults wpisowePaid to false and duesStatus to unpaid
     const res = await fetch(`${baseUrl}/member-profile?email=bezprofilu@gmail.com`);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.equal(body.wpisowePaid, false);
+    assert.equal(body.wpisoweStatus, 'unpaid');
     assert.equal(body.duesStatus, 'unpaid');
   });
 });
@@ -8016,7 +8016,7 @@ test('GET /lista-wyjazdowa/roster includes allowlisted members with no members/{
     assert.equal(noProfile.sectionId, null);
     assert.equal(noProfile.categoryId, null);
     assert.deepEqual(noProfile.weaponIds, []);
-    assert.equal(noProfile.wpisowePaid, false);
+    assert.equal(noProfile.wpisoweStatus, 'unpaid');
   });
 });
 
@@ -8226,7 +8226,7 @@ test('PUT /lista-wyjazdowa/events with only dueDate still requires at least one 
   });
 });
 
-test('GET /lista-wyjazdowa/events reports viewerSkladkaPaid for the caller', async () => {
+test('GET /lista-wyjazdowa/events reports viewerSkladkaStatus for the caller', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'wojownik@gmail.com');
   const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
@@ -8238,7 +8238,7 @@ test('GET /lista-wyjazdowa/events reports viewerSkladkaPaid for the caller', asy
     });
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/events`);
     const body = await res.json();
-    assert.equal(body.events[0].viewerSkladkaPaid, false);
+    assert.equal(body.events[0].viewerSkladkaStatus, 'unpaid');
     return event;
   });
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
@@ -8247,7 +8247,18 @@ test('GET /lista-wyjazdowa/events reports viewerSkladkaPaid for the caller', asy
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/events`);
     const body = await res.json();
-    assert.equal(body.events[0].viewerSkladkaPaid, true);
+    assert.equal(body.events[0].viewerSkladkaStatus, 'paid');
+  });
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&personId=wojownik@gmail.com`, { status: 'not_applicable' });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).signup.skladkaStatus, 'not_applicable');
+    const bad = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&personId=wojownik@gmail.com`, { status: 'maybe' });
+    assert.equal(bad.status, 400);
+  });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/events`)).json();
+    assert.equal(body.events[0].viewerSkladkaStatus, 'not_applicable');
   });
 });
 
@@ -8304,11 +8315,12 @@ test('PUT /lista-wyjazdowa/wpisowe succeeds and creates a profile for a member w
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.profile.wpisowePaid, true);
+    assert.equal(body.profile.wpisoweStatus, 'paid');
     assert.deepEqual(body.profile.weaponIds, []);
 
     const roster = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
     const member = roster.roster.find((r: { email: string }) => r.email === 'bezprofilu@example.test');
-    assert.equal(member.wpisowePaid, true);
+    assert.equal(member.wpisoweStatus, 'paid');
   });
 });
 
@@ -8467,7 +8479,7 @@ test('GET /lista-wyjazdowa/dues/mine returns only the caller\'s own dues for the
   await withServer(makeDeps({ firestore }), async baseUrl => {
     const empty = await fetch(`${baseUrl}/lista-wyjazdowa/dues/mine?year=2027`);
     assert.equal(empty.status, 200);
-    assert.deepEqual(await empty.json(), { dues: null, duesStatus: 'unpaid' });
+    assert.deepEqual(await empty.json(), { dues: null, duesStatus: 'unpaid', wpisoweStatus: 'unpaid' });
   });
 
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
@@ -8524,14 +8536,40 @@ test('GET /lista-wyjazdowa/dues/mine resolves duesStatus the same way as GET /me
   });
 });
 
-test('GET /lista-wyjazdowa/roster includes wpisowePaid per member', async () => {
+test('GET /lista-wyjazdowa/roster includes wpisoweStatus per member', async () => {
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore(), listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { lastName: 'Ala Kowalska', firstName: 'Ala', sectionId: 'krakow' });
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], companions: [] });
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/roster`);
     const body = await res.json();
-    assert.equal(body.roster[0].wpisowePaid, false);
+    assert.equal(body.roster[0].wpisoweStatus, 'unpaid');
+  });
+});
+
+test('wpisowe defaults to not_applicable for Bobo, an explicit status wins, and PUT accepts not_applicable', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'dziecko@example.test', { email: 'dziecko@example.test', categoryId: 'bobo' });
+  firestore.seed('members', 'dorosly@example.test', { email: 'dorosly@example.test', categoryId: 'blacha' });
+  const listMemberEmails = async () => ['dziecko@example.test', 'dorosly@example.test'];
+  const roster = async (baseUrl: string) => {
+    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
+    return new Map(body.roster.map((r: { email: string; wpisoweStatus: string }) => [r.email, r.wpisoweStatus]));
+  };
+  await withServer(makeDepsWithRole('accountant', firestore, { listMemberEmails }), async baseUrl => {
+    let byEmail = await roster(baseUrl);
+    assert.equal(byEmail.get('dziecko@example.test'), 'not_applicable');
+    assert.equal(byEmail.get('dorosly@example.test'), 'unpaid');
+
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=dziecko@example.test', { status: 'unpaid' })).status, 200);
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=dorosly@example.test', { status: 'not_applicable' });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).profile.wpisoweStatus, 'not_applicable');
+    byEmail = await roster(baseUrl);
+    assert.equal(byEmail.get('dziecko@example.test'), 'unpaid');
+    assert.equal(byEmail.get('dorosly@example.test'), 'not_applicable');
+
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=dorosly@example.test', { status: 'nope' })).status, 400);
   });
 });
 
@@ -8630,7 +8668,9 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
       { field: 'attending', after: true, visibility: 'memberVisible' },
     ]);
     assert.equal(byAction.get('dues.event_fee.changed')?.audience, 'adminOrAccountant');
-    assert.equal(byAction.get('dues.entry_fee.changed')?.changes[0]?.field, 'paid');
+    assert.deepEqual(byAction.get('dues.entry_fee.changed')?.changes, [
+      { field: 'status', before: 'unpaid', after: 'paid', visibility: 'roleRestricted' },
+    ]);
     assert.deepEqual(byAction.get('dues.annual.changed')?.changes, [
       { field: 'status', after: 'paid', visibility: 'roleRestricted' },
       { field: 'year', after: 2027, visibility: 'roleRestricted' },

@@ -28,7 +28,7 @@ export interface DuesWritableFields {
 // own - a pre-existing record was always either paid or unpaid, and the new status only applies to
 // how a record gets its *default* now, not to reinterpreting history.
 export function normalizeDuesStatus(raw: { status?: unknown; paid?: unknown }): DuesStatus {
-  if (raw.status === 'unpaid' || raw.status === 'paid' || raw.status === 'not_applicable') return raw.status;
+  if (isDuesStatus(raw.status)) return raw.status;
   return raw.paid === true ? 'paid' : 'unpaid';
 }
 
@@ -43,6 +43,33 @@ export const EMERYT_CATEGORY_ID = 'emeryt';
 export function effectiveDuesStatus(dues: DuesDoc | null, categoryId: string | null): DuesStatus {
   if (dues) return dues.status;
   return categoryId === EMERYT_CATEGORY_ID ? 'not_applicable' : 'unpaid';
+}
+
+export function isDuesStatus(value: unknown): value is DuesStatus {
+  return value === 'unpaid' || value === 'paid' || value === 'not_applicable';
+}
+
+// Wpisowe and a trip's per-person składka use the same three states as składka roczna. Both were
+// plain booleans before (wpisowePaid on listaWyjazdowaProfile, skladkaPaid on signups), so their
+// records are read-time normalized like normalizeDuesStatus above: the new *Status field wins,
+// otherwise the legacy boolean `true` means paid. The legacy `false` was also written as a mere
+// default on document creation, so it is not an explicit choice and the default below applies.
+// "Bobo" (children) owe no wpisowe by default - same "explicit record wins" rule as emeryt above.
+export const BOBO_CATEGORY_ID = 'bobo';
+
+export function effectiveWpisoweStatus(
+  profile: { wpisoweStatus?: unknown; wpisowePaid?: unknown } | null | undefined,
+  categoryId: string | null,
+): DuesStatus {
+  if (profile && isDuesStatus(profile.wpisoweStatus)) return profile.wpisoweStatus;
+  if (profile?.wpisowePaid === true) return 'paid';
+  return categoryId === BOBO_CATEGORY_ID ? 'not_applicable' : 'unpaid';
+}
+
+// A trip's składka has no category default - everyone starts unpaid.
+export function normalizeSkladkaStatus(signup: { skladkaStatus?: unknown; skladkaPaid?: unknown }): DuesStatus {
+  if (isDuesStatus(signup.skladkaStatus)) return signup.skladkaStatus;
+  return signup.skladkaPaid === true ? 'paid' : 'unpaid';
 }
 
 // The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety"), set once by an

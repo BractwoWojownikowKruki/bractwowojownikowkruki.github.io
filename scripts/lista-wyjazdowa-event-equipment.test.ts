@@ -72,7 +72,7 @@ function createHarness(items: Array<Record<string, unknown>>) {
       calls.push({ url, options });
       if (options.method === 'PUT') return { item: { eventId: 'e1', equipmentId: 'tent-1', going: true, lastChangedBy: 'viewer@example.com', lastChangedAt: '2026-09-20T20:00:00.000Z' } };
       if (url === '/lista-wyjazdowa/events') return { events: [{ id: 'e1', name: 'Wyjazd', startDate: '2026-10-10', status: 'active' }] };
-      if (url.startsWith('/lista-wyjazdowa/roster?')) return { roster: [{ personId: 'owner@example.com', email: 'owner@example.com', lastName: 'Właściciel', firstName: '', accountless: false, sectionId: 'krakow', categoryId: 'kandydat', weaponIds: [], duesStatus: 'paid', wpisowePaid: true }] };
+      if (url.startsWith('/lista-wyjazdowa/roster?')) return { roster: [{ personId: 'owner@example.com', email: 'owner@example.com', lastName: 'Właściciel', firstName: '', accountless: false, sectionId: 'krakow', categoryId: 'kandydat', weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' }] };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups: [] };
       if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: false, canManagePeople: false };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [{ id: 'krakow', label: 'Kraków' }], categories: [{ id: 'kandydat', label: 'Kandydat' }], weapons: [], equipmentCategories: [{ id: 'tent', label: 'Namiot' }] };

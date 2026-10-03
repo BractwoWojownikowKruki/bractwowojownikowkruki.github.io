@@ -164,14 +164,13 @@
   padding: 0;
 }
 
-.profile-weapons-option,
-.profile-dues-option {
+.profile-weapons-option {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.profile-dues-form label:not(.profile-dues-option) {
+.profile-dues-form label {
   display: grid;
   gap: 0.25rem;
   color: var(--text-muted);
