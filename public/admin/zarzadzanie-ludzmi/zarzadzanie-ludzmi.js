@@ -288,6 +288,61 @@ const ASSIGNABLE_ROLES = [
 ];
 const ROLE_LABELS = Object.fromEntries(ASSIGNABLE_ROLES.map(r => [r.value, r.label]));
 
+// Sekcja/Status pills above both tables (Członkowie, Osoby bez konta), counting that table's people
+// and doubling as its filters (shared/summary-filter.js). Each table has its own filter.
+function summaryFilterColumns(filter, people, sections, categories) {
+  const sectionLabelById = new Map(sections.map(s => [s.id, s.label]));
+  const categoryLabelById = new Map(categories.map(c => [c.id, c.label]));
+  const sectionLabelOf = id => (id === null ? 'Bez sekcji' : (sectionLabelById.get(id) ?? id));
+  const categoryLabelOf = id => (id === null ? 'Brak statusu' : (categoryLabelById.get(id) ?? id));
+  const sectionCounts = new Map();
+  const categoryCounts = new Map();
+  for (const person of people) {
+    const sectionId = person.sectionId || null;
+    const categoryId = person.categoryId || null;
+    sectionCounts.set(sectionId, (sectionCounts.get(sectionId) ?? 0) + 1);
+    categoryCounts.set(categoryId, (categoryCounts.get(categoryId) ?? 0) + 1);
+  }
+  summaryFilterPrune(filter, { section: sectionCounts.keys(), category: categoryCounts.keys() });
+  const byLabel = labelOf => (a, b) => labelOf(a).localeCompare(labelOf(b), 'pl');
+  const badge = count => `<span class="lw-summary-badge">${count}</span>`;
+  const sectionChips = [...sectionCounts.keys()].sort(byLabel(sectionLabelOf)).map(id => {
+    const content = `${escapeHtml(sectionLabelOf(id))}${badge(sectionCounts.get(id))}`;
+    return id === null
+      ? summaryFilterChipHtml(filter, 'section', null, { content })
+      : summaryFilterChipHtml(filter, 'section', id, { className: 'section-pill', attrs: `data-section="${escapeAttr(id)}"`, content });
+  }).join('');
+  const categoryChips = [...categoryCounts.keys()].sort(byLabel(categoryLabelOf)).map(id => {
+    const label = categoryLabelOf(id);
+    return id === null
+      ? summaryFilterChipHtml(filter, 'category', null, { content: `${escapeHtml(label)}${badge(categoryCounts.get(id))}` })
+      : summaryFilterChipHtml(filter, 'category', id, {
+          className: 'category-name-pill',
+          attrs: `data-category="${escapeAttr(id)}" title="${escapeAttr(label)}"`,
+          content: `${categoryPillBroccoliIconHtml(id, 'category-label')}${escapeHtml(label)}${badge(categoryCounts.get(id))}`,
+        });
+  }).join('');
+  return summaryFilterBlockHtml(filter, [
+    { heading: 'Filtruj wg sekcji', chipsHtml: sectionChips },
+    { heading: 'Filtruj wg statusu', chipsHtml: categoryChips },
+  ]);
+}
+
+// '' and null both mean "no section/status" here (an unset <select> saves ''), same pill.
+function personFilterValues(person) {
+  return { section: person.sectionId || null, category: person.categoryId || null };
+}
+
+const membershipFilter = createSummaryFilter(['section', 'category']);
+wireSummaryFilter(document.getElementById('membership-summary-filter'), membershipFilter, () => rerenderMembershipMembers());
+
+function renderMembershipSummary() {
+  const { members, sections, categories } = membershipMembersCache;
+  document.getElementById('membership-summary-filter').innerHTML = members.length
+    ? summaryFilterColumns(membershipFilter, members, sections, categories)
+    : '';
+}
+
 // Cached from the last successful load so the free-text filter can re-render instantly without
 // re-fetching - cleared/replaced on every status change or data-changing action.
 let membershipMembersCache = { members: [], status: 'active', driveFolderOptions: [], rolesByEmail: new Map(), sections: [], categories: [], weapons: [], wpisoweByEmail: new Map() };
@@ -307,13 +362,15 @@ async function loadMembershipMembers() {
       loadWpisoweByEmail(),
     ]);
     membershipMembersCache = { members, status, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail };
+    renderMembershipSummary();
     renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail);
   } catch (err) {
     list.textContent = `Błąd: ${err.message}`;
   }
 }
 
-function filterMembershipMembers(members) {
+function filterMembershipMembers(allMembers) {
+  const members = allMembers.filter(m => summaryFilterMatches(membershipFilter, personFilterValues(m)));
   const needle = document.getElementById('membership-members-filter').value.trim().toLocaleLowerCase('pl');
   if (!needle) return members;
   return members.filter(m =>
@@ -325,6 +382,7 @@ function filterMembershipMembers(members) {
 // input and a sortable-header click (membershipSortState below), so filtering and sorting always
 // compose the same way regardless of which one changed last.
 function rerenderMembershipMembers() {
+  renderMembershipSummary();
   const { members, status, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail } = membershipMembersCache;
   renderMembershipMembers(filterMembershipMembers(members), status, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail);
 }
@@ -382,7 +440,9 @@ function weaponCheckboxesHtml(email, weapons, currentWeaponIds) {
 function renderMembershipMembers(members, status, driveFolderOptions, rolesByEmail, sections, categories, weapons, wpisoweByEmail) {
   const tbody = document.getElementById('membership-members-list');
   if (!members.length) {
-    tbody.innerHTML = '<tr><td colspan="13" class="czl-empty">Brak członków w tym statusie.</td></tr>';
+    tbody.innerHTML = membershipMembersCache.members.length
+      ? '<tr><td colspan="13" class="czl-empty">Brak członków dla wybranych filtrów.</td></tr>'
+      : '<tr><td colspan="13" class="czl-empty">Brak członków w tym statusie.</td></tr>';
     return;
   }
   // Defaults to grouped by section, alphabetical within it (KRKG-0051) - now click-to-sort
@@ -526,6 +586,9 @@ async function saveMemberProfileField(row, email, control) {
         }
         const stillFlagged = (!sectionId || sectionId === 'nieznana') && !categoryId;
         row.classList.toggle('membership-member--flagged', stillFlagged);
+        // Counts on the pills follow the change; the row itself stays put (no re-filter) so the
+        // field the admin is editing doesn't jump away.
+        renderMembershipSummary();
       },
       viewRoot: row.closest('tbody'),
       refreshFragment: loadMembershipMembers,
@@ -843,16 +906,25 @@ function accountlessDisplayName(person) {
 
 // KRKG-0091: the list is GET /lista-wyjazdowa/persons (staff), which - unlike the roster's current
 // read - also returns deactivated (tombstoned) people, so they can be permanently removed.
+const accountlessFilter = createSummaryFilter(['section', 'category']);
+wireSummaryFilter(document.getElementById('accountless-summary-filter'), accountlessFilter, () => renderAccountless(accountlessCache.persons));
+
 function renderAccountless(persons) {
   accountlessCache.persons = persons;
+  document.getElementById('accountless-summary-filter').innerHTML = persons.length
+    ? summaryFilterColumns(accountlessFilter, persons, accountlessCache.sections, accountlessCache.categories)
+    : '';
+  const shown = persons.filter((person) => summaryFilterMatches(accountlessFilter, personFilterValues(person)));
   const sectionLabelById = new Map(accountlessCache.sections.map((s) => [s.id, s.label]));
   const categoryLabelById = new Map(accountlessCache.categories.map((c) => [c.id, c.label]));
   const weaponLabelById = new Map(accountlessCache.weapons.map((w) => [w.id, w.label]));
   const tbody = document.getElementById('accountless-list');
-  if (persons.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="czl-empty">Brak osób bez konta.</td></tr>';
+  if (shown.length === 0) {
+    tbody.innerHTML = persons.length
+      ? '<tr><td colspan="7" class="czl-empty">Brak osób dla wybranych filtrów.</td></tr>'
+      : '<tr><td colspan="7" class="czl-empty">Brak osób bez konta.</td></tr>';
   } else {
-    tbody.innerHTML = persons.map((person) => {
+    tbody.innerHTML = shown.map((person) => {
       const categoryLabel = person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : null;
       const namePill = personPillHtml({ name: accountlessDisplayName(person), categoryId: person.categoryId, categoryLabel, accountless: true, subline: personSubline(person) });
       // A deactivated person's drawer 404s, so their pill is plain text; an active one opens it.

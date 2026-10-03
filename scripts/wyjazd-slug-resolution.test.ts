@@ -8,6 +8,7 @@ const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-fo
 const lwFriendlyUrlSource = readFileSync(new URL('../public/shared/lw-friendly-url.js', import.meta.url), 'utf8');
 const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.meta.url), 'utf8');
 const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
+const summaryFilterSource = readFileSync(new URL('../public/shared/summary-filter.js', import.meta.url), 'utf8');
 
 class Element {
   hidden = false;
@@ -30,7 +31,7 @@ class Element {
 const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'not-found-panel', 'main-content', 'lw-error',
   'skladka-fee-display', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
-  'skladka-fee-save', 'skladka-fee-remove', 'summary-content', 'roster-panel', 'roster-table',
+  'skladka-fee-save', 'skladka-fee-remove', 'summary-content', 'summary-panel', 'roster-panel', 'roster-table',
   'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni', 'event-title',
   'event-meta', 'event-description', 'event-edit-toggle', 'event-edit-panel', 'event-history-link',
   'skladka-fee-history-link', 'lw-inline-existing-select', 'lw-inline-new-name',
@@ -83,6 +84,7 @@ function createHarness(search: string) {
   vm.runInNewContext(lwFriendlyUrlSource, context, { filename: 'lw-friendly-url.js' });
   vm.runInNewContext(lwNavSource, context, { filename: 'lw-nav.js' });
   vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
+  vm.runInNewContext(summaryFilterSource, context, { filename: 'summary-filter.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   return { elements, calls, signIn: async () => signIn?.({ email: 'viewer@example.com' }) };
 }

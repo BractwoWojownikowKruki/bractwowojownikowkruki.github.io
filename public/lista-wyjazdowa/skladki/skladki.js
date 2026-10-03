@@ -256,6 +256,19 @@ const emeryciSortState = initSortableTable(document.getElementById('skladki-emer
 let cachedRoster = [];
 let cachedDuesByPersonId = new Map();
 
+// The summary pills as filters (shared/summary-filter.js) - narrow both tables (main + Emeryci /
+// Nie dotyczy) in both modes. renderSummary needs the year's dues, so a pill click re-renders it
+// from the same cached roster/dues as the tables.
+const skladkiFilter = createSummaryFilter(['section', 'category']);
+wireSummaryFilter(document.getElementById('summary-panel'), skladkiFilter, () => {
+  renderSummary(cachedRoster, cachedDuesByPersonId);
+  renderCurrentView();
+});
+
+function skladkiFilterMatches(member) {
+  return summaryFilterMatches(skladkiFilter, { section: member.sectionId, category: member.categoryId });
+}
+
 function renderCurrentView() {
   if (wpisoweMode) {
     renderWpisoweList(cachedRoster);
@@ -364,13 +377,17 @@ function renderSummary(roster, duesByPersonId) {
       labelFor(a).toLocaleLowerCase('pl').localeCompare(labelFor(b).toLocaleLowerCase('pl'), 'pl'),
     );
 
+  // The pills double as filters for both tables below (shared/summary-filter.js) - drop a pressed
+  // value whose pill is gone before rendering them.
+  summaryFilterPrune(skladkiFilter, { section: totalBySection.keys(), category: totalByCategory.keys() });
+
   const sectionChips = sortedIds(totalBySection, sectionLabel)
     .map((sectionId) => {
       const label = sectionLabel(sectionId);
       const badge = unpaidBadgeHtml(unpaidBySection.get(sectionId) ?? 0, totalBySection.get(sectionId));
       return sectionId === null
-        ? `<span class="lw-summary-chip">${escapeHtml(label)}${badge}</span>`
-        : `<span class="section-pill lw-summary-chip" data-section="${escapeAttr(sectionId)}">${escapeHtml(label)}${badge}</span>`;
+        ? summaryFilterChipHtml(skladkiFilter, 'section', null, { content: `${escapeHtml(label)}${badge}` })
+        : summaryFilterChipHtml(skladkiFilter, 'section', sectionId, { className: 'section-pill', attrs: `data-section="${escapeAttr(sectionId)}"`, content: `${escapeHtml(label)}${badge}` });
     })
     .join('');
 
@@ -381,8 +398,8 @@ function renderSummary(roster, duesByPersonId) {
       // Not personPillHtml() here - this is a category chip, not a person pill (no accountless
       // marker), and it appends lw-summary-chip plus its own count badge.
       return categoryId === null
-        ? `<span class="lw-summary-chip">${escapeHtml(label)}${badge}</span>`
-        : `<span class="category-name-pill lw-summary-chip" data-category="${escapeAttr(categoryId)}" title="${escapeAttr(label)}">${categoryPillBroccoliIconHtml(categoryId, 'category-label')}${escapeHtml(label)}${badge}</span>`;
+        ? summaryFilterChipHtml(skladkiFilter, 'category', null, { content: `${escapeHtml(label)}${badge}` })
+        : summaryFilterChipHtml(skladkiFilter, 'category', categoryId, { className: 'category-name-pill', attrs: `data-category="${escapeAttr(categoryId)}" title="${escapeAttr(label)}"`, content: `${categoryPillBroccoliIconHtml(categoryId, 'category-label')}${escapeHtml(label)}${badge}` });
     })
     .join('');
 
@@ -404,16 +421,10 @@ function renderSummary(roster, duesByPersonId) {
   document.getElementById('summary-content').innerHTML = `
     <p>${totalLine}</p>
     ${notApplicableLine}
-    <div class="lw-summary-columns">
-      <div>
-        <h3>Wg sekcji</h3>
-        <div class="lw-summary-chips">${sectionChips}</div>
-      </div>
-      <div>
-        <h3>Wg statusu</h3>
-        <div class="lw-summary-chips">${categoryChips}</div>
-      </div>
-    </div>
+    ${summaryFilterBlockHtml(skladkiFilter, [
+      { heading: 'Filtruj wg sekcji', chipsHtml: sectionChips },
+      { heading: 'Filtruj wg statusu', chipsHtml: categoryChips },
+    ])}
   `;
 }
 
@@ -450,6 +461,7 @@ function renderTable(roster, duesByPersonId) {
   const mainRoster = [];
   const emeryciRoster = [];
   for (const member of roster) {
+    if (!skladkiFilterMatches(member)) continue;
     if (member.categoryId === EMERYT_CATEGORY_ID) emeryciRoster.push(member);
     else mainRoster.push(member);
   }
@@ -495,7 +507,9 @@ function renderTable(roster, duesByPersonId) {
       ${canManageSkladki ? `<th scope="col" class="lw-narrow-col" title="Historia"><span class="lw-col-icon" aria-hidden="true">${HISTORY_ICON}</span><span class="lw-col-label">Historia</span></th>` : ''}
     </tr>
   `;
-  table.querySelector('tbody').innerHTML = sorted.map(rowHtml).join('');
+  table.querySelector('tbody').innerHTML = sorted.length
+    ? sorted.map(rowHtml).join('')
+    : `<tr><td colspan="${canManageSkladki ? 4 : 3}" class="czl-empty">Brak osób dla wybranych filtrów.</td></tr>`;
   skladkiSortState.refresh();
 
   const emeryciSortValue = (member) => {
@@ -543,6 +557,7 @@ function renderWpisoweList(roster) {
   const unpaidRoster = [];
   const notApplicableRoster = [];
   for (const member of roster) {
+    if (!skladkiFilterMatches(member)) continue;
     const status = memberWpisoweStatus(member);
     if (status === 'unpaid') unpaidRoster.push(member);
     else if (status === 'not_applicable') notApplicableRoster.push(member);
@@ -597,7 +612,7 @@ function renderWpisoweList(roster) {
 
   const colCount = canManageSkladki ? 5 : 4;
   const rows = unpaidRoster.length === 0
-    ? `<tr><td colspan="${colCount}" class="czl-empty">Wszyscy członkowie mają opłacone wpisowe.</td></tr>`
+    ? `<tr><td colspan="${colCount}" class="czl-empty">${summaryFilterActive(skladkiFilter) ? 'Brak osób z nieopłaconym wpisowym dla wybranych filtrów.' : 'Wszyscy członkowie mają opłacone wpisowe.'}</td></tr>`
     : sortedBy(unpaidRoster, skladkiSortState).map(rowHtml).join('');
 
   const table = document.getElementById('skladki-table');

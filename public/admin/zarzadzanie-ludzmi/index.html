@@ -70,6 +70,9 @@
           Filtruj
           <input id="membership-members-filter" type="search" placeholder="Szukaj…" autocomplete="off" style="display:block; width:100%; margin-top:4px;" />
         </label>
+        <!-- Sekcja/Status pills that double as filters (shared/summary-filter.js), counted over the
+             chosen "Konto" list - rendered by zarzadzanie-ludzmi.js's renderMembershipSummary. -->
+        <div id="membership-summary-filter"></div>
         <div class="czl-table-wrap">
           <table class="czl-table" id="membership-table">
             <thead>
@@ -135,6 +138,7 @@
           </div>
           <p class="add-album-error" id="accountless-error" hidden></p>
         </div>
+        <div id="accountless-summary-filter" style="margin-top: 1rem;"></div>
         <div class="czl-table-wrap">
           <table class="czl-table" id="accountless-table">
             <thead>
@@ -239,6 +243,7 @@
   <script src="../../shared/dues-status.js"></script>
   <script src="../../shared/profile-panel.js"></script>
   <script src="../../shared/sortable-table.js"></script>
+  <script src="../../shared/summary-filter.js"></script>
   <script src="zarzadzanie-ludzmi.js"></script>
 </body>
 </html>

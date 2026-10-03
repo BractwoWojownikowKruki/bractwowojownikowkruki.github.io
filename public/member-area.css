@@ -1439,12 +1439,53 @@ button.lw-skladka-icon:disabled {
 
 /* A plain (non-pill) chip - "Bez sekcji"/"Brak typu" have no data-section/data-category color to
    inherit, so this gives them the same compact pill shape with a neutral background instead. */
-span.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
+.lw-summary-chip:not(.section-pill):not(.category-name-pill) {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
   background: var(--surface-deep);
   color: var(--text-muted);
+}
+
+/* Summary pills as filters (shared/summary-filter.js) - same look as the equipment page's section
+   filter (.equipment-filter-pill below): pressed = ring + checkmark, and while anything is pressed
+   the unpressed pills dim. The pills are <button>s, so reset the native button chrome. */
+.lw-summary-filter {
+  margin-bottom: 0.75rem;
+}
+
+button.lw-filter-chip {
+  border: none;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s, box-shadow 0.15s;
+}
+
+.lw-filter-chip[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text);
+}
+
+.lw-filter-chip[aria-pressed="true"]::before {
+  content: "✓";
+  margin-right: 0.3rem;
+}
+
+.lw-summary-filter[data-filter-active="true"] .lw-filter-chip[aria-pressed="false"] {
+  opacity: 0.45;
+}
+
+.lw-summary-filter[data-filter-active="true"] .lw-filter-chip[aria-pressed="false"]:hover {
+  opacity: 0.75;
+}
+
+/* Ring needs a little room so it isn't clipped against the neighbouring pill. */
+.lw-summary-filter .lw-summary-chips {
+  gap: 0.45rem;
+}
+
+.lw-filter-clear {
+  margin-top: 0.6rem;
 }
 
 /* The count itself, appended inside the chip rather than written out as "N nieopłaconych" -
