@@ -165,7 +165,7 @@ test('Wyjazd page hides the equipment table and shows a note when the event has 
   assert.equal(harness.elements.get('event-equipment-disabled-note')!.hidden, false);
 });
 
-test('Wyjazd page tallies what is going per category (Budowle, Meble, Kuchnia) and in the headcount line', async () => {
+test('Wyjazd page tallies what is going per category (Krucza architektura, Meble, Kuchnia) and in the headcount line', async () => {
   const item = (id: string, categoryId: string, going: boolean) => ({ id, categoryId, sectionId: 'krakow', belongsToPersonId: null, description: id, going });
   const harness = createHarness([
     item('g1', 'garnek', true), item('s1', 'stol', true), item('n1', 'namiot', true), item('n2', 'namiot', true),
@@ -173,7 +173,9 @@ test('Wyjazd page tallies what is going per category (Budowle, Meble, Kuchnia) a
   ]);
   await harness.signIn();
   const summary = harness.elements.get('event-equipment-summary')!.innerHTML;
-  assert.ok(summary.indexOf('Budowle') < summary.indexOf('Meble') && summary.indexOf('Meble') < summary.indexOf('Kuchnia'));
+  assert.match(summary, /Krucza architektura/);
+  assert.doesNotMatch(summary, /Budowle/);
+  assert.ok(summary.indexOf('Krucza architektura') < summary.indexOf('Meble') && summary.indexOf('Meble') < summary.indexOf('Kuchnia'));
   assert.match(summary, /Namiot<span class="lw-summary-badge">3<\/span>/);
   assert.match(summary, /Wiata<span class="lw-summary-badge">2<\/span>/);
   assert.match(harness.elements.get('summary-content')!.innerHTML, /os\., 3 namioty, 2 wiaty/);

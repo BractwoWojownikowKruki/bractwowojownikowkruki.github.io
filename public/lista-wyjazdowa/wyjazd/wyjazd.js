@@ -473,6 +473,13 @@ function shelterSummaryText() {
   return `, ${tents} ${pluralPl(tents, 'namiot', 'namioty', 'namiotów')}, ${shelters} ${pluralPl(shelters, 'wiata', 'wiaty', 'wiat')}`;
 }
 
+// Joke: this summary (and only this one) calls the "Budowle" group "Krucza architektura"; the group
+// keeps its real name everywhere else (Sprzęt obozowy, the equipment drawer).
+function equipmentGroupHeading(categoryId) {
+  if (equipmentGroupIdByCategoryId.get(categoryId) === 'budowle') return 'Krucza architektura';
+  return equipmentGroupLabelByCategoryId.get(categoryId) ?? '';
+}
+
 // Per-category tally of what is going, above the equipment table: grouped by equipment group in
 // lookup order (Krucza architektura, Meble, Kuchnia), categories in lookup order within each group.
 // The pills double as filters for the table below (equipmentFilter).
@@ -493,7 +500,7 @@ function renderEquipmentSummary(allItems) {
   for (const [categoryId, label] of equipmentCategoryLabelById) {
     const count = counts.get(categoryId);
     if (!count) continue;
-    const groupLabel = equipmentGroupLabelByCategoryId.get(categoryId) ?? '';
+    const groupLabel = equipmentGroupHeading(categoryId);
     groups.set(groupLabel, (groups.get(groupLabel) ?? '') + chipHtml(categoryId, label, count));
     counts.delete(categoryId);
   }
@@ -564,6 +571,7 @@ let sectionLabelById = new Map();
 let categoryLabelById = new Map();
 let equipmentCategoryLabelById = new Map();
 let equipmentGroupLabelByCategoryId = new Map();
+let equipmentGroupIdByCategoryId = new Map();
 let weaponLabelById = new Map();
 let personById = new Map();
 // The raw categories lookup (id + label, in seed order) for the "new person" <select> in the
@@ -1149,6 +1157,7 @@ async function loadAll() {
   equipmentCategoryLabelById = new Map((lookupLists.equipmentCategories ?? []).map((c) => [c.id, c.label]));
   const equipmentGroupLabelById = new Map((lookupLists.equipmentGroups ?? []).map((g) => [g.id, g.label]));
   equipmentGroupLabelByCategoryId = new Map((lookupLists.equipmentCategories ?? []).map((c) => [c.id, equipmentGroupLabelById.get(c.groupId) ?? '']));
+  equipmentGroupIdByCategoryId = new Map((lookupLists.equipmentCategories ?? []).map((c) => [c.id, c.groupId]));
   weaponLabelById = new Map((lookupLists.weapons ?? []).map((w) => [w.id, w.label]));
   categoryOptions = lookupLists.categories ?? [];
   openAddPanelOwnerPersonId = null;
