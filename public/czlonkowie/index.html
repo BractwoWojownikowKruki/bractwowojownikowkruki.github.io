@@ -49,6 +49,9 @@
             </svg>
             <input type="search" id="czl-filter" placeholder="Szukaj…" autocomplete="off" />
           </div>
+          <!-- Sekcja/Status pills with counts that double as filters (shared/summary-filter.js),
+               rendered by czlonkowie.js's renderSummaryFilter. -->
+          <div id="czl-summary-filter"></div>
           <div class="czl-table-wrap">
             <table class="czl-table" id="czl-table">
               <thead>
@@ -84,6 +87,7 @@
   <script src="../shared/dues-status.js"></script>
   <script src="../shared/profile-panel.js"></script>
   <script src="../shared/sortable-table.js"></script>
+  <script src="../shared/summary-filter.js"></script>
   <script src="czlonkowie.js"></script>
 </body>
 </html>

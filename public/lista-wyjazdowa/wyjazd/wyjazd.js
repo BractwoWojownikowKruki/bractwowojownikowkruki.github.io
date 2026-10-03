@@ -372,6 +372,14 @@ function renderSummary(roster, signups) {
       labelFor(a).toLocaleLowerCase('pl').localeCompare(labelFor(b).toLocaleLowerCase('pl'), 'pl'),
     );
 
+  // The pills double as filters for the roster below (shared/summary-filter.js) - drop a pressed
+  // value whose pill is gone (its last attendee signed off) before rendering them.
+  summaryFilterPrune(rosterFilter, {
+    section: bySection.keys(),
+    weapon: byWeaponGroup.keys(),
+    category: byCategory.keys(),
+  });
+
   // Chips (pill + count badge), not a line-per-group list - "Sekcja: N" per line took far more
   // room than the numbers actually need (KRKG-0047 follow-up).
   const sectionChips = sortedKeys(bySection, sectionLabelFor)
@@ -379,14 +387,14 @@ function renderSummary(roster, signups) {
       const label = sectionLabelFor(sectionId);
       const badge = `<span class="lw-summary-badge">${bySection.get(sectionId)}</span>`;
       return sectionId === null
-        ? `<span class="lw-summary-chip">${escapeHtml(label)}${badge}</span>`
-        : `<span class="section-pill lw-summary-chip" data-section="${escapeAttr(sectionId)}">${escapeHtml(label)}${badge}</span>`;
+        ? summaryFilterChipHtml(rosterFilter, 'section', null, { content: `${escapeHtml(label)}${badge}` })
+        : summaryFilterChipHtml(rosterFilter, 'section', sectionId, { className: 'section-pill', attrs: `data-section="${escapeAttr(sectionId)}"`, content: `${escapeHtml(label)}${badge}` });
     })
     .join('');
 
-  const weaponChips = Array.from(byWeaponGroup.values())
-    .sort((a, b) => a.label.toLocaleLowerCase('pl').localeCompare(b.label.toLocaleLowerCase('pl'), 'pl'))
-    .map(({ weaponIds, label, count }) => `<span class="lw-summary-chip">${weaponGroupIconHtml(weaponIds, label)}<span class="lw-summary-badge">${count}</span></span>`)
+  const weaponChips = Array.from(byWeaponGroup.entries())
+    .sort(([, a], [, b]) => a.label.toLocaleLowerCase('pl').localeCompare(b.label.toLocaleLowerCase('pl'), 'pl'))
+    .map(([weaponKey, { weaponIds, label, count }]) => summaryFilterChipHtml(rosterFilter, 'weapon', weaponKey, { content: `${weaponGroupIconHtml(weaponIds, label)}<span class="lw-summary-badge">${count}</span>` }))
     .join('');
 
   const categoryChips = sortedKeys(byCategory, categoryLabelFor)
@@ -397,18 +405,18 @@ function renderSummary(roster, signups) {
       // person pills only). Built inline rather than via personPillHtml because that escapes its
       // whole content, which would drop this count badge.
       return categoryId === null
-        ? `<span class="lw-summary-chip">${escapeHtml(label)}${badge}</span>`
-        : `<span class="category-name-pill lw-summary-chip" data-category="${escapeAttr(categoryId)}" title="${escapeAttr(label)}">${categoryPillBroccoliIconHtml(categoryId, 'category-label')}${escapeHtml(label)}${badge}</span>`;
+        ? summaryFilterChipHtml(rosterFilter, 'category', null, { content: `${escapeHtml(label)}${badge}` })
+        : summaryFilterChipHtml(rosterFilter, 'category', categoryId, { className: 'category-name-pill', attrs: `data-category="${escapeAttr(categoryId)}" title="${escapeAttr(label)}"`, content: `${categoryPillBroccoliIconHtml(categoryId, 'category-label')}${escapeHtml(label)}${badge}` });
     })
     .join('');
 
   document.getElementById('summary-content').innerHTML = `
     <p>Łącznie: <strong>${attending.length}</strong> os.</p>
-    <div class="lw-summary-columns">
-      <div><h3>Wg sekcji</h3><div class="lw-summary-chips">${sectionChips}</div></div>
-      <div><h3>Wg broni</h3><div class="lw-summary-chips">${weaponChips}</div></div>
-      <div><h3>Wg statusu</h3><div class="lw-summary-chips">${categoryChips}</div></div>
-    </div>
+    ${summaryFilterBlockHtml(rosterFilter, [
+      { heading: 'Filtruj wg sekcji', chipsHtml: sectionChips },
+      { heading: 'Filtruj wg broni', chipsHtml: weaponChips },
+      { heading: 'Filtruj wg statusu', chipsHtml: categoryChips },
+    ])}
   `;
 }
 
@@ -426,6 +434,24 @@ let showSignedUpAndMe = true;
 let cachedRoster = [];
 let cachedSignups = [];
 let cachedEventEquipment = [];
+// The summary pills as filters (shared/summary-filter.js): sekcja/broń/status narrow the roster on
+// top of the two checkboxes above; only sekcja applies to the equipment table (owner's section for
+// private equipment, see equipmentSectionId). Weapon values are weaponGroupKey()s - the same full
+// weapon set the "Filtruj wg broni" pills count by.
+const rosterFilter = createSummaryFilter(['section', 'weapon', 'category']);
+wireSummaryFilter(document.getElementById('summary-panel'), rosterFilter, () => {
+  renderSummary(cachedRoster, cachedSignups);
+  renderRoster(cachedRoster, cachedSignups);
+  renderEventEquipment(cachedEventEquipment);
+});
+
+function rosterFilterMatches(member) {
+  return summaryFilterMatches(rosterFilter, {
+    section: member.sectionId,
+    weapon: weaponGroupKey(member.weaponIds),
+    category: member.categoryId,
+  });
+}
 // KRKG-0087: which account row's inline "add companion" panel is open, or null when none is. Only
 // one panel is open at a time, so its controls can carry fixed ids (lw-inline-*) - see
 // renderAddPanel. Reset on every loadAll so a stale owner can't leave a panel rendered.
@@ -556,10 +582,15 @@ function eventEquipmentSortValue(item) {
   }
 }
 
-function renderEventEquipment(items) {
+function renderEventEquipment(allItems) {
   const tbody = document.getElementById('event-equipment-content');
-  if (items.length === 0) {
+  if (allItems.length === 0) {
     tbody.innerHTML = '<tr><td colspan="5" class="czl-empty">Brak sprzętu obozowego.</td></tr>';
+    return;
+  }
+  const items = allItems.filter((item) => summaryFilterMatches(rosterFilter, { section: equipmentSectionId(item) }));
+  if (items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="czl-empty">Brak sprzętu dla wybranych filtrów.</td></tr>';
     return;
   }
   const sorted = [...items].sort((a, b) => {
@@ -645,8 +676,8 @@ function renderRoster(roster, signups) {
   const signupByPersonId = new Map(signups.map((s) => [s.memberEmail, s]));
   const visible = roster.filter((m) => {
     const attending = signupByPersonId.get(m.personId)?.attending ?? false;
-    if (attending || m.personId === viewerPersonId) return showSignedUpAndMe;
-    return showNotSignedUp;
+    const shownByCheckbox = attending || m.personId === viewerPersonId ? showSignedUpAndMe : showNotSignedUp;
+    return shownByCheckbox && rosterFilterMatches(m);
   });
 
   const tbody = document.getElementById('roster-content');

@@ -63,6 +63,53 @@ const EMPTY = '—';
 let members = [];
 let filterText = '';
 
+// Sekcja/Status pills above the table, counting every person on the page and doubling as filters
+// (shared/summary-filter.js) - combined with the "Szukaj…" text filter.
+const directoryFilter = createSummaryFilter(['section', 'category']);
+wireSummaryFilter(document.getElementById('czl-summary-filter'), directoryFilter, renderTable);
+
+function renderSummaryFilter() {
+  const sectionCounts = new Map();
+  const categoryCounts = new Map();
+  const sectionLabels = new Map();
+  const categoryLabels = new Map();
+  for (const m of members) {
+    const sectionId = m.sectionId ?? null;
+    const categoryId = m.categoryId ?? null;
+    sectionCounts.set(sectionId, (sectionCounts.get(sectionId) ?? 0) + 1);
+    categoryCounts.set(categoryId, (categoryCounts.get(categoryId) ?? 0) + 1);
+    if (sectionId !== null) sectionLabels.set(sectionId, m.sectionLabel || sectionId);
+    if (categoryId !== null) categoryLabels.set(categoryId, m.categoryLabel || categoryId);
+  }
+  summaryFilterPrune(directoryFilter, { section: sectionCounts.keys(), category: categoryCounts.keys() });
+  const sectionLabelOf = (id) => (id === null ? 'Bez sekcji' : sectionLabels.get(id));
+  const categoryLabelOf = (id) => (id === null ? 'Brak statusu' : categoryLabels.get(id));
+  const byLabel = (labelOf) => (a, b) => labelOf(a).localeCompare(labelOf(b), 'pl');
+  const badge = (count) => `<span class="lw-summary-badge">${count}</span>`;
+
+  const sectionChips = [...sectionCounts.keys()].sort(byLabel(sectionLabelOf)).map((id) => {
+    const content = `${escapeHtml(sectionLabelOf(id))}${badge(sectionCounts.get(id))}`;
+    return id === null
+      ? summaryFilterChipHtml(directoryFilter, 'section', null, { content })
+      : summaryFilterChipHtml(directoryFilter, 'section', id, { className: 'section-pill', attrs: `data-section="${escapeAttr(id)}"`, content });
+  }).join('');
+  const categoryChips = [...categoryCounts.keys()].sort(byLabel(categoryLabelOf)).map((id) => {
+    const label = categoryLabelOf(id);
+    return id === null
+      ? summaryFilterChipHtml(directoryFilter, 'category', null, { content: `${escapeHtml(label)}${badge(categoryCounts.get(id))}` })
+      : summaryFilterChipHtml(directoryFilter, 'category', id, {
+          className: 'category-name-pill',
+          attrs: `data-category="${escapeAttr(id)}" title="${escapeAttr(label)}"`,
+          content: `${categoryPillBroccoliIconHtml(id, 'category-label')}${escapeHtml(label)}${badge(categoryCounts.get(id))}`,
+        });
+  }).join('');
+
+  document.getElementById('czl-summary-filter').innerHTML = summaryFilterBlockHtml(directoryFilter, [
+    { heading: 'Filtruj wg sekcji', chipsHtml: sectionChips },
+    { heading: 'Filtruj wg statusu', chipsHtml: categoryChips },
+  ]);
+}
+
 function cell(value) {
   return value ? escapeHtml(value) : EMPTY;
 }
@@ -83,10 +130,12 @@ const sortState = initSortableTable(document.getElementById('czl-table'), {
 });
 
 function renderTable() {
+  renderSummaryFilter();
   const needle = filterText.trim().toLocaleLowerCase('pl');
+  const byPills = members.filter((m) => summaryFilterMatches(directoryFilter, { section: m.sectionId, category: m.categoryId }));
   const filtered = !needle
-    ? members
-    : members.filter((m) =>
+    ? byPills
+    : byPills.filter((m) =>
         [m.lastName, m.firstName, m.nickname, m.sectionLabel, m.categoryLabel, m.email].some((v) =>
           (v ?? '').toString().toLocaleLowerCase('pl').includes(needle),
         ),

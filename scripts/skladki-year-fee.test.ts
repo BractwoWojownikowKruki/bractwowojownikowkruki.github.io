@@ -6,6 +6,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../public/lista-wyjazdowa/skladki/skladki.js', import.meta.url), 'utf8');
 const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
+const summaryFilterSource = readFileSync(new URL('../public/shared/summary-filter.js', import.meta.url), 'utf8');
 
 test('fee category summary adds a decorative Brokuł icon through the shared helper', () => {
   assert.match(source, /categoryPillBroccoliIconHtml\(categoryId, 'category-label'\)/);
@@ -57,7 +58,7 @@ const elementIds = [
   'skladka-fee-panel', 'skladki-year-fee-display', 'skladki-year-fee-edit',
   'skladki-year-fee-input', 'skladki-year-fee-duedate-input', 'skladki-year-fee-save',
   'skladki-year-fee-remove', 'skladki-year-fee-history-link', 'skladki-year-select',
-  'summary-content', 'skladki-content', 'skladki-table', 'skladki-emeryci',
+  'summary-content', 'summary-panel', 'skladki-content', 'skladki-table', 'skladki-emeryci',
   'skladki-emeryci-table', 'skladki-emeryci-heading',
 ];
 
@@ -127,6 +128,7 @@ function createHarness(yearFee: Record<string, unknown> | null, options: { roste
   };
   vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
   vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
+  vm.runInNewContext(summaryFilterSource, context, { filename: 'summary-filter.js' });
   vm.runInNewContext(source, context, { filename: 'skladki.js' });
   return {
     elements,
