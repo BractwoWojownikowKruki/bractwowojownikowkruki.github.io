@@ -122,6 +122,30 @@ function formatDate(isoDate) {
   return `${d}.${m}.${y}`;
 }
 
+// Whole calendar days from today (local) to a bare "YYYY-MM-DD" date; negative once it has passed.
+// Both sides go through Date.UTC so a DST change never turns a day into 23 or 25 hours.
+function daysUntil(isoDate) {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const now = new Date();
+  return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
+}
+
+function daysUntilLabel(days) {
+  if (days === 0) return 'dzisiaj';
+  if (days === 1) return 'jutro';
+  if (days === -1) return 'wczoraj';
+  return days > 0 ? `za ${days} dni` : `${-days} dni temu`;
+}
+
+// The date pill beside the title (calendar icon + DD.MM.YYYY) and the small status line that is
+// left under the title once the date has moved out of it.
+function renderEventDateAndStatus(event) {
+  const pill = document.getElementById('event-date-pill');
+  pill.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${escapeHtml(formatDate(event.startDate))}`;
+  pill.hidden = false;
+  document.getElementById('event-meta').textContent = event.status === 'cancelled' ? 'Odwołany' : '';
+}
+
 function formatStatusChangedAt(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -245,8 +269,16 @@ function renderSkladkaFee(event) {
   const dueDate = normalizeSkladkaDueDate(event.dueDate);
   display.textContent = fee || 'Nie ustalono';
   // A due date only ever exists alongside a fee (see updateSkladkaFeeFormState), so it is never
-  // shown on its own even for legacy data that still carries an orphaned date.
-  if (fee && dueDate) display.textContent += ` (termin: ${formatDate(dueDate)})`;
+  // shown on its own even for legacy data that still carries an orphaned date. It sits in the
+  // section header as a pill, with the days left computed against today on every render.
+  const deadlinePill = document.getElementById('skladka-fee-duedate-pill');
+  const showDeadline = Boolean(fee && dueDate);
+  deadlinePill.hidden = !showDeadline;
+  if (showDeadline) {
+    const days = daysUntil(dueDate);
+    deadlinePill.dataset.overdue = String(days < 0);
+    deadlinePill.innerHTML = `<small>termin</small> ${escapeHtml(formatDate(dueDate))} <span class="lw-deadline-days">(${escapeHtml(daysUntilLabel(days))})</span>`;
+  }
   // KRKG-0102: the Edytuj toggle only exists for members who can actually save a change (server
   // re-checks anyway) - the form itself stays collapsed by default even for them, tracked by
   // skladkaEditOpen, instead of always being shown the moment they have the role.
@@ -442,7 +474,8 @@ function shelterSummaryText() {
 }
 
 // Per-category tally of what is going, above the equipment table: grouped by equipment group in
-// lookup order (Budowle, Meble, Kuchnia), categories in lookup order within each group.
+// lookup order (Krucza architektura, Meble, Kuchnia), categories in lookup order within each group.
+// The pills double as filters for the table below (equipmentFilter).
 function renderEquipmentSummary(allItems) {
   const el = document.getElementById('event-equipment-summary');
   if (cachedEvent?.noCampEquipment) {
@@ -453,27 +486,26 @@ function renderEquipmentSummary(allItems) {
   for (const item of allItems) {
     if (item.going === true) counts.set(item.categoryId, (counts.get(item.categoryId) ?? 0) + 1);
   }
+  summaryFilterPrune(equipmentFilter, { equipmentCategory: counts.keys() });
+  const chipHtml = (categoryId, label, count) =>
+    summaryFilterChipHtml(equipmentFilter, 'equipmentCategory', categoryId, { content: `${escapeHtml(label)}<span class="lw-summary-badge">${count}</span>` });
   const groups = new Map(); // group label -> chips html, in first-seen (lookup) order
   for (const [categoryId, label] of equipmentCategoryLabelById) {
     const count = counts.get(categoryId);
     if (!count) continue;
     const groupLabel = equipmentGroupLabelByCategoryId.get(categoryId) ?? '';
-    const chip = `<span class="lw-summary-chip">${escapeHtml(label)}<span class="lw-summary-badge">${count}</span></span>`;
-    groups.set(groupLabel, (groups.get(groupLabel) ?? '') + chip);
+    groups.set(groupLabel, (groups.get(groupLabel) ?? '') + chipHtml(categoryId, label, count));
     counts.delete(categoryId);
   }
   // A going item whose category is missing from the lookup still counts, under its raw id.
   for (const [categoryId, count] of counts) {
-    const chip = `<span class="lw-summary-chip">${escapeHtml(categoryId)}<span class="lw-summary-badge">${count}</span></span>`;
-    groups.set('', (groups.get('') ?? '') + chip);
+    groups.set('', (groups.get('') ?? '') + chipHtml(categoryId, categoryId, count));
   }
   if (groups.size === 0) {
     el.innerHTML = '<p>Nic nie jedzie.</p>';
     return;
   }
-  el.innerHTML = `<div class="lw-summary-columns">${[...groups]
-    .map(([groupLabel, chips]) => `<div>${groupLabel ? `<h3>${escapeHtml(groupLabel)}</h3>` : ''}<div class="lw-summary-chips">${chips}</div></div>`)
-    .join('')}</div>`;
+  el.innerHTML = summaryFilterBlockHtml(equipmentFilter, [...groups].map(([heading, chipsHtml]) => ({ heading, chipsHtml })));
 }
 
 // The roster's sort is now click-a-header (shared/sortable-table.js, see the table's #roster-table
@@ -495,6 +527,13 @@ let cachedEventEquipment = [];
 // private equipment, see equipmentSectionId). Weapon values are weaponGroupKey()s - the same full
 // weapon set the "Filtruj wg broni" pills count by.
 const rosterFilter = createSummaryFilter(['section', 'weapon', 'category']);
+// The per-category pills above the equipment table filter that table on their own, separate from
+// the roster/section pills in Podsumowanie.
+const equipmentFilter = createSummaryFilter(['equipmentCategory']);
+wireSummaryFilter(document.getElementById('event-equipment-summary'), equipmentFilter, () => {
+  renderEquipmentSummary(cachedEventEquipment);
+  renderEventEquipment(cachedEventEquipment);
+});
 wireSummaryFilter(document.getElementById('summary-panel'), rosterFilter, () => {
   renderSummary(cachedRoster, cachedSignups);
   renderRoster(cachedRoster, cachedSignups);
@@ -649,7 +688,8 @@ function renderEventEquipment(allItems) {
     tbody.innerHTML = '<tr><td colspan="5" class="czl-empty">Brak sprzętu obozowego.</td></tr>';
     return;
   }
-  const items = allItems.filter((item) => summaryFilterMatches(rosterFilter, { section: equipmentSectionId(item) }));
+  const items = allItems.filter((item) => summaryFilterMatches(rosterFilter, { section: equipmentSectionId(item) })
+    && summaryFilterMatches(equipmentFilter, { equipmentCategory: item.categoryId }));
   if (items.length === 0) {
     tbody.innerHTML = '<tr><td colspan="5" class="czl-empty">Brak sprzętu dla wybranych filtrów.</td></tr>';
     return;
@@ -1119,7 +1159,7 @@ async function loadAll() {
   }
   cachedEvent = event;
   document.getElementById('event-title').textContent = event.name;
-  document.getElementById('event-meta').textContent = `${formatDate(event.startDate)}${event.status === 'cancelled' ? ' — odwołany' : ''}`;
+  renderEventDateAndStatus(event);
   renderEventDescription(event);
   renderEventEditPanel();
   // Historia deep links (KRKG-0050 batch 5/6, event-wide in KRKG-0086). The top clock opens the
@@ -1189,7 +1229,7 @@ async function saveEventDetails(control) {
     ), (result) => {
       cachedEvent = result.event;
       document.getElementById('event-title').textContent = cachedEvent.name;
-      document.getElementById('event-meta').textContent = `${formatDate(cachedEvent.startDate)}${cachedEvent.status === 'cancelled' ? ' — odwołany' : ''}`;
+      renderEventDateAndStatus(cachedEvent);
       renderEventDescription(cachedEvent);
       renderEventEquipment(cachedEventEquipment);
       renderSummary(cachedRoster, cachedSignups);
@@ -1216,8 +1256,7 @@ async function setEventStatus(status, failureMessage, control) {
       hideReauth,
     ), (result) => {
       cachedEvent = result.event;
-      const meta = document.getElementById('event-meta');
-      meta.textContent = meta.textContent.replace(/ — odwołany$/, '') + (status === 'cancelled' ? ' — odwołany' : '');
+      renderEventDateAndStatus(cachedEvent);
       eventEditOpen = false;
       renderEventEditPanel();
       // Same disconnected-anchor issue as saveEventDetails above - `control` is the

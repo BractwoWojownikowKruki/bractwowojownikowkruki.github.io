@@ -39,7 +39,7 @@ const elementIds = [
   'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni', 'event-title',
   'event-meta', 'event-description', 'event-edit-toggle', 'event-edit-panel', 'event-history-link',
   'skladka-fee-history-link', 'lw-inline-existing-select', 'lw-inline-new-name',
-  'lw-inline-new-category', 'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note', 'event-equipment-summary', 'event-description-panel',
+  'lw-inline-new-category', 'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note', 'event-equipment-summary', 'event-date-pill', 'skladka-fee-duedate-pill', 'event-description-panel',
   'event-equipment-content', 'lw-nav-container', 'event-share-button', 'event-share-button-text',
 ];
 
@@ -186,4 +186,18 @@ test('Wyjazd headcount line says 0 namiotów, 0 wiat without equipment, and noth
   const off = createHarness([], { noCampEquipment: true });
   await off.signIn();
   assert.doesNotMatch(off.elements.get('summary-content')!.innerHTML, /namiot/);
+});
+
+test('Wyjazd date pill, deadline pill with days left, and equipment category filter', async () => {
+  const d = new Date();
+  const iso = (offset: number) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + offset); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+  const item = (id: string, categoryId: string) => ({ id, categoryId, sectionId: 'krakow', belongsToPersonId: null, description: id, going: true });
+  const harness = createHarness([item('n1', 'namiot'), item('g1', 'garnek')], { skladkaFee: '50 zł', dueDate: iso(5) });
+  await harness.signIn();
+  assert.match(harness.elements.get('event-date-pill')!.innerHTML, /10\.10\.2026/);
+  assert.match(harness.elements.get('skladka-fee-duedate-pill')!.innerHTML, /termin<\/small> \d\d\.\d\d\.\d{4} <span class="lw-deadline-days">\(za 5 dni\)/);
+  assert.equal(harness.elements.get('skladka-fee-duedate-pill')!.hidden, false);
+  const table = harness.elements.get('event-equipment-content')!;
+  assert.match(table.innerHTML, /n1/);
+  assert.match(table.innerHTML, /g1/);
 });

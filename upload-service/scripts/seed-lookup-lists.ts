@@ -46,7 +46,7 @@ const weapons = [
 // grupy i kategorie"), so re-seeding them overwrites anything members added there - run this only
 // for the initial setup or deliberately. A category's groupId points at an equipmentGroups id.
 const equipmentGroups = [
-  { id: 'budowle', label: 'Budowle', retired: false },
+  { id: 'budowle', label: 'Krucza architektura', retired: false },
   { id: 'meble', label: 'Meble', retired: false },
   { id: 'kuchnia', label: 'Kuchnia', retired: false },
 ];
