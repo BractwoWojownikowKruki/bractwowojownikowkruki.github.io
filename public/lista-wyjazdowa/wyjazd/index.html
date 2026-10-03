@@ -72,7 +72,10 @@
 
           <!-- Read-only display of the event's description (the Opis field in the edit panel
                below) - was editable and saved, but never rendered anywhere on the page. -->
-          <p id="event-description" class="lw-event-description" hidden></p>
+          <section id="event-description-panel" class="lw-plain-section" hidden>
+            <h2>Dodatkowe informacje</h2>
+            <p id="event-description" class="lw-event-description" hidden></p>
+          </section>
 
           <!-- Filled by wyjazd.js (window.EventEditForm.panelHtml) once the event has loaded, so
                its fields can be pre-populated with the real name/startDate/description. -->
@@ -83,12 +86,13 @@
                grants canManageSkladki - dues.event_fee.changed is adminOrAccountant-audience
                only (ACTION_REGISTRY), so a plain member has no page that could show them this
                history anyway, and no button to open an edit form they cannot save. -->
-          <div id="skladka-fee-panel">
+          <section id="skladka-fee-panel" class="lw-plain-section">
             <div class="lw-fee-summary">
-              <span id="skladka-fee-display"></span>
+              <h2>Składka</h2>
               <button type="button" id="skladka-fee-edit-toggle" class="lw-edit-toggle" aria-expanded="false" aria-controls="skladka-fee-edit" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>Edytuj</span></button>
               <a id="skladka-fee-history-link" class="audyt-history-btn" href="/admin/audyt/" title="Historia" aria-label="Historia składki" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
             </div>
+            <p id="skladka-fee-display"></p>
             <div id="skladka-fee-edit" class="lw-fee-edit" hidden>
               <div class="field">
                 <label for="skladka-fee-input">Kwota / opis składki</label>
@@ -103,7 +107,7 @@
                 <button type="button" id="skladka-fee-remove" class="btn-cancel">Usuń składkę</button>
               </div>
             </div>
-          </div>
+          </section>
 
           <!-- Every failed mutation on this page (signup save, cancel/restore, initial load)
                reports here (design.md §9: fail closed with a user-facing Polish message). Sits
@@ -146,7 +150,8 @@
           </section>
           <section id="event-equipment-panel">
             <h2>Sprzęt obozowy</h2>
-            <p id="event-equipment-disabled-note" hidden>Na ten wyjazd zaznaczono opcję «bez sprzętu obozowego», dlatego tabela ze sprzętem nie jest dostępna.</p>
+            <div id="event-equipment-summary"></div>
+            <p id="event-equipment-disabled-note" class="lw-equipment-disabled-note" hidden>Na ten wyjazd zaznaczono opcję «bez sprzętu obozowego», dlatego tabela ze sprzętem nie jest dostępna.</p>
             <div class="czl-table-wrap" id="event-equipment-table-wrap">
               <table class="czl-table" id="event-equipment-table">
                 <thead>

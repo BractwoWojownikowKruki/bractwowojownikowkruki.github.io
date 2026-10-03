@@ -39,7 +39,7 @@ const elementIds = [
   'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni', 'event-title',
   'event-meta', 'event-description', 'event-edit-toggle', 'event-edit-panel', 'event-history-link',
   'skladka-fee-history-link', 'lw-inline-existing-select', 'lw-inline-new-name',
-  'lw-inline-new-category', 'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note',
+  'lw-inline-new-category', 'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note', 'event-equipment-summary', 'event-description-panel',
   'event-equipment-content', 'lw-nav-container', 'event-share-button', 'event-share-button-text',
 ];
 
@@ -76,7 +76,7 @@ function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Re
       if (url.startsWith('/lista-wyjazdowa/roster?')) return { roster: [{ personId: 'owner@example.com', email: 'owner@example.com', lastName: 'Właściciel', firstName: '', accountless: false, sectionId: 'krakow', categoryId: 'kandydat', weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' }] };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups: [] };
       if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: false, canManagePeople: false };
-      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [{ id: 'krakow', label: 'Kraków' }], categories: [{ id: 'kandydat', label: 'Kandydat' }], weapons: [], equipmentCategories: [{ id: 'tent', label: 'Namiot' }] };
+      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [{ id: 'krakow', label: 'Kraków' }], categories: [{ id: 'kandydat', label: 'Kandydat' }], weapons: [], equipmentCategories: [{ id: 'tent', label: 'Namiot' }, { id: 'namiot', label: 'Namiot', groupId: 'budowle' }, { id: 'wiata', label: 'Wiata', groupId: 'budowle' }, { id: 'stol', label: 'Stół', groupId: 'meble' }, { id: 'garnek', label: 'Garnek', groupId: 'kuchnia' }], equipmentGroups: [{ id: 'budowle', label: 'Budowle' }, { id: 'meble', label: 'Meble' }, { id: 'kuchnia', label: 'Kuchnia' }] };
       if (url.startsWith('/lista-wyjazdowa/event-equipment?')) return { items };
       throw new Error(`unexpected request: ${url}`);
     },
@@ -163,4 +163,27 @@ test('Wyjazd page hides the equipment table and shows a note when the event has 
   await harness.signIn();
   assert.equal(harness.elements.get('event-equipment-table-wrap')!.hidden, true);
   assert.equal(harness.elements.get('event-equipment-disabled-note')!.hidden, false);
+});
+
+test('Wyjazd page tallies what is going per category (Budowle, Meble, Kuchnia) and in the headcount line', async () => {
+  const item = (id: string, categoryId: string, going: boolean) => ({ id, categoryId, sectionId: 'krakow', belongsToPersonId: null, description: id, going });
+  const harness = createHarness([
+    item('g1', 'garnek', true), item('s1', 'stol', true), item('n1', 'namiot', true), item('n2', 'namiot', true),
+    item('n3', 'namiot', true), item('w1', 'wiata', true), item('w2', 'wiata', true), item('n4', 'namiot', false),
+  ]);
+  await harness.signIn();
+  const summary = harness.elements.get('event-equipment-summary')!.innerHTML;
+  assert.ok(summary.indexOf('Budowle') < summary.indexOf('Meble') && summary.indexOf('Meble') < summary.indexOf('Kuchnia'));
+  assert.match(summary, /Namiot<span class="lw-summary-badge">3<\/span>/);
+  assert.match(summary, /Wiata<span class="lw-summary-badge">2<\/span>/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /os\., 3 namioty, 2 wiaty/);
+});
+
+test('Wyjazd headcount line says 0 namiotów, 0 wiat without equipment, and nothing with noCampEquipment', async () => {
+  const none = createHarness([]);
+  await none.signIn();
+  assert.match(none.elements.get('summary-content')!.innerHTML, /os\., 0 namiotów, 0 wiat/);
+  const off = createHarness([], { noCampEquipment: true });
+  await off.signIn();
+  assert.doesNotMatch(off.elements.get('summary-content')!.innerHTML, /namiot/);
 });

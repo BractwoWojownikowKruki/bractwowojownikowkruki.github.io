@@ -57,7 +57,7 @@ test('excludes past and cancelled trips, keeps the rest in chronological order',
 test('the currently open trip is highlighted in its natural chronological position, "Wszystkie" is not', () => {
   const { html } = loadLwNav('2026-06-15');
   const menu = html({ events, currentEventId: 'current', open: true });
-  assert.match(menu, /class="lw-nav-item lw-nav-item--active" role="menuitem">Wyjazd Letni/);
+  assert.match(menu, /class="lw-nav-item lw-nav-item--active" role="menuitem"><span class="lw-nav-item-date">01\.08\.2026<\/span><span class="lw-nav-item-name">Wyjazd Letni/);
   assert.doesNotMatch(menu, /lw-nav-item--all lw-nav-item--active/);
   assert.doesNotMatch(menu, /lw-nav-item--active lw-nav-item--all/);
 });
