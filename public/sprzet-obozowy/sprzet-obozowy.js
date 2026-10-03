@@ -84,7 +84,24 @@ function filterOwnerCandidates(roster, query) {
   });
 }
 
+/**
+ * Keeps only the items whose section is one of the selected ones - an empty selection means "no
+ * filter" and returns every item. A pure function (no DOM) so the rule can be unit-tested directly.
+ * `sectionOf` decides which section an item counts as: its own sectionId for drużynowy equipment,
+ * the owner's *current* section for prywatny equipment (see itemFilterSectionId).
+ *
+ * @param {Array<object>} items
+ * @param {Set<string>} selectedSectionIds
+ * @param {(item: object) => (string|null|undefined)} sectionOf
+ */
+function filterEquipmentBySections(items, selectedSectionIds, sectionOf) {
+  if (selectedSectionIds.size === 0) return items;
+  return items.filter(item => selectedSectionIds.has(sectionOf(item)));
+}
+
 let equipment = [];
+// Sekcja ids picked in the "Filtry" row. Not persisted - every visit starts unfiltered.
+let selectedSectionIds = new Set();
 let equipmentCategories = [];
 let sections = [];
 let categoryLabelById = new Map();
@@ -163,9 +180,18 @@ const privateSortState = initSortableTable(document.getElementById('equipment-pr
   onChange: renderPrivateTable,
 });
 
+// Private equipment follows its owner: an item's stored sectionId is a snapshot taken when it was
+// saved, so a person who has since changed section would otherwise leave their equipment behind
+// under the old one. Falls back to the stored sectionId when the owner cannot be resolved.
+function itemFilterSectionId(item) {
+  if (item.belongsToPersonId === null) return item.sectionId;
+  return personById.get(item.belongsToPersonId)?.sectionId ?? item.sectionId;
+}
+
 function renderTeamTable() {
   const { team } = splitEquipmentByOwnership(equipment);
-  const enriched = team.map(item => ({
+  const filtered = filterEquipmentBySections(team, selectedSectionIds, itemFilterSectionId);
+  const enriched = filtered.map(item => ({
     ...item,
     groupLabel: categoryGroupById.get(item.categoryId) ?? '',
     categoryLabel: categoryLabelById.get(item.categoryId) ?? item.categoryId,
@@ -175,18 +201,23 @@ function renderTeamTable() {
   const tbody = document.getElementById('equipment-team-table-body');
   tbody.innerHTML = sorted.length
     ? sorted.map(item => equipmentRowHtml(item, { includeOwner: false })).join('')
-    : '<tr><td colspan="5" class="czl-empty">Brak sprzętu drużynowego.</td></tr>';
+    : `<tr><td colspan="5" class="czl-empty">${selectedSectionIds.size ? 'Brak sprzętu drużynowego w wybranych sekcjach.' : 'Brak sprzętu drużynowego.'}</td></tr>`;
 }
 
 function renderPrivateTable() {
   const { private: privateItems } = splitEquipmentByOwnership(equipment);
-  const enriched = privateItems.map(item => {
+  const filtered = filterEquipmentBySections(privateItems, selectedSectionIds, itemFilterSectionId);
+  const enriched = filtered.map(item => {
     const owner = personById.get(item.belongsToPersonId);
+    // Show (and sort by) the owner's current section, the same one the filter uses - not the
+    // snapshot stored on the item.
+    const sectionId = itemFilterSectionId(item);
     return {
       ...item,
+      sectionId,
       groupLabel: categoryGroupById.get(item.categoryId) ?? '',
       categoryLabel: categoryLabelById.get(item.categoryId) ?? item.categoryId,
-      sectionLabel: sectionLabelById.get(item.sectionId) ?? item.sectionId,
+      sectionLabel: sectionLabelById.get(sectionId) ?? sectionId,
       ownerName: owner ? displayName(owner) : item.belongsToPersonId,
     };
   });
@@ -194,12 +225,56 @@ function renderPrivateTable() {
   const tbody = document.getElementById('equipment-private-table-body');
   tbody.innerHTML = sorted.length
     ? sorted.map(item => equipmentRowHtml(item, { includeOwner: true })).join('')
-    : '<tr><td colspan="6" class="czl-empty">Brak sprzętu prywatnego.</td></tr>';
+    : `<tr><td colspan="6" class="czl-empty">${selectedSectionIds.size ? 'Brak sprzętu prywatnego w wybranych sekcjach.' : 'Brak sprzętu prywatnego.'}</td></tr>`;
 }
 
 function renderBothTables() {
+  renderSectionFilter();
   renderTeamTable();
   renderPrivateTable();
+}
+
+/**
+ * The "Filtry" row: a "Wyczyść filtr" button, then one toggle per Sekcja styled as a larger
+ * .section-pill. Several sections can be pressed at once (aria-pressed); none pressed = no filter.
+ * A retired section stays listed only while something still references it, same rule as the
+ * add form's select.
+ */
+function renderSectionFilter() {
+  const usedIds = [...new Set(equipment.map(itemFilterSectionId).filter(Boolean))];
+  // Drop selections whose section has disappeared from the lookup lists, so the filter can never
+  // be stuck on a button that is no longer rendered.
+  for (const id of selectedSectionIds) {
+    if (!sections.some(s => s.id === id)) selectedSectionIds.delete(id);
+  }
+  const visible = selectableLookupItems(sections, [...usedIds, ...selectedSectionIds]);
+  const clearButton = `<button type="button" class="member-action equipment-filter-clear" data-filter-clear${selectedSectionIds.size ? '' : ' disabled'}>Wyczyść filtr</button>`;
+  const sectionButtons = visible.map(s => {
+    const pressed = selectedSectionIds.has(s.id);
+    return `<button type="button" class="section-pill equipment-filter-pill" data-section="${escapeAttr(s.id)}" data-filter-section="${escapeAttr(s.id)}" aria-pressed="${pressed}">${escapeHtml(s.label)}</button>`;
+  }).join('');
+  const container = document.getElementById('equipment-section-filter-buttons');
+  container.innerHTML = clearButton + sectionButtons;
+  // Lets the CSS dim the unpressed pills only while a filter is actually on.
+  document.getElementById('equipment-section-filter').dataset.active = String(selectedSectionIds.size > 0);
+}
+
+function wireSectionFilter() {
+  const container = document.getElementById('equipment-section-filter-buttons');
+  container.addEventListener('click', e => {
+    const isClear = Boolean(e.target.closest('[data-filter-clear]'));
+    const sectionButton = e.target.closest('[data-filter-section]');
+    if (!isClear && !sectionButton) return;
+    const id = sectionButton?.dataset.filterSection;
+    if (isClear) selectedSectionIds.clear();
+    else if (selectedSectionIds.has(id)) selectedSectionIds.delete(id);
+    else selectedSectionIds.add(id);
+    renderBothTables();
+    // renderBothTables rebuilds the buttons - put keyboard focus back on the one just pressed.
+    [...container.querySelectorAll('button')]
+      .find(b => (isClear ? 'filterClear' in b.dataset : b.dataset.filterSection === id))
+      ?.focus();
+  });
 }
 
 // Takes a /lista-wyjazdowa/lookup-lists response and rebuilds every lookup-derived map. Shared by
@@ -596,6 +671,7 @@ initGoogleSignIn({
     wireAddForm();
     wireTableActions();
     wireTaxonomyEditor();
+    wireSectionFilter();
     try {
       // GET /lista-wyjazdowa/persons is staff-only (skladki access or admin/hovding - see
       // isPersonStaff in server.ts), so it cannot resolve owners for this page, which every

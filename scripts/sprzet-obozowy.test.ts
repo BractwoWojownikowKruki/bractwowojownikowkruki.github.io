@@ -59,6 +59,7 @@ const elementIds = [
   'equipment-team-table', 'equipment-team-table-body', 'equipment-private-table', 'equipment-private-table-body',
   'equipment-tables',
   'equipment-taxonomy-toggle', 'equipment-taxonomy', 'equipment-taxonomy-body',
+  'equipment-section-filter', 'equipment-section-filter-buttons',
 ];
 
 const equipmentCategories = [{ id: 'namiot', label: 'Namiot', groupId: 'budowle', retired: false }];
@@ -518,4 +519,86 @@ test('without a real "Inne" group, an "Inne" option stands in for no group', asy
   await harness.elements.get('equipment-taxonomy-toggle')!.click();
   const body = harness.elements.get('equipment-taxonomy-body')!.innerHTML;
   assert.match(body, /<option value="">Inne<\/option>/);
+});
+
+test('the taxonomy toggle sits in the header right after the "Dodaj sprzęt" button', () => {
+  const actions = /<div class="pliki-header-actions[^"]*">([\s\S]*?)<\/div>/.exec(indexHtml)![1];
+  assert.match(actions, /id="equipment-taxonomy-toggle"/);
+  assert.match(actions, /id="equipment-add-toggle">Dodaj sprzęt</);
+  assert.ok(actions.indexOf('equipment-add-toggle') < actions.indexOf('equipment-taxonomy-toggle'));
+});
+
+function filterButton(target: { dataset: Record<string, string> }) {
+  return { dataset: target.dataset, closest: (selector: string) => (selector === '[data-filter-section]' && target.dataset.filterSection ? target : selector === '[data-filter-clear]' && 'filterClear' in target.dataset ? target : null) };
+}
+
+test('the Filtry row renders "Wyczyść filtr" first, then one unpressed pill per section', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const html = harness.elements.get('equipment-section-filter-buttons')!.innerHTML;
+  assert.ok(html.indexOf('Wyczyść filtr') < html.indexOf('Kraków'));
+  assert.match(html, /data-filter-clear disabled>/, 'nothing to clear yet');
+  assert.match(html, /class="section-pill equipment-filter-pill" data-section="krakow" data-filter-section="krakow" aria-pressed="false">Kraków</);
+  assert.match(html, /data-filter-section="warszawa" aria-pressed="false">Warszawa</);
+  assert.match(harness.elements.get('equipment-team-table-body')!.innerHTML, /eq-team-1/);
+  assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /eq-private-1/);
+});
+
+test('pressing sections filters both tables, supports several at once, and "Wyczyść filtr" resets', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const buttons = harness.elements.get('equipment-section-filter-buttons')!;
+  const team = () => harness.elements.get('equipment-team-table-body')!.innerHTML;
+  const priv = () => harness.elements.get('equipment-private-table-body')!.innerHTML;
+
+  await buttons.clickWith(filterButton({ dataset: { filterSection: 'krakow' } }));
+  assert.match(team(), /eq-team-1/);
+  assert.doesNotMatch(priv(), /eq-private-1/);
+  assert.match(priv(), /Brak sprzętu prywatnego w wybranych sekcjach\./);
+  assert.match(buttons.innerHTML, /data-filter-section="krakow" aria-pressed="true"/);
+  assert.equal(harness.elements.get('equipment-section-filter')!.dataset.active, 'true');
+
+  await buttons.clickWith(filterButton({ dataset: { filterSection: 'warszawa' } }));
+  assert.match(team(), /eq-team-1/);
+  assert.match(priv(), /eq-private-1/);
+
+  await buttons.clickWith(filterButton({ dataset: { filterSection: 'krakow' } }));
+  assert.doesNotMatch(team(), /eq-team-1/);
+  assert.match(team(), /Brak sprzętu drużynowego w wybranych sekcjach\./);
+  assert.match(priv(), /eq-private-1/);
+
+  await buttons.clickWith(filterButton({ dataset: { filterClear: '' } }));
+  assert.match(team(), /eq-team-1/);
+  assert.match(priv(), /eq-private-1/);
+  assert.doesNotMatch(buttons.innerHTML, /aria-pressed="true"/);
+  assert.equal(harness.elements.get('equipment-section-filter')!.dataset.active, 'false');
+});
+
+test('private equipment is filtered by the owner\'s current section, not the one stored on the item', async () => {
+  const harness = createHarness();
+  const originalFetch = harness.context.apiFetch as (url: string, options?: Record<string, unknown>) => Promise<unknown>;
+  harness.context.apiFetch = async (url: string, options: Record<string, unknown> = {}) => {
+    if (url === '/lista-wyjazdowa/roster') {
+      // The owner moved to Kraków after the item was saved with sectionId 'warszawa'.
+      return { roster: [{ personId: 'person-uuid-1', accountless: true, email: null, lastName: 'Młody', firstName: '', nickname: null, sectionId: 'krakow', categoryId: 'kandydat' }] };
+    }
+    return originalFetch(url, options);
+  };
+  await harness.signIn();
+  const buttons = harness.elements.get('equipment-section-filter-buttons')!;
+  const privateBody = () => harness.elements.get('equipment-private-table-body')!.innerHTML;
+  assert.match(privateBody(), /data-section="krakow"[\s\S]*>KRK</, 'the S column shows the owner\'s current section too');
+  await buttons.clickWith(filterButton({ dataset: { filterSection: 'krakow' } }));
+  assert.match(privateBody(), /eq-private-1/);
+  await buttons.clickWith(filterButton({ dataset: { filterSection: 'krakow' } }));
+  await buttons.clickWith(filterButton({ dataset: { filterSection: 'warszawa' } }));
+  assert.doesNotMatch(harness.elements.get('equipment-private-table-body')!.innerHTML, /eq-private-1/);
+});
+
+test('filterEquipmentBySections returns everything for an empty selection', () => {
+  const harness = createHarness();
+  const filter = harness.context.filterEquipmentBySections as (items: unknown[], selected: Set<string>, sectionOf: (i: any) => string) => unknown[];
+  const items = [{ s: 'a' }, { s: 'b' }];
+  assert.equal(filter(items, new Set(), i => i.s), items);
+  assert.equal(filter(items, new Set(['b']), i => i.s).length, 1);
 });
