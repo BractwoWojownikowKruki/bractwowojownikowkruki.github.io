@@ -1204,12 +1204,14 @@ button.lw-skladka-icon:disabled {
   vertical-align: -0.02em;
 }
 
-/* Equipment pill (person-pill.js's equipmentPillHtml): a small camera beside the Opis pill when
-   the item has photos, so it reads as "tap to see the photos". */
+/* Equipment pill (person-pill.js's equipmentPillHtml): a small, muted flat image icon beside the
+   Opis pill, so it reads as "tap to see the photos" without drawing the eye. */
 .equipment-photo-icon {
-  font-size: 0.85em;
-  margin-left: 0.3rem;
-  vertical-align: -0.02em;
+  width: 0.95em;
+  height: 0.95em;
+  margin-left: 0.35rem;
+  vertical-align: -0.12em;
+  color: var(--text-muted);
 }
 
 /* The inline add-companion panel, rendered as a full-width row right under its member's row. */
