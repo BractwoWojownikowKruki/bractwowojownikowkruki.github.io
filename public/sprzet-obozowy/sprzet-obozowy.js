@@ -112,7 +112,7 @@ let sectionLabelById = new Map();
 // personId -> { personId, accountless, email, lastName, firstName, nickname, sectionId, categoryId } -
 // covers both members (personId === lowercased e-mail) and accountless persons, mirroring
 // czlonkowie.js's own member+roster union. Resolves belongsToPersonId to a display name/section
-// for the private table and for auto-filling Sekcja when an owner is picked in the add form.
+// for the private table.
 let personById = new Map();
 // Flat array (same objects as personById's values) for the owner datalist / filterOwnerCandidates.
 let rosterList = [];
@@ -180,9 +180,9 @@ const privateSortState = initSortableTable(document.getElementById('equipment-pr
   onChange: renderPrivateTable,
 });
 
-// Private equipment follows its owner: an item's stored sectionId is a snapshot taken when it was
-// saved, so a person who has since changed section would otherwise leave their equipment behind
-// under the old one. Falls back to the stored sectionId when the owner cannot be resolved.
+// Private equipment has no section of its own (the server stores sectionId: null) - it always
+// counts under its owner's current section. The stored-sectionId fallback only matters for items
+// saved before that change, until upload-service/scripts/clear-private-equipment-sections.ts has run.
 function itemFilterSectionId(item) {
   if (item.belongsToPersonId === null) return item.sectionId;
   return personById.get(item.belongsToPersonId)?.sectionId ?? item.sectionId;
@@ -456,19 +456,23 @@ function resolveOwnerInput(value) {
   return match ? match.personId : null;
 }
 
+// Sekcja only applies to drużynowy equipment - a private item follows its owner's section, so
+// in Prywatny mode the field is hidden (and disabled, so its `required` does not block submit).
+function setSectionFieldVisible(visible) {
+  document.getElementById('equipment-add-section-wrap').hidden = !visible;
+  document.getElementById('equipment-add-section').disabled = !visible;
+}
+
 function wireOwnerModeToggle() {
   const teamRadio = document.getElementById('equipment-owner-mode-team');
   const privateRadio = document.getElementById('equipment-owner-mode-private');
   const ownerWrap = document.getElementById('equipment-add-owner-wrap');
   const ownerInput = document.getElementById('equipment-add-owner');
-  const sectionSelect = document.getElementById('equipment-add-section');
 
   function applyMode() {
     ownerWrap.hidden = !privateRadio.checked;
-    if (teamRadio.checked) {
-      ownerInput.value = '';
-      sectionSelect.disabled = false;
-    }
+    setSectionFieldVisible(!privateRadio.checked);
+    if (teamRadio.checked) ownerInput.value = '';
   }
 
   teamRadio.addEventListener('change', applyMode);
@@ -482,16 +486,6 @@ function wireOwnerModeToggle() {
     // except when a genuine non-empty query has zero matches.
     const query = ownerInput.value;
     renderOwnerDatalistOptions(query.trim() ? filterOwnerCandidates(rosterList, query) : rosterList);
-
-    const personId = resolveOwnerInput(ownerInput.value);
-    const owner = personId ? personById.get(personId) : null;
-    if (owner) {
-      populateSectionSelect(owner.sectionId);
-      if (owner.sectionId) sectionSelect.value = owner.sectionId;
-      sectionSelect.disabled = true;
-    } else {
-      sectionSelect.disabled = false;
-    }
   });
 }
 
@@ -500,7 +494,7 @@ function resetAddForm() {
   form.reset();
   document.getElementById('equipment-add-editing-id').value = '';
   document.getElementById('equipment-add-owner-wrap').hidden = true;
-  document.getElementById('equipment-add-section').disabled = false;
+  setSectionFieldVisible(true);
   populateCategorySelect(null);
   populateSectionSelect(null);
   populateOwnerDatalist();
@@ -522,15 +516,13 @@ function openAddFormForEdit(item) {
   if (isPrivate) {
     const owner = personById.get(item.belongsToPersonId);
     ownerInput.value = owner ? displayName(owner) : item.belongsToPersonId;
-    populateSectionSelect(item.sectionId);
-    document.getElementById('equipment-add-section').value = item.sectionId;
-    document.getElementById('equipment-add-section').disabled = true;
+    populateSectionSelect(null);
   } else {
     ownerInput.value = '';
     populateSectionSelect(item.sectionId);
     document.getElementById('equipment-add-section').value = item.sectionId;
-    document.getElementById('equipment-add-section').disabled = false;
   }
+  setSectionFieldVisible(!isPrivate);
   document.getElementById('equipment-add-description').value = item.description ?? '';
   document.getElementById('equipment-add-submit').textContent = 'Zapisz zmiany';
   document.getElementById('equipment-add-category').focus();
@@ -580,7 +572,8 @@ function wireAddForm() {
         return;
       }
     }
-    const payload = { categoryId, sectionId, description, belongsToPersonId };
+    // Private equipment follows its owner's section, so only drużynowy equipment sends one.
+    const payload = { categoryId, sectionId: isPrivate ? null : sectionId, description, belongsToPersonId };
     try {
       await window.MutationFeedback.confirmed({
         execute: () => apiFetch(editingId ? `/equipment?id=${encodeURIComponent(editingId)}` : '/equipment', {

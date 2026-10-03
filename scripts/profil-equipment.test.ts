@@ -140,12 +140,12 @@ test('equipment add/delete are wired as their own immediate POST/DELETE /equipme
   assert.match(script, /MutationFeedback\.confirmed\(\{/);
 
   // Wired from a delegated click listener on the mini-list container, not the form's submit event.
-  assert.match(script, /function wireEquipmentMiniList\(container, ownerId, getSectionId\) \{/);
+  assert.match(script, /function wireEquipmentMiniList\(container, ownerId\) \{/);
   assert.match(script, /container\.addEventListener\('click', \(event\) => \{/);
 });
 
 test('only the member\'s own equipment uses wireEquipmentMiniList - companions don\'t have one', () => {
-  assert.match(script, /wireEquipmentMiniList\(document\.getElementById\('own-equipment'\), viewerEmail\.toLowerCase\(\), \(\) => ownerSectionId\)/);
+  assert.match(script, /wireEquipmentMiniList\(document\.getElementById\('own-equipment'\), viewerEmail\.toLowerCase\(\)\)/);
   // One definition + exactly one call site (the own-equipment panel above) - a second call site
   // would mean a companion mini-list crept back in.
   assert.equal((script.match(/wireEquipmentMiniList\(/g) ?? []).length, 2, 'wireEquipmentMiniList must have exactly one call site (definition + the own-equipment call only)');
@@ -169,10 +169,12 @@ test('CSS defines the mini-list item/list/delete-button classes referenced by th
 // onto the item addPersonEquipmentItem's `apply` pushes into equipmentItems, a freshly-added item
 // would render with no delete button (equipmentItemHtml gates it on item.canDelete) until reload.
 test('a freshly-added equipment item renders with a working delete button immediately, even though POST /equipment omits canEdit/canDelete', async () => {
+  let postedBody: unknown = null;
   const context = createContext({
     apiFetch: async (...args: unknown[]) => {
       const [url, options] = args as [string, Record<string, unknown>];
       if (url === '/equipment' && options.method === 'POST') {
+        postedBody = JSON.parse(String(options.body));
         // Mirrors the real server response shape (server.ts's handleAddEquipment): no
         // canEdit/canDelete fields at all.
         return { equipment: { id: 'new-eq', categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: 'ala@example.com', description: '' } };
@@ -199,12 +201,12 @@ test('a freshly-added equipment item renders with a working delete button immedi
   const addPersonEquipmentItem = context.addPersonEquipmentItem as (
     container: unknown,
     ownerId: string,
-    getSectionId: () => string,
     control: unknown,
   ) => Promise<void>;
 
-  await addPersonEquipmentItem(container, 'ala@example.com', () => 'krakow', {});
+  await addPersonEquipmentItem(container, 'ala@example.com', {});
 
   assert.match(container.innerHTML, /data-equipment-id="new-eq"/);
   assert.match(container.innerHTML, /person-equipment-delete/, 'the freshly-added item must render its delete button right away, not only after a reload');
+  assert.deepEqual(postedBody, { categoryId: 'namiot', description: '', belongsToPersonId: 'ala@example.com' }, 'no sectionId - private equipment follows its owner');
 });

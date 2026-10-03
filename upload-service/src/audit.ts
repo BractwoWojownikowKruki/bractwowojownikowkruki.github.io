@@ -110,6 +110,8 @@ const profileFields = {
   equipmentCount: 'roleRestricted',
   companionCount: 'roleRestricted',
   hidden: 'roleRestricted',
+  // profile.member.updated: how many osoby towarzyszące followed the member's section change.
+  movedCompanions: 'roleRestricted',
 } as const;
 // KRKG-0087: fields for the accountless-person record actions (`person.*`). Distinct from
 // profileFields above, which belongs to the public "Wojownicy" profile person (Drive folder). These
