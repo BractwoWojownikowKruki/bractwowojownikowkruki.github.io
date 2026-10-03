@@ -54,6 +54,7 @@ const mutationFeedbackWiredRoutes = new Set([
   'POST /admin/people',
   'PUT /admin/people/description',
   'PUT /admin/people/order',
+  'PUT /admin/people/reorder',
   'PUT /admin/people/category',
   'DELETE /admin/people',
   'POST /admin/people/photo',

@@ -30,18 +30,74 @@ export function departmentFolderId(folders: AboutUsFolders, department: AdminDep
   return folders.categories[department];
 }
 
-// The order a person's folder should be renamed to when moved into a *public* department (see
-// handleAdminMovePerson) - moving into "upload"/"deleted" never calls this, since order is
-// meaningless there (neither is publicly listed). Every department appends to the end (the
-// highest existing order + 1, so sortPeopleByFolderName shows the newcomer last) except
-// Emeryci and Założyciele, which by design prepend instead (the lowest existing order - 1,
-// shown first) - retiring warriors and founders join at the top of their lists, not the bottom.
+// The order a person's folder should be renamed to when it joins a *public* department - via a
+// move (see handleAdminMovePerson) or a first-time creation there (see handleAdminApprovePhoto);
+// "upload"/"deleted" never call this, since order is meaningless there (neither is publicly
+// listed). Only the moment of joining that category matters, never how long the person has been
+// on the site or has had an account. Every department appends to the end (the highest existing
+// order + 1, so sortPeopleByFolderName shows the newcomer last) except Emeryci, which by design
+// prepends instead (the lowest existing order - 1, shown first) - retiring warriors join at the
+// top of their list, not the bottom.
 export function computeOrderForDepartmentMove(department: AboutUsCategory, existingFolderNames: string[]): number {
   const orders = existingFolderNames
     .map(name => parsePersonFolderName(name).order)
     .filter((order): order is number => order !== null);
   if (orders.length === 0) return 1;
-  return department === 'Emeryci' || department === 'Założyciele' ? Math.min(...orders) - 1 : Math.max(...orders) + 1;
+  return department === 'Emeryci' ? Math.min(...orders) - 1 : Math.max(...orders) + 1;
+}
+
+export interface FolderRename {
+  folderId: string;
+  newName: string;
+}
+
+export interface NewcomerPlan {
+  newcomerOrder: number;
+  // Siblings that had no number at all (sorted last, alphabetically) - given one, in the order
+  // they are displayed today, *before* the newcomer is placed. Without this a newcomer numbered
+  // after the highest existing order would still show up ahead of every unnumbered sibling.
+  renames: FolderRename[];
+}
+
+// The order for a person joining `department` next to `siblings` (the folders already there,
+// newcomer excluded). Numbers every unnumbered sibling first (keeping its current position:
+// after all numbered ones), then asks computeOrderForDepartmentMove, so the newcomer really
+// lands last (or first, for Emeryci).
+export function planNewcomerOrder(department: AboutUsCategory, siblings: { id: string; name: string }[]): NewcomerPlan {
+  const parsed = siblings.map(s => ({ ...s, ...parsePersonFolderName(s.name) }));
+  const unnumbered = parsed
+    .filter(p => p.order === null)
+    .sort((a, b) => a.name.localeCompare(b.name, 'pl'));
+  const renames: FolderRename[] = [];
+  const names = parsed.filter(p => p.order !== null).map(p => buildPersonFolderName(p.name, p.order));
+  let next = Math.max(0, ...parsed.map(p => p.order ?? 0));
+  for (const p of unnumbered) {
+    next += 1;
+    const newName = buildPersonFolderName(p.name, next);
+    renames.push({ folderId: p.id, newName });
+    names.push(newName);
+  }
+  return { newcomerOrder: computeOrderForDepartmentMove(department, names), renames };
+}
+
+// Renames that make a category's folders numbered 1..N in exactly the order of `orderedFolderIds`
+// (the admin panel's "Zarządzanie kolejnością"). `folders` is what Drive currently holds in the
+// category; the list must contain each of them exactly once - otherwise someone was added,
+// moved or removed while the admin was dragging, and saving the stale list would silently
+// misplace them, so this throws instead. Folders already carrying the right number are skipped.
+export function planCategoryReorder(folders: { id: string; name: string }[], orderedFolderIds: string[]): FolderRename[] {
+  const byId = new Map(folders.map(f => [f.id, f]));
+  const unique = new Set(orderedFolderIds);
+  if (unique.size !== orderedFolderIds.length || unique.size !== byId.size || orderedFolderIds.some(id => !byId.has(id))) {
+    throw new Error('Lista osób zmieniła się w międzyczasie.');
+  }
+  const renames: FolderRename[] = [];
+  orderedFolderIds.forEach((id, index) => {
+    const folder = byId.get(id)!;
+    const newName = buildPersonFolderName(parsePersonFolderName(folder.name).name, index + 1);
+    if (newName !== folder.name) renames.push({ folderId: id, newName });
+  });
+  return renames;
 }
 
 // Allows an optional leading "-": computeOrderForDepartmentMove can legitimately produce a

@@ -5,6 +5,8 @@ import {
   buildPersonFolderName,
   sortPeopleByFolderName,
   computeOrderForDepartmentMove,
+  planNewcomerOrder,
+  planCategoryReorder,
   bootstrapAboutUsStructure,
   resetAboutUsBootstrapForTests,
   ABOUT_US_CATEGORIES,
@@ -155,8 +157,8 @@ test('computeOrderForDepartmentMove prepends before the lowest existing order fo
   assert.equal(computeOrderForDepartmentMove('Emeryci', ['2. Jan', '5. Piotr']), 1);
 });
 
-test('computeOrderForDepartmentMove prepends before the lowest existing order for Założyciele', () => {
-  assert.equal(computeOrderForDepartmentMove('Założyciele', ['2. Jan', '5. Piotr']), 1);
+test('computeOrderForDepartmentMove appends after the highest existing order for Założyciele', () => {
+  assert.equal(computeOrderForDepartmentMove('Założyciele', ['2. Jan', '5. Piotr']), 6);
 });
 
 test('computeOrderForDepartmentMove defaults to 1 for an empty normal department', () => {
@@ -173,4 +175,46 @@ test('computeOrderForDepartmentMove defaults to 1 for an empty Emeryci departmen
 
 test('computeOrderForDepartmentMove ignores unnumbered folders when computing the new order', () => {
   assert.equal(computeOrderForDepartmentMove('Niewiasty', ['Zenon', '2. Anna', 'Adam']), 3);
+});
+
+test('planNewcomerOrder puts a newcomer after unnumbered siblings too, numbering them first', () => {
+  const plan = planNewcomerOrder('Niewiasty', [
+    { id: 'a', name: '2. Anna' },
+    { id: 'z', name: 'Zenon' },
+    { id: 'b', name: 'Adam' },
+  ]);
+  assert.deepEqual(plan.renames, [
+    { folderId: 'b', newName: '3. Adam' },
+    { folderId: 'z', newName: '4. Zenon' },
+  ]);
+  assert.equal(plan.newcomerOrder, 5);
+});
+
+test('planNewcomerOrder prepends only for Emeryci', () => {
+  assert.equal(planNewcomerOrder('Emeryci', [{ id: 'a', name: '1. A' }, { id: 'b', name: '2. B' }]).newcomerOrder, 0);
+  assert.equal(planNewcomerOrder('Emeryci', [{ id: 'a', name: '0. A' }]).newcomerOrder, -1);
+  assert.equal(planNewcomerOrder('Kandydaci', [{ id: 'a', name: '1. A' }, { id: 'b', name: '2. B' }]).newcomerOrder, 3);
+  assert.equal(planNewcomerOrder('Kandydaci', []).newcomerOrder, 1);
+});
+
+test('planCategoryReorder numbers everyone 1..N in the given order and skips unchanged folders', () => {
+  const renames = planCategoryReorder(
+    [{ id: 'a', name: '5. Anna' }, { id: 'b', name: '-1. Bolek' }, { id: 'c', name: 'Cezary' }, { id: 'd', name: '4. Dan' }],
+    ['b', 'a', 'd', 'c'],
+  );
+  assert.deepEqual(renames, [
+    { folderId: 'b', newName: '1. Bolek' },
+    { folderId: 'a', newName: '2. Anna' },
+    { folderId: 'd', newName: '3. Dan' },
+    { folderId: 'c', newName: '4. Cezary' },
+  ]);
+  assert.deepEqual(planCategoryReorder([{ id: 'a', name: '1. Anna' }], ['a']), []);
+});
+
+test('planCategoryReorder rejects a stale, partial or duplicated list', () => {
+  const folders = [{ id: 'a', name: '1. A' }, { id: 'b', name: '2. B' }];
+  assert.throws(() => planCategoryReorder(folders, ['a']));
+  assert.throws(() => planCategoryReorder(folders, ['a', 'a']));
+  assert.throws(() => planCategoryReorder(folders, ['a', 'x']));
+  assert.throws(() => planCategoryReorder(folders, ['a', 'b', 'c']));
 });
