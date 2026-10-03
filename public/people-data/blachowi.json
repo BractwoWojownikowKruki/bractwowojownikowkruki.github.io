@@ -1,0 +1,427 @@
+{
+ "version": 1,
+ "people": [
+  {
+   "name": "Bartias",
+   "order": 1,
+   "description": "Nasz Jarl i póki co najbardziej utytułowany wojownik w drużynie. Umie zgasić człowieka jednym zdaniem. Albo włócznią w żebra.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1wsiozuuuwSesaitcFcyxxE15i23eUoOF",
+    "url": "/people-photos/1wsiozuuuwSesaitcFcyxxE15i23eUoOF-800-a56aa753ce.jpg"
+   },
+   "photos": [
+    {
+     "id": "1UeKr7zfyEg-Jr05ESpS6ZCg3zwnQCYU_",
+     "url": "/people-photos/1UeKr7zfyEg-Jr05ESpS6ZCg3zwnQCYU_-300-6ae691628a.jpg"
+    },
+    {
+     "id": "1GuJWuPDCmHISQlTxqPSqgcOdV8sKWjle",
+     "url": "/people-photos/1GuJWuPDCmHISQlTxqPSqgcOdV8sKWjle-300-bd73b0f7a3.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Herger",
+   "order": 2,
+   "description": "Odkąd zmienił rękawice na o kilogram lżejsze, kończy mu się półka na trofea. Jego występ aktorski w 2004 roku w Gudvangen zrujnował emocjonalnie 1/3 populacji Norwegii. Zrobi wszystko, byle tylko uzyskać „spokój duszy”.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "181TWbtoYyQCa3EdDH__4_3lfRFtx1R2Y",
+    "url": "/people-photos/181TWbtoYyQCa3EdDH__4_3lfRFtx1R2Y-800-9baba26a1b.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Bjorn Leif",
+   "order": 3,
+   "description": "Z powodu lapsusa językowego zwany również Nelly. W boksie początkowo prezentował zabawne problemy z błędnikiem, ale solidny trening z krajanami oderwanymi granatem od pługa zrobił swoje. Jego hełm jest tylko nieco większy niż wieża artyleryjska pancernika Bismarck.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1sUjKjru-S_6NgJBRxsb1hnoEN7nSUl5V",
+    "url": "/people-photos/1sUjKjru-S_6NgJBRxsb1hnoEN7nSUl5V-800-b5ceaaf55e.jpg"
+   },
+   "photos": [
+    {
+     "id": "1kPHwRi4UwUJh5QkWj-Rr1k86cslckKK1",
+     "url": "/people-photos/1kPHwRi4UwUJh5QkWj-Rr1k86cslckKK1-300-ceee312174.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Thorn",
+   "order": 4,
+   "description": "Bardzo wesoły cyklop bojowy. Pokazał „cojones” wracając do walki po bardzo poważnym urazie. Pierwsze miejsce w rankingu na największe Kruczory wytatuowane na plecach (sorry Jorund).",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "10v-OVzUlHzuSAhz2EAtGVLjayfu_nk0p",
+    "url": "/people-photos/10v-OVzUlHzuSAhz2EAtGVLjayfu_nk0p-800-6303fdff58.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Szatan",
+   "order": 5,
+   "description": "Tak naprawdę ma na imię Maciuś. Na Cedyni 2009 ktoś próbował poszerzyć mu uśmiech. Po nieudanej próbie dokończyliśmy dzieła na treningu. Jest do złudzenia podobny do pewniej znanej piosenkarki. Na Wolinie 2010 zniknął na kilka godzin z grupą wielkich, wytatuowanych Niemców. Mamy nadzieję, że właśnie nie z tego powodu.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1WtYHyLhrScsbss9WIeFZTPt_x_lhmshG",
+    "url": "/people-photos/1WtYHyLhrScsbss9WIeFZTPt_x_lhmshG-800-4ff9b4869c.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Przemko",
+   "order": 6,
+   "description": "Poliglota i motocyklista. Artysta tworzący dzieła światowej klasy na podstawie instalacji z miedzianych rureczek. Jakby ktoś pytał, to przywalić też potrafi. Zna niepokojąco wiele faktów o kaczych narządach rozrodczych. Obecnie kierownik sekcji Czukcze.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1IlMeSotAMC8L8bf4_wjF4Hnv9FA00x3f",
+    "url": "/people-photos/1IlMeSotAMC8L8bf4_wjF4Hnv9FA00x3f-800-af1c89bfb0.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Eowina",
+   "order": 7,
+   "description": "Samozwańcze najgłębsze gardło Inowrocławia. Pod wpływem procentów wykazuje silne zaburzenia błędnika.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1kBJm0Vp7E6YEkqYkmeZtB6x1f7jxudmm",
+    "url": "/people-photos/1kBJm0Vp7E6YEkqYkmeZtB6x1f7jxudmm-800-53fffe4cd3.jpg"
+   },
+   "photos": [
+    {
+     "id": "16Bn6APfWJ2hWFnwJm2TInaj-zceJ5sML",
+     "url": "/people-photos/16Bn6APfWJ2hWFnwJm2TInaj-zceJ5sML-300-c67c186f3e.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Kaziu",
+   "order": 8,
+   "description": "Stopień w rodzinie – szeregowy. Przynajmniej u nas ma blachę. Realne wcielenie Wróżki – Zębuszki.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "13Dzl501Fq4aGN-kKfjIWhXjtO73jmSLH",
+    "url": "/people-photos/13Dzl501Fq4aGN-kKfjIWhXjtO73jmSLH-800-cb92d15891.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Przemklin",
+   "order": 9,
+   "description": "Przeważnie głośny, sympatyczny i wesoły, ma jednak pewną wadę. Z dunem w ręku staje się raczej gwałtowny i bardzo zamaszysty. Oczywiście, to jest wada tylko dla stojących naprzeciwko.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1077uNzASQbM4ug9BSXhZRyj5JDcvYxBE",
+    "url": "/people-photos/1077uNzASQbM4ug9BSXhZRyj5JDcvYxBE-800-d5db310746.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Geir",
+   "order": 10,
+   "description": "Ten młody wojownik nie podał nam żadnego imienia nadającego się na publikację – dostał zatem losowe imię „z przydziału”",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1URiFF4Qujb-uIqQUPZyEXWq3jlm7Wb5F",
+    "url": "/people-photos/1URiFF4Qujb-uIqQUPZyEXWq3jlm7Wb5F-800-2fa9bfdf8d.png"
+   },
+   "photos": []
+  },
+  {
+   "name": "Ivarr",
+   "order": 11,
+   "description": "Po gorączce sobotniej nocy nazywany również Tulipanem. Zawsze się uśmiecha, nawet gdy nie rozumie. Obawiamy się, że może to być wynik jakiegoś urazu na treningu. Sprawność ostrza wykorzystuje również w kuchni i kusi nas żeby wreszcie spróbować. Szukamy ochotników do testu.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1BOwjHtIkKGNlzQME8fSE0-Jm1kMfJzAn",
+    "url": "/people-photos/1BOwjHtIkKGNlzQME8fSE0-Jm1kMfJzAn-800-a5ada41024.jpg"
+   },
+   "photos": [
+    {
+     "id": "1yjyJvEijWmE_H1oeV3rTdnqZ8lPVtBqP",
+     "url": "/people-photos/1yjyJvEijWmE_H1oeV3rTdnqZ8lPVtBqP-300-5e36782a90.jpg"
+    },
+    {
+     "id": "1Hy9YlozfJP9-ELMqmiD-sdhnYIPQxjTF",
+     "url": "/people-photos/1Hy9YlozfJP9-ELMqmiD-sdhnYIPQxjTF-300-1e9d5816a7.png"
+    }
+   ]
+  },
+  {
+   "name": "Grim",
+   "order": 12,
+   "description": "Do perfekcji opanował sztukę krzyku przez zaciśnięte zęby oraz łamania grubych kijów na głowach niesfornych zawodników. Obu umiejętności używa równocześnie, z podziwu godnym zapałem.\n\nJeżeli coś jest niemożliwe, należy udać się do Artura. On już zna kogoś, kto to załatwi. Szybko, skutecznie i w uczciwej cenie.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1Fffk1A95_z9a7eq7EX0-qFw3VpTTas9v",
+    "url": "/people-photos/1Fffk1A95_z9a7eq7EX0-qFw3VpTTas9v-800-54d2891b2d.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Ahmed",
+   "order": 13,
+   "description": "Mogło by się wydawać, że to element obcy kulturowo i etnicznie dla naszych ziem, a jego obecność grozi obozowi wybuchowymi konsekwencjami. Lecz nic bardziej mylnego, na Wolinie czuje się jakby się tam urodził.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1wVkd2JCoLiiHPK6DCHbdTMvaxYiA1QJu",
+    "url": "/people-photos/1wVkd2JCoLiiHPK6DCHbdTMvaxYiA1QJu-800-137a946f39.jpg"
+   },
+   "photos": [
+    {
+     "id": "1dMTjwSh3vzVYWHfZsEbK6yw-40n-L7kU",
+     "url": "/people-photos/1dMTjwSh3vzVYWHfZsEbK6yw-40n-L7kU-300-d3298c89ab.jpg"
+    },
+    {
+     "id": "1BdGkiYoA_06fUimIS_DC6kDtSv4MGUmc",
+     "url": "/people-photos/1BdGkiYoA_06fUimIS_DC6kDtSv4MGUmc-300-a4b9bbfd7b.jpg"
+    },
+    {
+     "id": "1zZPRlMYlPGIwlyjfRlnZjoHXrAigQAAN",
+     "url": "/people-photos/1zZPRlMYlPGIwlyjfRlnZjoHXrAigQAAN-300-608ef58bfe.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Cherubinek",
+   "order": 14,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1NyjR1_wnBZfsl0u_5gWDXykWlUmfudIA",
+    "url": "/people-photos/1NyjR1_wnBZfsl0u_5gWDXykWlUmfudIA-800-2c32daa7aa.png"
+   },
+   "photos": [
+    {
+     "id": "1NmDpWgCnffdRllq4esKk7614mQGPCVGK",
+     "url": "/people-photos/1NmDpWgCnffdRllq4esKk7614mQGPCVGK-300-182727c62b.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Dżuma",
+   "order": 15,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "195D2yyWprMBHKiPZOCSg0kR4pONsRB4N",
+    "url": "/people-photos/195D2yyWprMBHKiPZOCSg0kR4pONsRB4N-800-7d28aa54f3.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Gąbka",
+   "order": 16,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1NeyjRoWyqWrOkpCMJcEGEN9Dc5Cvtk1Q",
+    "url": "/people-photos/1NeyjRoWyqWrOkpCMJcEGEN9Dc5Cvtk1Q-800-7609120e27.jpg"
+   },
+   "photos": [
+    {
+     "id": "1CXCtVXRAjAjEAYHa1CueV26ATRBfALqM",
+     "url": "/people-photos/1CXCtVXRAjAjEAYHa1CueV26ATRBfALqM-300-cd18ba6997.jpg"
+    },
+    {
+     "id": "1EzOOjj1icCVExvPyKWqjvUgW2thE0m70",
+     "url": "/people-photos/1EzOOjj1icCVExvPyKWqjvUgW2thE0m70-300-1260840ab0.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Włodek",
+   "order": 17,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1kLjVYYun4qBFvGMMAqIoX3Tm3hCIZMMN",
+    "url": "/people-photos/1kLjVYYun4qBFvGMMAqIoX3Tm3hCIZMMN-800-54aba04732.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Hagrid",
+   "order": 18,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "16dcARWynYBc04sK9dXJkcNgstsQ_rGJK",
+    "url": "/people-photos/16dcARWynYBc04sK9dXJkcNgstsQ_rGJK-800-dcb17f73bb.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Hipis",
+   "order": 19,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1MLi34c9m0GptYqF75fPR5eCX4EsjP-8E",
+    "url": "/people-photos/1MLi34c9m0GptYqF75fPR5eCX4EsjP-8E-800-dabc712e71.jpg"
+   },
+   "photos": [
+    {
+     "id": "1IWT1I0EYjcd-vXpKin4rF4cfiROuyw2e",
+     "url": "/people-photos/1IWT1I0EYjcd-vXpKin4rF4cfiROuyw2e-300-7494230b9b.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Rumcajs",
+   "order": 20,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "12Poq8AK4IJQFrBoSC3oXn9pRm8KuWs0I",
+    "url": "/people-photos/12Poq8AK4IJQFrBoSC3oXn9pRm8KuWs0I-800-13fe34d3a7.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Jarek",
+   "order": 21,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1JwZlspZ5oIma9swBI0Cg63WSFWrD79_n",
+    "url": "/people-photos/1JwZlspZ5oIma9swBI0Cg63WSFWrD79_n-800-7e7e8d8a46.jpg"
+   },
+   "photos": [
+    {
+     "id": "1K3dnefTgooL6LRKf6DVUQHkAn7glol6t",
+     "url": "/people-photos/1K3dnefTgooL6LRKf6DVUQHkAn7glol6t-300-aeac065d49.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Sum",
+   "order": 22,
+   "description": "Zwany Sumem, ze względu na praktyczną wiedzę na temat struktury aparatu oralnego tego gatunku ryb. W niektórych kręgach cenna wiedza.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP",
+    "url": "/people-photos/1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP-800-d6bf2911d0.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Krab",
+   "order": 23,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1SRRxoUk4Fh-CozA1WWvleoyW9-qHG7qr",
+    "url": "/people-photos/1SRRxoUk4Fh-CozA1WWvleoyW9-qHG7qr-800-f83d823d5b.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Przeszczep",
+   "order": 24,
+   "description": "Operator duna i zawodowy tłumacz, który przetłumaczy trudny tekst z angielskiego oraz wytłumaczy stojącemu naprzeciwko czemu dla swojego dobra nie powinien się tam znajdować. Jego tłumaczenia przeciwnikom nie zawsze trafiają do serca, lecz trafiają w inne strefy punktowane, więc nie dzielmy włosa na czworo.\nNie wiemy czemu Przeszczep, ale czasem zdarza mu sie burknąć \"te włosy nie były tanie\". Nadal kombinujemy. ",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1euIEJEdxYFyUR1m1-NH4HqjqewCIbi7O",
+    "url": "/people-photos/1euIEJEdxYFyUR1m1-NH4HqjqewCIbi7O-800-842ca4b341.jpg"
+   },
+   "photos": [
+    {
+     "id": "1du5HxWJO5lxKL4s2XXiMyzgn91BDSOrf",
+     "url": "/people-photos/1du5HxWJO5lxKL4s2XXiMyzgn91BDSOrf-300-02409ac4e1.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Pompka",
+   "order": 25,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1AJbR0SVLjotCf4GfxeTQ9guYs_fwqdMe",
+    "url": "/people-photos/1AJbR0SVLjotCf4GfxeTQ9guYs_fwqdMe-800-ef9335f0d7.jpg"
+   },
+   "photos": [
+    {
+     "id": "13P_YEJDibtL8uU0JOxZ2w7hdLkwny0uL",
+     "url": "/people-photos/13P_YEJDibtL8uU0JOxZ2w7hdLkwny0uL-300-36146c0ef8.jpg"
+    },
+    {
+     "id": "11Hz_KuG4V6IpkOKqSt2iyOQg5AvCsdZ0",
+     "url": "/people-photos/11Hz_KuG4V6IpkOKqSt2iyOQg5AvCsdZ0-300-e1877b3169.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Neo",
+   "order": 26,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1aOTd6KLgx3hq09WfTwFwjyH1XOQml_oc",
+    "url": "/people-photos/1aOTd6KLgx3hq09WfTwFwjyH1XOQml_oc-800-db10766421.jpg"
+   },
+   "photos": [
+    {
+     "id": "1y1UlZk-xeXUkY1xF4ddDge1Vp7anWLVk",
+     "url": "/people-photos/1y1UlZk-xeXUkY1xF4ddDge1Vp7anWLVk-300-a4a30ef5c9.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Sambor",
+   "order": 27,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1f8aOnQGZxAUwZhmsy3bk-Lc0cx5AuqU7",
+    "url": "/people-photos/1f8aOnQGZxAUwZhmsy3bk-Lc0cx5AuqU7-800-180de51a3e.jpg"
+   },
+   "photos": [
+    {
+     "id": "1IrQzCHYxLZu_Cs4UKoO98NNhJ-Qq0v1-",
+     "url": "/people-photos/1IrQzCHYxLZu_Cs4UKoO98NNhJ-Qq0v1--300-e8a8d2c0bd.jpg"
+    },
+    {
+     "id": "1YNe0GDrYr29VL_cuYRKmmdQIX0aFV_LN",
+     "url": "/people-photos/1YNe0GDrYr29VL_cuYRKmmdQIX0aFV_LN-300-d8f686c3d9.jpg"
+    },
+    {
+     "id": "1N0JDUHZvAQ91USsFI-1mmUvyFaRZId71",
+     "url": "/people-photos/1N0JDUHZvAQ91USsFI-1mmUvyFaRZId71-300-d20efe2118.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Gruzin",
+   "order": 28,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1gaF9xu8eD4Zvjlm7AVU17WKR-ygG3e05",
+    "url": "/people-photos/1gaF9xu8eD4Zvjlm7AVU17WKR-ygG3e05-800-fe1e868b09.jpg"
+   },
+   "photos": [
+    {
+     "id": "1b6jYHGN0NdHlmJslmSr2vLDtcMwNwXbv",
+     "url": "/people-photos/1b6jYHGN0NdHlmJslmSr2vLDtcMwNwXbv-300-01d417dd57.jpg"
+    },
+    {
+     "id": "165uK4Sbx5imbT3Da5oe0EBhypXrNF15D",
+     "url": "/people-photos/165uK4Sbx5imbT3Da5oe0EBhypXrNF15D-300-6204a80d4e.jpg"
+    },
+    {
+     "id": "1tVrSS8EZjDcZbQm3cdRkSCr1jHtgaqxd",
+     "url": "/people-photos/1tVrSS8EZjDcZbQm3cdRkSCr1jHtgaqxd-300-caf86086c5.jpg"
+    },
+    {
+     "id": "1q0iHuBFrJyfL9fHxE21lO5qs4B9cdQ71",
+     "url": "/people-photos/1q0iHuBFrJyfL9fHxE21lO5qs4B9cdQ71-300-502eb0e016.jpg"
+    }
+   ]
+  }
+ ]
+}

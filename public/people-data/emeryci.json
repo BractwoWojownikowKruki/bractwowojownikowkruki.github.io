@@ -1,0 +1,742 @@
+{
+ "version": 1,
+ "people": [
+  {
+   "name": "Maria",
+   "order": -10,
+   "description": "Niesamowicie opanowana osoba. Nawet Wilku tylko niekiedy wyprowadza ją z równowagi. Prawdopodobnie chce przetestować granice swej wytrzymałości, gdyż postanowiła wyjść za niego za mąż.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1w8yUEgl3LBfzb0g_A4fd488-NUsgeZY8",
+    "url": "/people-photos/1w8yUEgl3LBfzb0g_A4fd488-NUsgeZY8-800-9f7ad83e0d.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Justyna",
+   "order": -9,
+   "description": "Druga połowa Raka. Na szczęście – złośliwa, więc dostarcza nam regularnie nowe zabawne pseudonimy dla swego oblubieńca.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1Q-wBmzdiwUcGTD4sv0V3X4RG3AmkRN9i",
+    "url": "/people-photos/1Q-wBmzdiwUcGTD4sv0V3X4RG3AmkRN9i-800-b6e4a84840.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Ola",
+   "order": -8,
+   "description": "Dziewczyna Patryka. Cicha osóbka, ale z wyjazdu na wyjazd się rozkręca. Prawdopodobnie zorientowała się, że nie wszystko, co mówimy, jest na poważnie.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1mqCCEH0ekrgKl9dRTvU_w7bdecWOQ17t",
+    "url": "/people-photos/1mqCCEH0ekrgKl9dRTvU_w7bdecWOQ17t-800-5911094ef7.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Asia",
+   "order": -7,
+   "description": "Jedna z nielicznych kobiet, które dołączyły do nas samodzielnie i dobrowolnie. Intensywnie doskonali swoje rzemiosło i wiedzę historyczną. Prawdopodobnie stara się tym odwrócić swą uwagę od myśli co z nas za ludzie.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "149YsKVQlG3Rpddd1Ysyo51lkB3JR6207",
+    "url": "/people-photos/149YsKVQlG3Rpddd1Ysyo51lkB3JR6207-800-47b13ff576.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Sandra",
+   "order": -6,
+   "description": "Dziewczyna z charakterkiem. Miłośniczka zwierząt, dla których dobra lepiej, żeby nie piła energetyków, bo przypomina „Pan z Dragon Ball GT”.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1Qh7_Nh1w6eDewjC7031OT4AjzJOVOQ3R",
+    "url": "/people-photos/1Qh7_Nh1w6eDewjC7031OT4AjzJOVOQ3R-800-3ddaaafab9.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Storrada",
+   "order": -5,
+   "description": "Jak każda kobieta kocha ozdoby, co widać na załączonym obrazku. Słynie z kunsztownych haftów, w przeciwieństwie do części drużyny, robionych nićmi.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "16j4y8EOZcQJtxAf6cnXvRpbAZ3KIh9jK",
+    "url": "/people-photos/16j4y8EOZcQJtxAf6cnXvRpbAZ3KIh9jK-800-7f725f0675.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Eleonora",
+   "order": -4,
+   "description": "Bardzo spokojna osoba, która jednak potrafi działać impulsywnie kiedy ktoś wciera jej garść smalcu we włosy.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1poJlQDDuuLaKo09YMa-08IaA2FCnhUHx",
+    "url": "/people-photos/1poJlQDDuuLaKo09YMa-08IaA2FCnhUHx-800-790495fa39.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Ulfar",
+   "order": -3,
+   "description": "Do pierwszej bitwy wyszedł z tarczą wielkości blatu od kawiarnianego stolika. Niestety, nie zrobił w niej wizjera. Ma taki specyficzny charakter, że jednocześnie chce się go przytulić i zasunąć mu z łokcia.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1J7kwKRPGKF_UAA414Esh-NCQ500D8ySk",
+    "url": "/people-photos/1J7kwKRPGKF_UAA414Esh-NCQ500D8ySk-800-4b50219c59.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Krzypas",
+   "order": -2,
+   "description": "Duży, głośny i wszędzie go pełno. Prawie jak autobusy Jelcz w małym mieście. Jak widać posiada czasami nieodpartą chęć blokowania ciosów twarzą i resztą głowy.. Wcielenie ducha powieści Grek Zorba, ale słabo sobie radzi ze spokojem. Niespokojnie reaguje na ksywkę Przypas, i dlatego pewnie niedługo tak go będziemy nazywać.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1P4JQOk2m8KRRjgqqaERj-xUrHUs9mflv",
+    "url": "/people-photos/1P4JQOk2m8KRRjgqqaERj-xUrHUs9mflv-800-2095f95441.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Michu",
+   "order": -2,
+   "description": "Nieco kontrowersyjny człowiek-Wikipedia, specjalista od PR techniką kopiuj-wklej. Ucząc bawi, bawiąc obraża.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1Yu7dF6gtSw5TvRpfsjD_Az3xjTajmvHb",
+    "url": "/people-photos/1Yu7dF6gtSw5TvRpfsjD_Az3xjTajmvHb-800-3d32ae3338.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Bjartr",
+   "order": -1,
+   "description": "Spokojny i cichy. Nauczymy go walczyć, potem podtuczymy i przekażemy nieco bardziej barbarzyńskie wzorce zachowań. Kolejny psycholog w drużynie. Ich zainteresowanie naszą grupą powoli zaczyna nas zastanawiać.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1faCMAcsaWNQAzQKDx7VcB12wUTd942GP",
+    "url": "/people-photos/1faCMAcsaWNQAzQKDx7VcB12wUTd942GP-800-f13e006e49.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Depczygar",
+   "order": -1,
+   "description": "Żołnierz idealny – najpierw strzeli, potem spyta, i jeszcze zwróci amunicję. W wojsku szkolony do nocnych operacji specjalnych. Sprawdziliśmy stopień wyszkolenia podczas jednego z wyjazdów, i w rezultacie nadaliśmy mu kryptonim 'Depczygar'.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1fUA0uM9Wb4R7tNjtild0OIQyTq5-oNcm",
+    "url": "/people-photos/1fUA0uM9Wb4R7tNjtild0OIQyTq5-oNcm-800-ab4f3bce7a.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Dorian",
+   "order": -1,
+   "description": "Elficki książę, ale zbyt wysoki nie jest, i w lesie też nie mieszka, stąd wniosek, że to xsiażę średnich elfów. Przyszedł jako pracoholik. Już rok kruczej terapii zaowocował poprawą, teraz to patologiczny pracoholik.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1lMrRBEhviVWiEFDD8TjmExb4dmRDK-fO",
+    "url": "/people-photos/1lMrRBEhviVWiEFDD8TjmExb4dmRDK-fO-800-0623427f6d.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Gunar",
+   "order": -1,
+   "description": "Młodszy klon Nellego, choć bardziej marudny. Lepiej go ubierać niż karmić i poić. Znany także jako BEMBEN z powodu mięśnia piwnego, którego można by używać w zastępstwie bębna wolińskiego. Dajcie mu agregat spalinowy, a będzie się cieszył jak małe dziecko.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "17FIDXukTPH940ZJ5_mIE0pkLGGOIzPQr",
+    "url": "/people-photos/17FIDXukTPH940ZJ5_mIE0pkLGGOIzPQr-800-77b8e69c61.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Hvitserk Harfager",
+   "order": -1,
+   "description": "Zwany również Paprykiem Skwarkiem. Obiecujący kandydat, na wyjazdach pracuje tak ciężko, że potrafi zasnąć podczas wiecu. Na Yule 2017 został niekwestionowanym królem imprezy, a przynajmniej tak mu mówimy",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1Qar0LOyQfVEdHNVBMWY_3hGGihUft2vw",
+    "url": "/people-photos/1Qar0LOyQfVEdHNVBMWY_3hGGihUft2vw-800-cb3cd42f3e.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Ivar",
+   "order": -1,
+   "description": "Jeszcze bardziej złośliwy niż pozostali. W walce nie tylko widzi jak przeciwnik ustawia broń, barki czy stopy, ale potrafi również to wykorzystać. Sezonowo u przeciwników prowadzi „akcję żebra” albo „akcję oczy”. Kiedyś, po obcięciu włosów wyglądał jak wytatuowany Maksymilian Kolbe. Kiedyś.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1jLONCO2sqhRmMTgh9SLSlgZc2QgIDqKu",
+    "url": "/people-photos/1jLONCO2sqhRmMTgh9SLSlgZc2QgIDqKu-800-3b25c13625.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Raku",
+   "order": -1,
+   "description": "Niby wszystko byłoby z nim fajnie, ale niestety – on jest leworęczny. Stara się nadrabiać zdolnościami muzycznymi i aktywnością na treningach.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1iqm8aEltYtTHfTLvlM04zzJsJxBx_rEA",
+    "url": "/people-photos/1iqm8aEltYtTHfTLvlM04zzJsJxBx_rEA-800-9314173ee0.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Sławoj",
+   "order": -1,
+   "description": "Jest na tyle wysoki, że stojąc przed przeciwnikiem potrafi go uderzyć toporem w potylicę. Jest mu naprawdę dobrze tylko kiedy robi nacięcia i dziury w skórze. Na szczęście, takiej na buty i karwasze.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "12_fy9CFelkWTU_ylHiLXiSA6fx-09cd1",
+    "url": "/people-photos/12_fy9CFelkWTU_ylHiLXiSA6fx-09cd1-800-2c0e8c2970.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Alf",
+   "order": 0,
+   "description": "Opancerzony przypomina krasnoluda- -tarana, choć krasnoludy mają lepsze maniery. W walce dużo skacze i nabiega, a stawać mu na drodze, to jak próbować zatrzymać lawinę.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1fUaJ2IFbjgckgbvJuyGpRYKnDp1pLycO",
+    "url": "/people-photos/1fUaJ2IFbjgckgbvJuyGpRYKnDp1pLycO-800-f68fa17dfd.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Gorm",
+   "order": 0,
+   "description": "Hövding Sekcji Kruki-Inowrocław. Początkowo był bardziej defensywny niż armia francuska, teraz doskonali się w eliminowaniu broni drzewcowej przeciwnika. Jego testy ataku strefowego nie zostały zatwierdzone.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1EFd5YZIeNGx6tm3gOgIcDQo0LycEf2A2",
+    "url": "/people-photos/1EFd5YZIeNGx6tm3gOgIcDQo0LycEf2A2-800-d549926918.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Jaro",
+   "order": 0,
+   "description": "Zwany czasem Pancerną Traszką. Zaczyna w walce tak wysoko skakać, że chyba zostanie naszym oddziałem powietrznodesantowym.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1vSOu-4EQw9GS6gXGSLbr0b_trN6z0uZS",
+    "url": "/people-photos/1vSOu-4EQw9GS6gXGSLbr0b_trN6z0uZS-800-36fedcf36a.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Klon",
+   "order": 0,
+   "description": "Mniej wredna wersja Myszego. Potrafi doprowadzić do łez – wcale nie ze śmiechu – stąd przydomek Chemiczny Ali.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1J5r5bbsbUghf8Bs6HDUDO4jnKl0tBBPA",
+    "url": "/people-photos/1J5r5bbsbUghf8Bs6HDUDO4jnKl0tBBPA-800-4264079192.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Szoszon",
+   "order": 0,
+   "description": "Zastępca Jarla. Nieco wyrównuje nam niedobory ludzi z brodami. Jest żywym dowodem na to, że nie dyskryminujemy mniejszosci tureckiej.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1i_iYiH4N1dRyoXT__pV2Df-nOHuCYVJ5",
+    "url": "/people-photos/1i_iYiH4N1dRyoXT__pV2Df-nOHuCYVJ5-800-62e6033360.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Valgard",
+   "order": 0,
+   "description": "Zwany Myszoskoczkiem, gdyż jest zapalonym zwolennikiem taktyki „podskocz i uderz sześćdziesiąt razy, siedemnaście z tego wejdzie”. Czasami myślimy żeby mu zrobić testy antydopingowe.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1W-Q92w9oC8nZEkGdOwiiyI_Xd2iWaH6O",
+    "url": "/people-photos/1W-Q92w9oC8nZEkGdOwiiyI_Xd2iWaH6O-800-42a97e3544.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Miłosz",
+   "order": 2,
+   "description": "Nasz pimp, handlarz niewolników i czekoladowy kaznodzieja. Nie mówi tylko wtedy, gdy krzyczy. Autoryzowany dostawca Kruków na Wolin. Dostawa w dużych ilościach i dogodnych terminach. Bierzesz teraz, płacisz całe życie.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1rQvRkhXBIeyeoYPcWZWziRrFDJCSL1ds",
+    "url": "/people-photos/1rQvRkhXBIeyeoYPcWZWziRrFDJCSL1ds-800-ace9733f58.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Zadar",
+   "order": 3,
+   "description": "Niepoprawny abstynent, do tego niepotrzebnie uprzejmy. W zasadzie nie wiemy co go z nami trzymało, ale najwyraźniej przestało.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1EjU9xuwWTMUfioPkBO5Ic0kh3arig0P-",
+    "url": "/people-photos/1EjU9xuwWTMUfioPkBO5Ic0kh3arig0P--800-4a5efc4934.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Brzoza",
+   "order": 4,
+   "description": "Brzoza – masywny rasowy wiking, żeglujący, walczący czasami germańska pływaczka – lubi ubierać damskie ciuszki i prezentować wdzięki – Wolin 2013, drużynowy egzorcysta! Jeden z rekordzistów na dystansie od blachowego do emeryta.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1FjYdcoWeXK6cRWK8MsyprAkKMysG6_cO",
+    "url": "/people-photos/1FjYdcoWeXK6cRWK8MsyprAkKMysG6_cO-800-9b09a1c6b1.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Hakon",
+   "order": 5,
+   "description": "Wiecznie zdziwione spojrzenie. W każdej sytuacji. Nie tylko w finale kręgu walki. Naprawdę w KAŻDEJ sytuacji.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1sH07oY-GLl9c5laVeo-ex28146xACfd2",
+    "url": "/people-photos/1sH07oY-GLl9c5laVeo-ex28146xACfd2-800-1c043e6691.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Kaśka",
+   "order": 5,
+   "description": "Pochodzenie jej przydomku (Ślimak) kryje się w mrokach średniowiecza. Niezliczona ilość biżuterii – nie tylko historycznej – dodaje jej wyglądowi charakteru oraz uroku.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1klFh5preZEPsex_zHB8NLHSpHPz6ppNw",
+    "url": "/people-photos/1klFh5preZEPsex_zHB8NLHSpHPz6ppNw-800-a4578b3be9.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Kuba",
+   "order": 7,
+   "description": "Szalony introwertyk. Planuje karierę psychoterapeuty i zastanawiamy się, czy nie nabiera na nas praktyki. Poza tym dziwnie przywiązany do swojego zarostu.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "10p_mfo2ivDKURGM3sIOD7Bqbd4gqDT3N",
+    "url": "/people-photos/10p_mfo2ivDKURGM3sIOD7Bqbd4gqDT3N-800-5ef286b3d8.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Egil",
+   "order": 8,
+   "description": "Nie wiemy czy do końca przemyślał wymowę swojego imienia, ale z czasem smark przywyknie do tego. Patolog ze sprężyną w nadgarstku, jednak tylko na kacu. Posiadacz tatuażu z pinczerkiem. Młodszy brat Gorma.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1t3k5eaxcpfmggtLE4QbFC7zuamGJOwYn",
+    "url": "/people-photos/1t3k5eaxcpfmggtLE4QbFC7zuamGJOwYn-800-9dbb158d9e.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Leszko",
+   "order": 9,
+   "description": "Zwany również Tatą G. W zasadzie ma już na swoim koncie 2 blachy. Nie chcecie spotkać go w turnieju kiedy jest na kacu. Razem z Maliniakiem stworzyli ugrupowanie „kandydatów na emeryta”.",
+   "inMemoriam": true,
+   "mainPhoto": {
+    "id": "1IlZcELTk17McrTSFer7C_6c8ruOa5xAn",
+    "url": "/people-photos/1IlZcELTk17McrTSFer7C_6c8ruOa5xAn-800-c7ac4d2ad6.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Olaf",
+   "order": 11,
+   "description": "Przejawia patologiczne zamiłowanie do cyfr. Wyliczyć można wiele z jego zasług, nie sposób zliczyć jego walorów, zaliczył już niejedną z… przygód. Z pewnością niejednemu w walce porachuje kości.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1VoXic9wTmFedMuVu8ePDZ9ifR-zhRfTi",
+    "url": "/people-photos/1VoXic9wTmFedMuVu8ePDZ9ifR-zhRfTi-800-6837a5c13e.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Ewa",
+   "order": 12,
+   "description": "Spokojna osoba, znosząca z godością fakt, że Szoszon tatuuje sobie coraz więcej oczu na rękach i nie chce powiedzieć dlaczego.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "143SJbtVIdV2exAed64wBrAQm2U7UNclf",
+    "url": "/people-photos/143SJbtVIdV2exAed64wBrAQm2U7UNclf-800-35feb28661.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Horik",
+   "order": 13,
+   "description": "Kilka sezonów pracy i oto victoria, ten niewinny blondynek jest już tak zwyrodniały jak cała reszta. Specjalista od unikania ciosów włócznią w stopę. A, no i jeszcze potrafi się bić.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1axFIl8Dc6eyMwUWJ31Av_b2YGlhO2iD8",
+    "url": "/people-photos/1axFIl8Dc6eyMwUWJ31Av_b2YGlhO2iD8-800-ae3b0ff861.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Paszko",
+   "order": 14,
+   "description": "Niegdyś ludzie często wbijali mu coś w głowę lub w twarz, od jakiegoś czasu stanowczo popularniejsze jest jego krzyżowanie. Zupełnie nie mamy pojęcia dlaczego.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1bZ_pZcN0KkYlkQZ92lWgv8qR_mZ1OO-D",
+    "url": "/people-photos/1bZ_pZcN0KkYlkQZ92lWgv8qR_mZ1OO-D-800-bf20080e70.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Gudrun",
+   "order": 16,
+   "description": "Od dawna w drużynie, czuje się swobodnie zarówno w stroju wikińskiej pani jak i w gotyckich koronkach.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1__RxNofIOhx65YbtH89Ps-NTy0R1zCKX",
+    "url": "/people-photos/1__RxNofIOhx65YbtH89Ps-NTy0R1zCKX-800-14bf812d8c.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Grimar",
+   "order": 17,
+   "description": "Lata mijają, a on ani się nie odprężył, ani nie złagodniał. Jedyne co, to wymienił szablę na tasak, ale niespecjalnie cieszy nas ta zamiana. Opracował tajemną technikę obrony tarczą trzymaną za plecami i głową.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "10WRlHduUtpYFU20ZdXsiI8XfT3Qyq0-_",
+    "url": "/people-photos/10WRlHduUtpYFU20ZdXsiI8XfT3Qyq0-_-800-12b05e67ea.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Eldar",
+   "order": 18,
+   "description": "Hövding Sekcji Kruki-Poznań. Pierwszy na tej stronie przedstawiciel rocznika hmm… ’88. Ostatnio coś kręci. Ogniem na łańcuchach. Niedawno opanował robienie takich iskier, że zespół Rammstein byłby zachwycony.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "14s2n2B2CyzZca_0dNWaQirbxVZHzG5L9",
+    "url": "/people-photos/14s2n2B2CyzZca_0dNWaQirbxVZHzG5L9-800-49bafffc1f.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Eliza",
+   "order": 19,
+   "description": "…",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "16nmYAEKf-lKYuEeaePEhCEJsPRAjYxgZ",
+    "url": "/people-photos/16nmYAEKf-lKYuEeaePEhCEJsPRAjYxgZ-800-092507fa6b.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Westar",
+   "order": 20,
+   "description": "Wygląd pluszowej maskotki, skuteczność siepacza. Sporo ludzi nabiera się na pierwsze i przekonuje o drugim. Gdy się uśmiecha jest podobny do ludzi, którzy mieszkają w domach ze śniegu i tłuką pałami foki.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1scIw1q8zL9tb6ud68GpDqFLxPoZugTJV",
+    "url": "/people-photos/1scIw1q8zL9tb6ud68GpDqFLxPoZugTJV-800-77a2a685de.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Eryk",
+   "order": 21,
+   "description": "Niegdyś posiadał najbardziej jamajską fryzurę w Krukach, jednak z przyczyn nam nieznanych, postanowił pozbyć się jej. Należy zachować szczególną ostrożność w walce z nim, zwłaszcza, gdy jest na kacu.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1d_PkKxXlyp-aXEkWhm5Zt7M_vgHk_bQj",
+    "url": "/people-photos/1d_PkKxXlyp-aXEkWhm5Zt7M_vgHk_bQj-800-e0b3c04ae8.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Norek",
+   "order": 22,
+   "description": "Wzrostu i budowy Bruce’a Lee, a nawet podobnie szybki. Strój i bose stopy sugerują hipisowskie tendencje, na szczęście nie śpiewa „Children of the Revolution” ani nie proponuje nam wolnej miłości.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1D8E3aPQDz8jDwugJI7toCgvcAPGKtAPp",
+    "url": "/people-photos/1D8E3aPQDz8jDwugJI7toCgvcAPGKtAPp-800-472bd3bfe3.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Krzesimir",
+   "order": 23,
+   "description": "Vel PiBis. Zaczął od łuku. Potem okazało się, że wywija ogniem. Teraz wywija również toporem, i dobrze, bo psuł nam koncepcję podziału ludzi na stronie.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1B0MIQV1hxsEpWMNN2O29p3bdMDdbZYuj",
+    "url": "/people-photos/1B0MIQV1hxsEpWMNN2O29p3bdMDdbZYuj-800-3b25e1cae3.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Orm",
+   "order": 24,
+   "description": "Niech Was nie zwiedzie jego wygląd cherubinka! Zrobił się tak zwyrodniały jak pozostali. Przepraszamy niniejszym jego mamę.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1_mzVI2MBRS9_LTkzQZPwnph5AMF3IasN",
+    "url": "/people-photos/1_mzVI2MBRS9_LTkzQZPwnph5AMF3IasN-800-7d6014305d.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Wojbor",
+   "order": 25,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1ZQS8U3t3_qV4trbgzQfWPozNjLGsRYg9",
+    "url": "/people-photos/1ZQS8U3t3_qV4trbgzQfWPozNjLGsRYg9-800-4469590459.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Vader",
+   "order": 26,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1iDXtObmKY_H9j24JPybsKdb9uMZTe_7p",
+    "url": "/people-photos/1iDXtObmKY_H9j24JPybsKdb9uMZTe_7p-800-1384d08001.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Orlik",
+   "order": 27,
+   "description": "Stary wiarus, choć ostatnio zdecydował, że nie chce dalej walczyć. Powszechnie lubiany, nie tylko dlatego, że zapewnia dużo cienia.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "14VH8KUh3lNZlMqdLDxoKE84hjaEvrpBy",
+    "url": "/people-photos/14VH8KUh3lNZlMqdLDxoKE84hjaEvrpBy-800-1e416cc407.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Łysy",
+   "order": 28,
+   "description": "Nie jest już łysy, choć imię zostało. W obronie czci zawsze gotów do walki. Także przy użyciu drewnianej ławy. Bohater filmu Listonosz zawsze przydzwoni dwa razy. Niestety, pochłonięty przez szarą rzeczywistość.",
+   "inMemoriam": true,
+   "mainPhoto": {
+    "id": "179Ogv_gkiDZ3oSWYwdet_XSvhDFJqhm7",
+    "url": "/people-photos/179Ogv_gkiDZ3oSWYwdet_XSvhDFJqhm7-800-896e07baa6.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Monika",
+   "order": 29,
+   "description": "Razem z Freythis znalazła się niespodziewanie w sytuacji jak z antycznych dramatów i podobnie jak Antygona przedłożyła rodzinę nad prawa wspólnoty.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1fsfPn66UtbNJhzn1UjvElgOqExL7tOdf",
+    "url": "/people-photos/1fsfPn66UtbNJhzn1UjvElgOqExL7tOdf-800-6574f04c60.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Freythis",
+   "order": 30,
+   "description": "Razem z Moniką znalazła się niespodziewanie w sytuacji jak z antycznych dramatów i podobnie jak Antygona przedłożyła rodzinę nad prawa wspólnoty.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1eTQ4ApkOP-qMdXZigZ1B4l2kPz8OIkLL",
+    "url": "/people-photos/1eTQ4ApkOP-qMdXZigZ1B4l2kPz8OIkLL-800-b1e8641d0f.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Justyna",
+   "order": 31,
+   "description": "Razem z Hornem zdecydowali się opuścić drużynę zaraz po obrzędzie swoich zaślubin. A przecież nie domagaliśmy się Prawa Pierwszej Nocy…",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1ndwknxruNfwjUw7U6rPtqqTN9CHXHIGb",
+    "url": "/people-photos/1ndwknxruNfwjUw7U6rPtqqTN9CHXHIGb-800-18a9ad5320.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Horn",
+   "order": 32,
+   "description": "Wizualnie był najbardziej rasowym wikingiem z nas wszystkich. Razem z Justyną zdecydowali się opuścić drużynę zaraz po obrzędzie swoich zaślubin. A przecież nie domagaliśmy się Prawa Pierwszej Nocy…",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1RSqNSU4vARuw5FFwEwIRyblgz7FwwJCS",
+    "url": "/people-photos/1RSqNSU4vARuw5FFwEwIRyblgz7FwwJCS-800-ba853164d8.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Ulf",
+   "order": 33,
+   "description": "Kolejny patolog z Kruszwicy. Taki im urósł. A ludzie mówią, że w Gople można już bezpiecznie się kąpać. Ostatnio okazało się, że u niego „agresja zero, aktywność zero”, więc w emerytach jest jego miejsce.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1h7MlNdiES2RzsW5O6tMr1Q-EypUfEqHc",
+    "url": "/people-photos/1h7MlNdiES2RzsW5O6tMr1Q-EypUfEqHc-800-ee84a3b5b3.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Nergal",
+   "order": 34,
+   "description": "Jeden z największych talentów do walki w drużynie. Potrafił robić niewyobrażalne rzeczy z kończynami, zwłaszcza swoimi. Niestety aktualnie uznał, że cena jednego smsa jest tak niewyobrażalna, że nie będzie rujnował majątku na kontakt z drużyną.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1fuI7NRiROF4ymKZMlXa0rF7jiOY-dxAz",
+    "url": "/people-photos/1fuI7NRiROF4ymKZMlXa0rF7jiOY-dxAz-800-951e2f59f8.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "ORM ROSTÄRGAD",
+   "order": 35,
+   "description": "Aktualnie pracuje w ochronie na statku wycieczkowym pływającym po całym świecie, czyli bije ludzi i pływa po morzach. Całkiem wikińskie…",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1QzsgIsAB6ROPH3_AvjCzrjpRP0PeSNYD",
+    "url": "/people-photos/1QzsgIsAB6ROPH3_AvjCzrjpRP0PeSNYD-800-2d224ac8fb.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Asgerd",
+   "order": 36,
+   "description": "Spośród nas miała chyba największą wiedzę na temat ludów północy, umiała nawet poskładać język i pogadać nieco w old norse. W 2005 r. postanowiła, że będzie się lansować poza drużyną.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1CjtBXjYiEPZvR7A5rV6Vm-nbrp79Tinf",
+    "url": "/people-photos/1CjtBXjYiEPZvR7A5rV6Vm-nbrp79Tinf-800-7ba0efb9c0.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Gosia i Sygurd",
+   "order": 37,
+   "description": "Gosia – lepsza połowa Sygurda, ma język ostry jak jego miecz, a choć krótszy to nie mniej niebezpieczny",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "13M3GyRqnLFk-8NzeEglLfiR2v5lh4pVr",
+    "url": "/people-photos/13M3GyRqnLFk-8NzeEglLfiR2v5lh4pVr-800-d543a64b14.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Małgorzata i Bjorn",
+   "order": 38,
+   "description": "Małgorzata (i Bjorn), przyszła pani doktor, której fachowa pomoc nie raz się nam przydała.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1cfmZDVlMSQpTUZnjJGZUrBk1pf7mkAw4",
+    "url": "/people-photos/1cfmZDVlMSQpTUZnjJGZUrBk1pf7mkAw4-800-c78bc97be3.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Osvald",
+   "order": 39,
+   "description": "Spokojny, zrównoważny, lubił topory, wiec został naszym drużynowym czekanoterapeutą. Był wredny, bo starał się wyglądać na normalnego. Tak się tym przejął, że STAŁ się normalny.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1lhAiirhBuNsALuhD3POvPDeJG6feqRVq",
+    "url": "/people-photos/1lhAiirhBuNsALuhD3POvPDeJG6feqRVq-800-cbd219bf38.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Borg",
+   "order": 40,
+   "description": "Dysponował najcięższą tarczą w drużynie. W 2003 r. rywalizował z Paszkiem o tytuł Najbardziej Pokancerowanej Głowy Roku.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1yVAYhMLcS8Z9jXTjvGRjU9FY7bf8EM1Z",
+    "url": "/people-photos/1yVAYhMLcS8Z9jXTjvGRjU9FY7bf8EM1Z-800-a48e7f0dd9.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Ottar",
+   "order": 41,
+   "description": "W niektórych środowiskach znany jako Diabeł. Pomagaliśmy mu jak mogliśmy w utrzymaniu tego przezwiska, bo przecież, co to za diabeł bez blizny na twarzy. Teraz uznał, że starczy już tych ozdób i zniknął. Bez oparów siarki.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1IWhcw_uxk-j7WFhGNdPp8qFs_ETc-qvl",
+    "url": "/people-photos/1IWhcw_uxk-j7WFhGNdPp8qFs_ETc-qvl-800-194a6c7b4d.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Leif",
+   "order": 42,
+   "description": "Jeden z założycieli Bractwa z Sekcji Kruki-Poznań. Uznał, że także dla niego Wojny Czas, lecz ostatnio przygniotło go brzemię rzeczywistości.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1NaOR-puM0JypVd6IcoyCtloOI8lSf33E",
+    "url": "/people-photos/1NaOR-puM0JypVd6IcoyCtloOI8lSf33E-800-6baa0f0df4.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Thorvald",
+   "order": 43,
+   "description": "Posiadacz wendelskiego hełmu z wieloma pobrzękującymi blaszkami, w którym po prostu nie da się walczyć na kacu. Thorvald, o dziwo, mógł. Może to dlatego został amatorskim filozofem – egzystencjalistą?",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1but1WdcSzqr9bz9XuLQITnR3XVri1bzr",
+    "url": "/people-photos/1but1WdcSzqr9bz9XuLQITnR3XVri1bzr-800-7bbbc00946.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Radosław",
+   "order": 44,
+   "description": "Preferowaną przez niego taktyką był szturm głową w przód. Widać to bardzo na jego hełmie.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1RVB-x6J1eB8akz6D3TTV4u4-z5xhAXgg",
+    "url": "/people-photos/1RVB-x6J1eB8akz6D3TTV4u4-z5xhAXgg-800-e450c56cb0.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Jędrek",
+   "order": 45,
+   "description": "Interesowały go bronie drzewcowe, lecz jego ulubioną bronią było marudzenie. Ragnar opatentował na nim powiedzenie (przez zaciśnięte zęby): „Trzymaj blok!”",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1JmYauuUMl0HaFZjqeq2d4eszAgL98Kkz",
+    "url": "/people-photos/1JmYauuUMl0HaFZjqeq2d4eszAgL98Kkz-800-acdcd61166.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Gunnar",
+   "order": 46,
+   "description": "Skondensowana wojna, artysta bicia z bańki. Ostatnio Kruki przegrały z jego żoną i dzieckiem, ale w przyszłości… Gunnar, wróć!",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "19_dwqfOULZF6Fs5--M3x56GAA7BCRVsx",
+    "url": "/people-photos/19_dwqfOULZF6Fs5--M3x56GAA7BCRVsx-800-86f3a4910f.jpg"
+   },
+   "photos": []
+  }
+ ]
+}

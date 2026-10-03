@@ -1,0 +1,177 @@
+{
+ "version": 1,
+ "people": [
+  {
+   "name": "Huginn",
+   "order": 1,
+   "description": "Jak sam o sobie powiedział, nie jest przystojny jak Brad Pitt, nie jest zbudowany jak Schwarzenegger, za to liże jak Lassie. Drużyna rozumie, toleruje i nie ma nic do dodania.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1bd2ueEH3gLqIqnrk45sMtfbPEXMQd-jb",
+    "url": "/people-photos/1bd2ueEH3gLqIqnrk45sMtfbPEXMQd-jb-800-200f89c545.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Cali",
+   "order": null,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1UkeK5z-L9iOabb2F2tt5lFpUsVlCLaC5",
+    "url": "/people-photos/1UkeK5z-L9iOabb2F2tt5lFpUsVlCLaC5-800-a052af1240.jpg"
+   },
+   "photos": [
+    {
+     "id": "1Pojkq8amT-x1gKfuJOHo8w0rWSdBSK4S",
+     "url": "/people-photos/1Pojkq8amT-x1gKfuJOHo8w0rWSdBSK4S-300-bdeb44f4ca.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Dawid",
+   "order": null,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "12X0RdGtxYTXH8dMb8XA-19-yWsBwPqBa",
+    "url": "/people-photos/12X0RdGtxYTXH8dMb8XA-19-yWsBwPqBa-800-0ef33b428e.jpg"
+   },
+   "photos": [
+    {
+     "id": "1GfAjWRVxsFTtHXm2I9WSo1G4ZNQzFdLK",
+     "url": "/people-photos/1GfAjWRVxsFTtHXm2I9WSo1G4ZNQzFdLK-300-8fb1962943.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Hubert",
+   "order": null,
+   "description": "Nasze bohurtowe cudowne dziecko. Im dziwniejsza formuła turnieju, tym większa szansa, że zabłyśnie. Prawdopodobnie wynika to z wieloletniego doświadczenia z ludowymi sztukami walk. Albo walców...",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1fVFDu5NNMdrh4mY9ijHCyF_DBtg256Pj",
+    "url": "/people-photos/1fVFDu5NNMdrh4mY9ijHCyF_DBtg256Pj-800-fcd67143eb.jpg"
+   },
+   "photos": [
+    {
+     "id": "1Pgg5wx9LHMguvlyzBnZ8buylIZL8apha",
+     "url": "/people-photos/1Pgg5wx9LHMguvlyzBnZ8buylIZL8apha-300-f19ef20420.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Huckleberry",
+   "order": null,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1zHrsEDpihoTX1hrIBfji9rhTeIdYRH5K",
+    "url": "/people-photos/1zHrsEDpihoTX1hrIBfji9rhTeIdYRH5K-800-e0f6636fab.jpg"
+   },
+   "photos": [
+    {
+     "id": "1CtR3TB72VPvOdPo7aQQGrRtKKakdGbP2",
+     "url": "/people-photos/1CtR3TB72VPvOdPo7aQQGrRtKKakdGbP2-300-f6e2a2b1a0.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Kac",
+   "order": null,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1fX4us6uGvGfDwhXeuswLXGRyu-0aelcF",
+    "url": "/people-photos/1fX4us6uGvGfDwhXeuswLXGRyu-0aelcF-800-89259d5124.jpg"
+   },
+   "photos": [
+    {
+     "id": "1K0qa166eiaoHrncJCxp-KXNhcoX3M2PF",
+     "url": "/people-photos/1K0qa166eiaoHrncJCxp-KXNhcoX3M2PF-300-3bdab42079.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Kamil",
+   "order": null,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1Xmvm7dmtpmtvTeesgIO3rdABkHL-wxpP",
+    "url": "/people-photos/1Xmvm7dmtpmtvTeesgIO3rdABkHL-wxpP-800-c0ce9d8e07.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Lewy",
+   "order": null,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1EyQ_5s19U4oqWPlPyttgI2SDOGXF0ACJ",
+    "url": "/people-photos/1EyQ_5s19U4oqWPlPyttgI2SDOGXF0ACJ-800-532b37a3c3.png"
+   },
+   "photos": []
+  },
+  {
+   "name": "Lotgar",
+   "order": null,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1gP36py3Ulpz9kByGy_7ynueXTexTmZQS",
+    "url": "/people-photos/1gP36py3Ulpz9kByGy_7ynueXTexTmZQS-800-35691c32d6.jpg"
+   },
+   "photos": [
+    {
+     "id": "1VRQdWzJYygeev6zuRZsEens-2suQbhD2",
+     "url": "/people-photos/1VRQdWzJYygeev6zuRZsEens-2suQbhD2-300-29857ad987.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Marcin",
+   "order": null,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1jnQULGPt_C6yAaVSUgcpVlJQS4A8kchp",
+    "url": "/people-photos/1jnQULGPt_C6yAaVSUgcpVlJQS4A8kchp-800-a490612e70.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Ozzy",
+   "order": null,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "12PJ7EF7vtQApAKm00A-ElqUIyxInEUWb",
+    "url": "/people-photos/12PJ7EF7vtQApAKm00A-ElqUIyxInEUWb-800-6a65458c84.jpg"
+   },
+   "photos": [
+    {
+     "id": "1e9P-gQCG9pxL3CvvITQnick3JDk6GnBT",
+     "url": "/people-photos/1e9P-gQCG9pxL3CvvITQnick3JDk6GnBT-300-faa522c2ca.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Waza",
+   "order": null,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1U3kVfl-M4CXYrJORdCcZ9J5sye2rSq5x",
+    "url": "/people-photos/1U3kVfl-M4CXYrJORdCcZ9J5sye2rSq5x-800-be4340ad2c.jpg"
+   },
+   "photos": [
+    {
+     "id": "1rV2g5LGNkudAf9J7t8NeagjFaN8EKo2v",
+     "url": "/people-photos/1rV2g5LGNkudAf9J7t8NeagjFaN8EKo2v-300-f516db1522.jpg"
+    }
+   ]
+  }
+ ]
+}

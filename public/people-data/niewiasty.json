@@ -1,0 +1,76 @@
+{
+ "version": 1,
+ "people": [
+  {
+   "name": "Justyna",
+   "order": 4,
+   "description": "Specjalistka od celnych ripost słownych (i nie tylko). Potrafi sprawić, że Houshold chodzi jak w zegarku, a przy tym jest urocza i ma talent do zarażania dobrym nastrojem.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1KAKdDzjDjqWBuqG7Ry2ABNUaFI569P5p",
+    "url": "/people-photos/1KAKdDzjDjqWBuqG7Ry2ABNUaFI569P5p-800-8b700e0b5c.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Pela",
+   "order": 5,
+   "description": "Wytrwała tkaczka krajek, która wyznaje zasadę „ze spokojem do celu”. Wygląda na łagodną, jednak potrafi pokazać siłę żelaznej damy – nie tylko wobec nieułożonego drewna, wobec męża też.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1D8ZPQtkYsKPgfQMt4J6dHEwU7lZQBM_y",
+    "url": "/people-photos/1D8ZPQtkYsKPgfQMt4J6dHEwU7lZQBM_y-800-53013d2e98.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Angelika",
+   "order": 6,
+   "description": "Jedna z najgłośniejszych niewiast, wszędzie jej pełno, przy czym niezwykle łagodna wobec swego męża. Najchętniej realizuje się przy swoim ulubionym rzemiośle – gotowaniu potraw w obozowej kuchni.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1czqdP9m0kLQQkTmL84Zdr5JSi7kNKumW",
+    "url": "/people-photos/1czqdP9m0kLQQkTmL84Zdr5JSi7kNKumW-800-72f1d543b8.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "St.Szyszka",
+   "order": 7,
+   "description": "…",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1D6ZWS1JW6D--tihXloT-VVkHpBSSyzQz",
+    "url": "/people-photos/1D6ZWS1JW6D--tihXloT-VVkHpBSSyzQz-800-d6f6fde1a7.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Hania",
+   "order": 8,
+   "description": "Dziewczyna udowodniła nam, że jest uparta, kiedy okazało się, że mimo zakazu goszczenia w obozie osób postronnych przejeździła z Bractwem dwa sezony. Rodowita wielkopolanka, obecnie prowadząca twardą ręką sprawy finansowe sekcji warszawskiej. Cierpliwości natomiast dowodzi cały czas, bo my Przeszczepa musimy znosić od święta, a ona na codzień.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1TtR3P9uY0y7NmqcXYDLLCXX9grSDq2aC",
+    "url": "/people-photos/1TtR3P9uY0y7NmqcXYDLLCXX9grSDq2aC-800-f7a1c632cd.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Marika",
+   "order": null,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "11e-z2JIVvjNO2InFReKqWxEopuKwmffL",
+    "url": "/people-photos/11e-z2JIVvjNO2InFReKqWxEopuKwmffL-800-b23ffe3f59.jpg"
+   },
+   "photos": [
+    {
+     "id": "1wllUHTqxVsnV65j676SZnOKZts8Demh4",
+     "url": "/people-photos/1wllUHTqxVsnV65j676SZnOKZts8Demh4-300-b1d9fc14b5.jpg"
+    }
+   ]
+  }
+ ]
+}

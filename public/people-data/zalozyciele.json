@@ -1,0 +1,109 @@
+{
+ "version": 1,
+ "people": [
+  {
+   "name": "Tata Ragnar",
+   "order": -15,
+   "description": "Zwany Tatą. Nasz Jarl i założyciel drużyny. Autorytet niemoralny. Lubi występować topless.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1808WyVuZYWyyUWHtS_txRmlwbJ6KNDz0",
+    "url": "/people-photos/1808WyVuZYWyyUWHtS_txRmlwbJ6KNDz0-800-c20e8ca112.jpg"
+   },
+   "photos": [
+    {
+     "id": "1hFt99PDuV2M5_FLhtWaXxGxTTdx2pIse",
+     "url": "/people-photos/1hFt99PDuV2M5_FLhtWaXxGxTTdx2pIse-300-7539589aae.jpg"
+    }
+   ]
+  },
+  {
+   "name": "Liponsson",
+   "order": -7,
+   "description": "Mały, dwunożny czołg. Nie lubi, gdy ktoś bije go w miejsca, gdzie ma tatuaże (czyli praktycznie gdziekolwiek).",
+   "inMemoriam": true,
+   "mainPhoto": {
+    "id": "1wfo-VytDB-cnJi8J5MJOGz_Unhdq5w17",
+    "url": "/people-photos/1wfo-VytDB-cnJi8J5MJOGz_Unhdq5w17-800-e77daf8962.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Orpik",
+   "order": -6,
+   "description": "Podróżnik. Dobrze walczy, wspina się i pływa. Prawie jak Thorgal. Ma nawet podobny moher na klacie.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1hMG9d98eGsWnxqvtPgraB-O1ORO7KW4I",
+    "url": "/people-photos/1hMG9d98eGsWnxqvtPgraB-O1ORO7KW4I-800-536993d50e.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Bjorn",
+   "order": -5,
+   "description": "Niegdyś posiadacz najbardziej kombatanckiej blizny pośród Kruków. Dawno temu odpadł jednak z dalszej rywalizacji. Tymczasem zabawa trwa dalej.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1YRgDMSvKxfSnC20NqvrP5dxVQmU3oFdJ",
+    "url": "/people-photos/1YRgDMSvKxfSnC20NqvrP5dxVQmU3oFdJ-800-426a086230.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Sygurd",
+   "order": -4,
+   "description": "W pewnych kręgach zwany „Aptekarzem”, z racji swego perfekcjonizmu w napełnianiu niewielkich naczyń szklanych płynami o niskiej gęstości.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1ArMCrZBZerTn3lQHd46bAc-tku-B-EoV",
+    "url": "/people-photos/1ArMCrZBZerTn3lQHd46bAc-tku-B-EoV-800-3da530f18b.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Ugrost",
+   "order": -3,
+   "description": "Pierwszy Słowianin w Drużynie. Od czasu Wolina 2001 posiadacz najbardziej przewiewnego hełmu w załodze.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "19B-hE-6b1gC_IITUi1T5okgPK9vib-6E",
+    "url": "/people-photos/19B-hE-6b1gC_IITUi1T5okgPK9vib-6E-800-1c6cae33ec.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Marcus",
+   "order": -2,
+   "description": "Atak nieustającego optymizmu z dwumetrowej wysokości. Za czasów Bitwy pod Cedynią w 2000 r. Główny Specjalista ds. Pustoszenia Samą Tarczą.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1B-gXTMFlAJh_Z7XGZNp9Sj-jxehNY_vV",
+    "url": "/people-photos/1B-gXTMFlAJh_Z7XGZNp9Sj-jxehNY_vV-800-e7096b2aa5.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Wojciech",
+   "order": -1,
+   "description": "Wojciech, kruczy bard i showman, lider utworzonej przez siebie sekcji Kumaków Ogrodowych, która przestała istnieć wkrótce po powrocie jej członków z odmiennego stanu świadomości.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1L13w0e4FXeJjv0NgGGjDw5qJTxPhmmO4",
+    "url": "/people-photos/1L13w0e4FXeJjv0NgGGjDw5qJTxPhmmO4-800-8e7e9d9605.jpg"
+   },
+   "photos": []
+  },
+  {
+   "name": "Kiartan",
+   "order": 0,
+   "description": "Był z nami w początkach naszej działalności. Kilka lat temu opuścił nasze szeregi na rzecz formacji Elag Nord.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1lsgCt-jTEtHPyRY82wkq9eKK8miYMDBV",
+    "url": "/people-photos/1lsgCt-jTEtHPyRY82wkq9eKK8miYMDBV-800-f617826d41.jpg"
+   },
+   "photos": []
+  }
+ ]
+}
