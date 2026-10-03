@@ -142,3 +142,15 @@ test('Wyjazd equipment uses Kruki for team-owned items', async () => {
   const equipment = harness.elements.get('event-equipment-content')!;
   assert.match(equipment.innerHTML, />Kruki<\/td>/);
 });
+
+test('Wyjazd equipment shows a private item under its owner\'s current section, not the stored one', async () => {
+  // The owner (roster: krakow) moved section after the item was saved with sectionId 'warszawa'.
+  const harness = createHarness([{
+    id: 'old-tent', categoryId: 'tent', sectionId: 'warszawa', belongsToPersonId: 'owner@example.com',
+    description: 'Stary namiot', going: false,
+  }]);
+  await harness.signIn();
+  const equipment = harness.elements.get('event-equipment-content')!;
+  assert.match(equipment.innerHTML, /<tr data-section="krakow">/);
+  assert.match(equipment.innerHTML, /class="czl-section-cell"[^>]*>KRK<\/td>/);
+});

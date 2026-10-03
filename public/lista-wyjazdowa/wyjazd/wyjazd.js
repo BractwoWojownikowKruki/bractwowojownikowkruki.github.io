@@ -537,12 +537,20 @@ function ownerCellHtml(personId) {
   return `<button type="button" class="profile-trigger" data-profile-trigger ${triggerAttr}>${pill}</button>`;
 }
 
+// Private equipment follows its owner's *current* section (the sectionId stored on the item is a
+// snapshot from when it was saved) - same rule as sprzet-obozowy.js's itemFilterSectionId. Falls
+// back to the stored sectionId for team equipment and for an owner the roster cannot resolve.
+function equipmentSectionId(item) {
+  if (!item.belongsToPersonId) return item.sectionId;
+  return personById.get(item.belongsToPersonId)?.sectionId ?? item.sectionId;
+}
+
 function eventEquipmentSortValue(item) {
   switch (eventEquipmentSortState.key) {
     case 'category': return equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
     case 'owner': return item.belongsToPersonId ? displayName(personById.get(item.belongsToPersonId) ?? {}) : 'Kruki';
     case 'going': return item.going;
-    default: return sectionLabelById.get(item.sectionId) ?? item.sectionId;
+    default: return sectionLabelById.get(equipmentSectionId(item)) ?? equipmentSectionId(item);
   }
 }
 
@@ -560,9 +568,10 @@ function renderEventEquipment(items) {
     const going = item.going === true;
     const stateLabel = going ? 'Jedzie' : 'Nie jedzie';
     const category = equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
-    const section = sectionLabelById.get(item.sectionId) ?? item.sectionId;
-    return `<tr data-section="${escapeAttr(item.sectionId)}">
-      <td class="czl-section-cell" title="${escapeAttr(section)}">${escapeHtml(sectionAbbr(item.sectionId))}</td>
+    const sectionId = equipmentSectionId(item);
+    const section = sectionLabelById.get(sectionId) ?? sectionId;
+    return `<tr data-section="${escapeAttr(sectionId)}">
+      <td class="czl-section-cell" title="${escapeAttr(section)}">${escapeHtml(sectionAbbr(sectionId))}</td>
       <td>${escapeHtml(category)}</td>
       <td>${ownerCellHtml(item.belongsToPersonId)}</td>
       <td><button type="button" class="lw-attend-toggle" data-equipment-id="${escapeAttr(item.id)}" data-going="${going}" aria-pressed="${going}"><span class="lw-attend-toggle-track" aria-hidden="true"></span>${stateLabel}</button></td>
