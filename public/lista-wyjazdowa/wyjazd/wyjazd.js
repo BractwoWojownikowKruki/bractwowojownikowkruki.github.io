@@ -243,7 +243,7 @@ function renderSkladkaFee(event) {
   const editPanel = document.getElementById('skladka-fee-edit');
   const fee = normalizeSkladkaFee(event.skladkaFee);
   const dueDate = normalizeSkladkaDueDate(event.dueDate);
-  display.textContent = fee ? `Składka: ${fee}` : 'Składka: nie ustalono';
+  display.textContent = fee || 'Nie ustalono';
   // A due date only ever exists alongside a fee (see updateSkladkaFeeFormState), so it is never
   // shown on its own even for legacy data that still carries an orphaned date.
   if (fee && dueDate) display.textContent += ` (termin: ${formatDate(dueDate)})`;
@@ -411,13 +411,69 @@ function renderSummary(roster, signups) {
     .join('');
 
   document.getElementById('summary-content').innerHTML = `
-    <p>Łącznie: <strong>${attending.length}</strong> os.</p>
+    <p>Łącznie: <strong>${attending.length}</strong> os.${shelterSummaryText()}</p>
     ${summaryFilterBlockHtml(rosterFilter, [
       { heading: 'Filtruj wg sekcji', chipsHtml: sectionChips },
       { heading: 'Filtruj wg broni', chipsHtml: weaponChips },
       { heading: 'Filtruj wg statusu', chipsHtml: categoryChips },
     ])}
   `;
+}
+
+// Polish plural forms: 1 namiot, 2-4 namioty, 5+ (and 12-14, 0) namiotów.
+function pluralPl(count, one, few, many) {
+  if (count === 1) return one;
+  const lastTwo = count % 100;
+  const last = count % 10;
+  return last >= 2 && last <= 4 && !(lastTwo >= 12 && lastTwo <= 14) ? few : many;
+}
+
+function goingEquipmentCount(categoryId) {
+  return cachedEventEquipment.filter((item) => item.going === true && item.categoryId === categoryId).length;
+}
+
+// ", 3 namioty, 2 wiaty" appended to the headcount in Podsumowanie - empty when the event has no
+// camp equipment at all (noCampEquipment), so the line then reads just "Łącznie: N os.".
+function shelterSummaryText() {
+  if (cachedEvent?.noCampEquipment) return '';
+  const tents = goingEquipmentCount('namiot');
+  const shelters = goingEquipmentCount('wiata');
+  return `, ${tents} ${pluralPl(tents, 'namiot', 'namioty', 'namiotów')}, ${shelters} ${pluralPl(shelters, 'wiata', 'wiaty', 'wiat')}`;
+}
+
+// Per-category tally of what is going, above the equipment table: grouped by equipment group in
+// lookup order (Budowle, Meble, Kuchnia), categories in lookup order within each group.
+function renderEquipmentSummary(allItems) {
+  const el = document.getElementById('event-equipment-summary');
+  if (cachedEvent?.noCampEquipment) {
+    el.innerHTML = '';
+    return;
+  }
+  const counts = new Map();
+  for (const item of allItems) {
+    if (item.going === true) counts.set(item.categoryId, (counts.get(item.categoryId) ?? 0) + 1);
+  }
+  const groups = new Map(); // group label -> chips html, in first-seen (lookup) order
+  for (const [categoryId, label] of equipmentCategoryLabelById) {
+    const count = counts.get(categoryId);
+    if (!count) continue;
+    const groupLabel = equipmentGroupLabelByCategoryId.get(categoryId) ?? '';
+    const chip = `<span class="lw-summary-chip">${escapeHtml(label)}<span class="lw-summary-badge">${count}</span></span>`;
+    groups.set(groupLabel, (groups.get(groupLabel) ?? '') + chip);
+    counts.delete(categoryId);
+  }
+  // A going item whose category is missing from the lookup still counts, under its raw id.
+  for (const [categoryId, count] of counts) {
+    const chip = `<span class="lw-summary-chip">${escapeHtml(categoryId)}<span class="lw-summary-badge">${count}</span></span>`;
+    groups.set('', (groups.get('') ?? '') + chip);
+  }
+  if (groups.size === 0) {
+    el.innerHTML = '<p>Nic nie jedzie.</p>';
+    return;
+  }
+  el.innerHTML = `<div class="lw-summary-columns">${[...groups]
+    .map(([groupLabel, chips]) => `<div>${groupLabel ? `<h3>${escapeHtml(groupLabel)}</h3>` : ''}<div class="lw-summary-chips">${chips}</div></div>`)
+    .join('')}</div>`;
 }
 
 // The roster's sort is now click-a-header (shared/sortable-table.js, see the table's #roster-table
@@ -586,6 +642,7 @@ function renderEventEquipment(allItems) {
   const noEquipment = Boolean(cachedEvent?.noCampEquipment);
   document.getElementById('event-equipment-table-wrap').hidden = noEquipment;
   document.getElementById('event-equipment-disabled-note').hidden = !noEquipment;
+  renderEquipmentSummary(allItems);
   if (noEquipment) return;
   const tbody = document.getElementById('event-equipment-content');
   if (allItems.length === 0) {
@@ -878,6 +935,8 @@ async function toggleEventEquipment(equipmentId, nextGoing, control) {
       if (item) {
         item.going = result.item.going;
         updateEventEquipmentToggle(control, item.going);
+        renderEquipmentSummary(cachedEventEquipment);
+        renderSummary(cachedRoster, cachedSignups);
       }
     });
   } catch (err) {
@@ -1029,6 +1088,7 @@ function renderEventDescription(event) {
   const description = event.description ?? '';
   el.textContent = description;
   el.hidden = !description;
+  document.getElementById('event-description-panel').hidden = !description;
 }
 
 async function loadAll() {
@@ -1132,6 +1192,7 @@ async function saveEventDetails(control) {
       document.getElementById('event-meta').textContent = `${formatDate(cachedEvent.startDate)}${cachedEvent.status === 'cancelled' ? ' — odwołany' : ''}`;
       renderEventDescription(cachedEvent);
       renderEventEquipment(cachedEventEquipment);
+      renderSummary(cachedRoster, cachedSignups);
       eventEditOpen = false;
       renderEventEditPanel();
       // `control` (the Zapisz button just clicked) does not survive renderEventEditPanel's

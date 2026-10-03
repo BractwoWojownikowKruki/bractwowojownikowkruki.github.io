@@ -55,7 +55,7 @@ const elementIds = [
   'event-title', 'event-meta', 'event-description',
   'event-edit-toggle', 'event-edit-panel', 'event-history-link', 'skladka-fee-history-link',
   'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category',
-  'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note', 'event-equipment-content', 'lw-nav-container',
+  'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note', 'event-equipment-summary', 'event-description-panel', 'event-equipment-content', 'lw-nav-container',
   'event-share-button', 'event-share-button-text',
 ];
 
@@ -549,7 +549,7 @@ test('the trip detail page renders the shared dropdown with the open trip highli
   const harness = createHarness(event('50 zł'));
   await harness.signIn();
   const nav = harness.elements.get('lw-nav-container')!.innerHTML;
-  assert.match(nav, /class="lw-nav-item lw-nav-item--active" role="menuitem">Wyjazd/);
+  assert.match(nav, /class="lw-nav-item lw-nav-item--active" role="menuitem"><span class="lw-nav-item-date">/);
   assert.doesNotMatch(nav, /lw-nav-item--all lw-nav-item--active/);
   // "Wszystkie" stays first even though it isn't the active item here.
   assert.match(nav, /class="lw-nav-item lw-nav-item--all"[^>]*>Wszystkie/);

@@ -791,7 +791,6 @@
 .content-section .lw-nav-item {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
   gap: 0.75rem;
   padding: 0.55rem 0.75rem;
   /* Resets .content-section a's default red border-bottom "link underline" look (out-specificity
@@ -831,11 +830,19 @@
   color: var(--gold);
 }
 
+/* Date first, then the name: a long trip name is truncated with an ellipsis instead of pushing the
+   date out of the menu. */
 .lw-nav-item-date {
   color: var(--text-muted);
   font-weight: 500;
   font-size: 12px;
   flex-shrink: 0;
+}
+
+.lw-nav-item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .content-section .lw-nav-item--active .lw-nav-item-date {
@@ -1524,6 +1531,54 @@ button.lw-filter-chip {
   border: 1px solid var(--border);
   border-left: 3px solid var(--gold);
   border-radius: 8px;
+}
+
+/* Wyjazd page: Składka and Dodatkowe informacje are plain sections with an h2 heading like
+   Podsumowanie, not boxes. Opt-in via .lw-plain-section so the Składki page keeps its box. */
+#skladka-fee-panel.lw-plain-section {
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.lw-plain-section h2 {
+  margin: 0 0 0.4rem;
+  font-size: 20px;
+  color: var(--text);
+}
+
+.lw-plain-section .lw-fee-summary h2 {
+  margin-bottom: 0;
+}
+
+#skladka-fee-display {
+  margin: 0;
+}
+
+#event-description-panel {
+  margin-bottom: 1.25rem;
+}
+
+.lw-plain-section .lw-event-description {
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.lw-equipment-disabled-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+#event-equipment-summary {
+  margin-bottom: 0.75rem;
+}
+
+#event-equipment-summary > p {
+  margin: 0 0 0.5rem;
 }
 
 /* #skladka-fee-panel is reused verbatim by both the wyjazd page's per-event fee (wyjazd.js) and
