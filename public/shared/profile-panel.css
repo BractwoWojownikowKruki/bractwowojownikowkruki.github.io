@@ -18,12 +18,15 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(320px, 86vw);
+  width: min(290px, 82vw);
   overflow-y: auto;
   padding: 0.75rem 0.9rem 1rem;
   font-size: 0.85rem;
   line-height: 1.4;
   background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 93%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   border-left: 1px solid var(--border);
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
 }
