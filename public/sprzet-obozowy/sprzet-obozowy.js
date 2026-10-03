@@ -209,11 +209,15 @@ function renderPrivateTable() {
   const filtered = filterEquipmentBySections(privateItems, selectedSectionIds, itemFilterSectionId);
   const enriched = filtered.map(item => {
     const owner = personById.get(item.belongsToPersonId);
+    // Show (and sort by) the owner's current section, the same one the filter uses - not the
+    // snapshot stored on the item.
+    const sectionId = itemFilterSectionId(item);
     return {
       ...item,
+      sectionId,
       groupLabel: categoryGroupById.get(item.categoryId) ?? '',
       categoryLabel: categoryLabelById.get(item.categoryId) ?? item.categoryId,
-      sectionLabel: sectionLabelById.get(item.sectionId) ?? item.sectionId,
+      sectionLabel: sectionLabelById.get(sectionId) ?? sectionId,
       ownerName: owner ? displayName(owner) : item.belongsToPersonId,
     };
   });

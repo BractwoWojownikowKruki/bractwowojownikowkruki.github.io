@@ -586,8 +586,10 @@ test('private equipment is filtered by the owner\'s current section, not the one
   };
   await harness.signIn();
   const buttons = harness.elements.get('equipment-section-filter-buttons')!;
+  const privateBody = () => harness.elements.get('equipment-private-table-body')!.innerHTML;
+  assert.match(privateBody(), /data-section="krakow"[\s\S]*>KRK</, 'the S column shows the owner\'s current section too');
   await buttons.clickWith(filterButton({ dataset: { filterSection: 'krakow' } }));
-  assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /eq-private-1/);
+  assert.match(privateBody(), /eq-private-1/);
   await buttons.clickWith(filterButton({ dataset: { filterSection: 'krakow' } }));
   await buttons.clickWith(filterButton({ dataset: { filterSection: 'warszawa' } }));
   assert.doesNotMatch(harness.elements.get('equipment-private-table-body')!.innerHTML, /eq-private-1/);
