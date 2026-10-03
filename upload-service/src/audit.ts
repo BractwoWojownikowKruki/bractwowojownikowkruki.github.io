@@ -166,6 +166,7 @@ const equipmentFields = {
   sectionId: 'memberVisible',
   belongsToPersonId: 'memberVisible',
   description: 'memberVisible',
+  photoId: 'memberVisible',
 } as const;
 // Camp-equipment taxonomy (Grupy/Kategorie sprzętu): plain club labels, member-visible.
 const equipmentGroupFields = { label: 'memberVisible' } as const;

@@ -67,3 +67,20 @@ function personPillHtml(person) {
   if (!person.subline) return pill;
   return `<span class="person-pill-cell">${pill}${personPillSublineHtml(person.subline)}</span>`;
 }
+
+/**
+ * Renders an equipment item's Opis as a clickable pill that opens the equipment drawer
+ * (ProfilePanel.openEquipment) - same role as a person's name pill. Deliberately uncolored for
+ * now. An item without a description falls back to `fallbackLabel` (its category), so every row
+ * still has something to click. A small, muted "image" icon (the same outline nav.js uses for
+ * Galerie) sits beside the pill, inside the same button, on every item - a hint that tapping it
+ * opens the item's card with its photos.
+ *
+ * @param {{ id: string, description?: string|null }} item
+ * @param {string} [fallbackLabel]
+ */
+function equipmentPillHtml(item, fallbackLabel) {
+  const label = item.description || fallbackLabel || 'Sprzęt';
+  const photoIcon = '<svg class="equipment-photo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>';
+  return `<button type="button" class="profile-trigger" data-equipment-trigger data-equipment-id="${personPillEscapeAttr(item.id)}"><span class="category-name-pill equipment-pill">${personPillEscapeHtml(label)}</span>${photoIcon}</button>`;
+}

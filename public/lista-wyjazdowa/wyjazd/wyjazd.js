@@ -441,6 +441,7 @@ let viewerPersonId = null;
 let sectionLabelById = new Map();
 let categoryLabelById = new Map();
 let equipmentCategoryLabelById = new Map();
+let equipmentGroupLabelByCategoryId = new Map();
 let weaponLabelById = new Map();
 let personById = new Map();
 // The raw categories lookup (id + label, in seed order) for the "new person" <select> in the
@@ -575,7 +576,7 @@ function renderEventEquipment(items) {
       <td>${escapeHtml(category)}</td>
       <td>${ownerCellHtml(item.belongsToPersonId)}</td>
       <td><button type="button" class="lw-attend-toggle" data-equipment-id="${escapeAttr(item.id)}" data-going="${going}" aria-pressed="${going}"><span class="lw-attend-toggle-track" aria-hidden="true"></span>${stateLabel}</button></td>
-      <td>${escapeHtml(item.description)}</td>
+      <td>${equipmentPillHtml(item, category)}</td>
     </tr>`;
   }).join('');
 }
@@ -953,7 +954,29 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
   }
 });
 
+// The Opis pill opens the shared equipment drawer from data already on the page; editing happens
+// on Sprzęt obozowy, which opens its edit form for ?edit=<id>.
+function equipmentPanelView(item) {
+  const sectionId = equipmentSectionId(item);
+  return {
+    description: item.description,
+    photos: item.photos ?? [],
+    categoryLabel: equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId,
+    groupLabel: equipmentGroupLabelByCategoryId.get(item.categoryId) ?? '',
+    sectionId,
+    sectionLabel: sectionLabelById.get(sectionId) ?? sectionId,
+    ownerHtml: item.belongsToPersonId ? ownerCellHtml(item.belongsToPersonId) : null,
+    editHref: `/sprzet-obozowy/?edit=${encodeURIComponent(item.id)}`,
+  };
+}
+
 document.getElementById('event-equipment-content').addEventListener('click', (e) => {
+  const pill = e.target.closest('[data-equipment-trigger]');
+  if (pill) {
+    const item = cachedEventEquipment.find((equipment) => equipment.id === pill.dataset.equipmentId);
+    if (item) window.ProfilePanel.openEquipment(equipmentPanelView(item));
+    return;
+  }
   const equipmentBtn = e.target.closest('.lw-attend-toggle');
   if (!equipmentBtn) return;
   equipmentBtn.disabled = true;
@@ -986,6 +1009,8 @@ async function loadAll() {
   sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
   categoryLabelById = new Map((lookupLists.categories ?? []).map((c) => [c.id, c.label]));
   equipmentCategoryLabelById = new Map((lookupLists.equipmentCategories ?? []).map((c) => [c.id, c.label]));
+  const equipmentGroupLabelById = new Map((lookupLists.equipmentGroups ?? []).map((g) => [g.id, g.label]));
+  equipmentGroupLabelByCategoryId = new Map((lookupLists.equipmentCategories ?? []).map((c) => [c.id, equipmentGroupLabelById.get(c.groupId) ?? '']));
   weaponLabelById = new Map((lookupLists.weapons ?? []).map((w) => [w.id, w.label]));
   categoryOptions = lookupLists.categories ?? [];
   openAddPanelOwnerPersonId = null;

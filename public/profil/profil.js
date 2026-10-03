@@ -521,6 +521,10 @@ function resetPhotoSelection() {
 let equipmentItems = [];
 let equipmentCategories = [];
 let equipmentCategoryLabelById = new Map();
+let equipmentGroupLabelByCategoryId = new Map();
+let equipmentSectionLabelById = new Map();
+// personId (member = lowercased e-mail) -> roster entry, for the equipment drawer's owner/section.
+let equipmentOwnerById = new Map();
 
 // Pure filter (no DOM) so it can be unit-tested directly - same convention as
 // sprzet-obozowy.js's splitEquipmentByOwnership. belongsToPersonId is the canonical id space
@@ -537,13 +541,16 @@ function equipmentCategoryOptionsHtml() {
 
 function equipmentItemHtml(item) {
   const categoryLabel = equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
-  const description = item.description ? ` – ${escapeHtml(item.description)}` : '';
+  // The Opis is the pill that opens the equipment drawer; without one, the category itself is.
+  const description = item.description
+    ? `${escapeHtml(categoryLabel)} ${equipmentPillHtml(item)}`
+    : equipmentPillHtml(item, categoryLabel);
   const deleteButton = item.canDelete
     ? `<button type="button" class="person-equipment-delete" data-equipment-id="${escapeAttr(item.id)}">Usuń</button>`
     : '';
   return `
     <li class="person-equipment-item" data-equipment-id="${escapeAttr(item.id)}">
-      <span class="person-equipment-label">${escapeHtml(categoryLabel)}${description}</span>
+      <span class="person-equipment-label">${description}</span>
       ${deleteButton}
     </li>
   `;
@@ -615,10 +622,32 @@ async function deletePersonEquipmentItem(container, ownerId, itemId, control) {
   });
 }
 
+// Same drawer as on Sprzęt obozowy; editing (photos included) happens there, via ?edit=<id>.
+function equipmentPanelView(item) {
+  const owner = equipmentOwnerById.get(item.belongsToPersonId);
+  const sectionId = owner?.sectionId ?? item.sectionId;
+  return {
+    description: item.description,
+    photos: item.photos ?? [],
+    categoryLabel: equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId,
+    groupLabel: equipmentGroupLabelByCategoryId.get(item.categoryId) ?? '',
+    sectionId,
+    sectionLabel: equipmentSectionLabelById.get(sectionId) ?? sectionId,
+    ownerHtml: escapeHtml(owner ? displayName(owner) : item.belongsToPersonId),
+    editHref: `/sprzet-obozowy/?edit=${encodeURIComponent(item.id)}`,
+  };
+}
+
 // No sectionId is sent: private equipment follows its owner's current section (the server stores
 // null), so a later Sekcja change needs no equipment update.
 function wireEquipmentMiniList(container, ownerId) {
   container.addEventListener('click', (event) => {
+    const pill = event.target.closest('[data-equipment-trigger]');
+    if (pill) {
+      const item = equipmentItems.find((i) => i.id === pill.dataset.equipmentId);
+      if (item) window.ProfilePanel.openEquipment(equipmentPanelView(item));
+      return;
+    }
     const addBtn = event.target.closest('.person-equipment-add-btn');
     if (addBtn) {
       addPersonEquipmentItem(container, ownerId, addBtn).catch((err) => {
@@ -816,6 +845,9 @@ async function initForm(lookupLists) {
   personLookupLists = lookupLists;
   equipmentCategories = lookupLists.equipmentCategories ?? [];
   equipmentCategoryLabelById = new Map(equipmentCategories.map((c) => [c.id, c.label]));
+  const equipmentGroupLabelById = new Map((lookupLists.equipmentGroups ?? []).map((g) => [g.id, g.label]));
+  equipmentGroupLabelByCategoryId = new Map(equipmentCategories.map((c) => [c.id, equipmentGroupLabelById.get(c.groupId) ?? '']));
+  equipmentSectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
   document.getElementById('add-person-row').addEventListener('click', () => addPersonRow(document.getElementById('persons-rows')));
 
   // Submit handling is wired unconditionally, before the member/profile prefetch below - so a
@@ -979,6 +1011,7 @@ async function initForm(lookupLists) {
     profile = profileResponse.profile;
     duesStatus = duesResponse.duesStatus;
     roster = rosterResponse.roster;
+    equipmentOwnerById = new Map(roster.map((person) => [person.personId, person]));
     equipmentItems = equipmentResponse.equipment;
   } catch (err) {
     loadError = err;
