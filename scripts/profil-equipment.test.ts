@@ -108,16 +108,15 @@ test('the old free-text equipment rows (addEquipmentRow/readEquipmentRows/fillRo
 test('the old equipment HTML containers (rows list + "Dodaj sprzęt" button + fieldset) are removed from the template', () => {
   assert.doesNotMatch(page, /id="equipment-rows"/);
   assert.doesNotMatch(page, /id="add-equipment-row"/);
-  assert.doesNotMatch(page, />Sprzęt obozowy</);
 });
 
-test('the new "Namioty i wiaty" mini-list has its own panel outside #profile-form, matching #persons-panel\'s pattern', () => {
+test('the "Sprzęt obozowy" mini-list has its own panel outside #profile-form, matching #persons-panel\'s pattern', () => {
   const form = page.match(/<form id="profile-form"[\s\S]*?<\/form>/)?.[0];
   assert.ok(form);
   assert.doesNotMatch(form, /own-equipment/, 'the own-equipment mini-list must not be inside the profile form (it saves immediately, not via Zapisz profil)');
   assert.match(page, /<section id="own-equipment-panel">/);
   assert.match(page, /<div id="own-equipment" class="person-equipment">/);
-  assert.match(page, />Namioty i wiaty</);
+  assert.match(page, /<section id="own-equipment-panel">[\s\S]*?<legend>Sprzęt obozowy<\/legend>/);
 });
 
 test('GET /equipment is fetched alongside member/profile/roster in initForm\'s Promise.all', () => {

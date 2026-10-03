@@ -19,7 +19,7 @@
 .lw-category-readout {
   color: var(--text-muted);
   font-size: 13px;
-  margin: -0.5rem 0 1.5rem;
+  margin: 0 0 1rem;
 }
 
 .lw-hint {
@@ -28,12 +28,40 @@
   margin: -0.4rem 0 0.75rem;
 }
 
+/* Title plus its Historia button on one line. */
+.profile-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.profile-title-row h1 {
+  margin-bottom: 0;
+}
+
+/* Sekcja is the one <select> among full-width text inputs (style.css only sizes .field input). */
+#profile-form .field select {
+  width: 100%;
+  padding: 9px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+
+#profile-form .field select:focus {
+  border-color: var(--accent);
+}
+
 /* "Zainstaluj" box under the photo fieldset - see pwa-install.js (data-pwa-install-panel). */
 .lw-install-box {
   display: flex;
   gap: 1rem;
   align-items: center;
-  margin: -0.5rem 0 1.5rem;
+  margin: 0 0 1.5rem;
   padding: 1rem 1.25rem;
   border: 1px solid var(--gold);
   border-radius: 8px;
@@ -86,7 +114,6 @@
   flex-wrap: wrap;
   gap: 1rem;
   align-items: center;
-  margin: -0.5rem 0 1.5rem;
   font-size: 14px;
   color: var(--text-muted);
 }
@@ -169,7 +196,8 @@
   padding: 0;
 }
 
-.person-equipment-item {
+/* Two classes deep to beat .content-section li's padding and "▸" bullet (meant for prose lists). */
+.person-equipment-list .person-equipment-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -180,6 +208,11 @@
   border-radius: 6px;
   font-size: 14px;
   color: var(--text);
+  line-height: 1.4;
+}
+
+.person-equipment-list .person-equipment-item::before {
+  content: none;
 }
 
 .person-equipment-item .person-equipment-delete {
@@ -196,6 +229,22 @@
 .person-equipment-item .person-equipment-delete:hover {
   border-color: var(--danger, #c0392b);
   color: var(--danger, #c0392b);
+}
+
+.person-equipment-add .person-equipment-add-btn {
+  padding: 9px 1.1rem;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.person-equipment-add .person-equipment-add-btn:hover {
+  background: var(--accent-dark);
 }
 
 .equipment-row .remove-row,
@@ -255,6 +304,12 @@
   gap: 0.5rem;
 }
 
+/* The base .add-album-submit is full-width; here it sits beside "Deaktywuj"/"Anuluj". */
+.person-row-actions .add-album-submit {
+  width: auto;
+  padding: 10px 20px;
+}
+
 .person-weapons[hidden] {
   display: none;
 }
@@ -266,9 +321,35 @@
   margin-top: 0.75rem;
 }
 
+/* Approved / pending / rejected groups: each caption takes its own full-width line, so the
+   thumbnails of a group always start under it instead of flowing next to it on wide screens. */
+.lw-photo-groups {
+  margin: 0 0 1.25rem;
+  row-gap: 0.5rem;
+}
+
+.lw-photo-groups > .lw-hint {
+  flex-basis: 100%;
+  margin: 1rem 0 0;
+}
+
+.lw-photo-groups > .lw-hint:first-child {
+  margin-top: 0;
+}
+
 .lw-photo-thumb {
   width: 120px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+/* Same box for the "Główne" badge and every button under a thumbnail, so the rows line up. */
+.lw-photo-thumb .lw-main-badge,
+.lw-photo-thumb .lw-crop-btn {
+  box-sizing: border-box;
+  line-height: 1.3;
 }
 
 .lw-photo-thumb img {
@@ -284,7 +365,7 @@
 .lw-photo-thumb p {
   font-size: 11px;
   color: var(--text-muted);
-  margin: 0.35rem 0;
+  margin: 0;
 }
 
 /* KRKG-0083: marks whichever approved photo is currently the public "main" one, in the same slot
