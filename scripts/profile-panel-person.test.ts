@@ -5,9 +5,9 @@ import assert from 'node:assert/strict';
 const panel = readFileSync(new URL('../public/shared/profile-panel.js', import.meta.url), 'utf8');
 
 test('the profile drawer opens a person without an account through the person-keyed endpoint', () => {
-  assert.match(panel, /async function openPerson\(personId\)/);
+  assert.match(panel, /async function openPerson\(personId, name = ''\)/);
   assert.match(panel, /\/lista-wyjazdowa\/person-profile\?personId=/);
-  assert.match(panel, /trigger\.dataset\.personId\) openPerson\(trigger\.dataset\.personId\)/);
+  assert.match(panel, /trigger\.dataset\.personId\) openPerson\(trigger\.dataset\.personId, triggerName\(trigger\)\)/);
   assert.match(panel, /open\(trigger\.dataset\.email\)/);
 });
 

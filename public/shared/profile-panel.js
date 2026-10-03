@@ -452,18 +452,46 @@
     els.content.innerHTML = renderProfile(editorState.profile);
   }
 
-  // Same full-size "busy sticker" loader used elsewhere for a full-page loading state (e.g.
-  // wyjazd/index.html's #lw-checking, galerie's own loading state) - the --feature modifier,
-  // label text included. No minimum display time here, it's just swapped out the moment the
-  // fetch settles.
+  // Compact "busy sticker" loader (same sticker/label as the full-page one, small variant). Shown
+  // only in the part of the drawer whose data has not arrived yet - never over what is already
+  // known (name/photo from the trigger and the static snapshot).
   function loadingHtml() {
     return `
-      <div class="profile-drawer-loading busy-sticker-loader--feature">
-        <span class="busy-sticker-aura busy-sticker-aura--feature" aria-hidden="true">
-          <img src="/icons/hold-the-line.png" class="busy-sticker busy-sticker--feature" alt="" />
-        </span>
+      <div class="profile-drawer-loading">
+        <img src="/icons/hold-the-line.png" class="profile-drawer-loading-sticker" alt="" width="28" height="28" />
         <span class="busy-sticker-label">PLEASE HOLD THE LINE...</span>
       </div>
+    `;
+  }
+
+  // Name shown on the trigger (the pill text, without the "Nazwisko, Imię" subline).
+  function triggerName(trigger) {
+    const pill = trigger.querySelector('.category-name-pill');
+    return ((pill || trigger).textContent || '').trim();
+  }
+
+  // What is known before the request returns: the trigger's name and, when the static snapshot has
+  // an unambiguous match, the photos and description. The rest is a placeholder + loader.
+  function previewHtml(name, staticPerson) {
+    const photos = staticPerson ? [staticPerson.mainPhoto, ...(staticPerson.photos || [])].filter(Boolean) : [];
+    currentPhotos = photos;
+    const main = photos[0];
+    const avatarHtml = main
+      ? `<div class="person-main-photo" data-photo-index="0"><img src="${escapeHtml(main.url)}" alt="${escapeHtml(name)}" decoding="async" fetchpriority="high" /></div>`
+      : `<div class="person-main-photo profile-avatar-placeholder">${escapeHtml(initials(name))}</div>`;
+    const galleryHtml = photos.length > 1
+      ? `<div class="person-gallery">${photos.slice(1)
+          .map((p, i) => `<img src="${escapeHtml(p.url)}" alt="" data-photo-index="${i + 1}" />`).join('')}</div>`
+      : '';
+    const descriptionHtml = staticPerson && staticPerson.description
+      ? `<div class="profile-description">${escapeHtml(staticPerson.description)}</div>`
+      : '';
+    return `
+      ${avatarHtml}
+      ${galleryHtml}
+      ${name ? `<h3>${escapeHtml(name)}</h3>` : ''}
+      ${descriptionHtml}
+      ${loadingHtml()}
     `;
   }
 
@@ -520,10 +548,17 @@
     return false;
   }
 
-  async function open(email) {
+  function showPreview(content, name) {
+    const found = window.PeoplePhotoCache && window.PeoplePhotoCache.findStaticByName
+      ? window.PeoplePhotoCache.findStaticByName(name)
+      : null;
+    content.innerHTML = previewHtml(name, found);
+  }
+
+  async function open(email, name = '') {
     lastFocused = document.activeElement;
     const { drawer, content, close } = ensureDrawer();
-    content.innerHTML = loadingHtml();
+    showPreview(content, name);
     drawer.hidden = false;
     close.focus();
     try {
@@ -543,10 +578,10 @@
   // KRKG-0087: an accountless person has no e-mail, so their drawer is keyed by personId and read
   // from the person-keyed endpoint. Same drawer/render path as open() above - the response carries
   // accountless:true and no photos, so the render is naturally the read-only person view.
-  async function openPerson(personId) {
+  async function openPerson(personId, name = '') {
     lastFocused = document.activeElement;
     const { drawer, content, close } = ensureDrawer();
-    content.innerHTML = loadingHtml();
+    showPreview(content, name);
     drawer.hidden = false;
     close.focus();
     try {
@@ -773,8 +808,8 @@
 
     const trigger = e.target.closest('[data-profile-trigger]');
     if (trigger) {
-      if (trigger.dataset.personId) openPerson(trigger.dataset.personId);
-      else open(trigger.dataset.email);
+      if (trigger.dataset.personId) openPerson(trigger.dataset.personId, triggerName(trigger));
+      else open(trigger.dataset.email, triggerName(trigger));
       return;
     }
 

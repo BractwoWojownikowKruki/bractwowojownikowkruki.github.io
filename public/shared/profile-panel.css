@@ -10,7 +10,7 @@
 .profile-drawer-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .profile-drawer-panel {
@@ -18,9 +18,11 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(420px, 100%);
+  width: min(320px, 86vw);
   overflow-y: auto;
-  padding: 1.5rem;
+  padding: 0.75rem 0.9rem 1rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
   background: var(--surface);
   border-left: 1px solid var(--border);
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
@@ -32,7 +34,8 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-muted);
-  padding: 0.2rem 0.5rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.8rem;
   cursor: pointer;
 }
 
@@ -55,7 +58,7 @@
 }
 
 .profile-fields {
-  margin: 1rem 0;
+  margin: 0.5rem 0;
 }
 
 /* Wpisowe/składka roczna readout right under the photo (KRKG-0047 follow-up) - same
@@ -64,10 +67,10 @@
 .lw-dues-status {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.5rem 0.9rem;
   align-items: center;
-  margin: 0.75rem 0;
-  font-size: 14px;
+  margin: 0.4rem 0;
+  font-size: 0.8rem;
   color: var(--text-muted);
 }
 
@@ -79,8 +82,8 @@
 
 .profile-fields dt {
   color: var(--text-muted);
-  font-size: 0.8rem;
-  margin-top: 0.6rem;
+  font-size: 0.72rem;
+  margin-top: 0.35rem;
 }
 
 .profile-fields dd {
@@ -96,8 +99,8 @@
 
 .profile-identity-form {
   display: grid;
-  gap: 0.7rem;
-  padding: 0.9rem;
+  gap: 0.5rem;
+  padding: 0.6rem;
   border: 1px solid var(--border);
   border-radius: 6px;
 }
@@ -149,8 +152,8 @@
 .profile-weapons-form,
 .profile-dues-form {
   display: grid;
-  gap: 0.7rem;
-  padding: 0.9rem;
+  gap: 0.5rem;
+  padding: 0.6rem;
   border: 1px solid var(--border);
   border-radius: 6px;
 }
@@ -201,11 +204,11 @@
    profile-panel.js) - placed at the very bottom of the profile, below Broń and every other
    read-only field. */
 .profile-editor-toggle-row {
-  margin-top: 1.25rem;
+  margin-top: 0.75rem;
 }
 
 .profile-editor-panel {
-  margin-top: 1.25rem;
+  margin-top: 0.75rem;
 }
 
 .profile-editor-actions {
@@ -290,6 +293,49 @@
   height: 70%;
 }
 
-@media (max-width: 640px) {
-  .profile-drawer-panel { width: 100%; }
+/* Compact slide-out: smaller photos, headings and spacing than the page-level .person-* styles
+   (style.css), scoped to the drawer so the public O Nas grid is unaffected. */
+.profile-drawer-panel .person-main-photo {
+  max-width: 170px;
+  margin-bottom: 0.5rem;
+}
+
+.profile-drawer-panel .person-gallery {
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.profile-drawer-panel .person-gallery img {
+  width: 44px;
+  height: 44px;
+}
+
+.profile-drawer-panel h3 {
+  margin: 0.4rem 0;
+  font-size: 1.05rem;
+}
+
+.profile-drawer-panel .profile-description {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+}
+
+/* Photo placeholder while the profile is still loading (initials) */
+.profile-drawer-panel .profile-avatar-placeholder {
+  font-size: 1.5rem;
+}
+
+.profile-drawer-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.profile-drawer-loading-sticker {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
 }
