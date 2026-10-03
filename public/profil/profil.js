@@ -121,7 +121,7 @@ function renderCurrentSubmission(response) {
   // the only thing a member can do with them.
   const rejectedHtml = hasRejected
     ? `
-    <p class="lw-hint">Odrzucone przez administratora - możesz je tylko usunąć.</p>
+    <p class="lw-hint">Odrzucone przez administratora - USUŃ JE.</p>
     ${rejectedSection.photos
       .map(
         (photo) => `
