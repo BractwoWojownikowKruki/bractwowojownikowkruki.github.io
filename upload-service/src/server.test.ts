@@ -10348,3 +10348,111 @@ test('DELETE /equipment/groups refuses a group still used by a category, then su
   const actions = (await firestore.listDocs<{ action: string }>('auditEvents')).map(e => e.data.action);
   assert.ok(actions.includes('equipment.group.deleted'));
 });
+
+// Private equipment has no section of its own - it follows its owner's current section.
+test('POST /equipment stores sectionId null for a private item, ignoring a sectionId in the body', async () => {
+  const firestore = makeEquipmentFirestore();
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['ala@example.test'], authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Namiot Ali', belongsToPersonId: 'ala@example.test' }),
+    });
+    assert.equal(res.status, 200);
+    const { equipment } = (await res.json()) as { equipment: { id: string; sectionId: string | null } };
+    assert.equal(equipment.sectionId, null);
+    const stored = await firestore.getDoc<{ sectionId: string | null }>('equipment', equipment.id);
+    assert.equal(stored?.sectionId, null);
+  });
+});
+
+test('POST /equipment still requires a sectionId for drużynowy equipment', async () => {
+  const deps = makeDeps({ firestore: makeEquipmentFirestore(), authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', description: 'Wiata', belongsToPersonId: null }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+// When an opiekun changes section, companions still in the old section move with them; one whose
+// section was set differently on purpose keeps it.
+function seedCompanionsForSectionFollow(firestore: ReturnType<typeof makeFakeFirestore>, ownerEmail: string): void {
+  firestore.seed('lookupLists', 'sections', {
+    items: [
+      { id: 'krakow', label: 'Kraków', retired: false },
+      { id: 'warszawa', label: 'Warszawa', retired: false },
+      { id: 'gdansk', label: 'Gdańsk', retired: false },
+    ],
+  });
+  firestore.seed('members', ownerEmail, {
+    email: ownerEmail, lastName: 'Wojownik', firstName: 'Jan', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const person = (personId: string, sectionId: string, ownerPersonId: string | null, deletedAt: string | null = null) => ({
+    personId, ksywka: personId, firstName: 'A', lastName: 'B', categoryId: 'kandydat', sectionId, weaponIds: [],
+    ownerPersonId, email: null, deletedAt, mergedInto: null, createdAt: 'x', createdBy: 'x',
+  });
+  firestore.seed('persons', 'same-section', person('same-section', 'krakow', ownerEmail));
+  firestore.seed('persons', 'own-section', person('own-section', 'gdansk', ownerEmail));
+  firestore.seed('persons', 'deleted', person('deleted', 'krakow', ownerEmail, '2026-01-01T00:00:00.000Z'));
+  firestore.seed('persons', 'someone-else', person('someone-else', 'krakow', 'inny@example.test'));
+}
+
+async function personSection(firestore: ReturnType<typeof makeFakeFirestore>, personId: string): Promise<string | undefined> {
+  return (await firestore.getDoc<{ sectionId: string }>('persons', personId))?.sectionId;
+}
+
+test('PUT /lista-wyjazdowa/member moves companions in the old section along with the owner, and only them', async () => {
+  const firestore = makeFakeFirestore();
+  seedCompanionsForSectionFollow(firestore, 'wojownik@gmail.com');
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { lastName: 'Wojownik', firstName: 'Jan', sectionId: 'warszawa' });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(await personSection(firestore, 'same-section'), 'warszawa');
+  assert.equal(await personSection(firestore, 'own-section'), 'gdansk', 'a companion with its own section keeps it');
+  assert.equal(await personSection(firestore, 'deleted'), 'krakow');
+  assert.equal(await personSection(firestore, 'someone-else'), 'krakow', "another owner's companion is untouched");
+
+  const events = await firestore.listDocs<{ action: string; changes: Array<{ field: string; after?: unknown }> }>('auditEvents');
+  const updated = events.map(e => e.data).find(e => e.action === 'profile.member.updated');
+  assert.equal(updated?.changes.find(c => c.field === 'movedCompanions')?.after, 1);
+});
+
+test('PUT /lista-wyjazdowa/member without a section change leaves companions alone', async () => {
+  const firestore = makeFakeFirestore();
+  seedCompanionsForSectionFollow(firestore, 'wojownik@gmail.com');
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { lastName: 'Wojownik', firstName: 'Janek', sectionId: 'krakow' });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(await personSection(firestore, 'same-section'), 'krakow');
+  const events = await firestore.listDocs<{ action: string; changes: Array<{ field: string }> }>('auditEvents');
+  const updated = events.map(e => e.data).find(e => e.action === 'profile.member.updated');
+  assert.equal(updated?.changes.some(c => c.field === 'movedCompanions'), false);
+});
+
+test('PUT /admin/members/profile moves companions in the old section along with the member', async () => {
+  const firestore = makeFakeFirestore();
+  seedCompanionsForSectionFollow(firestore, 'ala@example.com');
+  const deps = makeDeps({
+    firestore,
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', lastName: 'Wojownik', firstName: 'Jan', nickname: null, sectionId: 'warszawa' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(await personSection(firestore, 'same-section'), 'warszawa');
+  assert.equal(await personSection(firestore, 'own-section'), 'gdansk');
+  assert.equal((await firestore.getDoc<{ updatedBy: string }>('persons', 'same-section'))?.updatedBy, 'admin@example.com');
+});

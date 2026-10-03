@@ -180,9 +180,9 @@ const privateSortState = initSortableTable(document.getElementById('equipment-pr
   onChange: renderPrivateTable,
 });
 
-// Private equipment follows its owner: an item's stored sectionId is a snapshot taken when it was
-// saved, so a person who has since changed section would otherwise leave their equipment behind
-// under the old one. Falls back to the stored sectionId when the owner cannot be resolved.
+// Private equipment has no section of its own (the server stores sectionId: null) - it always
+// counts under its owner's current section. The stored-sectionId fallback only matters for items
+// saved before that change, until upload-service/scripts/clear-private-equipment-sections.ts has run.
 function itemFilterSectionId(item) {
   if (item.belongsToPersonId === null) return item.sectionId;
   return personById.get(item.belongsToPersonId)?.sectionId ?? item.sectionId;
@@ -522,8 +522,10 @@ function openAddFormForEdit(item) {
   if (isPrivate) {
     const owner = personById.get(item.belongsToPersonId);
     ownerInput.value = owner ? displayName(owner) : item.belongsToPersonId;
-    populateSectionSelect(item.sectionId);
-    document.getElementById('equipment-add-section').value = item.sectionId;
+    // Display only: the section shown is the owner's, and it is not sent on save.
+    const ownerSectionId = itemFilterSectionId(item);
+    populateSectionSelect(ownerSectionId);
+    document.getElementById('equipment-add-section').value = ownerSectionId ?? '';
     document.getElementById('equipment-add-section').disabled = true;
   } else {
     ownerInput.value = '';
@@ -580,7 +582,8 @@ function wireAddForm() {
         return;
       }
     }
-    const payload = { categoryId, sectionId, description, belongsToPersonId };
+    // Private equipment follows its owner's section, so only drużynowy equipment sends one.
+    const payload = { categoryId, sectionId: isPrivate ? null : sectionId, description, belongsToPersonId };
     try {
       await window.MutationFeedback.confirmed({
         execute: () => apiFetch(editingId ? `/equipment?id=${encodeURIComponent(editingId)}` : '/equipment', {

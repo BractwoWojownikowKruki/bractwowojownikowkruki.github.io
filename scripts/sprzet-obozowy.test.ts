@@ -317,6 +317,27 @@ test('adding a team item posts to /equipment with belongsToPersonId null and app
   assert.match(harness.elements.get('equipment-team-table-body')!.innerHTML, /Nowy namiot/);
 });
 
+test('adding a private item sends sectionId null - private equipment follows its owner\'s section', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const privateRadio = harness.elements.get('equipment-owner-mode-private')!;
+  harness.elements.get('equipment-owner-mode-team')!.checked = false;
+  privateRadio.checked = true;
+  await privateRadio.change();
+  harness.elements.get('equipment-add-category')!.value = 'namiot';
+  const ownerInput = harness.elements.get('equipment-add-owner')!;
+  ownerInput.value = 'Młody';
+  await ownerInput.input();
+  harness.elements.get('equipment-add-description')!.value = 'Namiot Młodego';
+  harness.setMutationResult({ equipment: { id: 'eq-private-2', categoryId: 'namiot', sectionId: null, belongsToPersonId: 'person-uuid-1', description: 'Namiot Młodego', createdAt: '2026-01-02T00:00:00.000Z', createdBy: 'ala@example.com' } });
+
+  await harness.elements.get('equipment-add-form')!.submit();
+
+  const post = harness.apiCalls.find((call) => call.url === '/equipment' && call.options.method === 'POST');
+  assert.deepEqual(JSON.parse(String(post?.options.body)), { categoryId: 'namiot', sectionId: null, description: 'Namiot Młodego', belongsToPersonId: 'person-uuid-1' });
+  assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /title="Warszawa"/, "the new row shows the owner's section");
+});
+
 // Regression test (review finding, task-3 fix round): neither POST nor PUT /equipment's response
 // carries canEdit/canDelete - only GET /equipment's list handler synthesizes them (server.ts's
 // handleListEquipment, always true). Without locally merging { canEdit: true, canDelete: true }

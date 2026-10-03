@@ -571,7 +571,7 @@ function renderPersonEquipment(container, ownerId) {
   container.innerHTML = personEquipmentInnerHtml(equipmentForOwner(equipmentItems, ownerId));
 }
 
-async function addPersonEquipmentItem(container, ownerId, getSectionId, control) {
+async function addPersonEquipmentItem(container, ownerId, control) {
   const categoryId = container.querySelector('.person-equipment-category').value;
   const description = container.querySelector('.person-equipment-description').value.trim();
   if (!categoryId) return;
@@ -584,7 +584,7 @@ async function addPersonEquipmentItem(container, ownerId, getSectionId, control)
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ categoryId, description, belongsToPersonId: ownerId, sectionId: getSectionId() }),
+        body: JSON.stringify({ categoryId, description, belongsToPersonId: ownerId }),
       },
       showReauth,
       hideReauth,
@@ -615,15 +615,13 @@ async function deletePersonEquipmentItem(container, ownerId, itemId, control) {
   });
 }
 
-// `getSectionId` is a callback, not a captured value, so each call reads the owner's *current*
-// sectionId at the moment "Dodaj" is clicked (member.sectionId may change if the profile form is
-// re-saved; a companion row is entirely re-created by renderPersons/addPersonRow after every
-// person save, so its own closure is always fresh - see task-3-brief.md Step 3).
-function wireEquipmentMiniList(container, ownerId, getSectionId) {
+// No sectionId is sent: private equipment follows its owner's current section (the server stores
+// null), so a later Sekcja change needs no equipment update.
+function wireEquipmentMiniList(container, ownerId) {
   container.addEventListener('click', (event) => {
     const addBtn = event.target.closest('.person-equipment-add-btn');
     if (addBtn) {
-      addPersonEquipmentItem(container, ownerId, getSectionId, addBtn).catch((err) => {
+      addPersonEquipmentItem(container, ownerId, addBtn).catch((err) => {
         window.alert(`Nie udało się dodać sprzętu: ${err.message}`);
       });
       return;
@@ -839,10 +837,14 @@ async function initForm(lookupLists) {
       form.lastName.value = savedMember.lastName;
       form.firstName.value = savedMember.firstName;
       form.nickname.value = savedMember.nickname ?? '';
-      // Keep the equipment mini-list's "current sectionId" in sync with a Sekcja change just
-      // saved here - the mini-list itself is unaffected by this submit (it saves independently,
-      // see wireEquipmentMiniList), but a fresh add right after this save must use the new value.
+      // Keep the default Sekcja for a newly added companion row in sync with a change just saved here.
+      const sectionChanged = ownerSectionId !== savedMember.sectionId;
       ownerSectionId = savedMember.sectionId;
+      // The server moves companions that were in the old section along with the owner, so
+      // re-read them - otherwise a stale row would send the old section back on its next save.
+      if (sectionChanged) {
+        loadPersons().catch((err) => console.error('Nie udało się odświeżyć osób towarzyszących', err));
+      }
       resetPhotoSelection();
 
       progressEl.hidden = true;
@@ -1008,7 +1010,7 @@ async function initForm(lookupLists) {
   if (!loadError) {
     renderDuesStatus(profile?.wpisowePaid ?? false, duesStatus);
     renderPersons(roster);
-    wireEquipmentMiniList(document.getElementById('own-equipment'), viewerEmail.toLowerCase(), () => ownerSectionId);
+    wireEquipmentMiniList(document.getElementById('own-equipment'), viewerEmail.toLowerCase());
   }
 
   if (loadError) {
