@@ -142,12 +142,10 @@ test('sortPeopleByFolderName places a negative-order entry before positive ones 
   assert.deepEqual(sorted, ['-1. Ragnar', '1. Anna', '2. Jan']);
 });
 
-test('sortPeopleByFolderName keeps duplicate-order entries together as a group, in either relative order', () => {
-  const items = [{ folderName: '2. Piotr' }, { folderName: '1. Ragnar A' }, { folderName: '1. Ragnar B' }, { folderName: '3. Jan' }];
+test('sortPeopleByFolderName orders entries sharing an order number by name', () => {
+  const items = [{ folderName: '2. Piotr' }, { folderName: '1. Ragnar B' }, { folderName: '1. Ragnar A' }, { folderName: '3. Jan' }];
   const sorted = sortPeopleByFolderName(items).map(i => i.folderName);
-  const order1Names = ['1. Ragnar A', '1. Ragnar B'];
-  assert.deepEqual(sorted.slice(0, 2).sort(), order1Names.sort());
-  assert.deepEqual(sorted.slice(2), ['2. Piotr', '3. Jan']);
+  assert.deepEqual(sorted, ['1. Ragnar A', '1. Ragnar B', '2. Piotr', '3. Jan']);
 });
 
 test('computeOrderForDepartmentMove appends after the highest existing order for a normal department', () => {
