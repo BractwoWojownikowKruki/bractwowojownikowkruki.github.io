@@ -1,4 +1,5 @@
 import type { FirestoreLikeClient } from './firestore.ts';
+import type { DuesStatus } from './dues.ts';
 
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
 
@@ -10,7 +11,12 @@ type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
  */
 export interface ListaWyjazdowaProfileDoc {
   weaponIds: string[];
+  // Legacy boolean, still written alongside wpisoweStatus (= status === 'paid') so older readers
+  // stay correct. Read the effective state through dues.ts's effectiveWpisoweStatus, never this.
   wpisowePaid: boolean;
+  // Absent on documents written before wpisowe became three-state (and on ones only ever created
+  // as a default) - effectiveWpisoweStatus then falls back to wpisowePaid and the category default.
+  wpisoweStatus?: DuesStatus;
   updatedAt: string;
   updatedBy: string;
 }
@@ -49,7 +55,11 @@ export async function saveProfile(
     updatedBy: id,
   };
   await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, wpisowePaid: false });
-  return { ...writable, wpisowePaid: existing?.wpisowePaid ?? false };
+  return {
+    ...writable,
+    wpisowePaid: existing?.wpisowePaid ?? false,
+    ...(existing?.wpisoweStatus ? { wpisoweStatus: existing.wpisoweStatus } : {}),
+  };
 }
 
 /**
@@ -59,15 +69,15 @@ export async function saveProfile(
  * brand-new document its complete shape" approach saveProfile above already uses for a
  * self-service first save.
  */
-export async function setWpisowePaid(
+export async function setWpisoweStatus(
   client: FirestoreWriteContext,
   personId: string,
-  paid: boolean,
+  status: DuesStatus,
   updatedBy: string,
 ): Promise<ListaWyjazdowaProfileDoc> {
   const id = personId.toLowerCase();
   const existing = await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id);
-  const writable = { wpisowePaid: paid, updatedBy, updatedAt: new Date().toISOString() };
+  const writable = { wpisoweStatus: status, wpisowePaid: status === 'paid', updatedBy, updatedAt: new Date().toISOString() };
   await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, weaponIds: [] });
   return {
     weaponIds: existing?.weaponIds ?? [],
@@ -79,7 +89,7 @@ export async function setWpisowePaid(
  * Admin/hovding write of another member's weaponIds, from Zarządzanie ludźmi's own weapon
  * checkboxes - unlike weaponIds via saveProfile above (self-service, the member's own "Mój
  * profil"), this lets an admin/hovding correct or set it on someone else's behalf, e.g. for a
- * member who hasn't filled in their profile yet. Same upsert shape as setWpisowePaid: creates a
+ * member who hasn't filled in their profile yet. Same upsert shape as setWpisoweStatus: creates a
  * document with empty defaults if the member has none yet.
  */
 export async function setProfileWeaponIds(
@@ -94,6 +104,7 @@ export async function setProfileWeaponIds(
   await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, wpisowePaid: false });
   return {
     wpisowePaid: existing?.wpisowePaid ?? false,
+    ...(existing?.wpisoweStatus ? { wpisoweStatus: existing.wpisoweStatus } : {}),
     ...writable,
   };
 }

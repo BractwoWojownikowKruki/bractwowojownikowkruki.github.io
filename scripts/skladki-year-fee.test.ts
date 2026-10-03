@@ -35,6 +35,10 @@ class Element {
   async clickWith(target: unknown) {
     await Promise.all((this.listeners.get('click') ?? []).map((listener) => listener({ target })));
   }
+  async change(value: string) {
+    this.value = value;
+    await Promise.all((this.listeners.get('change') ?? []).map((listener) => listener({ target: this })));
+  }
   async input() {
     await Promise.all((this.listeners.get('input') ?? []).map((listener) => listener({ target: this })));
   }
@@ -54,7 +58,7 @@ const elementIds = [
   'skladki-year-fee-input', 'skladki-year-fee-duedate-input', 'skladki-year-fee-save',
   'skladki-year-fee-remove', 'skladki-year-fee-history-link', 'skladki-year-select',
   'summary-content', 'skladki-content', 'skladki-table', 'skladki-emeryci',
-  'skladki-emeryci-table',
+  'skladki-emeryci-table', 'skladki-emeryci-heading',
 ];
 
 function createHarness(yearFee: Record<string, unknown> | null, options: { roster?: Array<Record<string, unknown>>; dues?: Array<Record<string, unknown>> } = {}) {
@@ -64,7 +68,7 @@ function createHarness(yearFee: Record<string, unknown> | null, options: { roste
   let mutationError: Error | null = null;
   let signIn: (() => Promise<void>) | undefined;
   const roster = options.roster ?? [
-    { personId: 'member@example.com', email: 'member@example.com', accountless: false, lastName: 'Member', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: true },
+    { personId: 'member@example.com', email: 'member@example.com', accountless: false, lastName: 'Member', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
   ];
   // Captured here because apiFetch's own `options` parameter (the fetch options) would shadow the
   // harness options inside the closure below.
@@ -189,8 +193,8 @@ test('year fee: a failed removal restores the form from the last loaded fee', as
 test('an accountless person renders with the marker, no e-mail trigger, and its stored personId-keyed due', async () => {
   const harness = createHarness(null, {
     roster: [
-      { personId: 'member@example.com', email: 'member@example.com', accountless: false, lastName: 'Member', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'unpaid', wpisowePaid: true },
-      { personId: 'person-uuid-1', email: null, accountless: true, lastName: 'Osoba Bez Konta', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisowePaid: false },
+      { personId: 'member@example.com', email: 'member@example.com', accountless: false, lastName: 'Member', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'paid' },
+      { personId: 'person-uuid-1', email: null, accountless: true, lastName: 'Osoba Bez Konta', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'unpaid' },
     ],
     dues: [{ email: 'person-uuid-1', personId: 'person-uuid-1', status: 'paid' }],
   });
@@ -215,4 +219,42 @@ test('an accountless person renders with the marker, no e-mail trigger, and its 
   });
   const put = harness.apiCalls.filter((call) => call.options.method === 'PUT').at(-1);
   assert.match(String(put?.url), /personId=person-uuid-1/);
+});
+
+test('wpisowe view: unpaid in the main table, not_applicable in a "Nie dotyczy" table, summary skips not_applicable, badge cycles to the next status', async () => {
+  const harness = createHarness(null, {
+    roster: [
+      { personId: 'a@example.com', email: 'a@example.com', accountless: false, lastName: 'Nieoplacony', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'unpaid' },
+      { personId: 'b@example.com', email: 'b@example.com', accountless: false, lastName: 'Oplacony', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
+      { personId: 'c@example.com', email: 'c@example.com', accountless: false, lastName: 'Dziecko', sectionId: null, categoryId: 'bobo', weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'not_applicable' },
+    ],
+  });
+  await harness.signIn();
+  await harness.elements.get('skladki-year-select')!.change('wpisowe');
+
+  const main = harness.elements.get('skladki-table')!.querySelector('tbody')!.innerHTML;
+  assert.match(main, /Nieoplacony/);
+  assert.doesNotMatch(main, /Oplacony/);
+  assert.doesNotMatch(main, /Dziecko/);
+  assert.match(main, /data-kind="wpisowe"[^>]*data-status="unpaid"/);
+
+  const notApplicable = harness.elements.get('skladki-emeryci-table')!.querySelector('tbody')!.innerHTML;
+  assert.match(notApplicable, /Dziecko/);
+  assert.match(notApplicable, /data-status="not_applicable"[^>]*>–</);
+  assert.equal(harness.elements.get('skladki-emeryci')!.hidden, false);
+  assert.equal(harness.elements.get('skladki-emeryci-heading')!.textContent, 'Nie dotyczy');
+
+  const summary = harness.elements.get('summary-content')!.innerHTML;
+  assert.match(summary, /Nieopłacone wpisowe: <strong>1<\/strong> z 2 osób/);
+  assert.match(summary, /Nie dotyczy: <strong>1<\/strong> z 3 osób/);
+
+  const control = { dataset: { kind: 'wpisowe', personId: 'a@example.com', status: 'unpaid' }, title: '', textContent: '✕', setAttribute() {} };
+  await harness.elements.get('skladki-content')!.clickWith({
+    closest: (selector: string) => selector === '.lw-skladka-icon[data-kind]' ? control : null,
+  });
+  const put = harness.apiCalls.filter((call) => call.options.method === 'PUT').at(-1);
+  assert.match(String(put?.url), /\/lista-wyjazdowa\/wpisowe\?personId=a%40example\.com/);
+  assert.deepEqual(JSON.parse(String(put?.options.body)), { status: 'paid' });
+  assert.equal(control.dataset.status, 'paid');
+  assert.equal(control.textContent, '✓');
 });

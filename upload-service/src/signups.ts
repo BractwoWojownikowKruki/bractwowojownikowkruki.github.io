@@ -1,4 +1,5 @@
 import type { FirestoreDoc, FirestoreLikeClient } from './firestore.ts';
+import { normalizeSkladkaStatus, type DuesStatus } from './dues.ts';
 
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
 
@@ -14,7 +15,10 @@ export interface SignupDoc {
   eventId: string;
   memberEmail: string;
   attending: boolean;
+  // Legacy boolean, still written alongside skladkaStatus (= status === 'paid'). Every read below
+  // returns skladkaStatus already normalized (dues.ts's normalizeSkladkaStatus), so callers use that.
   skladkaPaid: boolean;
+  skladkaStatus?: DuesStatus;
   lastChangedBy: string;
   lastChangedAt: string;
   /** Time of the last actual attending-status change; absent on legacy documents. */
@@ -39,8 +43,13 @@ function signupId(eventId: string, email: string): string {
   return `${eventId}_${email.toLowerCase()}`;
 }
 
+function withSkladkaStatus(doc: SignupDoc): SignupDoc {
+  return { ...doc, skladkaStatus: normalizeSkladkaStatus(doc) };
+}
+
 export async function listAllSignups(client: FirestoreLikeClient): Promise<FirestoreDoc<SignupDoc>[]> {
-  return client.listDocs<SignupDoc>(SIGNUPS_COLLECTION);
+  const docs = await client.listDocs<SignupDoc>(SIGNUPS_COLLECTION);
+  return docs.map((d) => ({ ...d, data: withSkladkaStatus(d.data) }));
 }
 
 export async function listSignupsForEvent(client: FirestoreLikeClient, eventId: string): Promise<SignupDoc[]> {
@@ -49,7 +58,8 @@ export async function listSignupsForEvent(client: FirestoreLikeClient, eventId: 
 }
 
 export async function getSignup(client: FirestoreLikeClient, eventId: string, email: string): Promise<SignupDoc | null> {
-  return client.getDoc<SignupDoc>(SIGNUPS_COLLECTION, signupId(eventId, email));
+  const doc = await client.getDoc<SignupDoc>(SIGNUPS_COLLECTION, signupId(eventId, email));
+  return doc ? withSkladkaStatus(doc) : null;
 }
 
 export async function saveSignup(
@@ -75,26 +85,26 @@ export async function saveSignup(
     // First signup for this (event, member) pair - skladkaPaid doesn't exist yet, set its default.
     const doc: SignupDoc = { ...writable, skladkaPaid: false };
     await client.setDoc(SIGNUPS_COLLECTION, id, doc);
-    return doc;
+    return withSkladkaStatus(doc);
   }
   // Existing signup: write only the writable subset via merge - skladkaPaid is never in this
   // write, so it survives untouched regardless of what it currently is (same pattern as
   // saveMember/saveProfile post-Plan-A-fix-wave: an update-write can only touch fields it names).
   await client.setDoc(SIGNUPS_COLLECTION, id, writable);
-  return { ...existing, ...writable };
+  return withSkladkaStatus({ ...existing, ...writable });
 }
 
-export async function setSkladkaPaid(
+export async function setSkladkaStatus(
   client: FirestoreWriteContext,
   eventId: string,
   email: string,
-  paid: boolean,
+  status: DuesStatus,
   changedBy: string,
 ): Promise<SignupDoc | null> {
   const id = signupId(eventId, email);
   const existing = await client.getDoc<SignupDoc>(SIGNUPS_COLLECTION, id);
   if (!existing) return null;
-  const writable = { skladkaPaid: paid, lastChangedBy: changedBy, lastChangedAt: new Date().toISOString() };
+  const writable = { skladkaStatus: status, skladkaPaid: status === 'paid', lastChangedBy: changedBy, lastChangedAt: new Date().toISOString() };
   await client.setDoc(SIGNUPS_COLLECTION, id, writable);
   return { ...existing, ...writable };
 }

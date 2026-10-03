@@ -6,7 +6,7 @@ import {
   listSignupsForEvent,
   getSignup,
   saveSignup,
-  setSkladkaPaid,
+  setSkladkaStatus,
 } from './signups.ts';
 
 test('getSignup returns null when no signup exists', async () => {
@@ -90,19 +90,36 @@ test('saveSignup preserves statusChangedAt when attending does not change', asyn
   assert.equal(updated.statusChangedAt, '2026-01-01T00:00:00.000Z');
 });
 
-test('setSkladkaPaid returns null when no signup exists', async () => {
+test('setSkladkaStatus returns null when no signup exists', async () => {
   const client = createInMemoryFirestoreClient();
-  assert.equal(await setSkladkaPaid(client, 'event-1', 'ala@example.test', true, 'accountant@example.test'), null);
+  assert.equal(await setSkladkaStatus(client, 'event-1', 'ala@example.test', 'paid', 'accountant@example.test'), null);
 });
 
-test('setSkladkaPaid toggles paid, preserving attending', async () => {
+test('setSkladkaStatus changes the status, preserving attending', async () => {
   const client = createInMemoryFirestoreClient();
   const created = await saveSignup(client, 'event-1', 'ala@example.test', { attending: true }, 'ala@example.test');
-  const updated = await setSkladkaPaid(client, 'event-1', 'ala@example.test', true, 'accountant@example.test');
+  assert.equal(created.skladkaStatus, 'unpaid');
+  const updated = await setSkladkaStatus(client, 'event-1', 'ala@example.test', 'paid', 'accountant@example.test');
+  assert.equal(updated?.skladkaStatus, 'paid');
   assert.equal(updated?.skladkaPaid, true);
   assert.equal(updated?.attending, true);
   assert.equal(updated?.lastChangedBy, 'accountant@example.test');
   assert.equal(updated?.statusChangedAt, created.statusChangedAt);
+});
+
+test('setSkladkaStatus not_applicable is stored and read back; legacy skladkaPaid true reads as paid', async () => {
+  const client = createInMemoryFirestoreClient();
+  await saveSignup(client, 'event-1', 'ala@example.test', { attending: true }, 'ala@example.test');
+  await setSkladkaStatus(client, 'event-1', 'ala@example.test', 'not_applicable', 'accountant@example.test');
+  const stored = await getSignup(client, 'event-1', 'ala@example.test');
+  assert.equal(stored?.skladkaStatus, 'not_applicable');
+  assert.equal(stored?.skladkaPaid, false);
+
+  client.seed('signups', 'event-1_bea@example.test', {
+    eventId: 'event-1', memberEmail: 'bea@example.test', attending: true, skladkaPaid: true,
+    lastChangedBy: 'x', lastChangedAt: '2026-01-01T00:00:00.000Z',
+  });
+  assert.equal((await getSignup(client, 'event-1', 'bea@example.test'))?.skladkaStatus, 'paid');
 });
 
 test('listAllSignups and listSignupsForEvent', async () => {

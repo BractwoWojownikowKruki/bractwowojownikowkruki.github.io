@@ -322,17 +322,18 @@ async function removeSkladkaFee() {
 
 document.getElementById('skladka-fee-remove').addEventListener('click', removeSkladkaFee);
 
-async function toggleSkladkaPaid(personId, nextPaid, control) {
+// Cycles unpaid -> paid -> not_applicable -> unpaid (shared/dues-status.js's nextDuesStatus).
+async function toggleSkladkaStatus(personId, nextStatus, control) {
   clearError();
   try {
     await confirmedEventMutation(control, () => apiFetch(
       `/lista-wyjazdowa/signups/skladka?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(personId)}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: nextPaid }) },
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: nextStatus }) },
       showReauth,
       hideReauth,
     ), () => {
       const signup = cachedSignups.find(item => item.memberEmail === personId);
-      if (signup) signup.skladkaPaid = nextPaid;
+      if (signup) signup.skladkaStatus = nextStatus;
       renderRoster(cachedRoster, cachedSignups);
     }, 'toast');
   } catch (err) {
@@ -590,7 +591,7 @@ function updateEventEquipmentToggle(control, going) {
 // KRKG-0087: the roster endpoint's row shape for a freshly created person (see
 // handleListaWyjazdowaGetRoster), so a quick-added person renders without a full reload. duesStatus
 // mirrors effectiveDuesStatus's default for a person with no record: an Emeryt owes nothing,
-// everyone else starts unpaid.
+// everyone else starts unpaid. wpisoweStatus likewise (a Bobo owes no wpisowe by default).
 function rosterEntryFromPerson(person) {
   return {
     personId: person.personId,
@@ -603,7 +604,7 @@ function rosterEntryFromPerson(person) {
     sectionId: person.sectionId ?? null,
     categoryId: person.categoryId ?? null,
     weaponIds: person.weaponIds ?? [],
-    wpisowePaid: false,
+    wpisoweStatus: effectiveWpisoweStatus(null, person.categoryId),
     duesStatus: effectiveDuesStatus(null, person.categoryId),
   };
 }
@@ -687,10 +688,11 @@ function renderRoster(roster, signups) {
       // (only while something is still owed club-wide) a second row of tiny red badges underneath:
       // the one-time Wpisowe (money bag + "wpisowe") first, then the current year's składka roczna
       // (money bag + "roczna") next to it. member.duesStatus comes from the roster endpoint, which
-      // resolves the emeryt default server-side; not_applicable owes nothing, and a fully settled
-      // member gets no second row at all.
-      const duesBadgesHtml = member.duesStatus === 'unpaid' || !member.wpisowePaid
-        ? `<span class="lw-dues-badges">${!member.wpisowePaid ? '<span class="lw-dues-badge lw-dues-badge--wpisowe" title="Wpisowe nieopłacone">💰<span>wpisowe</span></span>' : ''}${member.duesStatus === 'unpaid' ? '<span class="lw-dues-badge lw-dues-badge--roczna" title="Składka roczna nieopłacona">💰<span>roczna</span></span>' : ''}</span>`
+      // resolves the emeryt default server-side (and wpisoweStatus the Bobo one); not_applicable
+      // owes nothing, and a fully settled member gets no second row at all.
+      const wpisoweUnpaid = member.wpisoweStatus === 'unpaid';
+      const duesBadgesHtml = member.duesStatus === 'unpaid' || wpisoweUnpaid
+        ? `<span class="lw-dues-badges">${wpisoweUnpaid ? '<span class="lw-dues-badge lw-dues-badge--wpisowe" title="Wpisowe nieopłacone">💰<span>wpisowe</span></span>' : ''}${member.duesStatus === 'unpaid' ? '<span class="lw-dues-badge lw-dues-badge--roczna" title="Składka roczna nieopłacona">💰<span>roczna</span></span>' : ''}</span>`
         : '';
       // KRKG-0087: one shared pill renderer, with the "osoba bez konta" marker for an accountless
       // person. A member's name opens the shared profile drawer by e-mail; a person has no e-mail,
@@ -731,7 +733,7 @@ function renderRoster(roster, signups) {
           <span class="lw-attend-toggle-track" aria-hidden="true"></span>
           ${attending ? 'Jadę' : 'Nie jadę'}
         </button>
-        ${attending && normalizeSkladkaFee(cachedEvent?.skladkaFee) ? renderSkladkaIcon(personIdAttr, signup?.skladkaPaid ?? false) : ''}`}
+        ${attending && normalizeSkladkaFee(cachedEvent?.skladkaFee) ? renderSkladkaIcon(personIdAttr, signup?.skladkaStatus ?? 'unpaid') : ''}`}
       </td>
       <td class="${member.weaponIds.length ? '' : 'czl-empty'}">${member.weaponIds.length ? weaponHtml : EMPTY}</td>
       <td class="lw-status-changed-cell">${escapeHtml(formatStatusChangedAt(signup?.statusChangedAt))}</td>
@@ -742,12 +744,13 @@ function renderRoster(roster, signups) {
 
 // A plain, uneditable coin for a member who can't manage składki - reading the row shouldn't
 // suggest a button that would just 403; only canManageSkladki gets the clickable <button> below.
-function renderSkladkaIcon(personIdAttr, paid) {
-  const label = paid ? 'Składka opłacona' : 'Składka nieopłacona';
+// Three-coloured via data-status (green/red/grey), same as the Składki page's roczna coin.
+function renderSkladkaIcon(personIdAttr, status) {
+  const label = skladkaStatusLabel(status);
   if (!canManageSkladki) {
-    return `<span class="lw-skladka-icon" data-paid="${paid}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">💰</span>`;
+    return `<span class="lw-skladka-icon" data-status="${status}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">💰</span>`;
   }
-  return `<button type="button" class="lw-skladka-icon" data-person-id="${personIdAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
+  return `<button type="button" class="lw-skladka-icon" data-person-id="${personIdAttr}" data-status="${status}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
 }
 
 async function toggleAttending(personId, nextAttending, control) {
@@ -950,7 +953,7 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
   const skladkaBtn = e.target.closest('.lw-skladka-icon');
   if (skladkaBtn && skladkaBtn.dataset.personId) {
     skladkaBtn.disabled = true;
-    toggleSkladkaPaid(skladkaBtn.dataset.personId, skladkaBtn.dataset.paid !== 'true', skladkaBtn).finally(() => { skladkaBtn.disabled = false; });
+    toggleSkladkaStatus(skladkaBtn.dataset.personId, nextDuesStatus(skladkaBtn.dataset.status), skladkaBtn).finally(() => { skladkaBtn.disabled = false; });
   }
 });
 

@@ -290,6 +290,7 @@ export async function moveCompanionsToSection(
 interface PersonMergeProfile {
   weaponIds: string[];
   wpisowePaid: boolean;
+  wpisoweStatus?: 'unpaid' | 'paid' | 'not_applicable';
 }
 
 /** One document that moves from the person's key to the account's key. */
@@ -459,6 +460,8 @@ export async function applyPersonMerge(
       weaponIds: accountProfile?.weaponIds?.length ? accountProfile.weaponIds : (person.weaponIds ?? []),
       wpisowePaid: accountProfile ? accountProfile.wpisowePaid : (personProfile?.wpisowePaid ?? false),
     };
+    const wpisoweStatus = accountProfile ? accountProfile.wpisoweStatus : personProfile?.wpisoweStatus;
+    if (wpisoweStatus) mergedProfile.wpisoweStatus = wpisoweStatus;
   }
   if (mergedProfile) {
     await tx.setDoc(PROFILES_COLLECTION, plan.accountEmail, { ...mergedProfile, updatedBy: mergedBy, updatedAt: now });

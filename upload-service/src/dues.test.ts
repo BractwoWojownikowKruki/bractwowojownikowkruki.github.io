@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
-import { getDues, listDuesForYear, saveDues, getDuesYearFee, saveDuesYearFee, normalizeDuesStatus, effectiveDuesStatus, EMERYT_CATEGORY_ID } from './dues.ts';
+import { getDues, listDuesForYear, saveDues, getDuesYearFee, saveDuesYearFee, normalizeDuesStatus, effectiveDuesStatus, EMERYT_CATEGORY_ID, effectiveWpisoweStatus, normalizeSkladkaStatus, BOBO_CATEGORY_ID } from './dues.ts';
 
 test('getDues returns null when no record exists', async () => {
   const client = createInMemoryFirestoreClient();
@@ -121,4 +121,24 @@ test('listDuesForYear returns only records for the requested year', async () => 
   const for2026 = await listDuesForYear(client, 2026);
   assert.equal(for2026.length, 1);
   assert.equal(for2026[0].email, 'ala@example.test');
+});
+
+test('effectiveWpisoweStatus: explicit status wins, legacy true is paid, otherwise Bobo defaults to not_applicable', () => {
+  assert.equal(effectiveWpisoweStatus(null, null), 'unpaid');
+  assert.equal(effectiveWpisoweStatus(null, BOBO_CATEGORY_ID), 'not_applicable');
+  // A legacy false was only ever a creation default, not a choice - the category default applies.
+  assert.equal(effectiveWpisoweStatus({ wpisowePaid: false }, BOBO_CATEGORY_ID), 'not_applicable');
+  assert.equal(effectiveWpisoweStatus({ wpisowePaid: false }, 'blacha'), 'unpaid');
+  assert.equal(effectiveWpisoweStatus({ wpisowePaid: true }, BOBO_CATEGORY_ID), 'paid');
+  assert.equal(effectiveWpisoweStatus({ wpisowePaid: false, wpisoweStatus: 'unpaid' }, BOBO_CATEGORY_ID), 'unpaid');
+  assert.equal(effectiveWpisoweStatus({ wpisowePaid: false, wpisoweStatus: 'not_applicable' }, 'blacha'), 'not_applicable');
+  // Emeryt has no wpisowe default - only składka roczna.
+  assert.equal(effectiveWpisoweStatus(null, EMERYT_CATEGORY_ID), 'unpaid');
+});
+
+test('normalizeSkladkaStatus: explicit status wins, then legacy skladkaPaid, default unpaid', () => {
+  assert.equal(normalizeSkladkaStatus({}), 'unpaid');
+  assert.equal(normalizeSkladkaStatus({ skladkaPaid: true }), 'paid');
+  assert.equal(normalizeSkladkaStatus({ skladkaPaid: false }), 'unpaid');
+  assert.equal(normalizeSkladkaStatus({ skladkaPaid: false, skladkaStatus: 'not_applicable' }), 'not_applicable');
 });

@@ -202,7 +202,7 @@
   // editor panel.
   function profileDuesFormHtml(profile) {
     if (!profile.editor?.canEditDues) return '';
-    const entryFeeDraft = editorState.drafts.entryFee ?? { paid: Boolean(profile.wpisowePaid) };
+    const entryFeeDraft = editorState.drafts.entryFee ?? { status: profile.wpisoweStatus ?? 'unpaid' };
     const annualDuesDraft = editorState.drafts.annualDues ?? { status: profile.duesStatus ?? 'unpaid' };
     const error = editorState.errors.entryFee ?? editorState.errors.annualDues;
     const errorHtml = error
@@ -211,7 +211,11 @@
     return `<section class="profile-dues-section">
       <form class="profile-dues-form" data-profile-section="dues">
         <fieldset><legend>Składki</legend>
-          <label class="profile-dues-option"><input type="checkbox" name="wpisowePaid"${entryFeeDraft.paid ? ' checked' : ''}> Wpisowe opłacone</label>
+          <label>Wpisowe
+            <select name="wpisoweStatus">
+              ${['unpaid', 'paid', 'not_applicable'].map((status) => `<option value="${status}"${entryFeeDraft.status === status ? ' selected' : ''}>${WPISOWE_STATUS_LABELS[status]}</option>`).join('')}
+            </select>
+          </label>
           <button type="button" class="add-album-submit profile-dues-save" data-profile-dues-save="wpisowe">Zapisz wpisowe</button>
           <label>Składka ${escapeHtml(profile.duesYear)}
             <select name="duesStatus">
@@ -407,7 +411,7 @@
       : '';
     // Same visibility as the Lista Wyjazdowa Składki page itself (read-only for every signed-in
     // member) - GET /member-profile always includes these fields now, see server.ts's
-    // handleMemberProfile. Same check/cross + coin convention as skladki.js's paidIconHtml, and the
+    // handleMemberProfile. Same check/cross + coin convention as skladki.js's wpisoweIconHtml, and the
     // same three-state roczna status (data-status, grey "nie dotyczy") as its rocznaIconHtml -
     // server.ts's effectiveDuesStatus already resolves an emeryt-with-no-record to
     // 'not_applicable' before this ever sees it, so no category check is needed here. Labels come
@@ -415,8 +419,8 @@
     const duesStatusHtml = `
       <div class="lw-dues-status">
         <span class="lw-dues-status-item">
-          <span class="lw-skladka-icon" data-paid="${profile.wpisowePaid}" aria-hidden="true">${profile.wpisowePaid ? '✓' : '✕'}</span>
-          Wpisowe: ${profile.wpisowePaid ? 'opłacone' : 'nieopłacone'}
+          <span class="lw-skladka-icon" data-status="${escapeHtml(profile.wpisoweStatus ?? 'unpaid')}" aria-hidden="true">${duesStatusGlyph(profile.wpisoweStatus)}</span>
+          ${escapeHtml(wpisoweStatusLabel(profile.wpisoweStatus))}
         </span>
         <span class="lw-dues-status-item">
           <span class="lw-skladka-icon" data-status="${profile.duesStatus}" aria-hidden="true">💰</span>
@@ -682,7 +686,7 @@
   }
 
   function updateDuesDraft(form) {
-    editorState.drafts.entryFee = { paid: form.elements.wpisowePaid.checked };
+    editorState.drafts.entryFee = { status: form.elements.wpisoweStatus.value };
     editorState.drafts.annualDues = { status: form.elements.duesStatus.value };
   }
 
