@@ -85,5 +85,38 @@ window.PeoplePhotoCache = (function () {
     }
   }
 
-  return { applyToPeople, applyToProfile, loadStaticPeople };
+  // ---- Instant preview for the profile drawer ----
+  // The drawer needs *something* to show before /member-profile answers. The static snapshots
+  // carry no e-mail (they are public), so a person is looked up by the name the trigger shows.
+  // Only an unambiguous match is used; anything else returns null and the drawer shows a
+  // placeholder until the API answers. The API response always replaces this preview.
+  let allStaticPromise = null;
+
+  function loadAllStaticPeople() {
+    if (!allStaticPromise) {
+      allStaticPromise = Promise.all(Object.keys(CATEGORY_SLUGS).map((c) => loadStaticPeople(c)))
+        .then((lists) => lists.flatMap((l) => l || []));
+    }
+    return allStaticPromise;
+  }
+
+  const normalizeName = (n) => String(n || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+  // Synchronous once loadAllStaticPeople() has resolved (the drawer warms it up on page load).
+  let staticByName = null;
+  function indexStatic(people) {
+    staticByName = new Map();
+    for (const p of people) {
+      const key = normalizeName(p.name);
+      staticByName.set(key, staticByName.has(key) ? null : p);
+    }
+  }
+  loadAllStaticPeople().then(indexStatic);
+
+  function findStaticByName(name) {
+    if (!staticByName) return null;
+    return staticByName.get(normalizeName(name)) || null;
+  }
+
+  return { applyToPeople, applyToProfile, loadStaticPeople, loadAllStaticPeople, findStaticByName };
 })();
