@@ -17,7 +17,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]'
+    # Skip *push* runs authored by the bot (this workflow's own album-sync commit would otherwise
+    # re-trigger it), but never an explicit workflow_dispatch: the sync-facebook / sync-people-photos
+    # jobs dispatch this workflow as the bot, and without the exception that deploy was skipped.
+    if: github.actor != 'github-actions[bot]' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout
