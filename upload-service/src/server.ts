@@ -3686,6 +3686,12 @@ async function handleListaWyjazdowaLookupLists(req: IncomingMessage, res: Server
 // - every route here is still limited to the live kruki-group membership, not open to the public.
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+function optionalBoolean(value: unknown, message: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') throw new AuthError(message, 400);
+  return value;
+}
+
 function requireDateString(value: unknown, message: string): string {
   const trimmed = requireTrimmedString(value, 10, message);
   if (!DATE_PATTERN.test(trimmed)) throw new AuthError(message, 400);
@@ -3723,6 +3729,7 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
   const name = requireTrimmedString(body.name, LW_MAX_NAME_LENGTH, 'Nazwa wyjazdu jest wymagana.');
   const startDate = requireDateString(body.startDate, 'Data rozpoczęcia jest wymagana (RRRR-MM-DD).');
   const description = optionalTrimmedString(body.description, LW_MAX_EVENT_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 2000 znaków.');
+  const noCampEquipment = optionalBoolean(body.noCampEquipment, 'Pole „bez sprzętu obozowego” musi być wartością logiczną.') ?? false;
   const eventId = randomUUID();
   const { result: event } = await executeDeclaredAuditedMutation(
     deps,
@@ -3736,9 +3743,10 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
         { field: 'startDate', after: startDate },
         { field: 'status', after: 'active' },
         ...(description !== null ? [{ field: 'description', after: description }] : []),
+        ...(noCampEquipment ? [{ field: 'noCampEquipment', after: true }] : []),
       ],
     },
-    tx => createEvent(tx, { name, startDate, description }, identity.email, eventId),
+    tx => createEvent(tx, { name, startDate, description, noCampEquipment }, identity.email, eventId),
   );
   sendJson(res, 200, { event });
 }
@@ -3754,6 +3762,9 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
   if (body.description !== undefined) {
     fields.description = body.description === null ? null : optionalTrimmedString(body.description, LW_MAX_EVENT_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 2000 znaków.');
   }
+  if (body.noCampEquipment !== undefined) {
+    fields.noCampEquipment = optionalBoolean(body.noCampEquipment, 'Pole „bez sprzętu obozowego” musi być wartością logiczną.') ?? false;
+  }
   if (body.status !== undefined) {
     if (body.status !== 'active' && body.status !== 'cancelled') throw new AuthError('Nieprawidłowy status wyjazdu.', 400);
     fields.status = body.status;
@@ -3766,7 +3777,7 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
     await requireSkladkiAccess(req, res, deps, identity.email);
     fields.dueDate = body.dueDate === null ? null : requireDateString(body.dueDate, 'Nieprawidłowy termin płatności (RRRR-MM-DD).');
   }
-  const eventFieldCount = Number(fields.name !== undefined) + Number(fields.startDate !== undefined) + Number(fields.status !== undefined) + Number(fields.description !== undefined);
+  const eventFieldCount = Number(fields.name !== undefined) + Number(fields.startDate !== undefined) + Number(fields.status !== undefined) + Number(fields.description !== undefined) + Number(fields.noCampEquipment !== undefined);
   const feeFieldCount = Number(fields.skladkaFee !== undefined) + Number(fields.dueDate !== undefined);
   if (eventFieldCount === 0 && feeFieldCount === 0) {
     throw new AuthError('Podaj co najmniej jedno pole wyjazdu do zmiany.', 400);
@@ -3792,6 +3803,7 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
           ...(fields.startDate !== undefined ? [{ field: 'startDate', before: existing.startDate, after: fields.startDate }] : []),
           ...(fields.status !== undefined ? [{ field: 'status', before: existing.status, after: fields.status }] : []),
           ...(fields.description !== undefined ? [{ field: 'description', before: existing.description ?? null, after: fields.description }] : []),
+          ...(fields.noCampEquipment !== undefined ? [{ field: 'noCampEquipment', before: existing.noCampEquipment ?? false, after: fields.noCampEquipment }] : []),
         ],
       };
       if (feeFieldCount === 0) return metadataInput;

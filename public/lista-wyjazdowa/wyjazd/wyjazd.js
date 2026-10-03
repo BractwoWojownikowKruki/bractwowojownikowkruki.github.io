@@ -583,6 +583,10 @@ function eventEquipmentSortValue(item) {
 }
 
 function renderEventEquipment(allItems) {
+  const noEquipment = Boolean(cachedEvent?.noCampEquipment);
+  document.getElementById('event-equipment-table-wrap').hidden = noEquipment;
+  document.getElementById('event-equipment-disabled-note').hidden = !noEquipment;
+  if (noEquipment) return;
   const tbody = document.getElementById('event-equipment-content');
   if (allItems.length === 0) {
     tbody.innerHTML = '<tr><td colspan="5" class="czl-empty">Brak sprzętu obozowego.</td></tr>';
@@ -1127,6 +1131,7 @@ async function saveEventDetails(control) {
       document.getElementById('event-title').textContent = cachedEvent.name;
       document.getElementById('event-meta').textContent = `${formatDate(cachedEvent.startDate)}${cachedEvent.status === 'cancelled' ? ' — odwołany' : ''}`;
       renderEventDescription(cachedEvent);
+      renderEventEquipment(cachedEventEquipment);
       eventEditOpen = false;
       renderEventEditPanel();
       // `control` (the Zapisz button just clicked) does not survive renderEventEditPanel's

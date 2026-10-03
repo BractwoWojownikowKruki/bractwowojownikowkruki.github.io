@@ -88,3 +88,20 @@ test('wireUrlWarning trims the name before comparing (whitespace-only edits do n
   nameInput.dispatch('input');
   assert.equal(warning.hidden, true);
 });
+
+test('panelHtml renders the "bez sprzętu obozowego" checkbox, checked only when the event has the flag', () => {
+  const { EventEditForm } = loadHarness('event-edit', { name: 'Wolin', startDate: '2027-01-01' });
+  const base = { id: 'e1', name: 'Wolin', startDate: '2027-01-01', description: null, status: 'active' };
+  const off = EventEditForm.panelHtml(base, { idPrefix: 'event-edit' });
+  assert.match(off, /<input type="checkbox" id="event-edit-no-camp-equipment">/);
+  const on = EventEditForm.panelHtml({ ...base, noCampEquipment: true }, { idPrefix: 'event-edit' });
+  assert.match(on, /id="event-edit-no-camp-equipment" checked>/);
+});
+
+test('buildUpdateBody sends noCampEquipment only when it changed', () => {
+  const { EventEditForm } = loadHarness('event-edit', { name: 'Wolin', startDate: '2027-01-01' });
+  const event = { name: 'Wolin', startDate: '2027-01-01', description: null };
+  const form = { name: 'Wolin', startDate: '2027-01-01', description: '', noCampEquipment: false };
+  assert.deepEqual({ ...EventEditForm.buildUpdateBody(event, form) }, {});
+  assert.deepEqual({ ...EventEditForm.buildUpdateBody(event, { ...form, noCampEquipment: true }) }, { noCampEquipment: true });
+});

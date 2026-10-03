@@ -55,6 +55,9 @@
         <label for="${idPrefix}-description">Opis</label>
         <textarea id="${idPrefix}-description" rows="4" placeholder="Informacje o wyjeździe: miejsce, linki, co zabrać...">${escapeHtml(description)}</textarea>
       </div>
+      <div class="field">
+        <label for="${idPrefix}-no-camp-equipment"><input type="checkbox" id="${idPrefix}-no-camp-equipment"${event.noCampEquipment ? ' checked' : ''}> Bez sprzętu obozowego</label>
+      </div>
       <p class="add-album-error" id="${idPrefix}-error" hidden></p>
       <div class="lw-event-edit-actions">
         <button type="button" class="add-album-submit lw-event-edit-save" data-id-prefix="${idPrefix}">Zapisz</button>
@@ -75,6 +78,7 @@
       name: document.getElementById(`${idPrefix}-name`).value,
       startDate: document.getElementById(`${idPrefix}-date`).value,
       description: document.getElementById(`${idPrefix}-description`).value,
+      noCampEquipment: document.getElementById(`${idPrefix}-no-camp-equipment`).checked,
     };
   }
 
@@ -115,6 +119,7 @@
     const description = formValues.description.trim();
     const currentDescription = event.description ?? '';
     if (description !== currentDescription) body.description = description || null;
+    if (formValues.noCampEquipment !== Boolean(event.noCampEquipment)) body.noCampEquipment = formValues.noCampEquipment;
     return body;
   }
 

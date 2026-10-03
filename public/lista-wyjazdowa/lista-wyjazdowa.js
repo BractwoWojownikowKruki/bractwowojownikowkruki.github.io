@@ -569,7 +569,7 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name.value, startDate: form.startDate.value, description: form.description.value.trim() || undefined }),
+        body: JSON.stringify({ name: form.name.value, startDate: form.startDate.value, description: form.description.value.trim() || undefined, noCampEquipment: form.noCampEquipment.checked }),
       },
       showReauth,
       hideReauth,
