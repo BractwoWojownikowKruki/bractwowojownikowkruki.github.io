@@ -370,7 +370,8 @@ async function loadMembershipMembers() {
 }
 
 function filterMembershipMembers(allMembers) {
-  const members = allMembers.filter(m => summaryFilterMatches(membershipFilter, personFilterValues(m)));
+  let members = allMembers.filter(m => summaryFilterMatches(membershipFilter, personFilterValues(m)));
+  if (document.getElementById('membership-no-folder-filter').checked) members = members.filter(m => !m.driveFolderId);
   const needle = document.getElementById('membership-members-filter').value.trim().toLocaleLowerCase('pl');
   if (!needle) return members;
   return members.filter(m =>
@@ -388,6 +389,7 @@ function rerenderMembershipMembers() {
 }
 
 document.getElementById('membership-members-filter').addEventListener('input', rerenderMembershipMembers);
+document.getElementById('membership-no-folder-filter').addEventListener('change', rerenderMembershipMembers);
 
 // Click-to-sort wiring (shared/sortable-table.js) - the table's thead is static HTML here (unlike
 // Składki's), including the Rola/Wpisowe headers that stay in the DOM (just `hidden`) when the
