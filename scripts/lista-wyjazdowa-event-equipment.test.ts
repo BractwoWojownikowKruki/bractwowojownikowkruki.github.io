@@ -237,10 +237,11 @@ test('Wyjazd deadline pill: green once the viewer paid, red when unpaid past the
   await paid.signIn();
   assert.equal(paid.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'paid');
   assert.match(paid.elements.get('skladka-fee-duedate-pill')!.innerHTML, /✓/);
+  assert.doesNotMatch(paid.elements.get('skladka-fee-duedate-pill')!.innerHTML, /opłacona<\/|· opłacona/);
   const unpaid = createHarness([], { skladkaFee: '50 zł', dueDate: past }, [{ memberEmail: 'viewer@example.com', attending: true, skladkaStatus: 'unpaid' }]);
   await unpaid.signIn();
   assert.equal(unpaid.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'unpaid-overdue');
-  assert.match(unpaid.elements.get('skladka-fee-duedate-pill')!.innerHTML, /nie zapłacona/);
+  assert.match(unpaid.elements.get('skladka-fee-duedate-pill')!.innerHTML, /✗ ☠☠/);
   const notAttending = createHarness([], { skladkaFee: '50 zł', dueDate: past });
   await notAttending.signIn();
   assert.equal(notAttending.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'neutral');

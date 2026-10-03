@@ -1610,8 +1610,13 @@ button.lw-filter-chip {
   background: rgba(192, 80, 77, 0.12);
 }
 
+.lw-deadline-pill[data-state="unpaid-overdue"] .lw-deadline-mark,
 .lw-deadline-pill[data-state="unpaid-overdue"] .lw-deadline-days {
   color: #e07a77;
+  font-weight: 700;
+}
+
+.lw-deadline-mark {
   font-weight: 700;
 }
 

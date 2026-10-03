@@ -277,9 +277,13 @@ function renderDeadlinePill(event) {
   const myStatus = mySignup?.attending ? (mySignup.skladkaStatus ?? 'unpaid') : null;
   const state = myStatus === 'paid' ? 'paid' : myStatus === 'unpaid' && days < 0 ? 'unpaid-overdue' : 'neutral';
   pill.dataset.state = state;
-  const mark = state === 'paid' ? '<span class="lw-deadline-mark" aria-hidden="true">✓</span>' : '';
-  const note = state === 'paid' ? ' · opłacona' : state === 'unpaid-overdue' ? ' · nie zapłacona' : '';
-  pill.innerHTML = `${mark}<small>termin</small> ${escapeHtml(formatDate(dueDate))} <span class="lw-deadline-days">(${escapeHtml(daysUntilLabel(days))}${note})</span>`;
+  // Paid: just a green tick. Unpaid past the deadline: a red cross and two skulls. No wording - the
+  // title carries it for hover/screen readers.
+  const marks = {
+    paid: '<span class="lw-deadline-mark" title="Składka opłacona" aria-label="Składka opłacona">✓</span>',
+    'unpaid-overdue': '<span class="lw-deadline-mark" title="Składka nie zapłacona" aria-label="Składka nie zapłacona">✗ ☠☠</span>',
+  };
+  pill.innerHTML = `${marks[state] ?? ''}<small>termin</small> ${escapeHtml(formatDate(dueDate))} <span class="lw-deadline-days">(${escapeHtml(daysUntilLabel(days))})</span>`;
 }
 
 function renderSkladkaFee(event) {
