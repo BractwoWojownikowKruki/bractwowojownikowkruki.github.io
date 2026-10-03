@@ -2297,6 +2297,77 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   border-color: var(--gold);
 }
 
+/* Three controls (Historia, "Edytuj grupy i kategorie", "Dodaj sprzęt") - let them wrap on a
+   phone instead of overflowing the page. */
+.equipment-header-actions {
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+/* "Filtry" row above the equipment tables: "Wyczyść filtr" plus one toggle per Sekcja - a larger
+   .section-pill in the section's own color. Pressed = white ring + checkmark; while any section is
+   pressed, the unpressed ones are dimmed so it is obvious which sections are being shown. */
+.equipment-section-filter {
+  margin-bottom: 1.5rem;
+}
+
+.equipment-section-filter-heading {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.equipment-section-filter-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.equipment-filter-clear {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--gold);
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85em;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.equipment-filter-clear:hover:not(:disabled) {
+  border-color: var(--gold);
+}
+
+.equipment-filter-clear:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.section-pill.equipment-filter-pill {
+  padding: 0.35rem 0.9rem;
+  font-size: 0.95em;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s, box-shadow 0.15s;
+}
+
+.equipment-filter-pill[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text);
+}
+
+.equipment-filter-pill[aria-pressed="true"]::before {
+  content: "✓";
+  margin-right: 0.35rem;
+}
+
+.equipment-section-filter[data-active="true"] .equipment-filter-pill[aria-pressed="false"] {
+  opacity: 0.45;
+}
+
+.equipment-section-filter[data-active="true"] .equipment-filter-pill[aria-pressed="false"]:hover {
+  opacity: 0.75;
+}
+
 .equipment-taxonomy {
   max-width: 42rem;
   margin-top: 1rem;

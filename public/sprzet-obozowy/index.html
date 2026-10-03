@@ -47,13 +47,13 @@
                 Spis sprzętu obozowego Bractwa (namioty, wiaty, meble, kuchnia) - drużynowych oraz prywatnych, użyczonych na wyjazdy. Każdy członek może dodać, edytować i usunąć dowolną pozycję.
               </p>
             </div>
-            <div class="pliki-header-actions">
+            <div class="pliki-header-actions equipment-header-actions">
               <a class="audyt-history-btn" href="/audyt/?category=equipment" title="Historia" aria-label="Historia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
-              <button type="button" class="btn-add-album" id="equipment-add-toggle">Dodaj</button>
+              <button type="button" class="member-action" id="equipment-taxonomy-toggle" aria-expanded="false" aria-controls="equipment-taxonomy">Edytuj grupy i kategorie</button>
+              <button type="button" class="btn-add-album" id="equipment-add-toggle">Dodaj sprzęt</button>
             </div>
           </div>
 
-          <button type="button" class="member-action" id="equipment-taxonomy-toggle" aria-expanded="false" aria-controls="equipment-taxonomy">Edytuj grupy i kategorie</button>
           <section id="equipment-taxonomy" class="pliki-add-form equipment-taxonomy" hidden>
             <p style="color: var(--text-muted);">Usunąć można tylko kategorię, której nie używa żaden sprzęt, i grupę, której nie używa żadna kategoria.</p>
             <div id="equipment-taxonomy-body"></div>
@@ -94,6 +94,11 @@
             </div>
             <p class="pliki-add-error" id="equipment-add-error" hidden></p>
           </form>
+
+          <div class="equipment-section-filter" id="equipment-section-filter" role="group" aria-labelledby="equipment-section-filter-heading">
+            <h2 class="equipment-section-filter-heading" id="equipment-section-filter-heading">Filtry</h2>
+            <div class="equipment-section-filter-buttons" id="equipment-section-filter-buttons"></div>
+          </div>
 
           <div id="equipment-tables">
             <h2>Sprzęt drużynowy</h2>
