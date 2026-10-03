@@ -1552,16 +1552,13 @@ button.lw-filter-chip {
   margin-bottom: 0;
 }
 
-#skladka-fee-display {
-  margin: 0;
-}
-
 #event-description-panel {
   margin-bottom: 1.25rem;
 }
 
-/* Free text, so it is set apart from the UI font: serif italic, a notch smaller, full-strength
-   colour. */
+/* Składka and Dodatkowe informacje body text share one style, so the two read as the same kind of
+   content. */
+#skladka-fee-display,
 .lw-plain-section .lw-event-description {
   margin: 0;
   padding: 0;
@@ -1569,10 +1566,9 @@ button.lw-filter-chip {
   border: 0;
   border-radius: 0;
   color: var(--text);
-  font-family: Georgia, 'Times New Roman', serif;
   font-size: 14px;
-  font-style: italic;
   line-height: 1.55;
+  white-space: pre-wrap;
 }
 
 /* "termin <date> (za N dni)" pill in the Składka header. */
