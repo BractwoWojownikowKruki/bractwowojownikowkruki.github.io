@@ -8,7 +8,7 @@ test('the profile drawer opens a person without an account through the person-ke
   assert.match(panel, /async function openPerson\(personId, name = ''\)/);
   assert.match(panel, /\/lista-wyjazdowa\/person-profile\?personId=/);
   assert.match(panel, /trigger\.dataset\.personId\) openPerson\(trigger\.dataset\.personId, triggerName\(trigger\)\)/);
-  assert.match(panel, /open\(trigger\.dataset\.email\)/);
+  assert.match(panel, /open\(trigger\.dataset\.email, triggerName\(trigger\)\)/);
 });
 
 test('the profile drawer marks an accountless person with the shared person icon', () => {
