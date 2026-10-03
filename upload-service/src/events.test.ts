@@ -100,3 +100,14 @@ test('updateEvent sets dueDate independently of skladkaFee', async () => {
   assert.equal(updated?.dueDate, '2027-06-01');
   assert.equal(updated?.skladkaFee, null);
 });
+
+test('createEvent defaults noCampEquipment to false and updateEvent can toggle it', async () => {
+  const client = createInMemoryFirestoreClient();
+  const event = await createEvent(client, { name: 'A', startDate: '2027-01-01' }, 'a@example.test');
+  assert.equal(event.noCampEquipment, false);
+  const updated = await updateEvent(client, event.id, { noCampEquipment: true });
+  assert.equal(updated?.noCampEquipment, true);
+  assert.equal((await getEvent(client, event.id))?.noCampEquipment, true);
+  const created = await createEvent(client, { name: 'B', startDate: '2027-01-02', noCampEquipment: true }, 'a@example.test');
+  assert.equal(created.noCampEquipment, true);
+});

@@ -51,6 +51,7 @@ const eventFields = {
   endDate: 'memberVisible',
   status: 'memberVisible',
   description: 'memberVisible',
+  noCampEquipment: 'memberVisible',
 } as const;
 const signupFields = {
   memberEmail: 'memberVisible',

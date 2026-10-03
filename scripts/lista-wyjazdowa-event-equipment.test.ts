@@ -39,11 +39,11 @@ const elementIds = [
   'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni', 'event-title',
   'event-meta', 'event-description', 'event-edit-toggle', 'event-edit-panel', 'event-history-link',
   'skladka-fee-history-link', 'lw-inline-existing-select', 'lw-inline-new-name',
-  'lw-inline-new-category', 'event-equipment-panel', 'event-equipment-table',
+  'lw-inline-new-category', 'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note',
   'event-equipment-content', 'lw-nav-container', 'event-share-button', 'event-share-button-text',
 ];
 
-function createHarness(items: Array<Record<string, unknown>>) {
+function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Record<string, unknown> = {}) {
   const elements = new Map(elementIds.map(id => [id, new Element()]));
   elements.get('roster-filter-zgloszeni')!.checked = true;
   const calls: Array<{ url: string; options: Record<string, unknown> }> = [];
@@ -72,7 +72,7 @@ function createHarness(items: Array<Record<string, unknown>>) {
     apiFetch: async (url: string, options: Record<string, unknown>) => {
       calls.push({ url, options });
       if (options.method === 'PUT') return { item: { eventId: 'e1', equipmentId: 'tent-1', going: true, lastChangedBy: 'viewer@example.com', lastChangedAt: '2026-09-20T20:00:00.000Z' } };
-      if (url === '/lista-wyjazdowa/events') return { events: [{ id: 'e1', name: 'Wyjazd', startDate: '2026-10-10', status: 'active' }] };
+      if (url === '/lista-wyjazdowa/events') return { events: [{ id: 'e1', name: 'Wyjazd', startDate: '2026-10-10', status: 'active', ...eventOverrides }] };
       if (url.startsWith('/lista-wyjazdowa/roster?')) return { roster: [{ personId: 'owner@example.com', email: 'owner@example.com', lastName: 'Właściciel', firstName: '', accountless: false, sectionId: 'krakow', categoryId: 'kandydat', weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' }] };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups: [] };
       if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: false, canManagePeople: false };
@@ -156,4 +156,11 @@ test('Wyjazd equipment shows a private item under its owner\'s current section, 
   const equipment = harness.elements.get('event-equipment-content')!;
   assert.match(equipment.innerHTML, /<tr data-section="krakow">/);
   assert.match(equipment.innerHTML, /class="czl-section-cell"[^>]*>KRK<\/td>/);
+});
+
+test('Wyjazd page hides the equipment table and shows a note when the event has noCampEquipment', async () => {
+  const harness = createHarness([], { noCampEquipment: true });
+  await harness.signIn();
+  assert.equal(harness.elements.get('event-equipment-table-wrap')!.hidden, true);
+  assert.equal(harness.elements.get('event-equipment-disabled-note')!.hidden, false);
 });

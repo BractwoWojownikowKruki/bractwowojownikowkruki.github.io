@@ -12,6 +12,7 @@ export interface EventDoc {
   description: string | null; // free-text trip info (location, links, what to bring) - KRKG-0102
   skladkaFee: string | null; // free-text fee description, accountant/admin-set — see server.ts's role check
   dueDate: string | null; // YYYY-MM-DD, accountant/admin-set payment deadline for skladkaFee (KRKG-0080)
+  noCampEquipment?: boolean; // trip needs no camp equipment, so the roster page hides the equipment table (absent = false)
 }
 
 export interface EventWithId extends EventDoc {
@@ -25,6 +26,7 @@ export interface EventWritableFields {
   description?: string | null;
   skladkaFee?: string | null;
   dueDate?: string | null;
+  noCampEquipment?: boolean;
 }
 
 const COLLECTION = 'events';
@@ -41,7 +43,7 @@ export async function getEvent(client: FirestoreLikeClient, eventId: string): Pr
 
 export async function createEvent(
   client: FirestoreWriteContext,
-  fields: { name: string; startDate: string; description?: string | null },
+  fields: { name: string; startDate: string; description?: string | null; noCampEquipment?: boolean },
   createdBy: string,
   id = randomUUID(),
 ): Promise<EventWithId> {
@@ -54,6 +56,7 @@ export async function createEvent(
     description: fields.description ?? null,
     skladkaFee: null,
     dueDate: null,
+    noCampEquipment: fields.noCampEquipment ?? false,
   };
   await client.setDoc(COLLECTION, id, doc);
   return { id, ...doc };
