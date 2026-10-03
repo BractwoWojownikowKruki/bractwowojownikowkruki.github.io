@@ -1636,6 +1636,26 @@ button.lw-filter-chip {
   white-space: nowrap;
 }
 
+button.lw-date-pill {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+button.lw-date-pill:hover,
+button.lw-date-pill[aria-expanded="true"] {
+  background: var(--surface);
+  border-color: var(--text);
+}
+
+.lw-date-wrap {
+  position: relative;
+  margin-left: auto;
+}
+
+.lw-date-wrap .lw-date-pill {
+  margin-left: 0;
+}
+
 .lw-date-pill svg {
   width: 1.1em;
   height: 1.1em;
@@ -2710,4 +2730,186 @@ a.dashboard-widget:hover { border-color: var(--gold); }
 .lw-photo-thumb .lw-set-main-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* Calendar dropdown under the date pill (shared/lw-calendar.js): anchored to the pill, no
+   backdrop - closes on an outside click or Escape. */
+.lw-cal-popover {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 30;
+  width: min(92vw, 340px);
+  padding: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+}
+
+.lw-cal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-bottom: 0.7rem;
+  margin-bottom: 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.lw-cal-add,
+.lw-cal-ics {
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.lw-cal-add {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--gold);
+  background: var(--surface-deep);
+  color: var(--gold);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.lw-cal-add:hover {
+  background: var(--gold);
+  color: var(--bg);
+}
+
+.lw-cal-ics {
+  padding: 0.25rem;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.lw-cal-ics:hover {
+  color: var(--text);
+}
+
+.lw-cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.lw-cal-title {
+  color: var(--text);
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.lw-cal-step {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-deep);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lw-cal-step:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.lw-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.lw-cal-weekday {
+  padding-bottom: 0.2rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.lw-cal-day {
+  min-height: 3.1rem;
+  padding: 0.2rem 0.15rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--surface-deep);
+  text-align: center;
+  overflow: hidden;
+}
+
+.lw-cal-day--outside {
+  opacity: 0.35;
+}
+
+.lw-cal-day--today {
+  border-color: var(--text-muted);
+}
+
+.lw-cal-day--has-event {
+  position: relative;
+  cursor: pointer;
+  border-color: var(--gold);
+  background: rgba(196, 150, 42, 0.22);
+}
+
+.lw-cal-day--has-event .lw-cal-daynum {
+  color: var(--gold);
+}
+
+.lw-cal-day--current {
+  background: var(--gold);
+}
+
+.lw-cal-day--current .lw-cal-daynum,
+.content-section .lw-cal-day--current a.lw-cal-trip {
+  color: var(--bg);
+}
+
+.lw-cal-daynum {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.content-section a.lw-cal-trip {
+  display: block;
+  margin-top: 1px;
+  border-bottom: none;
+  color: var(--gold);
+  font-size: 8px;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.content-section a.lw-cal-trip:hover {
+  text-decoration: underline;
+}
+
+/* Whole day cell is a link to its trip: the first trip's anchor stretches over the cell. With
+   several trips on one day, the others stay clickable above it by their own label. */
+.content-section a.lw-cal-trip {
+  position: relative;
+  z-index: 1;
+}
+
+.content-section a.lw-cal-trip--cover {
+  position: static;
+}
+
+.lw-cal-trip--cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
 }
