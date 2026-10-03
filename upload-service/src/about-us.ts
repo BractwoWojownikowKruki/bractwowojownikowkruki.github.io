@@ -125,35 +125,17 @@ export function buildPersonFolderName(name: string, order: number | null): strin
   return order === null ? trimmedName : `${order}. ${trimmedName}`;
 }
 
-function shuffle<T>(items: T[]): T[] {
-  const copy = [...items];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-}
-
-// Orders numbered folders ascending (ties broken randomly, per spec - re-shuffled on every
-// cache refresh rather than pinned, which is an acceptable trade for staying simple), then
-// unnumbered folders alphabetically at the end.
+// Orders numbered folders ascending (folders sharing a number by name), then unnumbered folders
+// alphabetically at the end.
 export function sortPeopleByFolderName<T extends { folderName: string }>(items: T[]): T[] {
   const parsed = items.map(item => ({ item, ...parsePersonFolderName(item.folderName) }));
-  const numbered = parsed.filter((p): p is typeof p & { order: number } => p.order !== null);
-  const unnumbered = parsed.filter(p => p.order === null);
+  const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'pl');
+  const numbered = parsed
+    .filter((p): p is typeof p & { order: number } => p.order !== null)
+    .sort((a, b) => a.order - b.order || byName(a, b));
+  const unnumbered = parsed.filter(p => p.order === null).sort(byName);
 
-  const groups = new Map<number, typeof numbered>();
-  for (const entry of numbered) {
-    const group = groups.get(entry.order) ?? [];
-    group.push(entry);
-    groups.set(entry.order, group);
-  }
-  const sortedOrders = [...groups.keys()].sort((a, b) => a - b);
-  const numberedSorted = sortedOrders.flatMap(order => shuffle(groups.get(order)!));
-
-  unnumbered.sort((a, b) => a.name.localeCompare(b.name, 'pl'));
-
-  return [...numberedSorted, ...unnumbered].map(p => p.item);
+  return [...numbered, ...unnumbered].map(p => p.item);
 }
 
 export interface PersonPhoto {
