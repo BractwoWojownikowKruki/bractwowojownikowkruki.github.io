@@ -118,7 +118,7 @@ function renderCurrentSubmission(response) {
   // the only thing a member can do with them.
   const rejectedHtml = hasRejected
     ? `
-    <p class="lw-hint">Odrzucone przez administratora - możesz je tylko usunąć.</p>
+    <p class="lw-hint">Odrzucone przez administratora - USUŃ JE.</p>
     ${rejectedSection.photos
       .map(
         (photo) => `
@@ -274,7 +274,7 @@ function renderDuesStatus(wpisoweStatus, duesStatus) {
       ${escapeHtml(rocznaLabel)}
     </span>
   `;
-  container.hidden = false;
+  document.getElementById('dues-panel').hidden = false;
 }
 
 // Same escapeHtml/escapeAttr pair as person-tile.js - the established pattern in this codebase
@@ -351,6 +351,7 @@ function entrySourceBlob(entry) {
 function renderPhotoPreview() {
   const container = document.getElementById('lw-photo-preview');
   const hasAny = photoEntries.some(Boolean);
+  document.getElementById('photos-submit').disabled = !hasAny;
   if (!hasAny) {
     container.hidden = true;
     container.innerHTML = '';
@@ -502,6 +503,106 @@ function resetPhotoSelection() {
   document.getElementById('lw-main-photo').value = '';
   document.getElementById('lw-extra-photos').value = '';
   renderPhotoPreview();
+}
+
+// Shown as the Drive folder title of a new photo submission - cosmetic only (identity/folder
+// reuse is keyed by e-mail, see server.ts's findReusableSubmissionFolder). Kept from the last
+// loaded/saved member, since photos no longer upload as part of "Zapisz profil".
+let savedMemberName = '';
+
+// "Prześlij zdjęcia" in the photo box: the same submit -> per-photo upload -> finish sequence the
+// profile submit used to run, now on its own button.
+async function uploadSelectedPhotos() {
+  const errorEl = document.getElementById('photos-error');
+  const progressEl = document.getElementById('photos-progress');
+  const submitBtn = document.getElementById('photos-submit');
+  const form = document.getElementById('profile-form');
+  // Bug fix kept from the old combined submit: an extra photo picked without a main one must
+  // still upload, so the gate is "anything picked", never `mainEntry` alone.
+  const mainEntry = photoEntries[0];
+  const extraEntries = photoEntries.slice(1).filter(Boolean);
+  if (!mainEntry && !extraEntries.length) return;
+
+  errorEl.hidden = true;
+  submitBtn.disabled = true;
+  progressEl.hidden = false;
+  progressEl.textContent = 'Przesyłanie zdjęć...';
+  try {
+    await window.MutationFeedback.confirmed({
+      control: submitBtn,
+      execute: async () => {
+        const name = savedMemberName || `${form.lastName.value} ${form.firstName.value}`.trim() || viewerEmail;
+        const { folderId, submissionToken } = await apiFetch(
+          '/wojownicy-upload/submit',
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) },
+          showReauth,
+          hideReauth,
+        );
+        const total = (mainEntry ? 1 : 0) + extraEntries.length;
+        let uploaded = 0;
+        progressEl.textContent = `Przesyłanie zdjęć (0/${total})...`;
+        for (const [entry, isMain] of [...(mainEntry ? [[mainEntry, true]] : []), ...extraEntries.map((e) => [e, false])]) {
+          await uploadPhoto(folderId, submissionToken, entry, isMain);
+          uploaded++;
+          progressEl.textContent = `Przesyłanie zdjęć (${uploaded}/${total})...`;
+        }
+        await finishUploadSession(folderId, submissionToken, uploaded);
+        return loadCurrentSubmission();
+      },
+      // Reflects the photo(s) that just landed in the "already uploaded" groups above the picker.
+      apply: (currentSubmission) => {
+        renderCurrentSubmission(currentSubmission);
+        resetPhotoSelection();
+        progressEl.hidden = true;
+      },
+      refreshFragment: async () => renderCurrentSubmission(await loadCurrentSubmission()),
+    });
+  } catch (err) {
+    errorEl.textContent = `Błąd: ${err.message}`;
+    errorEl.hidden = false;
+    progressEl.hidden = true;
+    submitBtn.disabled = !photoEntries.some(Boolean);
+  }
+}
+
+document.getElementById('photos-submit').addEventListener('click', () => { void uploadSelectedPhotos(); });
+
+// ── Bronie ───────────────────────────────────────────────────────────────────────────────────
+//
+// Saved on every checkbox change (PUT /lista-wyjazdowa/profile with weaponIds only - the server
+// keeps wpisowePaid and the rest of the profile as stored), like the equipment and notification
+// panels. All boxes are disabled while a save runs so two quick clicks can't race each other.
+function wireWeaponCheckboxes(container) {
+  const errorEl = document.getElementById('weapons-error');
+  container.addEventListener('change', async (event) => {
+    const control = event.target.closest('input[name="weaponIds"]');
+    if (!control) return;
+    const boxes = Array.from(container.querySelectorAll('input[name="weaponIds"]'));
+    const weaponIds = boxes.filter((cb) => cb.checked).map((cb) => cb.value);
+    errorEl.hidden = true;
+    boxes.forEach((cb) => { cb.disabled = true; });
+    try {
+      await window.MutationFeedback.confirmed({
+        control,
+        anchor: control.closest('label'),
+        execute: () => apiFetch(
+          '/lista-wyjazdowa/profile',
+          { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ weaponIds }) },
+          showReauth,
+          hideReauth,
+        ),
+        apply: ({ profile: saved }) => {
+          for (const cb of boxes) cb.checked = saved.weaponIds.includes(cb.value);
+        },
+      });
+    } catch (err) {
+      control.checked = !control.checked;
+      errorEl.textContent = `Błąd: ${err.message}`;
+      errorEl.hidden = false;
+    } finally {
+      boxes.forEach((cb) => { cb.disabled = false; });
+    }
+  });
 }
 
 // ── Namioty i wiaty (KRKG-0096 batch 3) ──────────────────────────────────────────────────────
@@ -848,9 +949,10 @@ async function initForm(lookupLists) {
   // Submit handling is wired unconditionally, before the member/profile prefetch below - so a
   // transient failure fetching existing data (network blip, cold Cloud Run instance) leaves a
   // still-usable blank form instead of a form panel with no submit handler attached at all.
+  // "Zapisz profil" saves the Dane osobowe fields only - weapons save on every checkbox change
+  // (wireWeaponCheckboxes) and photos have their own "Prześlij zdjęcia" button (uploadSelectedPhotos).
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const weaponIds = Array.from(form.querySelectorAll('input[name="weaponIds"]:checked')).map((cb) => cb.value);
     const errorEl = document.getElementById('profile-form-error');
     const progressEl = document.getElementById('profile-form-progress');
     const submitBtn = document.getElementById('profile-form-submit');
@@ -860,122 +962,52 @@ async function initForm(lookupLists) {
     progressEl.hidden = false;
     progressEl.textContent = 'Zapisywanie profilu...';
 
-    const applySavedProfile = ({ savedMember }) => {
+    const applySavedMember = (savedMember) => {
       form.lastName.value = savedMember.lastName;
       form.firstName.value = savedMember.firstName;
       form.nickname.value = savedMember.nickname ?? '';
       // Keep the default Sekcja for a newly added companion row in sync with a change just saved here.
       const sectionChanged = ownerSectionId !== savedMember.sectionId;
       ownerSectionId = savedMember.sectionId;
+      savedMemberName = `${savedMember.lastName} ${savedMember.firstName}`.trim();
       // The server moves companions that were in the old section along with the owner, so
       // re-read them - otherwise a stale row would send the old section back on its next save.
       if (sectionChanged) {
         loadPersons().catch((err) => console.error('Nie udało się odświeżyć osób towarzyszących', err));
       }
-      resetPhotoSelection();
 
       progressEl.hidden = true;
       submitBtn.disabled = false;
-    };
-    const refreshProfileFragment = async () => {
-      const [{ member: savedMember }, { profile: savedProfile }, { submission }] = await Promise.all([
-        apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
-        apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
-        loadCurrentSubmission(),
-      ]);
-      renderCurrentSubmission(submission);
-      applySavedProfile({ savedMember, savedProfile });
     };
 
     try {
       await window.MutationFeedback.confirmed({
         control: submitBtn,
         viewRoot: form,
-        refreshFragment: refreshProfileFragment,
-        execute: async () => {
-      // KRKG-0103: Nazwisko and Imię are both required (the form's own `required` attribute
-      // catches an empty submit before this ever runs); Ksywa stays optional, sent as '' rather
-      // than omitted so the server can tell an intentionally blank Ksywa apart from one that was
-      // never touched.
-      const { member: savedMember } = await apiFetch(
-        '/lista-wyjazdowa/member',
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            lastName: form.lastName.value,
-            firstName: form.firstName.value,
-            nickname: form.nickname.value || null,
-            sectionId: form.sectionId.value,
-          }),
+        refreshFragment: async () => {
+          const { member: savedMember } = await apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth);
+          applySavedMember(savedMember);
         },
-        showReauth,
-        hideReauth,
-      );
-
-      const { profile: savedProfile } = await apiFetch(
-        '/lista-wyjazdowa/profile',
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            weaponIds,
-          }),
-        },
-        showReauth,
-        hideReauth,
-      );
-
-      // Photo/Drive submission is a direct reuse of wrzuc.js's existing submit -> per-photo
-      // upload sequence (unchanged server endpoints, see design.md §6) - only run it if a photo
-      // was actually picked (main or extra), so re-saving profile fields alone doesn't spam a new
-      // Drive folder every time.
-      //
-      // Bug fix: this used to gate the ENTIRE block on `mainEntry` alone, so a member who only
-      // picked an extra/secondary photo (never touching the main-photo picker - a common case for
-      // someone who already has a public main photo and just wants to add another) had that photo
-      // silently dropped - no upload call was ever made, no error shown, and the rest of the form
-      // still saved fine, masking the failure entirely.
-      const mainEntry = photoEntries[0];
-      const extraEntries = photoEntries.slice(1).filter(Boolean);
-      if (mainEntry || extraEntries.length) {
-        // KRKG-0103: name has no bearing on identity/folder-reuse (that's keyed by e-mail alone,
-        // see server.ts's findReusableSubmissionFolder) - it's purely cosmetic folder-title text,
-        // always both fields now, both required.
-        const { folderId, submissionToken } = await apiFetch(
-          '/wojownicy-upload/submit',
+        // KRKG-0103: Nazwisko and Imię are both required (the form's own `required` attribute
+        // catches an empty submit before this ever runs); Ksywa stays optional, sent as '' rather
+        // than omitted so the server can tell an intentionally blank Ksywa apart from one that was
+        // never touched.
+        execute: () => apiFetch(
+          '/lista-wyjazdowa/member',
           {
-            method: 'POST',
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: `${savedMember.lastName} ${savedMember.firstName}`.trim() }),
+            body: JSON.stringify({
+              lastName: form.lastName.value,
+              firstName: form.firstName.value,
+              nickname: form.nickname.value || null,
+              sectionId: form.sectionId.value,
+            }),
           },
           showReauth,
           hideReauth,
-        );
-
-        const total = (mainEntry ? 1 : 0) + extraEntries.length;
-        let uploaded = 0;
-        progressEl.textContent = `Przesyłanie zdjęć (0/${total})...`;
-        if (mainEntry) {
-          await uploadPhoto(folderId, submissionToken, mainEntry, true);
-          uploaded++;
-          progressEl.textContent = `Przesyłanie zdjęć (${uploaded}/${total})...`;
-        }
-        for (const entry of extraEntries) {
-          await uploadPhoto(folderId, submissionToken, entry, false);
-          uploaded++;
-          progressEl.textContent = `Przesyłanie zdjęć (${uploaded}/${total})...`;
-        }
-        await finishUploadSession(folderId, submissionToken, uploaded);
-        // Reflects the photo(s) that just landed - without this the "already uploaded" panel
-        // above the picker would keep showing the previous submission (or nothing) until the
-        // member reloads the page.
-        renderCurrentSubmission(await loadCurrentSubmission());
-      }
-
-      return { savedMember, savedProfile };
-        },
-        apply: applySavedProfile,
+        ),
+        apply: ({ member: savedMember }) => applySavedMember(savedMember),
       });
     } catch (err) {
       errorEl.textContent = `Błąd: ${err.message}`;
@@ -1025,6 +1057,7 @@ async function initForm(lookupLists) {
   // always be able to come back and fix a typo, change section/weapons, or add equipment
   // (design.md §8 point 4) - this page replaced the always-editable /wojownicy/wrzuc/.
   if (member) {
+    savedMemberName = `${member.lastName} ${member.firstName}`.trim();
     form.lastName.value = member.lastName;
     form.firstName.value = member.firstName;
     form.nickname.value = member.nickname ?? '';
@@ -1033,20 +1066,23 @@ async function initForm(lookupLists) {
       lookupLists.categories.find((c) => c.id === member.categoryId)?.label ?? '—';
   }
   if (profile) {
-    for (const cb of form.querySelectorAll('input[name="weaponIds"]')) {
+    for (const cb of document.querySelectorAll('#weapons-checkboxes input[name="weaponIds"]')) {
       cb.checked = profile.weaponIds.includes(cb.value);
     }
   }
   if (!loadError) {
     renderDuesStatus(wpisoweStatus, duesStatus);
     renderPersons(roster);
+    wireWeaponCheckboxes(document.getElementById('weapons-checkboxes'));
     wireEquipmentMiniList(document.getElementById('own-equipment'), viewerEmail.toLowerCase());
   }
 
   if (loadError) {
     // The form is fully usable at this point (options rendered, submit handler attached) - the
     // failure only means we couldn't confirm/prefill existing data, so show it as a warning on
-    // the form instead of blocking on it.
+    // the form instead of blocking on it. Weapons are the exception: they save per click, and a
+    // click on an unconfirmed (blank) list would overwrite the member's saved weapons.
+    for (const cb of document.querySelectorAll('#weapons-checkboxes input')) cb.disabled = true;
     const errorEl = document.getElementById('profile-form-error');
     errorEl.textContent = `Nie udało się wczytać zapisanych danych: ${loadError.message}`;
     errorEl.hidden = false;
