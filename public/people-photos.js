@@ -57,5 +57,52 @@ window.PeoplePhotoCache = (function () {
     };
   }
 
-  return { applyToPeople, applyToProfile };
+  // ---- Static people snapshot (public/people-data/<slug>.json) ----
+  // Written by the same nightly/triggered job. Same file names as the category pages
+  // (scripts/people-photos-utils.ts CATEGORY_SLUGS).
+  const CATEGORY_SLUGS = {
+    'Założyciele': 'zalozyciele',
+    Blachowi: 'blachowi',
+    Niewiasty: 'niewiasty',
+    Emeryci: 'emeryci',
+    Kandydaci: 'kandydaci',
+  };
+
+  // The snapshot is sorted deterministically; the live API shuffles people that share an order
+  // number on every load. Re-apply that here (only inside runs of equal, non-null order).
+  function shuffleEqualOrder(people) {
+    const out = [...people];
+    let i = 0;
+    while (i < out.length) {
+      let j = i + 1;
+      while (j < out.length && out[i].order !== null && out[j].order === out[i].order) j++;
+      for (let k = j - 1; k > i; k--) {
+        const r = i + Math.floor(Math.random() * (k - i + 1));
+        [out[k], out[r]] = [out[r], out[k]];
+      }
+      i = j;
+    }
+    return out;
+  }
+
+  // Resolves to a people array (photos marked fromStatic) or null on any problem, in which case
+  // the caller falls back to the live API.
+  async function loadStaticPeople(category) {
+    const slug = CATEGORY_SLUGS[category];
+    if (!slug) return null;
+    try {
+      const res = await fetch(`/people-data/${slug}.json`, { cache: 'no-cache' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data || data.version !== 1 || !Array.isArray(data.people)) return null;
+      const mark = (p) => (p ? { ...p, fromStatic: true } : null);
+      return shuffleEqualOrder(
+        data.people.map((p) => ({ ...p, mainPhoto: mark(p.mainPhoto), photos: (p.photos || []).map(mark) })),
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  return { applyToPeople, applyToProfile, loadStaticPeople };
 })();

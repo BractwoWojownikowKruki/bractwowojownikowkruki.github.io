@@ -83,7 +83,7 @@ function renderCurrentSubmission(response) {
   // mapDriveImagesToPhotos drops an imageless-thumbnail main entirely).
   const publicHtml = hasPublic
     ? `
-    <p class="lw-hint">Zaakceptowane - widoczne publicznie w „Wojownicy”.</p>
+    <p class="lw-hint">Zaakceptowane - widoczne publicznie w „Wojownicy”. Zmiana zdjęcia głównego pojawi się na stronie publicznej po kilku minutach, po jej przebudowaniu (usunięte zdjęcia znikają najpóźniej następnego dnia).</p>
     ${[publicSection.mainPhoto, ...publicSection.photos]
       .filter(Boolean)
       .map((photo) => {

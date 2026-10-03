@@ -1,20 +1,23 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import {
+  CATEGORY_SLUGS,
   PEOPLE_PHOTO_CATEGORIES,
   buildManifest,
+  buildSnapshot,
   collectWantedPhotos,
   extensionForContentType,
   fileNameFor,
   parseFileName,
   planSync,
-  type RemotePerson,
+  type RemotePersonFull,
   type WantedPhoto,
 } from './people-photos-utils.ts';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const PHOTOS_DIR = join(ROOT, 'public/people-photos');
 const MANIFEST_PATH = join(PHOTOS_DIR, 'manifest.json');
+const DATA_DIR = join(ROOT, 'public/people-data');
 
 // Same public, unauthenticated endpoint the About Us pages call - so this job needs no Drive
 // credentials of its own, and by construction only ever sees approved, public photos (pending
@@ -22,10 +25,10 @@ const MANIFEST_PATH = join(PHOTOS_DIR, 'manifest.json');
 const BACKEND_URL = process.env.PEOPLE_PHOTOS_BACKEND_URL ?? 'https://krucze-galery-upload-x6mr6ilyha-ew.a.run.app';
 const CONCURRENCY = 6;
 
-async function fetchCategory(category: string): Promise<RemotePerson[]> {
+async function fetchCategory(category: string): Promise<RemotePersonFull[]> {
   const res = await fetch(`${BACKEND_URL}/about-us?category=${encodeURIComponent(category)}`);
   if (!res.ok) throw new Error(`/about-us?category=${category}: HTTP ${res.status}`);
-  const data = (await res.json()) as { people?: RemotePerson[] };
+  const data = (await res.json()) as { people?: RemotePersonFull[] };
   if (!Array.isArray(data.people)) throw new Error(`/about-us?category=${category}: unexpected response`);
   return data.people;
 }
@@ -67,7 +70,8 @@ async function main(): Promise<void> {
   // All-or-nothing listing: if any category fails we abort *before* touching the cache, so a
   // transient backend error can never be mistaken for "everyone was removed" and wipe it.
   console.log(`[sync-people-photos] Pobieranie list z ${BACKEND_URL}/about-us`);
-  const people = (await Promise.all(PEOPLE_PHOTO_CATEGORIES.map(fetchCategory))).flat();
+  const byCategory = await Promise.all(PEOPLE_PHOTO_CATEGORIES.map(fetchCategory));
+  const people = byCategory.flat();
 
   const wanted = collectWantedPhotos(people);
   const existing = listPhotoFiles();
@@ -83,10 +87,21 @@ async function main(): Promise<void> {
   await runPool(plan.toDownload, download);
   for (const name of plan.toDelete) unlinkSync(join(PHOTOS_DIR, name));
 
-  const manifest = JSON.stringify(buildManifest(wanted, listPhotoFiles())) + '\n';
-  // Written only when it changed, so an up-to-date run leaves a clean working tree (=> no commit).
-  const previous = existsSync(MANIFEST_PATH) ? readFileSync(MANIFEST_PATH, 'utf8') : '';
-  if (manifest !== previous) writeFileSync(MANIFEST_PATH, manifest);
+  const manifest = buildManifest(wanted, listPhotoFiles());
+  writeIfChanged(MANIFEST_PATH, JSON.stringify(manifest) + '\n');
+
+  // Static snapshot per category, built only from photos that really are cached.
+  mkdirSync(DATA_DIR, { recursive: true });
+  PEOPLE_PHOTO_CATEGORIES.forEach((category, i) => {
+    const snapshot = buildSnapshot(byCategory[i], manifest);
+    writeIfChanged(join(DATA_DIR, `${CATEGORY_SLUGS[category]}.json`), JSON.stringify(snapshot, null, 1) + '\n');
+  });
+}
+
+// Written only when the content changed, so an up-to-date run leaves a clean working tree (=> no commit).
+function writeIfChanged(path: string, content: string): void {
+  const previous = existsSync(path) ? readFileSync(path, 'utf8') : '';
+  if (content !== previous) writeFileSync(path, content);
 }
 
 main().catch(err => {
