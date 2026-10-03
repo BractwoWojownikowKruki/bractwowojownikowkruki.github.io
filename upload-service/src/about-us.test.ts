@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  mapDriveImagesToPhotos,
   parsePersonFolderName,
   buildPersonFolderName,
   sortPeopleByFolderName,
@@ -217,4 +218,13 @@ test('planCategoryReorder rejects a stale, partial or duplicated list', () => {
   assert.throws(() => planCategoryReorder(folders, ['a', 'a']));
   assert.throws(() => planCategoryReorder(folders, ['a', 'x']));
   assert.throws(() => planCategoryReorder(folders, ['a', 'b', 'c']));
+});
+
+test('mapDriveImagesToPhotos exposes the Drive md5 only when present', () => {
+  const { mainPhoto, photos } = mapDriveImagesToPhotos([
+    { id: 'a', name: 'a.jpg', thumbnailLink: 'https://x/a=s220', md5Checksum: 'abc123' },
+    { id: 'b', name: 'b.jpg', thumbnailLink: 'https://x/b=s220' },
+  ]);
+  assert.deepEqual(mainPhoto, { id: 'a', url: 'https://x/a=s800', md5: 'abc123' });
+  assert.deepEqual(photos, [{ id: 'b', url: 'https://x/b=s300' }]);
 });

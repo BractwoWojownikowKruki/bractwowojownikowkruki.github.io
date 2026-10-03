@@ -568,6 +568,10 @@ export interface DriveImageInfo {
   id: string;
   name: string;
   thumbnailLink: string | null;
+  // Drive's content checksum - lets the nightly people-photo cache job (scripts/sync-people-photos.ts)
+  // tell an in-place edit of a file from an unchanged one. Optional: absent for files Drive
+  // doesn't checksum, and in test fakes.
+  md5Checksum?: string;
 }
 
 // Every image file directly inside folderId, sorted by name - the first result is treated as
@@ -579,14 +583,21 @@ export async function listImageFiles(deps: DriveDeps, folderId: string): Promise
   let pageToken: string | undefined;
   do {
     const q = encodeURIComponent(`'${escapeDriveQueryValue(folderId)}' in parents and mimeType contains 'image/' and trashed = false`);
-    let path = `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,thumbnailLink)&pageSize=1000&orderBy=name`;
+    let path = `${DRIVE_API}/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,thumbnailLink,md5Checksum)&pageSize=1000&orderBy=name`;
     if (pageToken) path += `&pageToken=${encodeURIComponent(pageToken)}`;
     const res = await fetch(path, { headers: { Authorization: `Bearer ${accessToken}` } });
     if (!res.ok) {
       throw new Error(`Nie udało się pobrać listy zdjęć z Drive: HTTP ${res.status}`);
     }
-    const data = (await res.json()) as { files: { id: string; name: string; thumbnailLink?: string }[]; nextPageToken?: string };
-    images.push(...data.files.map(f => ({ id: f.id, name: f.name, thumbnailLink: f.thumbnailLink ?? null })));
+    const data = (await res.json()) as { files: { id: string; name: string; thumbnailLink?: string; md5Checksum?: string }[]; nextPageToken?: string };
+    images.push(
+      ...data.files.map(f => ({
+        id: f.id,
+        name: f.name,
+        thumbnailLink: f.thumbnailLink ?? null,
+        ...(f.md5Checksum ? { md5Checksum: f.md5Checksum } : {}),
+      })),
+    );
     pageToken = data.nextPageToken;
   } while (pageToken);
   return images;

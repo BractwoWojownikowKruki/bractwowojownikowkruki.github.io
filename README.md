@@ -11,6 +11,15 @@ Publiczne strony można zainstalować jako aplikację PWA. Jej cache offline zaw
 
 Na GitHub Pages cache ma identyfikator oparty o finalny commit wydania znajdujący się w checkoutcie (`RELEASE_COMMIT_SHA`). Generator workera może użyć `GITHUB_SHA`, gdy finalny SHA wydania nie został przekazany, a lokalnie bez obu zmiennych używa deterministycznego hasha zawartości shella. Na publicznej stronie użyj przycisku **Zainstaluj** w Strefie Członków. Chrome i Edge pokażą natywny dialog tylko wtedy, gdy przeglądarka go udostępni. W iOS/iPadOS Safari wybierz **Udostępnij → Dodaj do ekranu początkowego**. Po zainstalowaniu aplikacji kontrolka instalacji jest ukryta. W Firefox weryfikuj nawigację i stronę offline, bez oczekiwania desktopowego przycisku instalacji. W Chrome DevTools lub Safari Web Inspector sprawdź Cache Storage: powinny występować tylko elementy shella, bez plików galerii, mediów społecznościowych i innych dużych zasobów.
 
+## Cache zdjęć osób
+
+Zdjęcia osób (kategorie „Wojownicy” oraz zdjęcia opublikowane w profilach) są co noc kopiowane z Google Drive do repozytorium, w `public/people-photos/`, i serwowane jako pliki statyczne. Dotyczy to tylko zatwierdzonych zdjęć publicznych (rozmiary 800 i 300 px) — nie galerii wydarzeń i nie zdjęć oczekujących na akceptację.
+
+- **Job:** [`sync-people-photos.yml`](.github/workflows/sync-people-photos.yml) — codziennie o 02:30 UTC oraz ręcznie (Actions → „Sync people photos” → „Run workflow”). Lokalnie: `npm run sync-people-photos`.
+- **Bez duplikatów:** plik nazywa się `<id pliku Drive>-<rozmiar>-<md5>.<rozszerzenie>`, więc „czy zdjęcie jest już w cache” oznacza „czy istnieje plik o tej nazwie”. Zdjęcie edytowane w miejscu dostaje nowy md5, więc jest pobierane ponownie; pliki usuniętych osób/zdjęć są kasowane. Bez zmian = brak pobrań i brak commita.
+- **`manifest.json`:** lista tego, co faktycznie jest w cache. Strony (`people-photos.js`) użyją kopii statycznej tylko gdy manifest zawiera dane zdjęcie w aktualnej wersji; w przeciwnym razie ładują je z Drive, jak dotychczas (nowe zdjęcia pojawiają się w cache następnej nocy).
+- Powiększenie w lightboxie (1600 px) nadal ładuje się z Drive.
+
 ---
 
 ## Jak dodać album

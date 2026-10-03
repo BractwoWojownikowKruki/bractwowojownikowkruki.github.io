@@ -346,7 +346,7 @@
   function setLightboxIndex(photoIndex) {
     lightboxPhotoIndex = photoIndex;
     const { img, filmstrip } = ensureLightbox();
-    img.src = resizeUrl(currentPhotos[photoIndex].url, 1600);
+    img.src = resizeUrl(currentPhotos[photoIndex].remoteUrl || currentPhotos[photoIndex].url, 1600);
     watchImageLoad(img);
     filmstrip.querySelectorAll('.lightbox-filmstrip-thumb').forEach((btn) => {
       btn.classList.toggle('active', Number(btn.dataset.index) === photoIndex);
@@ -477,12 +477,15 @@
       );
       return profile;
     }
-    return apiFetch(
+    const profile = await apiFetch(
       `/member-profile?email=${encodeURIComponent(target.email)}`,
       { method: 'GET' },
       drawerShowReauth,
       drawerHideReauth,
     );
+    // Published photos come from the static cache when available (people-photos.js); a page
+    // that doesn't load that script just keeps the Drive URLs.
+    return window.PeoplePhotoCache ? window.PeoplePhotoCache.applyToProfile(profile) : profile;
   }
 
   async function refreshProfileDrawer(savedSection = null) {
