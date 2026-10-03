@@ -44,6 +44,8 @@ class Element {
   }
   reset() { this.value = ''; }
   focus() {}
+  scrollIntoView() {}
+  files: unknown[] = [];
   setAttribute() {}
   querySelector(selector: string) { return this.found.get(selector) ?? null; }
   found = new Map<string, unknown>();
@@ -60,6 +62,8 @@ const elementIds = [
   'equipment-tables',
   'equipment-taxonomy-toggle', 'equipment-taxonomy', 'equipment-taxonomy-body',
   'equipment-section-filter', 'equipment-section-filter-buttons',
+  'equipment-current-photos', 'equipment-main-photo', 'equipment-extra-photos', 'equipment-photo-preview', 'equipment-photo-progress',
+  'crop-modal', 'crop-target', 'crop-modal-error', 'crop-save', 'crop-cancel',
 ];
 
 const equipmentCategories = [{ id: 'namiot', label: 'Namiot', groupId: 'budowle', retired: false }];
@@ -70,7 +74,7 @@ const sections = [
 ];
 
 const teamItem = { id: 'eq-team-1', categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: null, description: 'Namiot 4-osobowy', createdAt: '2026-01-01T00:00:00.000Z', createdBy: 'ala@example.com', canEdit: true, canDelete: true };
-const privateItem = { id: 'eq-private-1', categoryId: 'namiot', sectionId: 'warszawa', belongsToPersonId: 'person-uuid-1', description: 'Namiot 2-osobowy', createdAt: '2026-01-01T00:00:00.000Z', createdBy: 'ala@example.com', canEdit: true, canDelete: true };
+const privateItem: Record<string, unknown> = { id: 'eq-private-1', categoryId: 'namiot', sectionId: 'warszawa', belongsToPersonId: 'person-uuid-1', description: 'Namiot 2-osobowy', createdAt: '2026-01-01T00:00:00.000Z', createdBy: 'ala@example.com', canEdit: true, canDelete: true };
 
 function createHarness() {
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
@@ -105,6 +109,7 @@ function createHarness() {
     Date,
     encodeURIComponent,
     window: {
+      location: { search: '' },
       confirm: () => true,
       alert: () => {},
       MutationFeedback: {
@@ -601,4 +606,69 @@ test('filterEquipmentBySections returns everything for an empty selection', () =
   const items = [{ s: 'a' }, { s: 'b' }];
   assert.equal(filter(items, new Set(), i => i.s), items);
   assert.equal(filter(items, new Set(['b']), i => i.s).length, 1);
+});
+
+function pillTarget(equipmentId: string) {
+  return { closest: (selector: string) => (selector === '[data-equipment-trigger]' ? { dataset: { equipmentId } } : null) };
+}
+
+test('the Opis cell is a pill; clicking it opens the shared drawer with photos, labels and owner, without a request', async () => {
+  const harness = createHarness();
+  const opened: Array<Record<string, any>> = [];
+  (harness.context.window as Record<string, unknown>).ProfilePanel = { openEquipment: (view: Record<string, any>) => opened.push(view) };
+  await harness.signIn();
+  assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /data-equipment-trigger data-equipment-id="eq-private-1"><span class="category-name-pill equipment-pill">Namiot 2-osobowy</);
+
+  const photos = [{ id: 'p1', url: 'https://storage.example.test/a.jpg', path: 'equipment/eq-private-1/a.jpg' }];
+  privateItem.photos = photos;
+  try {
+    const callsBefore = harness.apiCalls.length;
+    await harness.elements.get('equipment-tables')!.clickWith(pillTarget('eq-private-1'));
+    assert.equal(harness.apiCalls.length, callsBefore);
+    assert.equal(opened.length, 1);
+    const view = opened[0];
+    assert.equal(view.description, 'Namiot 2-osobowy');
+    assert.deepEqual(view.photos, photos);
+    assert.equal(view.categoryLabel, 'Namiot');
+    assert.equal(view.groupLabel, 'Budowle');
+    assert.equal(view.sectionId, 'warszawa');
+    assert.match(view.ownerHtml, /data-profile-trigger/);
+    assert.equal(typeof view.onEdit, 'function');
+  } finally {
+    delete privateItem.photos;
+  }
+});
+
+test('photos picked in the add form upload after the item is saved, scaled to at most 1600 px, main photo first', async () => {
+  const harness = createHarness();
+  const canvases: Array<{ width: number; height: number }> = [];
+  Object.assign(harness.context, {
+    URL: { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} },
+    Image: class {
+      naturalWidth = 3200;
+      naturalHeight = 1600;
+      onload: (() => void) | null = null;
+      set src(_value: string) { queueMicrotask(() => this.onload?.()); }
+    },
+  });
+  (harness.context.document as Record<string, unknown>).createElement = () => {
+    const canvas = { width: 0, height: 0, getContext: () => ({ drawImage() {} }), toBlob: (cb: (blob: unknown) => void) => cb({ type: 'image/jpeg' }) };
+    canvases.push(canvas);
+    return canvas;
+  };
+  await harness.signIn();
+  harness.elements.get('equipment-add-category')!.value = 'namiot';
+  harness.elements.get('equipment-add-section')!.value = 'krakow';
+  const mainInput = harness.elements.get('equipment-main-photo')!;
+  mainInput.files = [{ name: 'namiot.jpg', type: 'image/jpeg' }];
+  await mainInput.change();
+  const saved = { id: 'eq-team-2', categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: null, description: '', createdAt: '2026-01-02T00:00:00.000Z', createdBy: 'ala@example.com' };
+  harness.setMutationResult({ equipment: saved });
+
+  await harness.elements.get('equipment-add-form')!.submit();
+
+  const mutations = harness.apiCalls.filter((call) => call.options.method === 'POST');
+  assert.deepEqual(mutations.map((call) => call.url), ['/equipment', '/equipment/photos?id=eq-team-2&mimeType=image%2Fjpeg&isMain=true']);
+  assert.deepEqual(canvases.map((c) => [c.width, c.height]), [[1600, 800]]);
+  assert.equal(harness.elements.get('equipment-add-error')!.hidden, true);
 });

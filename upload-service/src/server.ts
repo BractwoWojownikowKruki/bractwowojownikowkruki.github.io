@@ -130,8 +130,14 @@ import {
   deleteEquipmentInTransaction,
   getEquipmentInTransaction,
   listEquipment,
+  equipmentPhotos,
+  withPhotoAdded,
+  withMainPhoto,
+  saveEquipmentPhotosInTransaction,
   type EquipmentDoc,
+  type EquipmentPhoto,
 } from './equipment.ts';
+import { createGcsPhotoStorage, type PhotoStorage } from './storage.ts';
 import {
   getEventEquipment,
   listEventEquipmentForEvent,
@@ -245,6 +251,9 @@ export interface ServerDeps {
   // closed (503) rather than either booting unauthenticated or refusing to boot.
   auditReconcilerServiceAccountEmail?: string;
   auditReconcileAudience?: string;
+  // Cloud Storage bucket for equipment photos (storage.ts). Undefined until the bucket is
+  // provisioned (EQUIPMENT_PHOTOS_BUCKET unset) - the photo routes then fail closed with 503.
+  equipmentPhotoStorage?: PhotoStorage;
 }
 
 type MutationMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -305,6 +314,9 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   equipmentAdd: auditedRoute('POST', '/equipment', ['equipment.added']),
   equipmentUpdate: auditedRoute('PUT', '/equipment', ['equipment.updated']),
   equipmentDelete: auditedRoute('DELETE', '/equipment', ['equipment.deleted']),
+  equipmentPhotoAdd: auditedRoute('POST', '/equipment/photos', ['equipment.updated']),
+  equipmentPhotoDelete: auditedRoute('DELETE', '/equipment/photos', ['equipment.updated']),
+  equipmentPhotoMain: auditedRoute('PUT', '/equipment/photos/main', ['equipment.updated']),
   equipmentGroupAdd: auditedRoute('POST', '/equipment/groups', ['equipment.group.added']),
   equipmentGroupUpdate: auditedRoute('PUT', '/equipment/groups', ['equipment.group.updated']),
   equipmentGroupDelete: auditedRoute('DELETE', '/equipment/groups', ['equipment.group.deleted']),
@@ -1034,7 +1046,7 @@ async function handleDeleteEquipment(req: IncomingMessage, res: ServerResponse, 
   const identity = await deps.authenticate(req, res);
   const id = url.searchParams.get('id');
   if (!id) throw new AuthError('Brak id.', 400);
-  await executeDeclaredAuditedMutation(
+  const { result: removedPhotos } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.equipmentDelete,
     'equipment.deleted',
@@ -1052,9 +1064,147 @@ async function handleDeleteEquipment(req: IncomingMessage, res: ServerResponse, 
         ],
       };
     },
-    async (tx) => deleteEquipmentInTransaction(tx, id),
+    async (tx) => {
+      const existing = await getEquipmentInTransaction(tx, id);
+      await deleteEquipmentInTransaction(tx, id);
+      return existing ? equipmentPhotos(existing) : [];
+    },
   );
+  // After the record is gone, nothing references these objects any more. Best-effort: a failed
+  // delete only leaves an orphaned file in the bucket, never a broken item on the page.
+  await deleteEquipmentPhotoObjects(deps, removedPhotos);
   sendJson(res, 200, { ok: true });
+}
+
+async function deleteEquipmentPhotoObjects(deps: ServerDeps, photos: EquipmentPhoto[]): Promise<void> {
+  if (!deps.equipmentPhotoStorage || photos.length === 0) return;
+  const storage = deps.equipmentPhotoStorage;
+  const results = await Promise.allSettled(photos.map((photo) => storage.delete(photo.path)));
+  for (const result of results) {
+    if (result.status === 'rejected') console.error('Nie udało się usunąć zdjęcia sprzętu z Cloud Storage:', result.reason);
+  }
+}
+
+const EQUIPMENT_PHOTO_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+function requireEquipmentPhotoStorage(deps: ServerDeps): PhotoStorage {
+  if (!deps.equipmentPhotoStorage) throw new AuthError('Przechowywanie zdjęć sprzętu nie jest jeszcze skonfigurowane.', 503);
+  return deps.equipmentPhotoStorage;
+}
+
+// Equipment photos (Cloud Storage, see storage.ts): any member who may edit an item may add,
+// remove and reorder its photos - same permission as handleUpdateEquipment. Photos are published
+// immediately (no admin approval, unlike person photos). The browser already scales/crops the
+// image (sprzet-obozowy.js), so the server only validates and stores it.
+async function handleAddEquipmentPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const storage = requireEquipmentPhotoStorage(deps);
+  const id = url.searchParams.get('id');
+  if (!id) throw new AuthError('Brak id.', 400);
+  const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
+  const isMain = url.searchParams.get('isMain') === 'true';
+  requireAllowedMimeType(mimeType, EQUIPMENT_PHOTO_MIME_TYPES);
+  const existingBefore = await deps.firestore.runTransaction((tx) => getEquipmentInTransaction(tx, id));
+  if (!existingBefore) throw new AuthError('Sprzęt nie istnieje.', 404);
+  const photoId = randomUUID();
+  const path = `equipment/${id}/${photoId}.${extensionForMimeType(mimeType)}`;
+  const photoUrl = await storage.upload(path, mimeType, validatedUploadStream(req, deps.maxFileBytes, mimeType));
+  const photo: EquipmentPhoto = { id: photoId, url: photoUrl, path };
+  let result: EquipmentDoc;
+  try {
+    ({ result } = await executeDeclaredAuditedMutation(
+      deps,
+      AUDITED_MEMBER_MUTATION_ROUTES.equipmentPhotoAdd,
+      'equipment.updated',
+      async (tx) => {
+        const existing = await getEquipmentInTransaction(tx, id);
+        if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+        return {
+          actor: { email: identity.email },
+          resource: { kind: 'equipment', key: `equipment:${id}`, display: existing.description || existing.categoryId },
+          changes: [{ field: 'photoId', after: photoId }],
+        };
+      },
+      async (tx) => {
+        const existing = await getEquipmentInTransaction(tx, id);
+        if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+        let photos: EquipmentPhoto[];
+        try {
+          photos = withPhotoAdded(existing, photo, isMain);
+        } catch (err) {
+          if (err instanceof InvalidEquipmentError) throw new AuthError(err.message, 400);
+          throw err;
+        }
+        return saveEquipmentPhotosInTransaction(tx, existing, photos, identity.email);
+      },
+    ));
+  } catch (err) {
+    // The record was never updated, so the just-uploaded object is unreferenced.
+    await deleteEquipmentPhotoObjects(deps, [photo]);
+    throw err;
+  }
+  sendJson(res, 200, { equipment: result });
+}
+
+async function handleDeleteEquipmentPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const id = url.searchParams.get('id');
+  const photoId = url.searchParams.get('photoId');
+  if (!id || !photoId) throw new AuthError('Brak id lub photoId.', 400);
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentPhotoDelete,
+    'equipment.updated',
+    async (tx) => {
+      const existing = await getEquipmentInTransaction(tx, id);
+      if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'equipment', key: `equipment:${id}`, display: existing.description || existing.categoryId },
+        changes: [{ field: 'photoId', before: photoId }],
+      };
+    },
+    async (tx) => {
+      const existing = await getEquipmentInTransaction(tx, id);
+      if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+      const photos = equipmentPhotos(existing);
+      const removed = photos.find((p) => p.id === photoId);
+      if (!removed) throw new AuthError('Zdjęcie nie istnieje.', 404);
+      const updated = await saveEquipmentPhotosInTransaction(tx, existing, photos.filter((p) => p.id !== photoId), identity.email);
+      return { updated, removed };
+    },
+  );
+  await deleteEquipmentPhotoObjects(deps, [result.removed]);
+  sendJson(res, 200, { equipment: result.updated });
+}
+
+async function handleSetEquipmentMainPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const id = url.searchParams.get('id');
+  const photoId = url.searchParams.get('photoId');
+  if (!id || !photoId) throw new AuthError('Brak id lub photoId.', 400);
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentPhotoMain,
+    'equipment.updated',
+    async (tx) => {
+      const existing = await getEquipmentInTransaction(tx, id);
+      if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'equipment', key: `equipment:${id}`, display: existing.description || existing.categoryId },
+        changes: [{ field: 'photoId', before: equipmentPhotos(existing)[0]?.id ?? null, after: photoId }],
+      };
+    },
+    async (tx) => {
+      const existing = await getEquipmentInTransaction(tx, id);
+      if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+      const photos = withMainPhoto(existing, photoId);
+      if (!photos) throw new AuthError('Zdjęcie nie istnieje.', 404);
+      return saveEquipmentPhotosInTransaction(tx, existing, photos, identity.email);
+    },
+  );
+  sendJson(res, 200, { equipment: result });
 }
 
 // Camp-equipment taxonomy editor (Sprzęt obozowy -> "Edytuj grupy i kategorie"): lets any member
@@ -5529,6 +5679,12 @@ export function createRequestListener(deps: ServerDeps) {
         await handleUpdateEquipment(req, res, url, deps);
       } else if (req.method === 'DELETE' && url.pathname === '/equipment') {
         await handleDeleteEquipment(req, res, url, deps);
+      } else if (req.method === 'POST' && url.pathname === '/equipment/photos') {
+        await handleAddEquipmentPhoto(req, res, url, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/equipment/photos') {
+        await handleDeleteEquipmentPhoto(req, res, url, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/equipment/photos/main') {
+        await handleSetEquipmentMainPhoto(req, res, url, deps);
       } else if (req.method === 'POST' && url.pathname === '/equipment/groups') {
         await handleAddEquipmentGroup(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/equipment/groups') {
@@ -5826,6 +5982,7 @@ async function startProductionServer(): Promise<void> {
     listAdminAllowlistEmails: () => adminAllowlist.getEmails(),
     auditReconcilerServiceAccountEmail: config.auditReconcilerServiceAccountEmail,
     auditReconcileAudience: config.auditReconcileAudience,
+    equipmentPhotoStorage: config.equipmentPhotosBucket ? createGcsPhotoStorage(config.equipmentPhotosBucket) : undefined,
   };
   const server = createServer(createRequestListener(productionDeps));
   server.listen(config.port, () => {

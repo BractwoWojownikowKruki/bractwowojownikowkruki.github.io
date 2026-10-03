@@ -863,5 +863,63 @@
     if (e.key === 'Escape' && els && !els.drawer.hidden) closeDrawer();
   });
 
-  window.ProfilePanel = { open };
+  // Equipment drawer: the same drawer, photo layout (.person-main-photo/.person-gallery) and
+  // lightbox as a person's profile, filled from data the host page already has (the /equipment
+  // list carries every photo URL), so opening it costs no request. `view` is
+  // { description, photos: [{url}], categoryLabel, groupLabel, sectionId, sectionLabel,
+  //   ownerHtml, editHref?, onEdit? } - the first photo is the main one.
+  let equipmentEditHandler = null;
+
+  function renderEquipment(view) {
+    const [mainPhoto, ...extraPhotos] = view.photos ?? [];
+    const title = view.description || view.categoryLabel || 'Sprzęt';
+    const mainHtml = mainPhoto
+      ? `<div class="person-main-photo" data-photo-index="0"><img src="${escapeHtml(mainPhoto.url)}" alt="${escapeHtml(title)}" /></div>`
+      : '';
+    const galleryHtml = extraPhotos.length
+      ? `<div class="person-gallery">${extraPhotos
+          .map((p, i) => `<img src="${escapeHtml(p.url)}" alt="" loading="lazy" data-photo-index="${i + 1}" />`)
+          .join('')}</div>`
+      : '';
+    const editHtml = view.onEdit
+      ? `<button type="button" class="lw-edit-toggle profile-editor-edit" data-equipment-panel-edit>${EDIT_PENCIL_ICON}<span>Edytuj</span></button>`
+      : view.editHref
+        ? `<a class="lw-edit-toggle profile-editor-edit" href="${escapeHtml(view.editHref)}">${EDIT_PENCIL_ICON}<span>Edytuj</span></a>`
+        : '';
+    return `
+      ${mainHtml}
+      ${galleryHtml}
+      <h3>${escapeHtml(title)}</h3>
+      <dl class="profile-fields">
+        <dt>Właściciel</dt><dd>${view.ownerHtml ?? 'Drużyna'}</dd>
+        ${view.groupLabel ? `<dt>Grupa</dt><dd>${escapeHtml(view.groupLabel)}</dd>` : ''}
+        ${view.categoryLabel ? `<dt>Kategoria</dt><dd>${escapeHtml(view.categoryLabel)}</dd>` : ''}
+        ${view.sectionLabel ? `<dt>Sekcja</dt><dd><span class="section-pill" data-section="${escapeHtml(view.sectionId ?? '')}">${escapeHtml(view.sectionLabel)}</span></dd>` : ''}
+      </dl>
+      ${editHtml ? `<div class="profile-editor-toggle-row">${editHtml}</div>` : ''}
+    `;
+  }
+
+  function openEquipment(view) {
+    lastFocused = document.activeElement;
+    const { drawer, content, close } = ensureDrawer();
+    // A person profile may have been open before - its editor state must not apply here.
+    editorState.profile = null;
+    editorState.target = null;
+    currentPhotos = view.photos ?? [];
+    equipmentEditHandler = view.onEdit ?? null;
+    content.innerHTML = renderEquipment(view);
+    drawer.hidden = false;
+    close.focus();
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('[data-equipment-panel-edit]') || !equipmentEditHandler) return;
+    const handler = equipmentEditHandler;
+    lastFocused = null;
+    closeDrawer();
+    handler();
+  });
+
+  window.ProfilePanel = { open, openEquipment, close: closeDrawer };
 })();

@@ -7,6 +7,7 @@ const page = readFileSync(new URL('../public/profil/index.html', import.meta.url
 const script = readFileSync(new URL('../public/profil/profil.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/profil/profil.css', import.meta.url), 'utf8');
 const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
+const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 
 // Minimal DOM stub - just enough for profil.js's top-level (module-load-time) statements to run
 // without throwing, so the function declarations below it (equipmentForOwner, equipmentItemHtml,
@@ -48,6 +49,7 @@ function createContext(overrides: { apiFetch?: (...args: unknown[]) => Promise<u
     encodeURIComponent,
   };
   vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
+  vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
   vm.runInNewContext(script, context, { filename: 'profil.js' });
   return context;
 }
@@ -79,6 +81,21 @@ test('equipmentItemHtml renders a delete button only when the item is deletable,
 
   const withoutDelete = equipmentItemHtml(equipmentB);
   assert.doesNotMatch(withoutDelete, /person-equipment-delete/);
+});
+
+test('equipmentItemHtml renders the Opis as a pill that opens the equipment drawer, or the category when there is no Opis', () => {
+  const context = createContext();
+  const equipmentItemHtml = context.equipmentItemHtml as (item: unknown) => string;
+  assert.match(equipmentItemHtml(equipmentA), /<button type="button" class="profile-trigger" data-equipment-trigger data-equipment-id="eq-1"><span class="category-name-pill equipment-pill">Duży namiot<\/span><\/button>/);
+  assert.match(equipmentItemHtml(equipmentB), /data-equipment-trigger data-equipment-id="eq-2"><span class="category-name-pill equipment-pill">wiata</);
+});
+
+test('the profile page loads the shared drawer and pill scripts the equipment pill needs', () => {
+  for (const src of ['../shared/display-name.js', '../shared/person-pill.js', '../shared/profile-panel.js']) {
+    assert.ok(page.indexOf(`<script src="${src}"></script>`) !== -1, `missing ${src}`);
+    assert.ok(page.indexOf(`<script src="${src}"></script>`) < page.indexOf('<script src="profil.js"></script>'), `${src} must load before profil.js`);
+  }
+  assert.match(page, /<link rel="stylesheet" href="\.\.\/shared\/profile-panel\.css" \/>/);
 });
 
 test('personEquipmentInnerHtml shows a "Brak." hint for an empty list and a <ul> of items otherwise, plus the add controls', () => {

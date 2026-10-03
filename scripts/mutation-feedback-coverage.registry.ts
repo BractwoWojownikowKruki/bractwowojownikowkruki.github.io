@@ -111,6 +111,11 @@ const mutationFeedbackWiredRoutes = new Set([
   'POST /equipment/categories',
   'PUT /equipment/categories',
   'DELETE /equipment/categories',
+  // Equipment photos: the same page's add/edit form - new photos upload inside the item save's
+  // MutationFeedback.confirmed() execute, set-main/delete on existing photos have their own.
+  'POST /equipment/photos',
+  'DELETE /equipment/photos',
+  'PUT /equipment/photos/main',
 ]);
 
 /**

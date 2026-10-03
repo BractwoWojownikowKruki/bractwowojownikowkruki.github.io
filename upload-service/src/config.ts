@@ -122,4 +122,7 @@ export const config = {
   // when it calls this service. Not derivable at runtime (Cloud Run doesn't expose its own
   // public URL to the process), so it's configured explicitly rather than assumed.
   auditReconcileAudience: process.env.AUDIT_RECONCILE_AUDIENCE,
+  // Public Cloud Storage bucket for equipment photos (storage.ts) - optional/undefined until the
+  // bucket is created, same fail-safe pattern as above: the photo routes answer 503 meanwhile.
+  equipmentPhotosBucket: process.env.EQUIPMENT_PHOTOS_BUCKET?.trim() || undefined,
 };

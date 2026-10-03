@@ -1,12 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import type { FirestoreLikeClient, FirestoreTransaction } from './firestore.ts';
 
+/** One photo stored in Cloud Storage (see storage.ts). `path` is the bucket object name. */
+export interface EquipmentPhoto {
+  id: string;
+  url: string;
+  path: string;
+}
+
 export interface EquipmentDoc {
   id: string;
   categoryId: string;
   sectionId: string;
   belongsToPersonId: string | null;
   description: string;
+  // First entry = main photo, same "one main + any number of extras" model as a person's photos.
+  // Absent on items saved before photos existed - read it through equipmentPhotos().
+  photos?: EquipmentPhoto[];
   createdAt: string;
   createdBy: string;
   updatedAt?: string;
@@ -91,4 +101,43 @@ export async function getEquipmentInTransaction(tx: FirestoreTransaction, id: st
 export async function listEquipment(client: FirestoreLikeClient, limit: number = MAX_LISTED_EQUIPMENT): Promise<EquipmentDoc[]> {
   const all = await client.listDocs<EquipmentDoc>(COLLECTION);
   return all.map((d) => d.data).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+}
+
+export const MAX_EQUIPMENT_PHOTOS = 20;
+
+export function equipmentPhotos(doc: EquipmentDoc): EquipmentPhoto[] {
+  return Array.isArray(doc.photos) ? doc.photos : [];
+}
+
+/** Returns the photo list with `photo` added - at the front when it is the new main photo. */
+export function withPhotoAdded(doc: EquipmentDoc, photo: EquipmentPhoto, isMain: boolean): EquipmentPhoto[] {
+  const photos = equipmentPhotos(doc);
+  if (photos.length >= MAX_EQUIPMENT_PHOTOS) {
+    throw new InvalidEquipmentError(`Sprzęt może mieć najwyżej ${MAX_EQUIPMENT_PHOTOS} zdjęć.`);
+  }
+  return isMain ? [photo, ...photos] : [...photos, photo];
+}
+
+/** Returns the photo list with `photoId` moved to the front (the main photo). */
+export function withMainPhoto(doc: EquipmentDoc, photoId: string): EquipmentPhoto[] | null {
+  const photos = equipmentPhotos(doc);
+  const photo = photos.find((p) => p.id === photoId);
+  if (!photo) return null;
+  return [photo, ...photos.filter((p) => p.id !== photoId)];
+}
+
+export async function saveEquipmentPhotosInTransaction(
+  tx: FirestoreTransaction,
+  existing: EquipmentDoc,
+  photos: EquipmentPhoto[],
+  updatedByEmail: string,
+): Promise<EquipmentDoc> {
+  const updated: EquipmentDoc = {
+    ...existing,
+    photos,
+    updatedAt: new Date().toISOString(),
+    updatedBy: updatedByEmail.toLowerCase(),
+  };
+  await tx.setDoc(COLLECTION, updated.id, updated);
+  return updated;
 }

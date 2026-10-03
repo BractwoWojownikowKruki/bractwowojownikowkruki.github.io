@@ -67,6 +67,7 @@ function createHarness(items: Array<Record<string, unknown>>) {
     displayName: (person: { lastName?: string; email?: string }) => person.lastName ?? person.email ?? '',
     personSubline: () => null,
     personPillHtml: ({ name }: { name: string }) => `<span>${name}</span>`,
+    equipmentPillHtml: ({ id, description }: { id: string; description: string | null }, fallback?: string) => `<button data-equipment-trigger data-equipment-id="${id}">${description || fallback}</button>`,
     apiFetch: async (url: string, options: Record<string, unknown>) => {
       calls.push({ url, options });
       if (options.method === 'PUT') return { item: { eventId: 'e1', equipmentId: 'tent-1', going: true, lastChangedBy: 'viewer@example.com', lastChangedAt: '2026-09-20T20:00:00.000Z' } };

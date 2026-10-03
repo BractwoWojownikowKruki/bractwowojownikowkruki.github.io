@@ -67,3 +67,17 @@ function personPillHtml(person) {
   if (!person.subline) return pill;
   return `<span class="person-pill-cell">${pill}${personPillSublineHtml(person.subline)}</span>`;
 }
+
+/**
+ * Renders an equipment item's Opis as a clickable pill that opens the equipment drawer
+ * (ProfilePanel.openEquipment) - same role as a person's name pill. Deliberately uncolored for
+ * now. An item without a description falls back to `fallbackLabel` (its category), so every row
+ * still has something to click.
+ *
+ * @param {{ id: string, description?: string|null }} item
+ * @param {string} [fallbackLabel]
+ */
+function equipmentPillHtml(item, fallbackLabel) {
+  const label = item.description || fallbackLabel || 'Sprzęt';
+  return `<button type="button" class="profile-trigger" data-equipment-trigger data-equipment-id="${personPillEscapeAttr(item.id)}"><span class="category-name-pill equipment-pill">${personPillEscapeHtml(label)}</span></button>`;
+}

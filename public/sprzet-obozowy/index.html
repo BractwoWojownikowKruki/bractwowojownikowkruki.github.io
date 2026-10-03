@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="../style.css" />
   <link rel="stylesheet" href="../member-area.css" />
   <link rel="stylesheet" href="../shared/profile-panel.css" />
+  <link rel="stylesheet" href="../vendor/cropperjs/cropper.min.css" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -88,6 +89,16 @@
             <label for="equipment-add-description">Opis</label>
             <textarea id="equipment-add-description" name="description" maxlength="500" rows="2" placeholder="Np. Namiot 4-osobowy, zielony"></textarea>
 
+            <!-- Same photo picker + "Kadruj" modal as Mój profil (profil.js). Existing photos are
+                 changed immediately; newly picked ones upload after the item itself is saved. -->
+            <div id="equipment-current-photos" class="lw-photo-preview" hidden></div>
+            <label for="equipment-main-photo">Główne zdjęcie</label>
+            <input type="file" id="equipment-main-photo" accept="image/*" />
+            <label for="equipment-extra-photos">Dodatkowe zdjęcia (opcjonalnie)</label>
+            <input type="file" id="equipment-extra-photos" accept="image/*" multiple />
+            <div id="equipment-photo-preview" class="lw-photo-preview" hidden></div>
+            <p id="equipment-photo-progress" style="color: var(--text-muted);" hidden></p>
+
             <div class="pliki-add-form-actions">
               <button type="submit" class="btn-add-album" id="equipment-add-submit">Dodaj</button>
               <button type="button" class="btn-cancel" id="equipment-add-cancel">Anuluj</button>
@@ -141,6 +152,19 @@
     <!-- PARTIAL:social_sidebar -->
   </main>
 
+  <div class="crop-modal" id="crop-modal" hidden>
+    <div class="crop-modal-inner">
+      <img id="crop-target" alt="" />
+    </div>
+    <p class="crop-modal-error" id="crop-modal-error" hidden>
+      Nie udało się otworzyć tego zdjęcia w tej przeglądarce. Wybierz plik JPG lub PNG.
+    </p>
+    <div class="crop-modal-actions">
+      <button type="button" class="add-album-submit" id="crop-save">Zapisz</button>
+      <button type="button" class="btn-cancel" id="crop-cancel">Anuluj</button>
+    </div>
+  </div>
+
   <!-- PARTIAL:footer -->
 
   <script src="../auth.js"></script>
@@ -151,6 +175,7 @@
   <script src="../shared/profile-panel.js"></script>
   <script src="../shared/sortable-table.js"></script>
   <script src="../shared/person-pill.js"></script>
+  <script src="../vendor/cropperjs/cropper.min.js"></script>
   <script src="sprzet-obozowy.js"></script>
 </body>
 </html>

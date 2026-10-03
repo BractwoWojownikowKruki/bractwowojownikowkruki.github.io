@@ -159,7 +159,7 @@ function equipmentRowHtml(item, { includeOwner }) {
       <td class="equipment-meta-cell">${groupLabel ? escapeHtml(groupLabel) : '<span class="czl-empty">—</span>'}</td>
       <td class="equipment-meta-cell">${escapeHtml(categoryLabel)}</td>
       ${ownerCell}
-      <td>${item.description ? escapeHtml(item.description) : '<span class="czl-empty">—</span>'}</td>
+      <td>${equipmentPillHtml(item, categoryLabel)}</td>
       <td>${equipmentActionsHtml(item)}</td>
     </tr>
   `;
@@ -495,6 +495,260 @@ function wireOwnerModeToggle() {
   });
 }
 
+// The drawer opened from an Opis pill (ProfilePanel.openEquipment) - everything it shows is
+// already on the page, so it opens without a request. Private items show the owner's current
+// section, same as the table.
+function equipmentPanelView(item) {
+  const sectionId = itemFilterSectionId(item);
+  return {
+    description: item.description,
+    photos: item.photos ?? [],
+    categoryLabel: categoryLabelById.get(item.categoryId) ?? item.categoryId,
+    groupLabel: categoryGroupById.get(item.categoryId) ?? '',
+    sectionId,
+    sectionLabel: sectionLabelById.get(sectionId) ?? sectionId,
+    ownerHtml: item.belongsToPersonId === null ? null : ownerCellHtml(item.belongsToPersonId),
+    onEdit: item.canEdit ? () => startEditing(item) : null,
+  };
+}
+
+function startEditing(item) {
+  const form = document.getElementById('equipment-add-form');
+  form.hidden = false;
+  openAddFormForEdit(item);
+  form.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+// ── Photos: picker + crop modal (same elements and flow as profil.js) ──────────────────────
+//
+// Same {file, croppedBlob} entry shape and index scheme (0 = main, 1..N = extras) as profil.js.
+// New photos upload after the item is saved; photos already on the item (edit mode) are changed
+// immediately via "Ustaw jako główne" / "Usuń", like approved photos in Mój profil.
+
+let photoEntries = [];
+
+function entrySourceBlob(entry) {
+  return entry.croppedBlob || entry.file;
+}
+
+function renderPhotoPreview() {
+  const container = document.getElementById('equipment-photo-preview');
+  const hasAny = photoEntries.some(Boolean);
+  if (!hasAny) {
+    container.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = photoEntries
+    .map((entry, index) => {
+      if (!entry) return '';
+      const url = URL.createObjectURL(entrySourceBlob(entry));
+      const label = index === 0 ? 'Główne zdjęcie' : `Dodatkowe zdjęcie ${index}`;
+      return `
+        <div class="lw-photo-thumb">
+          <img src="${url}" alt="${label}" />
+          <p>${label}</p>
+          <button type="button" class="lw-crop-btn" data-photo-index="${index}">Kadruj</button>
+        </div>
+      `;
+    })
+    .join('');
+}
+
+function resetPhotoSelection() {
+  photoEntries = [];
+  document.getElementById('equipment-main-photo').value = '';
+  document.getElementById('equipment-extra-photos').value = '';
+  renderPhotoPreview();
+}
+
+function renderCurrentPhotos(item) {
+  const container = document.getElementById('equipment-current-photos');
+  const photos = item?.photos ?? [];
+  container.hidden = photos.length === 0;
+  container.innerHTML = photos
+    .map((photo, index) => `
+      <div class="lw-photo-thumb">
+        <img src="${escapeAttr(photo.url)}" alt="${index === 0 ? 'Główne zdjęcie' : 'Dodatkowe zdjęcie'}" />
+        ${index === 0 ? '<p class="lw-main-badge">Główne</p>' : `<button type="button" class="lw-crop-btn lw-set-main-btn" data-photo-id="${escapeAttr(photo.id)}">Ustaw jako główne</button>`}
+        <button type="button" class="lw-crop-btn lw-delete-public-btn" data-photo-id="${escapeAttr(photo.id)}">Usuń</button>
+      </div>`)
+    .join('');
+}
+
+function replaceEquipmentItem(saved) {
+  // POST/PUT responses carry no canEdit/canDelete - see the apply() comment in wireAddForm.
+  const withPermissions = { ...saved, canEdit: true, canDelete: true };
+  const idx = equipment.findIndex(i => i.id === withPermissions.id);
+  if (idx === -1) equipment.push(withPermissions);
+  else equipment[idx] = withPermissions;
+  return withPermissions;
+}
+
+async function changeCurrentPhoto(method, path, photoId) {
+  const editingId = document.getElementById('equipment-add-editing-id').value;
+  if (!editingId) return;
+  const query = new URLSearchParams({ id: editingId, photoId });
+  try {
+    await window.MutationFeedback.confirmed({
+      execute: () => apiFetch(`${path}?${query.toString()}`, { method }),
+      apply: async ({ equipment: saved }) => {
+        renderCurrentPhotos(replaceEquipmentItem(saved));
+        renderBothTables();
+      },
+      refreshFragment: () => loadEquipment(),
+      toast: true,
+      control: document.getElementById('equipment-add-toggle'),
+      viewRoot: document.getElementById('equipment-tables'),
+    });
+  } catch (err) {
+    window.alert(`Nie udało się zmienić zdjęcia: ${err.message}`);
+  }
+}
+
+function wirePhotoPicker() {
+  document.getElementById('equipment-main-photo').addEventListener('change', () => {
+    const file = document.getElementById('equipment-main-photo').files[0] || null;
+    photoEntries[0] = file ? { file, croppedBlob: null } : undefined;
+    renderPhotoPreview();
+  });
+  document.getElementById('equipment-extra-photos').addEventListener('change', () => {
+    const extraFiles = Array.from(document.getElementById('equipment-extra-photos').files);
+    photoEntries.length = 1; // keep index 0 (main photo) untouched, drop everything after it
+    extraFiles.forEach((file, i) => {
+      photoEntries[i + 1] = { file, croppedBlob: null };
+    });
+    renderPhotoPreview();
+  });
+  document.getElementById('equipment-photo-preview').addEventListener('click', e => {
+    const btn = e.target.closest('.lw-crop-btn');
+    if (btn) openCropModal(Number(btn.dataset.photoIndex));
+  });
+  document.getElementById('equipment-current-photos').addEventListener('click', e => {
+    const setMain = e.target.closest('.lw-set-main-btn');
+    if (setMain) {
+      changeCurrentPhoto('PUT', '/equipment/photos/main', setMain.dataset.photoId);
+      return;
+    }
+    const del = e.target.closest('.lw-delete-public-btn');
+    if (del && window.confirm('Czy na pewno chcesz usunąć to zdjęcie?')) {
+      changeCurrentPhoto('DELETE', '/equipment/photos', del.dataset.photoId);
+    }
+  });
+  document.getElementById('crop-cancel').addEventListener('click', closeCropModal);
+  document.getElementById('crop-save').addEventListener('click', () => {
+    if (!activeCropper) return;
+    const canvas = activeCropper.getCroppedCanvas({ maxWidth: 2000, maxHeight: 2000 });
+    const entry = photoEntries[activeCropIndex];
+    if (!canvas || !entry) {
+      closeCropModal();
+      return;
+    }
+    canvas.toBlob(
+      blob => {
+        if (blob) {
+          entry.croppedBlob = blob;
+          renderPhotoPreview();
+        }
+        closeCropModal();
+      },
+      'image/jpeg',
+      0.9,
+    );
+  });
+}
+
+let activeCropper = null;
+let activeCropIndex = -1;
+
+function closeCropModal() {
+  if (activeCropper) {
+    activeCropper.destroy();
+    activeCropper = null;
+  }
+  document.getElementById('crop-modal').hidden = true;
+  document.body.style.overflow = '';
+  activeCropIndex = -1;
+}
+
+function openCropModal(photoIndex) {
+  const entry = photoEntries[photoIndex];
+  if (!entry) return;
+  activeCropIndex = photoIndex;
+
+  const img = document.getElementById('crop-target');
+  const errorEl = document.getElementById('crop-modal-error');
+  const saveBtn = document.getElementById('crop-save');
+  errorEl.hidden = true;
+  saveBtn.hidden = false;
+  img.hidden = false;
+
+  document.getElementById('crop-modal').hidden = false;
+  document.body.style.overflow = 'hidden';
+
+  img.onload = () => {
+    activeCropper = new Cropper(img, { viewMode: 1, autoCropArea: 1, background: false });
+  };
+  img.onerror = () => {
+    errorEl.hidden = false;
+    saveBtn.hidden = true;
+    img.hidden = true;
+  };
+  img.src = URL.createObjectURL(entrySourceBlob(entry));
+}
+
+// Equipment photos are served straight from Cloud Storage to every viewer, so each one is
+// scaled down to at most 1600 px and re-encoded as JPEG before upload - small files load fast,
+// and a HEIC original (which most browsers cannot display) never reaches the bucket.
+const PHOTO_MAX_DIMENSION = 1600;
+
+function photoUploadBlob(entry) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(entrySourceBlob(entry));
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, PHOTO_MAX_DIMENSION / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.naturalWidth * scale);
+      canvas.height = Math.round(img.naturalHeight * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Nie udało się przygotować zdjęcia.'))), 'image/jpeg', 0.85);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error(`Nie udało się odczytać zdjęcia „${entry.file.name}” w tej przeglądarce. Wybierz plik JPG lub PNG.`));
+    };
+    img.src = url;
+  });
+}
+
+// Uploads every picked photo (main first) to an already-saved item, dropping each entry once it
+// is stored - so after a failure, saving again retries only the photos still waiting. Returns the
+// item as the last successful upload left it.
+async function uploadPickedPhotos(savedItem) {
+  const progressEl = document.getElementById('equipment-photo-progress');
+  const pending = photoEntries.map((entry, index) => ({ entry, index })).filter(p => p.entry);
+  let latest = savedItem;
+  let uploaded = 0;
+  try {
+    for (const { entry, index } of pending) {
+      progressEl.hidden = false;
+      progressEl.textContent = `Przesyłanie zdjęć (${uploaded + 1}/${pending.length})...`;
+      const body = await photoUploadBlob(entry);
+      const query = new URLSearchParams({ id: savedItem.id, mimeType: 'image/jpeg', isMain: String(index === 0) });
+      ({ equipment: latest } = await apiFetch(`/equipment/photos?${query.toString()}`, { method: 'POST', body }));
+      photoEntries[index] = undefined;
+      uploaded++;
+    }
+  } finally {
+    progressEl.hidden = true;
+    renderPhotoPreview();
+  }
+  return latest;
+}
+
 function resetAddForm() {
   const form = document.getElementById('equipment-add-form');
   form.reset();
@@ -505,6 +759,8 @@ function resetAddForm() {
   populateSectionSelect(null);
   populateOwnerDatalist();
   document.getElementById('equipment-add-submit').textContent = 'Dodaj';
+  resetPhotoSelection();
+  renderCurrentPhotos(null);
 }
 
 function openAddFormForEdit(item) {
@@ -532,6 +788,8 @@ function openAddFormForEdit(item) {
     document.getElementById('equipment-add-section').disabled = false;
   }
   document.getElementById('equipment-add-description').value = item.description ?? '';
+  resetPhotoSelection();
+  renderCurrentPhotos(item);
   document.getElementById('equipment-add-submit').textContent = 'Zapisz zmiany';
   document.getElementById('equipment-add-category').focus();
 }
@@ -543,6 +801,7 @@ function wireAddForm() {
   const errorEl = document.getElementById('equipment-add-error');
 
   wireOwnerModeToggle();
+  wirePhotoPicker();
 
   toggle.addEventListener('click', () => {
     if (!form.hidden && document.getElementById('equipment-add-editing-id').value) {
@@ -583,11 +842,21 @@ function wireAddForm() {
     const payload = { categoryId, sectionId, description, belongsToPersonId };
     try {
       await window.MutationFeedback.confirmed({
-        execute: () => apiFetch(editingId ? `/equipment?id=${encodeURIComponent(editingId)}` : '/equipment', {
-          method: editingId ? 'PUT' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        }),
+        execute: async () => {
+          const { equipment: saved } = await apiFetch(editingId ? `/equipment?id=${encodeURIComponent(editingId)}` : '/equipment', {
+            method: editingId ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          // From here on the item exists: if a photo upload below fails, saving again must update
+          // this item (PUT), not create a duplicate - and must not re-send photos already stored.
+          replaceEquipmentItem(saved);
+          document.getElementById('equipment-add-editing-id').value = saved.id;
+          document.getElementById('equipment-add-submit').textContent = 'Zapisz zmiany';
+          renderCurrentPhotos(saved);
+          const withPhotos = await uploadPickedPhotos(saved);
+          return { equipment: withPhotos };
+        },
         apply: async ({ equipment: saved }) => {
           // Neither POST nor PUT /equipment's response carries canEdit/canDelete - only the GET
           // /equipment list handler synthesizes them (server.ts's handleListEquipment, always true
@@ -615,19 +884,24 @@ function wireAddForm() {
     } catch (err) {
       errorEl.textContent = err.message;
       errorEl.hidden = false;
+      // The item itself may already be saved (only a photo upload failed) - show it in the tables.
+      renderBothTables();
     }
   });
 }
 
 function wireTableActions() {
   document.getElementById('equipment-tables').addEventListener('click', async e => {
+    const pill = e.target.closest('[data-equipment-trigger]');
+    if (pill) {
+      const item = equipment.find(i => i.id === pill.dataset.equipmentId);
+      if (item) window.ProfilePanel.openEquipment(equipmentPanelView(item));
+      return;
+    }
     const editButton = e.target.closest('[data-edit-id]');
     if (editButton) {
       const item = equipment.find(i => i.id === editButton.dataset.editId);
-      if (item) {
-        document.getElementById('equipment-add-form').hidden = false;
-        openAddFormForEdit(item);
-      }
+      if (item) startEditing(item);
       return;
     }
     const deleteButton = e.target.closest('[data-delete-id]');
@@ -718,6 +992,10 @@ initGoogleSignIn({
 
       equipment = items;
       renderBothTables();
+      // ?edit=<id>: the "Edytuj" link in the equipment drawer on other pages (wyjazd, Mój profil).
+      const editId = new URLSearchParams(window.location.search).get('edit');
+      const editItem = editId && equipment.find(i => i.id === editId);
+      if (editItem) startEditing(editItem);
     } catch (err) {
       document.getElementById('equipment-tables').innerHTML = `<p class="pliki-empty">Nie udało się wczytać sprzętu: ${escapeHtml(err.message)}</p>`;
     }

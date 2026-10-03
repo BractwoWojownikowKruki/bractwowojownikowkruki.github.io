@@ -26,6 +26,7 @@ import { createInMemoryFirestoreClient } from './firestore.ts';
 import { createDisabledMailer, type MailMessage } from './mailer.ts';
 import { createDisabledPusher, type PushMessage, type PushSubscriptionRecord } from './pusher.ts';
 import { createDisabledSheetsClient } from './sheets.ts';
+import type { PhotoStorage } from './storage.ts';
 import { createRoleAuthorizer } from './roles.ts';
 import { executeAuditedFirestoreMutation, startExternalOperation, completeExternalOperation } from './audit.ts';
 import { getFile } from './files.ts';
@@ -10347,4 +10348,135 @@ test('DELETE /equipment/groups refuses a group still used by a category, then su
   });
   const actions = (await firestore.listDocs<{ action: string }>('auditEvents')).map(e => e.data.action);
   assert.ok(actions.includes('equipment.group.deleted'));
+});
+
+// Equipment photos (Cloud Storage): POST/DELETE /equipment/photos and PUT /equipment/photos/main.
+function makeFakePhotoStorage() {
+  const objects = new Map<string, { contentType: string; bytes: Buffer }>();
+  const deleted: string[] = [];
+  const storage: PhotoStorage = {
+    async upload(objectName, contentType, data) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of data) chunks.push(chunk);
+      objects.set(objectName, { contentType, bytes: Buffer.concat(chunks) });
+      return `https://storage.example.test/${objectName}`;
+    },
+    async delete(objectName) {
+      objects.delete(objectName);
+      deleted.push(objectName);
+    },
+  };
+  return { storage, objects, deleted };
+}
+
+const TINY_JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64)]);
+
+async function createTestEquipment(baseUrl: string): Promise<string> {
+  const res = await fetch(`${baseUrl}/equipment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Namiot', belongsToPersonId: null }),
+  });
+  assert.equal(res.status, 200);
+  return ((await res.json()) as { equipment: { id: string } }).equipment.id;
+}
+
+async function postEquipmentPhoto(baseUrl: string, id: string, isMain: boolean) {
+  return fetch(`${baseUrl}/equipment/photos?id=${id}&mimeType=image/jpeg&isMain=${isMain}`, { method: 'POST', body: TINY_JPEG });
+}
+
+type PhotoResponse = { equipment: { photos: Array<{ id: string; url: string; path: string }> } };
+
+test('POST /equipment/photos answers 503 while no bucket is configured', async () => {
+  const deps = makeDeps({ firestore: makeEquipmentFirestore() });
+  await withServer(deps, async baseUrl => {
+    const id = await createTestEquipment(baseUrl);
+    const res = await postEquipmentPhoto(baseUrl, id, true);
+    assert.equal(res.status, 503);
+  });
+});
+
+test('POST /equipment/photos stores the object and puts a main photo first, extras after', async () => {
+  const firestore = makeEquipmentFirestore();
+  const { storage, objects } = makeFakePhotoStorage();
+  await withServer(makeDeps({ firestore, equipmentPhotoStorage: storage }), async baseUrl => {
+    const id = await createTestEquipment(baseUrl);
+    assert.equal((await postEquipmentPhoto(baseUrl, id, false)).status, 200);
+    const res = await postEquipmentPhoto(baseUrl, id, true);
+    assert.equal(res.status, 200);
+    const { equipment } = (await res.json()) as PhotoResponse;
+    assert.equal(equipment.photos.length, 2);
+    const [main, extra] = equipment.photos;
+    assert.match(main.path, new RegExp(`^equipment/${id}/[0-9a-f-]+\\.jpg$`));
+    assert.equal(main.url, `https://storage.example.test/${main.path}`);
+    assert.ok(objects.has(main.path) && objects.has(extra.path));
+    assert.equal(objects.get(main.path)!.contentType, 'image/jpeg');
+
+    const list = (await (await fetch(`${baseUrl}/equipment`)).json()) as { equipment: Array<{ photos: Array<{ id: string }> }> };
+    assert.deepEqual(list.equipment[0].photos.map(p => p.id), [main.id, extra.id]);
+  });
+  const events = await firestore.listDocs<{ action: string; changes: Array<{ field: string; after?: unknown }> }>('auditEvents');
+  assert.equal(events.filter(e => e.data.action === 'equipment.updated' && e.data.changes[0]?.field === 'photoId').length, 2);
+});
+
+test('POST /equipment/photos rejects content that is not the declared image type and stores nothing', async () => {
+  const { storage, objects } = makeFakePhotoStorage();
+  await withServer(makeDeps({ firestore: makeEquipmentFirestore(), equipmentPhotoStorage: storage }), async baseUrl => {
+    const id = await createTestEquipment(baseUrl);
+    const res = await fetch(`${baseUrl}/equipment/photos?id=${id}&mimeType=image/jpeg`, { method: 'POST', body: Buffer.from('not an image at all') });
+    assert.equal(res.status, 400);
+    const heic = await fetch(`${baseUrl}/equipment/photos?id=${id}&mimeType=image/heic`, { method: 'POST', body: TINY_JPEG });
+    assert.equal(heic.status, 400);
+  });
+  assert.equal(objects.size, 0);
+});
+
+test('POST /equipment/photos returns 404 for an unknown item without uploading', async () => {
+  const { storage, objects } = makeFakePhotoStorage();
+  await withServer(makeDeps({ firestore: makeEquipmentFirestore(), equipmentPhotoStorage: storage }), async baseUrl => {
+    const res = await postEquipmentPhoto(baseUrl, 'nie-ma-takiego', true);
+    assert.equal(res.status, 404);
+  });
+  assert.equal(objects.size, 0);
+});
+
+test('PUT /equipment/photos/main moves a photo to the front; DELETE removes it and its object', async () => {
+  const { storage, objects, deleted } = makeFakePhotoStorage();
+  await withServer(makeDeps({ firestore: makeEquipmentFirestore(), equipmentPhotoStorage: storage }), async baseUrl => {
+    const id = await createTestEquipment(baseUrl);
+    await postEquipmentPhoto(baseUrl, id, true);
+    const second = (await (await postEquipmentPhoto(baseUrl, id, false)).json()) as PhotoResponse;
+    const [first, extra] = second.equipment.photos;
+
+    const mainRes = await fetch(`${baseUrl}/equipment/photos/main?id=${id}&photoId=${extra.id}`, { method: 'PUT' });
+    assert.equal(mainRes.status, 200);
+    assert.deepEqual(((await mainRes.json()) as PhotoResponse).equipment.photos.map(p => p.id), [extra.id, first.id]);
+
+    const delRes = await fetch(`${baseUrl}/equipment/photos?id=${id}&photoId=${extra.id}`, { method: 'DELETE' });
+    assert.equal(delRes.status, 200);
+    assert.deepEqual(((await delRes.json()) as PhotoResponse).equipment.photos.map(p => p.id), [first.id]);
+    assert.deepEqual(deleted, [extra.path]);
+    assert.ok(!objects.has(extra.path));
+
+    const missing = await fetch(`${baseUrl}/equipment/photos?id=${id}&photoId=${extra.id}`, { method: 'DELETE' });
+    assert.equal(missing.status, 404);
+  });
+});
+
+test('PUT /equipment keeps existing photos and DELETE /equipment removes their objects', async () => {
+  const { storage, objects } = makeFakePhotoStorage();
+  await withServer(makeDeps({ firestore: makeEquipmentFirestore(), equipmentPhotoStorage: storage }), async baseUrl => {
+    const id = await createTestEquipment(baseUrl);
+    await postEquipmentPhoto(baseUrl, id, true);
+    const putRes = await fetch(`${baseUrl}/equipment?id=${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Namiot zmieniony', belongsToPersonId: null }),
+    });
+    assert.equal(((await putRes.json()) as PhotoResponse).equipment.photos.length, 1);
+    assert.equal(objects.size, 1);
+    const delRes = await fetch(`${baseUrl}/equipment?id=${id}`, { method: 'DELETE' });
+    assert.equal(delRes.status, 200);
+  });
+  assert.equal(objects.size, 0);
 });
