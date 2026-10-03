@@ -104,7 +104,7 @@ export function planSync(wanted: WantedPhoto[], existingFiles: string[]): SyncPl
 export function buildManifest(wanted: WantedPhoto[], filesOnDisk: string[]): Manifest {
   const photos: Manifest['photos'] = {};
   // Sorted so the output never depends on the order the API happened to list photos in (it
-  // shuffles people), otherwise an unchanged cache would rewrite the manifest every night.
+  // reorders people), otherwise an unchanged cache would rewrite the manifest every night.
   const ordered = [...wanted].sort((a, b) => a.id.localeCompare(b.id) || a.size - b.size);
   for (const w of ordered) {
     const name = filesOnDisk.find(f => {
@@ -165,10 +165,10 @@ export interface PeopleSnapshot {
   people: StaticPerson[];
 }
 
-// The API shuffles people that share an order number on every request. A snapshot must be
-// deterministic (or every nightly run would produce a different file and a pointless commit), so
-// it is sorted stably here - numbered people by order then name, unnumbered by name, as the API
-// does - and the browser re-applies the random shuffle within equal order numbers.
+// The API's order among people sharing an order number is arbitrary and can differ per request. A
+// snapshot must be deterministic (or every nightly run would produce a different file and a
+// pointless commit), so it is sorted stably here: numbered people by order then name, then
+// unnumbered people by name.
 export function sortPeopleDeterministically<T extends { name: string; order: number | null }>(people: T[]): T[] {
   const byName = (a: T, b: T) => a.name.localeCompare(b.name, 'pl');
   const numbered = people.filter(p => p.order !== null).sort((a, b) => a.order! - b.order! || byName(a, b));

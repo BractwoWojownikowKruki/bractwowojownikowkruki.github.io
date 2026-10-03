@@ -34,18 +34,3 @@ test('loadStaticPeople returns null (=> live API fallback) on 404, bad version, 
   assert.equal(await load(() => Promise.reject(new Error('offline'))).loadStaticPeople('Blachowi'), null);
   assert.equal(await load(() => ok({ version: 1, people: [] })).loadStaticPeople('Inna'), null);
 });
-
-test('people sharing an order number are shuffled among themselves; others keep their position', async () => {
-  const mk = (name: string, order: number | null) => ({ name, order, mainPhoto: null, photos: [] });
-  const people = [mk('first', 1), mk('a', 2), mk('b', 2), mk('c', 2), mk('d', 2), mk('u1', null), mk('u2', null)];
-  const cache = load(() => ok({ version: 1, people }));
-  const seen = new Set<string>();
-  for (let i = 0; i < 60; i++) {
-    const out: string[] = Array.from(await cache.loadStaticPeople('Emeryci'), (p: any) => p.name);
-    assert.equal(out[0], 'first');
-    assert.deepEqual(out.slice(1, 5).sort(), ['a', 'b', 'c', 'd']);
-    assert.deepEqual(out.slice(5), ['u1', 'u2']);
-    seen.add(out.slice(1, 5).join(''));
-  }
-  assert.ok(seen.size > 1, 'order within the equal-order group should vary');
-});

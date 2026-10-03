@@ -22,7 +22,7 @@ Zdjęcia osób (kategorie „Wojownicy” oraz zdjęcia opublikowane w profilach
 
 ### Statyczne dane osób
 
-Ten sam job zapisuje też `public/people-data/<kategoria>.json` (imię, opis, kolejność, in memoriam, zdjęcia). Strony „Wojownicy” czytają najpierw ten plik — bez pytania backendu — a do API wracają tylko, gdy pliku brakuje lub jest nieprawidłowy. Kolejność osób o tym samym numerze jest nadal losowana w przeglądarce.
+Ten sam job zapisuje też `public/people-data/<kategoria>.json` (imię, opis, kolejność, in memoriam, zdjęcia). Strony „Wojownicy” czytają najpierw ten plik — bez pytania backendu — a do API wracają tylko, gdy pliku brakuje lub jest nieprawidłowy.  Osoby o tym samym numerze kolejności są ułożone alfabetycznie.
 
 Odświeżenie poza nocnym uruchomieniem: backend (`upload-service/src/people-sync.ts`) wywołuje `workflow_dispatch` tego workflow z `debounce_seconds=120` po każdej zmianie wykonanej w panelu admina oraz gdy członek zmieni swoje zdjęcie główne. Workflow czeka tyle sekund (kilka szybkich edycji = jeden przebieg), a jego `concurrency` trzyma w kolejce najwyżej jeden kolejny przebieg. Usunięcie zdjęcia przez członka czeka na przebieg nocny. Wymaga, by `GITHUB_TOKEN` backendu miał uprawnienie *Actions: write*; bez niego zmiany pojawią się następnej nocy (błąd jest tylko logowany).
 
