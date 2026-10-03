@@ -127,29 +127,10 @@
 
   // Identity/weapons saves go through authenticateAdminOrHovdingWithStepUp (server.ts), which
   // needs a *fresh* sign-in (30-minute window) on top of the ordinary session - a step-up 401
-  // mid-edit is expected, not exceptional. Several host pages that embed this drawer
-  // (lista-wyjazdowa.js/wyjazd.js/skladki.js/czlonkowie.js) only ever declared a no-op
-  // window.showReauth "for now" (their own comments say so), and pliki.js/sprzet-obozowy.js never
-  // declared one at all - so delegating to window.showReauth left apiFetch's reauth prompt with
-  // no button to click, silently hanging the save forever with no error and no confirmation. The
-  // drawer now renders its own Google Sign-In button into the reauth banner above, so a step-up
-  // works regardless of what (if anything) the host page wired up. This only needs
-  // window.google.accounts.id.initialize() to have already run, which every one of those pages
-  // already does via its own initGoogleSignIn call before a signed-in viewer could ever open this
-  // drawer in the first place.
-  function drawerShowReauth() {
-    const { reauth, reauthButton } = els;
-    reauth.hidden = false;
-    reauth.scrollIntoView({ block: 'center' });
-    if (window.google?.accounts?.id && !reauthButton.dataset.rendered) {
-      window.google.accounts.id.renderButton(reauthButton, { type: 'standard', text: 'signin_with', locale: 'pl' });
-      reauthButton.dataset.rendered = 'true';
-    }
-  }
-
-  function drawerHideReauth() {
-    els.reauth.hidden = true;
-  }
+  // mid-edit is expected. Passing these to apiFetch opts into auth.js's shared reauth modal,
+  // which works regardless of what (if anything) the host page wired up.
+  function drawerShowReauth() {}
+  function drawerHideReauth() {}
 
   function identityDraft(profile) {
     return {
@@ -275,10 +256,6 @@
         <div class="profile-drawer-panel" role="dialog" aria-label="Profil użytkownika">
           <button type="button" class="profile-drawer-close" aria-label="Zamknij">✕</button>
           <div class="profile-drawer-status" aria-live="polite"></div>
-          <div class="profile-drawer-reauth" hidden role="alert">
-            <p>Aby zapisać zmiany, zaloguj się ponownie.</p>
-            <div class="profile-drawer-reauth-button"></div>
-          </div>
           <div class="profile-drawer-content"></div>
         </div>
       </div>
@@ -296,8 +273,6 @@
       // without scrolling (same "anchor outside what gets rebuilt" fix as KRKG-0102's
       // event-edit-toggle anchor in wyjazd.js).
       status: drawer.querySelector('.profile-drawer-status'),
-      reauth: drawer.querySelector('.profile-drawer-reauth'),
-      reauthButton: drawer.querySelector('.profile-drawer-reauth-button'),
       close: drawer.querySelector('.profile-drawer-close'),
       backdrop: drawer.querySelector('.profile-drawer-backdrop'),
     };
@@ -532,7 +507,6 @@
 
   function handleProfileDrawerError(err) {
     if (err.status === 401 || err.status === 403) {
-      if (err.status === 401) drawerShowReauth();
       closeDrawer();
       return true;
     }

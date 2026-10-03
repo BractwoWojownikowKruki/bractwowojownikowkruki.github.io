@@ -40,9 +40,6 @@ class FakeElement {
       drawer.addChild('.profile-drawer-content', new FakeElement('.profile-drawer-content'));
       drawer.addChild('.profile-drawer-close', new FakeElement('.profile-drawer-close'));
       drawer.addChild('.profile-drawer-status', new FakeElement('.profile-drawer-status'));
-      const reauth = drawer.addChild('.profile-drawer-reauth', new FakeElement('.profile-drawer-reauth'));
-      reauth.addChild('.profile-drawer-reauth-button', new FakeElement('.profile-drawer-reauth-button'));
-      reauth.hidden = true;
       drawer.addChild('.profile-drawer-backdrop', new FakeElement('.profile-drawer-backdrop'));
     }
     // The editor toggle/panel is shared across identity/weapons/dues (editorOpen), replacing the
@@ -294,7 +291,7 @@ test('refreshing after an identity save retains the unsaved annual-dues draft', 
   assert.equal(harness.apiCalls.filter((call) => call.url.startsWith('/member-profile?')).length, 2);
 });
 
-test('an identity 401 shows the drawer\'s own reauth banner, then closes the drawer once the retry still fails', async () => {
+test('an identity 401 that survives auth.js\'s reauth retry closes the drawer', async () => {
   const harness = createHarness({
     apiFetch: async (_url, request) => {
       if (request.method === 'PUT') throw Object.assign(new Error('Wymagane ponowne logowanie.'), { status: 401 });
@@ -302,13 +299,10 @@ test('an identity 401 shows the drawer\'s own reauth banner, then closes the dra
     },
   });
   await harness.window.ProfilePanel.open('jan@example.test');
-  const reauth = harness.drawer?.querySelector('.profile-drawer-reauth');
-  assert.ok(reauth, 'the drawer renders its own reauth banner, not window.showReauth');
   await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
   await harness.document.dispatch('submit', harness.document.body.querySelector('.profile-identity-form')!);
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(reauth.hidden, false, 'a step-up 401 opens the drawer\'s self-contained reauth banner');
   assert.equal(harness.drawer?.hidden, true);
 });
 

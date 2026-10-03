@@ -15,7 +15,7 @@ let isAdminCaller = false;
 // below and simply doesn't see the column, same as it can't reach the Składki page either.
 let canManageSkladki = false;
 initGoogleSignIn({
-  buttonIds: ['google-signin-button', 'google-reauth-button'],
+  buttonIds: ['google-signin-button'],
   whoamiPath: '/admin/members/whoami',
   onSignedIn: async payload => {
     document.getElementById('admin-checking').hidden = true;

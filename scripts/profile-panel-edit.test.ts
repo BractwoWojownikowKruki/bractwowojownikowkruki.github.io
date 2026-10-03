@@ -42,7 +42,7 @@ test('identity save keeps drafts on inline errors, disables only its pending sec
   assert.match(panel, /renderProfile\(editorState\.profile\)/);
   assert.match(panel, /if \(err\.status === 401 \|\| err\.status === 403\)/);
   assert.match(panel, /closeDrawer\(\)/);
-  assert.match(panel, /drawerShowReauth/);
+  assert.match(panel, /drawerShowReauth, drawerHideReauth/);
   assert.match(panel, /Nie udało się zapisać lub odświeżyć danych/);
   assert.match(css, /\.profile-identity-section/);
   assert.match(css, /\.profile-identity-error/);

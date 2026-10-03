@@ -54,7 +54,7 @@ async function loadDiagnostics() {
 }
 
 initGoogleSignIn({
-  buttonIds: ['google-signin-button', 'google-reauth-button'],
+  buttonIds: ['google-signin-button'],
   whoamiPath: '/admin/audyt/whoami',
   onSignedIn: payload => {
     document.getElementById('admin-checking').hidden = true;
