@@ -72,12 +72,16 @@ function personPillHtml(person) {
  * Renders an equipment item's Opis as a clickable pill that opens the equipment drawer
  * (ProfilePanel.openEquipment) - same role as a person's name pill. Deliberately uncolored for
  * now. An item without a description falls back to `fallbackLabel` (its category), so every row
- * still has something to click.
+ * still has something to click. An item with photos also gets a small 📷 beside the pill, inside
+ * the same button, hinting that tapping it shows them.
  *
- * @param {{ id: string, description?: string|null }} item
+ * @param {{ id: string, description?: string|null, photos?: unknown[] }} item
  * @param {string} [fallbackLabel]
  */
 function equipmentPillHtml(item, fallbackLabel) {
   const label = item.description || fallbackLabel || 'Sprzęt';
-  return `<button type="button" class="profile-trigger" data-equipment-trigger data-equipment-id="${personPillEscapeAttr(item.id)}"><span class="category-name-pill equipment-pill">${personPillEscapeHtml(label)}</span></button>`;
+  const photoIcon = Array.isArray(item.photos) && item.photos.length
+    ? '<span class="equipment-photo-icon" role="img" aria-label="ma zdjęcia">📷</span>'
+    : '';
+  return `<button type="button" class="profile-trigger" data-equipment-trigger data-equipment-id="${personPillEscapeAttr(item.id)}"><span class="category-name-pill equipment-pill">${personPillEscapeHtml(label)}</span>${photoIcon}</button>`;
 }

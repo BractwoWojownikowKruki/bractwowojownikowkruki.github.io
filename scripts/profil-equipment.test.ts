@@ -88,6 +88,8 @@ test('equipmentItemHtml renders the Opis as a pill that opens the equipment draw
   const equipmentItemHtml = context.equipmentItemHtml as (item: unknown) => string;
   assert.match(equipmentItemHtml(equipmentA), /<button type="button" class="profile-trigger" data-equipment-trigger data-equipment-id="eq-1"><span class="category-name-pill equipment-pill">Duży namiot<\/span><\/button>/);
   assert.match(equipmentItemHtml(equipmentB), /data-equipment-trigger data-equipment-id="eq-2"><span class="category-name-pill equipment-pill">wiata</);
+  assert.doesNotMatch(equipmentItemHtml(equipmentA), /equipment-photo-icon/, 'no camera without photos');
+  assert.match(equipmentItemHtml({ ...equipmentA, photos: [{ id: 'p1', url: 'u', path: 'p' }] }), /equipment-pill">Duży namiot<\/span><span class="equipment-photo-icon" role="img" aria-label="ma zdjęcia">📷<\/span><\/button>/);
 });
 
 test('the profile page loads the shared drawer and pill scripts the equipment pill needs', () => {
