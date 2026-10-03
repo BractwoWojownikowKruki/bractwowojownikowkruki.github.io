@@ -44,6 +44,8 @@ class Element {
   }
   reset() { this.value = ''; }
   focus() {}
+  scrollIntoView() {}
+  files: unknown[] = [];
   setAttribute() {}
   querySelector(selector: string) { return this.found.get(selector) ?? null; }
   found = new Map<string, unknown>();
@@ -53,12 +55,15 @@ class Element {
 const elementIds = [
   'sprzet-checking', 'signed-out-panel', 'forbidden-panel', 'main-content',
   'equipment-add-toggle', 'equipment-add-form', 'equipment-add-cancel', 'equipment-add-submit', 'equipment-add-error',
-  'equipment-add-editing-id', 'equipment-add-category', 'equipment-add-section',
+  'equipment-add-editing-id', 'equipment-add-category', 'equipment-add-section', 'equipment-add-section-wrap',
   'equipment-owner-mode-team', 'equipment-owner-mode-private', 'equipment-add-owner-wrap', 'equipment-add-owner',
   'equipment-owner-datalist', 'equipment-add-description',
   'equipment-team-table', 'equipment-team-table-body', 'equipment-private-table', 'equipment-private-table-body',
   'equipment-tables',
   'equipment-taxonomy-toggle', 'equipment-taxonomy', 'equipment-taxonomy-body',
+  'equipment-section-filter', 'equipment-section-filter-buttons',
+  'equipment-current-photos', 'equipment-main-photo', 'equipment-extra-photos', 'equipment-photo-preview', 'equipment-photo-progress',
+  'crop-modal', 'crop-target', 'crop-modal-error', 'crop-save', 'crop-cancel',
 ];
 
 const equipmentCategories = [{ id: 'namiot', label: 'Namiot', groupId: 'budowle', retired: false }];
@@ -69,7 +74,7 @@ const sections = [
 ];
 
 const teamItem = { id: 'eq-team-1', categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: null, description: 'Namiot 4-osobowy', createdAt: '2026-01-01T00:00:00.000Z', createdBy: 'ala@example.com', canEdit: true, canDelete: true };
-const privateItem = { id: 'eq-private-1', categoryId: 'namiot', sectionId: 'warszawa', belongsToPersonId: 'person-uuid-1', description: 'Namiot 2-osobowy', createdAt: '2026-01-01T00:00:00.000Z', createdBy: 'ala@example.com', canEdit: true, canDelete: true };
+const privateItem: Record<string, unknown> = { id: 'eq-private-1', categoryId: 'namiot', sectionId: 'warszawa', belongsToPersonId: 'person-uuid-1', description: 'Namiot 2-osobowy', createdAt: '2026-01-01T00:00:00.000Z', createdBy: 'ala@example.com', canEdit: true, canDelete: true };
 
 function createHarness() {
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
@@ -104,6 +109,7 @@ function createHarness() {
     Date,
     encodeURIComponent,
     window: {
+      location: { search: '' },
       confirm: () => true,
       alert: () => {},
       MutationFeedback: {
@@ -252,7 +258,7 @@ test('empty equipment lists render the "brak" placeholder row in each table', as
   assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /Brak sprzętu prywatnego/);
 });
 
-test('switching the add form to Prywatny reveals the owner field, and picking a known owner auto-fills and disables Sekcja', async () => {
+test('switching the add form to Prywatny reveals the owner field and hides Sekcja', async () => {
   const harness = createHarness();
   await harness.signIn();
   const ownerWrap = harness.elements.get('equipment-add-owner-wrap')!;
@@ -267,19 +273,18 @@ test('switching the add form to Prywatny reveals the owner field, and picking a 
   privateRadio.checked = true;
   await privateRadio.change();
   assert.equal(ownerWrap.hidden, false, 'switching to Prywatny reveals the owner field');
-  assert.equal(sectionSelect.disabled, false, 'Sekcja stays editable until an owner is actually picked');
+  const sectionWrap = harness.elements.get('equipment-add-section-wrap')!;
+  assert.equal(sectionWrap.hidden, true, 'Prywatny hides Sekcja - private equipment follows its owner');
+  assert.equal(sectionSelect.disabled, true, 'the hidden Sekcja is disabled so its `required` cannot block submit');
 
   ownerInput.value = 'Młody';
   await ownerInput.input();
-  assert.equal(sectionSelect.disabled, true, 'Sekcja is disabled once a known owner is picked');
-  assert.equal(sectionSelect.value, 'warszawa', "Sekcja auto-fills from the owner's own sectionId");
   const datalist = harness.elements.get('equipment-owner-datalist')!;
   assert.match(datalist.innerHTML, /Młody/, 'typing narrows the datalist to the matching candidate');
   assert.doesNotMatch(datalist.innerHTML, /Ala Kowalska/, 'typing narrows the datalist away from non-matching candidates');
 
   ownerInput.value = 'nikt taki';
   await ownerInput.input();
-  assert.equal(sectionSelect.disabled, false, 'an unresolved owner re-enables Sekcja');
   assert.equal(datalist.innerHTML, '', 'no match narrows the datalist down to nothing');
 
   ownerInput.value = '';
@@ -293,6 +298,7 @@ test('switching the add form to Prywatny reveals the owner field, and picking a 
   privateRadio.checked = false;
   await teamRadio.change();
   assert.equal(ownerWrap.hidden, true, 'switching back to Drużyna hides the owner field');
+  assert.equal(sectionWrap.hidden, false, 'switching back to Drużyna shows Sekcja again');
   assert.equal(sectionSelect.disabled, false, 'switching back to Drużyna re-enables Sekcja');
   assert.equal(ownerInput.value, '', 'switching back to Drużyna clears the owner field');
 });
@@ -314,6 +320,27 @@ test('adding a team item posts to /equipment with belongsToPersonId null and app
   const post = harness.apiCalls.find((call) => call.url === '/equipment' && call.options.method === 'POST');
   assert.deepEqual(JSON.parse(String(post?.options.body)), { categoryId: 'namiot', sectionId: 'krakow', description: 'Nowy namiot', belongsToPersonId: null });
   assert.match(harness.elements.get('equipment-team-table-body')!.innerHTML, /Nowy namiot/);
+});
+
+test('adding a private item sends sectionId null - private equipment follows its owner\'s section', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const privateRadio = harness.elements.get('equipment-owner-mode-private')!;
+  harness.elements.get('equipment-owner-mode-team')!.checked = false;
+  privateRadio.checked = true;
+  await privateRadio.change();
+  harness.elements.get('equipment-add-category')!.value = 'namiot';
+  const ownerInput = harness.elements.get('equipment-add-owner')!;
+  ownerInput.value = 'Młody';
+  await ownerInput.input();
+  harness.elements.get('equipment-add-description')!.value = 'Namiot Młodego';
+  harness.setMutationResult({ equipment: { id: 'eq-private-2', categoryId: 'namiot', sectionId: null, belongsToPersonId: 'person-uuid-1', description: 'Namiot Młodego', createdAt: '2026-01-02T00:00:00.000Z', createdBy: 'ala@example.com' } });
+
+  await harness.elements.get('equipment-add-form')!.submit();
+
+  const post = harness.apiCalls.find((call) => call.url === '/equipment' && call.options.method === 'POST');
+  assert.deepEqual(JSON.parse(String(post?.options.body)), { categoryId: 'namiot', sectionId: null, description: 'Namiot Młodego', belongsToPersonId: 'person-uuid-1' });
+  assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /title="Warszawa"/, "the new row shows the owner's section");
 });
 
 // Regression test (review finding, task-3 fix round): neither POST nor PUT /equipment's response
@@ -518,4 +545,151 @@ test('without a real "Inne" group, an "Inne" option stands in for no group', asy
   await harness.elements.get('equipment-taxonomy-toggle')!.click();
   const body = harness.elements.get('equipment-taxonomy-body')!.innerHTML;
   assert.match(body, /<option value="">Inne<\/option>/);
+});
+
+test('the taxonomy toggle sits in the header right after the "Dodaj sprzęt" button', () => {
+  const actions = /<div class="pliki-header-actions[^"]*">([\s\S]*?)<\/div>/.exec(indexHtml)![1];
+  assert.match(actions, /id="equipment-taxonomy-toggle"/);
+  assert.match(actions, /id="equipment-add-toggle">Dodaj sprzęt</);
+  assert.ok(actions.indexOf('equipment-add-toggle') < actions.indexOf('equipment-taxonomy-toggle'));
+});
+
+function filterButton(target: { dataset: Record<string, string> }) {
+  return { dataset: target.dataset, closest: (selector: string) => (selector === '[data-filter-section]' && target.dataset.filterSection ? target : selector === '[data-filter-clear]' && 'filterClear' in target.dataset ? target : null) };
+}
+
+test('the Filtry row renders "Wyczyść filtr" first, then one unpressed pill per section', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const html = harness.elements.get('equipment-section-filter-buttons')!.innerHTML;
+  assert.ok(html.indexOf('Wyczyść filtr') < html.indexOf('Kraków'));
+  assert.match(html, /data-filter-clear disabled>/, 'nothing to clear yet');
+  assert.match(html, /class="section-pill equipment-filter-pill" data-section="krakow" data-filter-section="krakow" aria-pressed="false">Kraków</);
+  assert.match(html, /data-filter-section="warszawa" aria-pressed="false">Warszawa</);
+  assert.match(harness.elements.get('equipment-team-table-body')!.innerHTML, /eq-team-1/);
+  assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /eq-private-1/);
+});
+
+test('pressing sections filters both tables, supports several at once, and "Wyczyść filtr" resets', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const buttons = harness.elements.get('equipment-section-filter-buttons')!;
+  const team = () => harness.elements.get('equipment-team-table-body')!.innerHTML;
+  const priv = () => harness.elements.get('equipment-private-table-body')!.innerHTML;
+
+  await buttons.clickWith(filterButton({ dataset: { filterSection: 'krakow' } }));
+  assert.match(team(), /eq-team-1/);
+  assert.doesNotMatch(priv(), /eq-private-1/);
+  assert.match(priv(), /Brak sprzętu prywatnego w wybranych sekcjach\./);
+  assert.match(buttons.innerHTML, /data-filter-section="krakow" aria-pressed="true"/);
+  assert.equal(harness.elements.get('equipment-section-filter')!.dataset.active, 'true');
+
+  await buttons.clickWith(filterButton({ dataset: { filterSection: 'warszawa' } }));
+  assert.match(team(), /eq-team-1/);
+  assert.match(priv(), /eq-private-1/);
+
+  await buttons.clickWith(filterButton({ dataset: { filterSection: 'krakow' } }));
+  assert.doesNotMatch(team(), /eq-team-1/);
+  assert.match(team(), /Brak sprzętu drużynowego w wybranych sekcjach\./);
+  assert.match(priv(), /eq-private-1/);
+
+  await buttons.clickWith(filterButton({ dataset: { filterClear: '' } }));
+  assert.match(team(), /eq-team-1/);
+  assert.match(priv(), /eq-private-1/);
+  assert.doesNotMatch(buttons.innerHTML, /aria-pressed="true"/);
+  assert.equal(harness.elements.get('equipment-section-filter')!.dataset.active, 'false');
+});
+
+test('private equipment is filtered by the owner\'s current section, not the one stored on the item', async () => {
+  const harness = createHarness();
+  const originalFetch = harness.context.apiFetch as (url: string, options?: Record<string, unknown>) => Promise<unknown>;
+  harness.context.apiFetch = async (url: string, options: Record<string, unknown> = {}) => {
+    if (url === '/lista-wyjazdowa/roster') {
+      // The owner moved to Kraków after the item was saved with sectionId 'warszawa'.
+      return { roster: [{ personId: 'person-uuid-1', accountless: true, email: null, lastName: 'Młody', firstName: '', nickname: null, sectionId: 'krakow', categoryId: 'kandydat' }] };
+    }
+    return originalFetch(url, options);
+  };
+  await harness.signIn();
+  const buttons = harness.elements.get('equipment-section-filter-buttons')!;
+  const privateBody = () => harness.elements.get('equipment-private-table-body')!.innerHTML;
+  assert.match(privateBody(), /data-section="krakow"[\s\S]*>KRK</, 'the S column shows the owner\'s current section too');
+  await buttons.clickWith(filterButton({ dataset: { filterSection: 'krakow' } }));
+  assert.match(privateBody(), /eq-private-1/);
+  await buttons.clickWith(filterButton({ dataset: { filterSection: 'krakow' } }));
+  await buttons.clickWith(filterButton({ dataset: { filterSection: 'warszawa' } }));
+  assert.doesNotMatch(harness.elements.get('equipment-private-table-body')!.innerHTML, /eq-private-1/);
+});
+
+test('filterEquipmentBySections returns everything for an empty selection', () => {
+  const harness = createHarness();
+  const filter = harness.context.filterEquipmentBySections as (items: unknown[], selected: Set<string>, sectionOf: (i: any) => string) => unknown[];
+  const items = [{ s: 'a' }, { s: 'b' }];
+  assert.equal(filter(items, new Set(), i => i.s), items);
+  assert.equal(filter(items, new Set(['b']), i => i.s).length, 1);
+});
+
+function pillTarget(equipmentId: string) {
+  return { closest: (selector: string) => (selector === '[data-equipment-trigger]' ? { dataset: { equipmentId } } : null) };
+}
+
+test('the Opis cell is a pill; clicking it opens the shared drawer with photos, labels and owner, without a request', async () => {
+  const harness = createHarness();
+  const opened: Array<Record<string, any>> = [];
+  (harness.context.window as Record<string, unknown>).ProfilePanel = { openEquipment: (view: Record<string, any>) => opened.push(view) };
+  await harness.signIn();
+  assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /data-equipment-trigger data-equipment-id="eq-private-1"><span class="category-name-pill equipment-pill">Namiot 2-osobowy</);
+
+  const photos = [{ id: 'p1', url: 'https://storage.example.test/a.jpg', path: 'equipment/eq-private-1/a.jpg' }];
+  privateItem.photos = photos;
+  try {
+    const callsBefore = harness.apiCalls.length;
+    await harness.elements.get('equipment-tables')!.clickWith(pillTarget('eq-private-1'));
+    assert.equal(harness.apiCalls.length, callsBefore);
+    assert.equal(opened.length, 1);
+    const view = opened[0];
+    assert.equal(view.description, 'Namiot 2-osobowy');
+    assert.deepEqual(view.photos, photos);
+    assert.equal(view.categoryLabel, 'Namiot');
+    assert.equal(view.groupLabel, 'Budowle');
+    assert.equal(view.sectionId, 'warszawa');
+    assert.match(view.ownerHtml, /data-profile-trigger/);
+    assert.equal(typeof view.onEdit, 'function');
+  } finally {
+    delete privateItem.photos;
+  }
+});
+
+test('photos picked in the add form upload after the item is saved, scaled to at most 1600 px, main photo first', async () => {
+  const harness = createHarness();
+  const canvases: Array<{ width: number; height: number }> = [];
+  Object.assign(harness.context, {
+    URL: { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} },
+    Image: class {
+      naturalWidth = 3200;
+      naturalHeight = 1600;
+      onload: (() => void) | null = null;
+      set src(_value: string) { queueMicrotask(() => this.onload?.()); }
+    },
+  });
+  (harness.context.document as Record<string, unknown>).createElement = () => {
+    const canvas = { width: 0, height: 0, getContext: () => ({ drawImage() {} }), toBlob: (cb: (blob: unknown) => void) => cb({ type: 'image/jpeg' }) };
+    canvases.push(canvas);
+    return canvas;
+  };
+  await harness.signIn();
+  harness.elements.get('equipment-add-category')!.value = 'namiot';
+  harness.elements.get('equipment-add-section')!.value = 'krakow';
+  const mainInput = harness.elements.get('equipment-main-photo')!;
+  mainInput.files = [{ name: 'namiot.jpg', type: 'image/jpeg' }];
+  await mainInput.change();
+  const saved = { id: 'eq-team-2', categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: null, description: '', createdAt: '2026-01-02T00:00:00.000Z', createdBy: 'ala@example.com' };
+  harness.setMutationResult({ equipment: saved });
+
+  await harness.elements.get('equipment-add-form')!.submit();
+
+  const mutations = harness.apiCalls.filter((call) => call.options.method === 'POST');
+  assert.deepEqual(mutations.map((call) => call.url), ['/equipment', '/equipment/photos?id=eq-team-2&mimeType=image%2Fjpeg&isMain=true']);
+  assert.deepEqual(canvases.map((c) => [c.width, c.height]), [[1600, 800]]);
+  assert.equal(harness.elements.get('equipment-add-error')!.hidden, true);
 });

@@ -26,6 +26,11 @@
  * their own "Emeryci" table below the main one instead of as ordinary rows in it. That table's
  * membership is the member's category ("Emeryt"), not their dues status - a non-emeryt hand-set
  * to not_applicable stays in the main table, and a paying emeryt stays in the Emeryci one.
+ *
+ * Wpisowe is three-state too (unpaid/paid/not_applicable, default not_applicable for "Bobo" -
+ * dues.ts's effectiveWpisoweStatus, resolved by the server as roster.wpisoweStatus). The Wpisowe
+ * view lists the unpaid ones in the main table and the not_applicable ones in a "Nie dotyczy"
+ * table below it (the Emeryci section, retitled), and its summary skips not_applicable the same way.
  */
 
 // Same escapeHtml/escapeAttr pair as wyjazd.js/profil.js/person-tile.js - the established pattern
@@ -94,16 +99,21 @@ function nameCellHtml(member, personIdAttr, categoryLabel) {
 // displayName(member) itself now lives in shared/display-name.js (included via index.html) - see
 // its own comment for the priority order and the email-typed-into-a-name-field edge case.
 
-// Wpisowe's plain paid/unpaid check/cross (member-area.css's .lw-skladka-icon, red/green
-// background from data-paid) - a plain <span> for members who can't manage składki (nothing to
+// Wpisowe's three-state check/cross/dash (member-area.css's .lw-skladka-icon, red/green/grey
+// background from data-status) - a plain <span> for members who can't manage składki (nothing to
 // click), an actual <button> otherwise. data-kind="wpisowe" is how the shared click handler below
-// tells this apart from rocznaIconHtml's three-state coin.
-function paidIconHtml(personIdAttr, paid, label) {
-  const glyph = paid ? '✓' : '✕';
+// tells this apart from rocznaIconHtml's coin.
+function wpisoweIconHtml(personIdAttr, status) {
+  const label = wpisoweStatusLabel(status);
+  const glyph = duesStatusGlyph(status);
   if (!canManageSkladki) {
-    return `<span class="lw-skladka-icon" data-paid="${paid}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">${glyph}</span>`;
+    return `<span class="lw-skladka-icon" data-status="${status}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">${glyph}</span>`;
   }
-  return `<button type="button" class="lw-skladka-icon" data-kind="wpisowe" data-person-id="${personIdAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">${glyph}</button>`;
+  return `<button type="button" class="lw-skladka-icon" data-kind="wpisowe" data-person-id="${personIdAttr}" data-status="${status}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">${glyph}</button>`;
+}
+
+function memberWpisoweStatus(member) {
+  return member.wpisoweStatus ?? 'unpaid';
 }
 
 // Składka roczna's third state (KRKG follow-up) - a member the club doesn't require this year's
@@ -121,16 +131,10 @@ function rocznaLabel(status) {
   return duesStatusLabel(selectedYear, status);
 }
 
-// Click-to-cycle order for the roczna coin (see the click handler below) - unpaid -> paid keeps
-// today's single-click "mark as paid" for the overwhelming common case unchanged; reaching
-// not_applicable by hand (or getting an emeryt from their default not_applicable to an actual
-// voluntary payment) takes one extra click either way, which is the much rarer path.
-const DUES_STATUS_CYCLE = ['unpaid', 'paid', 'not_applicable'];
-function nextDuesStatus(current) {
-  return DUES_STATUS_CYCLE[(DUES_STATUS_CYCLE.indexOf(current) + 1) % DUES_STATUS_CYCLE.length];
-}
+// Click-to-cycle order for both badges (see the click handler below) is shared/dues-status.js's
+// nextDuesStatus: unpaid -> paid -> not_applicable -> unpaid.
 
-// Same badge shape as paidIconHtml above, but three-coloured (green/red/grey via data-status,
+// Same badge shape as wpisoweIconHtml above, but three-coloured (green/red/grey via data-status,
 // member-area.css) instead of a plain boolean - not_applicable renders the same 💰 glyph so the
 // column stays visually uniform, only its background says "this member doesn't owe this at all".
 function rocznaIconHtml(personIdAttr, status) {
@@ -188,8 +192,7 @@ function clearError() {
 }
 
 // The checkmark goes right after control. A caller whose apply() removes control from the DOM
-// (markWpisowePaid, whenever toRemove is control itself or an ancestor of it) passes
-// fallbackAnchor 'toast' (or a still-connected element) for that case - MutationFeedback requires its feedback anchor to stay
+// passes fallbackAnchor 'toast' (or a still-connected element) for that case - MutationFeedback requires its feedback anchor to stay
 // isConnected after apply(), same reasoning as zarzadzanie-ludzmi.js's postMembershipTransition
 // anchoring to the table when apply() removes a row.
 function confirmedDuesMutation(control, execute, apply, fallbackAnchor = null, rollback) {
@@ -339,17 +342,12 @@ function renderSummary(roster, duesByPersonId) {
   let notApplicableCount = 0;
 
   for (const member of roster) {
-    let unpaid;
-    if (wpisoweMode) {
-      unpaid = !member.wpisowePaid;
-    } else {
-      const status = memberDuesStatus(member, duesByPersonId);
-      if (status === 'not_applicable') {
-        notApplicableCount += 1;
-        continue;
-      }
-      unpaid = status === 'unpaid';
+    const status = wpisoweMode ? memberWpisoweStatus(member) : memberDuesStatus(member, duesByPersonId);
+    if (status === 'not_applicable') {
+      notApplicableCount += 1;
+      continue;
     }
+    const unpaid = status === 'unpaid';
 
     countedTotal += 1;
     totalBySection.set(member.sectionId, (totalBySection.get(member.sectionId) ?? 0) + 1);
@@ -390,17 +388,16 @@ function renderSummary(roster, duesByPersonId) {
 
   const totalLine = wpisoweMode
     ? (unpaidTotal === 0
-      ? `Wpisowe: wszyscy opłacili ${unpaidBadgeHtml(0, roster.length)}`
-      : `Nieopłacone wpisowe: <strong>${unpaidTotal}</strong> z ${roster.length} osób.`)
+      ? `Wpisowe: wszyscy opłacili ${unpaidBadgeHtml(0, countedTotal)}`
+      : `Nieopłacone wpisowe: <strong>${unpaidTotal}</strong> z ${countedTotal} osób.`)
     : (unpaidTotal === 0
       ? `Składka ${selectedYear}: wszyscy opłacili ${unpaidBadgeHtml(0, countedTotal)}`
       : `Nieopłacona składka ${selectedYear}: <strong>${unpaidTotal}</strong> z ${countedTotal} osób.`);
 
-  // Only in roczna mode - wpisowe has no not_applicable state. Spelled out so the numbers above
-  // visibly add up (countedTotal + notApplicableCount === roster.length) rather than leaving an
-  // accountant to wonder why the total isn't the whole roster. Wpisowe deliberately absent from
-  // the year view entirely (KRKG-0074) - it has its own Wpisowe option in the select above.
-  const notApplicableLine = wpisoweMode || notApplicableCount === 0
+  // Spelled out so the numbers above visibly add up (countedTotal + notApplicableCount ===
+  // roster.length) rather than leaving an accountant to wonder why the total isn't the whole
+  // roster. Same for both modes - wpisowe has a not_applicable state too (Bobo by default).
+  const notApplicableLine = notApplicableCount === 0
     ? ''
     : `<p>Nie dotyczy: <strong>${notApplicableCount}</strong> z ${roster.length} osób.</p>`;
 
@@ -526,11 +523,12 @@ function renderTable(roster, duesByPersonId) {
   emeryciTable.querySelector('tbody').innerHTML = emeryciSorted.map(rowHtml).join('');
   emeryciSortState.refresh();
 
+  document.getElementById('skladki-emeryci-heading').textContent = 'Emeryci';
   document.getElementById('skladki-emeryci').hidden = emeryciRoster.length === 0;
 }
 
 // The "Wpisowe" option in the Składka: select (see WPISOWE_OPTION) - a flat list of everyone who
-// still owes wpisowe, sorted by join date (members.ts's approvedAt, the closest thing this
+// still owes wpisowe (plus, in the second table below, everyone it doesn't apply to), sorted by join date (members.ts's approvedAt, the closest thing this
 // codebase has to one) so the accountant chases the longest-standing debt first. A member with no
 // approvedAt yet (no members/{email} document, or one predating KRKG-0046) sorts to the end rather
 // than crashing a string compare against null. No "Wpisowe" caption anywhere in this table (column
@@ -538,54 +536,56 @@ function renderTable(roster, duesByPersonId) {
 // row would only cost the Nazwa column width without telling the reader anything new.
 function renderWpisoweList(roster) {
   cachedRoster = roster;
-  // Wpisowe has no not_applicable state, so the Emeryci table (KRKG-0074) never applies here -
-  // hide it in case the user switched over from a year view that had it visible.
-  document.getElementById('skladki-emeryci').hidden = true;
 
-  // Every row here is unpaid by definition (see the filter below), so unlike the year table above,
-  // there is no meaningful "sort by paid status" column - the icon column carries no data-sort-key.
-  const sortValue = (member) => {
-    switch (skladkiSortState.key) {
-      case 'name': return displayName(member);
-      case 'joined': return member.approvedAt ?? '';
-      default: return sectionLabel(member.sectionId);
-    }
-  };
-  const unpaid = roster
-    .filter((member) => !member.wpisowePaid)
-    .sort((a, b) => {
+  // Rows are picked by the status at render time. Clicking a badge cycles it in place (same as the
+  // roczna coin) without moving the row, so a misclick is undone with the next click; the row
+  // lands in its new table on the next reload or view switch.
+  const unpaidRoster = [];
+  const notApplicableRoster = [];
+  for (const member of roster) {
+    const status = memberWpisoweStatus(member);
+    if (status === 'unpaid') unpaidRoster.push(member);
+    else if (status === 'not_applicable') notApplicableRoster.push(member);
+  }
+
+  // Every main-table row is unpaid by definition, so unlike the year table above there is no
+  // meaningful "sort by paid status" column - the icon column carries no data-sort-key.
+  const sortedBy = (list, sortState) => {
+    const sortValue = (member) => {
+      switch (sortState.key) {
+        case 'name': return displayName(member);
+        case 'joined': return member.approvedAt ?? '';
+        default: return sectionLabel(member.sectionId);
+      }
+    };
+    return [...list].sort((a, b) => {
       // approvedAt sorts ascending-by-default as empty-string-last regardless of dir (a member
       // with no join date on record shouldn't jump to the front just because the direction flipped)
-      if (skladkiSortState.key === 'joined' && (!a.approvedAt || !b.approvedAt) && a.approvedAt !== b.approvedAt) {
+      if (sortState.key === 'joined' && (!a.approvedAt || !b.approvedAt) && a.approvedAt !== b.approvedAt) {
         return a.approvedAt ? -1 : 1;
       }
-      const cmp = compareValues(sortValue(a), sortValue(b), skladkiSortState.dir);
+      const cmp = compareValues(sortValue(a), sortValue(b), sortState.dir);
       if (cmp !== 0) return cmp;
       return compareValues(displayName(a), displayName(b), 'asc');
     });
+  };
 
-  const colCount = canManageSkladki ? 5 : 4;
-  const rows = unpaid.length === 0
-    ? `<tr><td colspan="${colCount}" class="czl-empty">Wszyscy członkowie mają opłacone wpisowe.</td></tr>`
-    : unpaid
-      .map((member) => {
-        const personIdAttr = escapeAttr(member.personId);
-        const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
-        return `
+  const rowHtml = (member) => {
+    const personIdAttr = escapeAttr(member.personId);
+    const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
+    return `
       <tr data-section="${escapeAttr(member.sectionId ?? '')}">
         <td class="czl-section-cell" title="${escapeAttr(sectionLabel(member.sectionId))}">${member.sectionId ? escapeHtml(sectionAbbr(member.sectionId)) : EMPTY}</td>
         <td class="lw-roster-name-cell">
           ${nameCellHtml(member, personIdAttr, categoryLabel)}
         </td>
         <td class="${member.approvedAt ? '' : 'czl-empty'}">${member.approvedAt ? escapeHtml(formatDate(member.approvedAt)) : EMPTY}</td>
-        <td>${paidIconHtml(personIdAttr, false, 'Wpisowe: nieopłacone')}</td>
+        <td>${wpisoweIconHtml(personIdAttr, memberWpisoweStatus(member))}</td>
         ${canManageSkladki ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.personId))}" title="Historia" aria-label="Historia wpisowego">${HISTORY_ICON}</a></td>` : ''}
       </tr>`;
-      })
-      .join('');
+  };
 
-  const table = document.getElementById('skladki-table');
-  table.querySelector('thead').innerHTML = `
+  const theadHtml = `
     <tr>
       <th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
       <th scope="col" class="lw-roster-name-cell" data-sort-key="name" aria-sort="none"><button type="button">Nazwa</button></th>
@@ -594,8 +594,25 @@ function renderWpisoweList(roster) {
       ${canManageSkladki ? '<th scope="col">Historia</th>' : ''}
     </tr>
   `;
+
+  const colCount = canManageSkladki ? 5 : 4;
+  const rows = unpaidRoster.length === 0
+    ? `<tr><td colspan="${colCount}" class="czl-empty">Wszyscy członkowie mają opłacone wpisowe.</td></tr>`
+    : sortedBy(unpaidRoster, skladkiSortState).map(rowHtml).join('');
+
+  const table = document.getElementById('skladki-table');
+  table.querySelector('thead').innerHTML = theadHtml;
   table.querySelector('tbody').innerHTML = rows;
   skladkiSortState.refresh();
+
+  // The year view's Emeryci section doubles as the "Nie dotyczy" table here - same layout under a
+  // different heading (renderTable sets it back to "Emeryci").
+  document.getElementById('skladki-emeryci-heading').textContent = 'Nie dotyczy';
+  const notApplicableTable = document.getElementById('skladki-emeryci-table');
+  notApplicableTable.querySelector('thead').innerHTML = theadHtml;
+  notApplicableTable.querySelector('tbody').innerHTML = sortedBy(notApplicableRoster, emeryciSortState).map(rowHtml).join('');
+  emeryciSortState.refresh();
+  document.getElementById('skladki-emeryci').hidden = notApplicableRoster.length === 0;
 }
 
 // Tracks the dueDate last loaded/rendered into the edit input, so saveYearFee can tell whether the
@@ -611,8 +628,7 @@ let lastLoadedYearFee = { note: null, dueDate: null };
 // The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety") - same
 // display/edit-panel pattern as wyjazd.js's renderSkladkaFee/saveSkladkaFee for its per-event fee.
 function renderYearFee(yearFee) {
-  // Wpisowe has no per-year rate note - it's a plain paid/unpaid fact (see paidIconHtml's comment)
-  // - so this whole panel has nothing to show while the "Wpisowe" option is selected.
+  // Wpisowe has no per-year rate note - it's a one-off due, not a yearly one - so this whole panel has nothing to show while the "Wpisowe" option is selected.
   const panel = document.getElementById('skladka-fee-panel');
   panel.hidden = wpisoweMode;
   if (wpisoweMode) return;
@@ -714,23 +730,26 @@ async function loadAndRender() {
   }
 }
 
-// Wpisowe's icon only ever appears for an unpaid member in the Wpisowe-only list (renderTable
-// dropped its Wpisowe column entirely in KRKG-0074), so marking it paid is a one-way action,
-// never a toggle back - undoing a mistake afterward means going to Zarządzanie ludźmi's own
-// Wpisowe column instead. toRemove is the element that should disappear from the DOM on success:
-// the whole <tr> in the Wpisowe-only list (every row there exists only because it's unpaid, so
-// the member simply drops off the list).
-async function markWpisowePaid(personId, control, toRemove) {
+// Same reversible three-stop click as toggleRoczna below. The row stays where it is (see
+// renderWpisoweList), and the cached roster is updated so the next re-render (sorting, summary)
+// already reflects the change.
+async function toggleWpisowe(personId, nextStatus, control) {
   clearError();
   try {
     await confirmedDuesMutation(control, () => apiFetch(
       `/lista-wyjazdowa/wpisowe?personId=${encodeURIComponent(personId)}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: true }) },
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: nextStatus }) },
       showReauth,
       hideReauth,
     ), () => {
-      toRemove.remove();
-    }, 'toast');
+      control.dataset.status = nextStatus;
+      control.textContent = duesStatusGlyph(nextStatus);
+      const label = wpisoweStatusLabel(nextStatus);
+      control.title = `${label} — kliknij, aby zmienić`;
+      control.setAttribute('aria-label', label);
+      const member = cachedRoster.find((m) => m.personId === personId);
+      if (member) member.wpisoweStatus = nextStatus;
+    });
   } catch (err) {
     showError(`Nie udało się zaktualizować wpisowego: ${err.message}`);
   }
@@ -762,10 +781,7 @@ document.getElementById('skladki-content').addEventListener('click', (e) => {
   if (!icon) return;
   const personId = icon.dataset.personId;
   if (icon.dataset.kind === 'wpisowe') {
-    // See markWpisowePaid's comment - always a one-way "mark paid" from either table, never a
-    // toggle back, so this confirms first regardless of which table is showing.
-    if (!window.confirm('Czy na pewno chcesz zaznaczyć, że wpisowe zostało opłacone?')) return;
-    markWpisowePaid(personId, icon, wpisoweMode ? icon.closest('tr') : icon);
+    toggleWpisowe(personId, nextDuesStatus(icon.dataset.status), icon);
   } else {
     toggleRoczna(personId, nextDuesStatus(icon.dataset.status), icon);
   }

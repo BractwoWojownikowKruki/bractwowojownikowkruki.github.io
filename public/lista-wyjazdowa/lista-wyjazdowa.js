@@ -250,7 +250,7 @@ async function quickAddNew(eventId, ownerPersonId, ksywka, lastName, firstName, 
 
 // KRKG-0102: saves the per-row edit panel's Nazwa/Data/Opis (diff-only body, same contract as the
 // detail page's saveEventDetails) and closes the panel on success. `event` is patched in place via
-// Object.assign rather than replaced outright, so attendingCount/viewerAttending/viewerSkladkaPaid
+// Object.assign rather than replaced outright, so attendingCount/viewerAttending/viewerSkladkaStatus
 // (summary fields the PUT response does not return) survive the update.
 async function saveEventEdit(eventId, idPrefix, control) {
   const errorEl = document.getElementById('events-error');
@@ -579,7 +579,7 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
         // only computed by the GET /events join against signups), so a brand-new event has none
         // signed up yet: fill them in here rather than rendering `undefined os.` until the next
         // loadEvents.
-        cachedEvents.push({ ...created, attendingCount: 0, viewerAttending: false, viewerSkladkaPaid: false });
+        cachedEvents.push({ ...created, attendingCount: 0, viewerAttending: false, viewerSkladkaStatus: 'unpaid' });
         form.reset();
         form.hidden = true;
         setListVisible(true);

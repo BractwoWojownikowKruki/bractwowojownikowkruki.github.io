@@ -1306,19 +1306,6 @@ main { padding: 1.25rem 1.5rem 3rem; }
   color: var(--accent);
 }
 
-.upload-reauth {
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  font-size: 13px;
-}
-
-.upload-reauth p {
-  margin-bottom: 0.75rem;
-  color: var(--text-muted);
-}
-
 .upload-success {
   margin-bottom: 1.5rem;
   padding: 1rem;
@@ -3608,3 +3595,48 @@ a.audyt-history-btn svg {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+
+/* Shared "zaloguj się ponownie" modal (auth.js) - shown on a step-up 401 from any page, above
+   everything else including the mutation toast. */
+.reauth-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 11000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.reauth-modal[hidden] { display: none; }
+
+.reauth-modal-dialog {
+  width: 100%;
+  max-width: 380px;
+  padding: 1.5rem;
+  border: 1px solid var(--border-hover);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.reauth-modal-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+  color: var(--gold);
+}
+
+.reauth-modal-prompt p { margin: 0 0 1rem; color: var(--text-muted); }
+.reauth-modal-prompt .reauth-modal-error { color: var(--accent); }
+
+.reauth-modal-button {
+  display: flex;
+  justify-content: center;
+  min-height: 40px;
+  margin-bottom: 1rem;
+}
+
+.reauth-modal-busy { margin: 0; color: var(--text-muted); }

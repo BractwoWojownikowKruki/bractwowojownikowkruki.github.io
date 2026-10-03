@@ -1204,6 +1204,16 @@ button.lw-skladka-icon:disabled {
   vertical-align: -0.02em;
 }
 
+/* Equipment pill (person-pill.js's equipmentPillHtml): a small, muted flat image icon beside the
+   Opis pill, so it reads as "tap to see the photos" without drawing the eye. */
+.equipment-photo-icon {
+  width: 0.95em;
+  height: 0.95em;
+  margin-left: 0.35rem;
+  vertical-align: -0.12em;
+  color: var(--text-muted);
+}
+
 /* The inline add-companion panel, rendered as a full-width row right under its member's row. */
 .lw-inline-form td {
   background: color-mix(in srgb, var(--gold) 6%, transparent) !important;
@@ -2297,6 +2307,77 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   border-color: var(--gold);
 }
 
+/* Three controls (Historia, "Dodaj sprzęt", "Edytuj grupy i kategorie") - let them wrap on a
+   phone instead of overflowing the page. */
+.equipment-header-actions {
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+/* "Filtry" row above the equipment tables: "Wyczyść filtr" plus one toggle per Sekcja - a larger
+   .section-pill in the section's own color. Pressed = white ring + checkmark; while any section is
+   pressed, the unpressed ones are dimmed so it is obvious which sections are being shown. */
+.equipment-section-filter {
+  margin-bottom: 1.5rem;
+}
+
+.equipment-section-filter-heading {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.equipment-section-filter-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.equipment-filter-clear {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--gold);
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85em;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.equipment-filter-clear:hover:not(:disabled) {
+  border-color: var(--gold);
+}
+
+.equipment-filter-clear:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.section-pill.equipment-filter-pill {
+  padding: 0.35rem 0.9rem;
+  font-size: 0.95em;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s, box-shadow 0.15s;
+}
+
+.equipment-filter-pill[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text);
+}
+
+.equipment-filter-pill[aria-pressed="true"]::before {
+  content: "✓";
+  margin-right: 0.35rem;
+}
+
+.equipment-section-filter[data-active="true"] .equipment-filter-pill[aria-pressed="false"] {
+  opacity: 0.45;
+}
+
+.equipment-section-filter[data-active="true"] .equipment-filter-pill[aria-pressed="false"]:hover {
+  opacity: 0.75;
+}
+
 .equipment-taxonomy {
   max-width: 42rem;
   margin-top: 1rem;
@@ -2371,4 +2452,83 @@ a.dashboard-widget:hover { border-color: var(--gold); }
 .equipment-taxonomy-row select:focus {
   border-color: var(--accent);
   outline: none;
+}
+
+/* Photo picker thumbnails (Mój profil, Sprzęt obozowy) - moved here from profil.css so both pages
+   share the same photo upload elements. */
+.lw-photo-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.lw-photo-thumb {
+  width: 120px;
+  text-align: center;
+}
+
+.lw-photo-thumb img {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+  background: var(--surface);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: block;
+}
+
+.lw-photo-thumb p {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0.35rem 0;
+}
+
+/* KRKG-0083: marks whichever approved photo is currently the public "main" one, in the same slot
+   a .lw-set-main-btn takes on every other approved thumbnail - so picking a new main always looks
+   like swapping a button for a badge, never like the button silently disappearing. */
+.lw-photo-thumb .lw-main-badge {
+  width: 100%;
+  padding: 6px 0;
+  margin: 0;
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lw-photo-thumb .lw-crop-btn {
+  width: 100%;
+  padding: 6px 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.lw-photo-thumb .lw-crop-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* KRKG-0070: delete button on a pending (not-yet-approved) photo thumbnail - same base look as
+   .lw-crop-btn, but its hover state reads as destructive rather than neutral.
+   KRKG-0083: same treatment for .lw-delete-public-btn, the equivalent delete button on an
+   already-approved photo. */
+.lw-photo-thumb .lw-delete-pending-btn:hover,
+.lw-photo-thumb .lw-delete-public-btn:hover {
+  border-color: var(--danger, #c0392b);
+  color: var(--danger, #c0392b);
+}
+
+.lw-photo-thumb .lw-delete-pending-btn:disabled,
+.lw-photo-thumb .lw-delete-public-btn:disabled,
+.lw-photo-thumb .lw-set-main-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

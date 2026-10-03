@@ -20,12 +20,9 @@
  * state instead of manual hidden-toggling.
  */
 
-function showReauth() {
-  document.getElementById('lw-reauth').hidden = false;
-}
-function hideReauth() {
-  document.getElementById('lw-reauth').hidden = true;
-}
+// apiFetch's opt-in for the shared reauth modal (auth.js) - nothing page-specific to show.
+function showReauth() {}
+function hideReauth() {}
 
 const panels = {
   checking: document.getElementById('profile-checking'),
@@ -253,23 +250,21 @@ document.getElementById('lw-current-submission').addEventListener('click', (e) =
 const CURRENT_YEAR = new Date().getFullYear();
 
 // Read-only wpisowe/składka roczna status shown right under the photo (KRKG-0047 follow-up) -
-// paid/unpaid is accountant/admin-only to change (see the Lista Wyjazdowa Składki page); this
-// just lets a member see their own current state without asking. Same .lw-skladka-icon
-// badge/glyph convention as lista-wyjazdowa/skladki/skladki.js's paidIconHtml (wpisowe as a
-// check/cross colored via member-area.css's data-paid rule, roczna as the same three-state
-// data-status coin as the profile drawer), but always a plain, unclickable <span> here - nothing
-// on this page can toggle it. duesStatus is the server-resolved value from GET
-// /lista-wyjazdowa/dues/mine (shared/dues-status.js explains why it is never re-derived here).
-function renderDuesStatus(wpisowePaid, duesStatus) {
+// status is accountant/admin-only to change (see the Lista Wyjazdowa Składki page); this just
+// lets a member see their own current state without asking. Same .lw-skladka-icon badge/glyph
+// convention as lista-wyjazdowa/skladki/skladki.js's wpisoweIconHtml/rocznaIconHtml (three-state
+// data-status), but always a plain, unclickable <span> here - nothing on this page can toggle it.
+// wpisoweStatus/duesStatus are the server-resolved values from GET /lista-wyjazdowa/dues/mine
+// (shared/dues-status.js explains why they are never re-derived here).
+function renderDuesStatus(wpisoweStatus, duesStatus) {
   const container = document.getElementById('lw-dues-status');
   const rocznaLabel = duesStatusLabel(CURRENT_YEAR, duesStatus);
-  // Wpisowe shows nothing at all once paid (KRKG-0047 follow-up, same as skladki.js's row) - this
-  // page is read-only anyway, so there's no control being hidden, just a settled fact with nothing
-  // left to say about it.
-  const wpisoweHtml = wpisowePaid ? '' : `
+  // Wpisowe shows only while it is still owed (KRKG-0047 follow-up) - paid or "nie dotyczy" is a
+  // settled fact with nothing left to say about it on this read-only page.
+  const wpisoweHtml = wpisoweStatus !== 'unpaid' ? '' : `
     <span class="lw-dues-status-item">
-      <span class="lw-skladka-icon" data-paid="false" aria-hidden="true">✕</span>
-      ${escapeHtml('Wpisowe: nieopłacone')}
+      <span class="lw-skladka-icon" data-status="unpaid" aria-hidden="true">${duesStatusGlyph('unpaid')}</span>
+      ${escapeHtml(wpisoweStatusLabel('unpaid'))}
     </span>
   `;
   container.innerHTML = `
@@ -622,6 +617,10 @@ function wireWeaponCheckboxes(container) {
 let equipmentItems = [];
 let equipmentCategories = [];
 let equipmentCategoryLabelById = new Map();
+let equipmentGroupLabelByCategoryId = new Map();
+let equipmentSectionLabelById = new Map();
+// personId (member = lowercased e-mail) -> roster entry, for the equipment drawer's owner/section.
+let equipmentOwnerById = new Map();
 
 // Pure filter (no DOM) so it can be unit-tested directly - same convention as
 // sprzet-obozowy.js's splitEquipmentByOwnership. belongsToPersonId is the canonical id space
@@ -638,13 +637,16 @@ function equipmentCategoryOptionsHtml() {
 
 function equipmentItemHtml(item) {
   const categoryLabel = equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
-  const description = item.description ? ` – ${escapeHtml(item.description)}` : '';
+  // The Opis is the pill that opens the equipment drawer; without one, the category itself is.
+  const description = item.description
+    ? `${escapeHtml(categoryLabel)} ${equipmentPillHtml(item)}`
+    : equipmentPillHtml(item, categoryLabel);
   const deleteButton = item.canDelete
     ? `<button type="button" class="person-equipment-delete" data-equipment-id="${escapeAttr(item.id)}">Usuń</button>`
     : '';
   return `
     <li class="person-equipment-item" data-equipment-id="${escapeAttr(item.id)}">
-      <span class="person-equipment-label">${escapeHtml(categoryLabel)}${description}</span>
+      <span class="person-equipment-label">${description}</span>
       ${deleteButton}
     </li>
   `;
@@ -672,7 +674,7 @@ function renderPersonEquipment(container, ownerId) {
   container.innerHTML = personEquipmentInnerHtml(equipmentForOwner(equipmentItems, ownerId));
 }
 
-async function addPersonEquipmentItem(container, ownerId, getSectionId, control) {
+async function addPersonEquipmentItem(container, ownerId, control) {
   const categoryId = container.querySelector('.person-equipment-category').value;
   const description = container.querySelector('.person-equipment-description').value.trim();
   if (!categoryId) return;
@@ -685,7 +687,7 @@ async function addPersonEquipmentItem(container, ownerId, getSectionId, control)
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ categoryId, description, belongsToPersonId: ownerId, sectionId: getSectionId() }),
+        body: JSON.stringify({ categoryId, description, belongsToPersonId: ownerId }),
       },
       showReauth,
       hideReauth,
@@ -716,15 +718,35 @@ async function deletePersonEquipmentItem(container, ownerId, itemId, control) {
   });
 }
 
-// `getSectionId` is a callback, not a captured value, so each call reads the owner's *current*
-// sectionId at the moment "Dodaj" is clicked (member.sectionId may change if the profile form is
-// re-saved; a companion row is entirely re-created by renderPersons/addPersonRow after every
-// person save, so its own closure is always fresh - see task-3-brief.md Step 3).
-function wireEquipmentMiniList(container, ownerId, getSectionId) {
+// Same drawer as on Sprzęt obozowy; editing (photos included) happens there, via ?edit=<id>.
+function equipmentPanelView(item) {
+  const owner = equipmentOwnerById.get(item.belongsToPersonId);
+  const sectionId = owner?.sectionId ?? item.sectionId;
+  return {
+    description: item.description,
+    photos: item.photos ?? [],
+    categoryLabel: equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId,
+    groupLabel: equipmentGroupLabelByCategoryId.get(item.categoryId) ?? '',
+    sectionId,
+    sectionLabel: equipmentSectionLabelById.get(sectionId) ?? sectionId,
+    ownerHtml: escapeHtml(owner ? displayName(owner) : item.belongsToPersonId),
+    editHref: `/sprzet-obozowy/?edit=${encodeURIComponent(item.id)}`,
+  };
+}
+
+// No sectionId is sent: private equipment follows its owner's current section (the server stores
+// null), so a later Sekcja change needs no equipment update.
+function wireEquipmentMiniList(container, ownerId) {
   container.addEventListener('click', (event) => {
+    const pill = event.target.closest('[data-equipment-trigger]');
+    if (pill) {
+      const item = equipmentItems.find((i) => i.id === pill.dataset.equipmentId);
+      if (item) window.ProfilePanel.openEquipment(equipmentPanelView(item));
+      return;
+    }
     const addBtn = event.target.closest('.person-equipment-add-btn');
     if (addBtn) {
-      addPersonEquipmentItem(container, ownerId, getSectionId, addBtn).catch((err) => {
+      addPersonEquipmentItem(container, ownerId, addBtn).catch((err) => {
         window.alert(`Nie udało się dodać sprzętu: ${err.message}`);
       });
       return;
@@ -919,6 +941,9 @@ async function initForm(lookupLists) {
   personLookupLists = lookupLists;
   equipmentCategories = lookupLists.equipmentCategories ?? [];
   equipmentCategoryLabelById = new Map(equipmentCategories.map((c) => [c.id, c.label]));
+  const equipmentGroupLabelById = new Map((lookupLists.equipmentGroups ?? []).map((g) => [g.id, g.label]));
+  equipmentGroupLabelByCategoryId = new Map(equipmentCategories.map((c) => [c.id, equipmentGroupLabelById.get(c.groupId) ?? '']));
+  equipmentSectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
   document.getElementById('add-person-row').addEventListener('click', () => addPersonRow(document.getElementById('persons-rows')));
 
   // Submit handling is wired unconditionally, before the member/profile prefetch below - so a
@@ -941,11 +966,15 @@ async function initForm(lookupLists) {
       form.lastName.value = savedMember.lastName;
       form.firstName.value = savedMember.firstName;
       form.nickname.value = savedMember.nickname ?? '';
-      // Keep the equipment mini-list's "current sectionId" in sync with a Sekcja change just
-      // saved here - the mini-list itself is unaffected by this submit (it saves independently,
-      // see wireEquipmentMiniList), but a fresh add right after this save must use the new value.
+      // Keep the default Sekcja for a newly added companion row in sync with a change just saved here.
+      const sectionChanged = ownerSectionId !== savedMember.sectionId;
       ownerSectionId = savedMember.sectionId;
       savedMemberName = `${savedMember.lastName} ${savedMember.firstName}`.trim();
+      // The server moves companions that were in the old section along with the owner, so
+      // re-read them - otherwise a stale row would send the old section back on its next save.
+      if (sectionChanged) {
+        loadPersons().catch((err) => console.error('Nie udało się odświeżyć osób towarzyszących', err));
+      }
 
       progressEl.hidden = true;
       submitBtn.disabled = false;
@@ -995,6 +1024,7 @@ async function initForm(lookupLists) {
   let member = null;
   let profile = null;
   let duesStatus = 'unpaid';
+  let wpisoweStatus = 'unpaid';
   let roster = [];
   let loadError = null;
   try {
@@ -1008,7 +1038,9 @@ async function initForm(lookupLists) {
     member = memberResponse.member;
     profile = profileResponse.profile;
     duesStatus = duesResponse.duesStatus;
+    wpisoweStatus = duesResponse.wpisoweStatus ?? 'unpaid';
     roster = rosterResponse.roster;
+    equipmentOwnerById = new Map(roster.map((person) => [person.personId, person]));
     equipmentItems = equipmentResponse.equipment;
   } catch (err) {
     loadError = err;
@@ -1039,10 +1071,10 @@ async function initForm(lookupLists) {
     }
   }
   if (!loadError) {
-    renderDuesStatus(profile?.wpisowePaid ?? false, duesStatus);
+    renderDuesStatus(wpisoweStatus, duesStatus);
     renderPersons(roster);
     wireWeaponCheckboxes(document.getElementById('weapons-checkboxes'));
-    wireEquipmentMiniList(document.getElementById('own-equipment'), viewerEmail.toLowerCase(), () => ownerSectionId);
+    wireEquipmentMiniList(document.getElementById('own-equipment'), viewerEmail.toLowerCase());
   }
 
   if (loadError) {
@@ -1060,7 +1092,7 @@ async function initForm(lookupLists) {
 }
 
 initGoogleSignIn({
-  buttonIds: ['google-signin-button', 'google-reauth-button'],
+  buttonIds: ['google-signin-button'],
   whoamiPath: '/wojownicy-upload/whoami',
   onSignedIn: async identity => {
     try {

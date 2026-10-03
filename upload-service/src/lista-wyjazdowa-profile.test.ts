@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
-import { getProfile, listAllProfiles, saveProfile, setWpisowePaid } from './lista-wyjazdowa-profile.ts';
+import { getProfile, listAllProfiles, saveProfile, setWpisoweStatus } from './lista-wyjazdowa-profile.ts';
 
 test('getProfile returns null when no record exists', async () => {
   const client = createInMemoryFirestoreClient();
@@ -57,9 +57,10 @@ test('saveProfile leaves fields it does not know about untouched', async () => {
 
 // Wpisowe is a club due, not a Lista Wyjazdowa feature - whether a member has ever filled in "Mój
 // profil" must not gate whether they can be marked as having paid it.
-test('setWpisowePaid creates a profile with empty weaponIds when none exists', async () => {
+test('setWpisoweStatus creates a profile with empty weaponIds when none exists', async () => {
   const client = createInMemoryFirestoreClient();
-  const created = await setWpisowePaid(client, 'ala@example.test', true, 'accountant@example.test');
+  const created = await setWpisoweStatus(client, 'ala@example.test', 'paid', 'accountant@example.test');
+  assert.equal(created.wpisoweStatus, 'paid');
   assert.equal(created.wpisowePaid, true);
   assert.deepEqual(created.weaponIds, []);
   assert.equal(created.updatedBy, 'accountant@example.test');
@@ -68,15 +69,25 @@ test('setWpisowePaid creates a profile with empty weaponIds when none exists', a
   assert.deepEqual(stored, created);
 });
 
-test('setWpisowePaid toggles paid, preserving weaponIds', async () => {
+test('setWpisoweStatus changes the status, preserving weaponIds', async () => {
   const client = createInMemoryFirestoreClient();
   await saveProfile(client, 'ala@example.test', {
     weaponIds: ['tarcza'],
   });
-  const updated = await setWpisowePaid(client, 'ala@example.test', true, 'accountant@example.test');
+  const updated = await setWpisoweStatus(client, 'ala@example.test', 'paid', 'accountant@example.test');
   assert.equal(updated?.wpisowePaid, true);
   assert.deepEqual(updated?.weaponIds, ['tarcza']);
   assert.equal(updated?.updatedBy, 'accountant@example.test');
+});
+
+test('setWpisoweStatus not_applicable keeps the legacy wpisowePaid false and survives a self-service save', async () => {
+  const client = createInMemoryFirestoreClient();
+  const set = await setWpisoweStatus(client, 'ala@example.test', 'not_applicable', 'accountant@example.test');
+  assert.equal(set.wpisoweStatus, 'not_applicable');
+  assert.equal(set.wpisowePaid, false);
+  const saved = await saveProfile(client, 'ala@example.test', { weaponIds: ['topor'] });
+  assert.equal(saved.wpisoweStatus, 'not_applicable');
+  assert.equal((await getProfile(client, 'ala@example.test'))?.wpisoweStatus, 'not_applicable');
 });
 
 test('listAllProfiles returns every profile with email populated from the doc id', async () => {

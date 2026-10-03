@@ -331,17 +331,15 @@ let currentIndex = -1;
 let photoUploaderByFileId = {};
 
 // GET /gallery-photos/uploaders requires the same kruki-group sign-in as the rest of this page
-// (KRKG-0031) - no-op reauth handlers rather than apiFetch's usual showReauthUI dance, since
-// attribution is a nice-to-have, not core to viewing the gallery: if the session has lapsed
-// mid-visit, this silently omits attribution (caught by the outer try/catch below) rather than
+// (KRKG-0031) - no reauth handlers, so a 401 just rejects instead of opening the reauth modal:
+// attribution is a nice-to-have, not core to viewing the gallery, so if the session has lapsed
+// mid-visit this silently omits attribution (caught by the outer try/catch below) rather than
 // interrupting the visitor with a reauth prompt just to show who uploaded a photo.
 async function fetchPhotoUploaders(folderId) {
   try {
     const { uploaders } = await apiFetch(
       `/gallery-photos/uploaders?folderId=${encodeURIComponent(folderId)}`,
       { method: 'GET' },
-      () => {},
-      () => {},
     );
     const byFileId = {};
     for (const entry of uploaders ?? []) byFileId[entry.fileId] = entry;
@@ -662,9 +660,7 @@ function route() {
 
 window.addEventListener('hashchange', route);
 
-// Reuses the page's own galerie-reauth prompt (see loadGalleries above) - a distinct
-// #delete-reauth-modal was referenced here previously but never existed in index.html, so a
-// reauth prompt during delete silently threw instead of showing anything.
+// Same opt-in as loadGalleries above - the reauth prompt itself is auth.js's shared modal.
 const showDeleteReauth = showGalerieReauth;
 const hideDeleteReauth = hideGalerieReauth;
 
@@ -812,13 +808,9 @@ function mapDiscoveredGallery(gallery) {
   };
 }
 
-function showGalerieReauth() {
-  document.getElementById('galerie-reauth').hidden = false;
-}
-
-function hideGalerieReauth() {
-  document.getElementById('galerie-reauth').hidden = true;
-}
+// apiFetch's opt-in for the shared reauth modal (auth.js) - nothing page-specific to show.
+function showGalerieReauth() {}
+function hideGalerieReauth() {}
 
 // GET /galleries requires kruki-group sign-in (KRKG-0031: galleries carry contributor/uploader
 // personal data, so this page is no longer public). data/albums.generated.json (the CI
@@ -874,11 +866,10 @@ document.getElementById('galerie-signin').hidden = true;
 document.getElementById('galerie-checking').hidden = false;
 
 // Replaces the old "sign-in only on demand, for deleting a gallery" flow - the whole page is
-// now behind the same kruki-group check (KRKG-0031), so galerie-reauth-button doubles as both
-// the initial gate's button and the later on-demand reauth prompt (for this fetch and for
-// delete/unregister, via handleDeleteGallery's own apiFetch call further up).
+// now behind the same kruki-group check (KRKG-0031). A later step-up (this fetch, or
+// delete/unregister via handleDeleteGallery) goes through auth.js's shared reauth modal.
 initGoogleSignIn({
-  buttonIds: ['galerie-google-signin-button', 'galerie-reauth-button'],
+  buttonIds: ['galerie-google-signin-button'],
   onSignedIn: () => {
     showGalerieMain();
     loadGalleries();

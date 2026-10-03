@@ -83,15 +83,18 @@ import {
   NOTIFIABLE_ROLES,
   MAX_REJECTION_REASON_LENGTH,
 } from './notifications.ts';
-import { getProfile, listAllProfiles, saveProfile, setProfileWeaponIds, setWpisowePaid, type ListaWyjazdowaProfileDoc, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
+import { getProfile, listAllProfiles, saveProfile, setProfileWeaponIds, setWpisoweStatus, type ListaWyjazdowaProfileDoc, type ProfileWritableFields } from './lista-wyjazdowa-profile.ts';
 // KRKG-0087: people without an account are real people on the roster, not entries inside a
 // member's profile - the roster below unions the two sources.
 import {
   applyPersonMerge,
   createPerson,
   detachPerson,
+  findCompanionsFollowingSection,
   getPerson,
+  listCompanionIds,
   listPersons,
+  moveCompanionsToSection,
   personDisplayName,
   planPersonMerge,
   resolvePersonId,
@@ -115,12 +118,12 @@ import {
   listSignupsForEvent,
   getSignup,
   saveSignup,
-  setSkladkaPaid,
+  setSkladkaStatus,
   type SignupDoc,
   type SignupWritableFields,
 } from './signups.ts';
 import { getGrantedRoles, getEffectiveRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, createRoleAuthorizer } from './roles.ts';
-import { listDuesForYear, saveDues, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, type DuesYearFeeWritableFields, getDues, normalizeDuesStatus, effectiveDuesStatus } from './dues.ts';
+import { listDuesForYear, saveDues, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, type DuesYearFeeWritableFields, getDues, normalizeDuesStatus, effectiveDuesStatus, effectiveWpisoweStatus, isDuesStatus, normalizeSkladkaStatus, type DuesStatus } from './dues.ts';
 import { buildSharedFileDoc, saveFileInTransaction, deleteFileInTransaction, getFileInTransaction, listFiles, InvalidFileUrlError, type SharedFileDoc } from './files.ts';
 import {
   buildEquipmentDoc,
@@ -130,8 +133,14 @@ import {
   deleteEquipmentInTransaction,
   getEquipmentInTransaction,
   listEquipment,
+  equipmentPhotos,
+  withPhotoAdded,
+  withMainPhoto,
+  saveEquipmentPhotosInTransaction,
   type EquipmentDoc,
+  type EquipmentPhoto,
 } from './equipment.ts';
+import { createGcsPhotoStorage, type PhotoStorage } from './storage.ts';
 import {
   getEventEquipment,
   listEventEquipmentForEvent,
@@ -245,6 +254,9 @@ export interface ServerDeps {
   // closed (503) rather than either booting unauthenticated or refusing to boot.
   auditReconcilerServiceAccountEmail?: string;
   auditReconcileAudience?: string;
+  // Cloud Storage bucket for equipment photos (storage.ts). Undefined until the bucket is
+  // provisioned (EQUIPMENT_PHOTOS_BUCKET unset) - the photo routes then fail closed with 503.
+  equipmentPhotoStorage?: PhotoStorage;
 }
 
 type MutationMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -305,6 +317,9 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   equipmentAdd: auditedRoute('POST', '/equipment', ['equipment.added']),
   equipmentUpdate: auditedRoute('PUT', '/equipment', ['equipment.updated']),
   equipmentDelete: auditedRoute('DELETE', '/equipment', ['equipment.deleted']),
+  equipmentPhotoAdd: auditedRoute('POST', '/equipment/photos', ['equipment.updated']),
+  equipmentPhotoDelete: auditedRoute('DELETE', '/equipment/photos', ['equipment.updated']),
+  equipmentPhotoMain: auditedRoute('PUT', '/equipment/photos/main', ['equipment.updated']),
   equipmentGroupAdd: auditedRoute('POST', '/equipment/groups', ['equipment.group.added']),
   equipmentGroupUpdate: auditedRoute('PUT', '/equipment/groups', ['equipment.group.updated']),
   equipmentGroupDelete: auditedRoute('DELETE', '/equipment/groups', ['equipment.group.deleted']),
@@ -927,6 +942,15 @@ async function handleListEquipment(req: IncomingMessage, res: ServerResponse, de
   sendJson(res, 200, { equipment: equipment.map((item) => ({ ...item, canEdit: true, canDelete: true })) });
 }
 
+// Drużynowy equipment carries its own section; prywatny equipment always stores null and follows
+// its owner's current section (sprzet-obozowy.js/wyjazd.js resolve it from the roster). A
+// sectionId sent for a prywatny item (e.g. by a page cached from before this change) is ignored
+// rather than rejected, so such a client keeps working.
+function readEquipmentSectionId(body: Record<string, unknown>, belongsToPersonId: string | null): string | null {
+  if (belongsToPersonId !== null) return null;
+  return requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
+}
+
 // Referential validation shared by handleAddEquipment/handleUpdateEquipment - design.md §5's
 // "categoryId i sectionId wymagane i muszą istnieć w odpowiednich lookup listach" requirement,
 // checked the same way parseMemberWritableFields/handleListaWyjazdowaPutProfile validate
@@ -939,12 +963,12 @@ async function handleListEquipment(req: IncomingMessage, res: ServerResponse, de
 async function validateEquipmentReferences(
   deps: ServerDeps,
   categoryId: string,
-  sectionId: string,
+  sectionId: string | null,
   belongsToPersonId: string | null,
 ): Promise<void> {
   const lookupLists = await getAllLookupLists(deps.firestore);
   requireKnownLookupId(lookupLists.equipmentCategories, categoryId, 'Wybrana kategoria nie istnieje.');
-  requireKnownLookupId(lookupLists.sections, sectionId, 'Wybrana sekcja nie istnieje.');
+  if (sectionId !== null) requireKnownLookupId(lookupLists.sections, sectionId, 'Wybrana sekcja nie istnieje.');
   if (belongsToPersonId !== null) {
     const target = await resolvePersonWriteTarget(deps, belongsToPersonId);
     if (!target.accountless) {
@@ -958,9 +982,9 @@ async function handleAddEquipment(req: IncomingMessage, res: ServerResponse, dep
   const identity = await deps.authenticate(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const categoryId = requireTrimmedString(body.categoryId, LW_MAX_NAME_LENGTH, 'Kategoria jest wymagana.');
-  const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
   const description = optionalTrimmedString(body.description, LW_MAX_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 500 znaków.') ?? '';
   const belongsToPersonId = body.belongsToPersonId == null ? null : requireTrimmedString(body.belongsToPersonId, LW_MAX_NAME_LENGTH, 'Nieprawidłowy właściciel.');
+  const sectionId = readEquipmentSectionId(body, belongsToPersonId);
   await validateEquipmentReferences(deps, categoryId, sectionId, belongsToPersonId);
   let doc: EquipmentDoc;
   try {
@@ -997,9 +1021,9 @@ async function handleUpdateEquipment(req: IncomingMessage, res: ServerResponse, 
   if (!id) throw new AuthError('Brak id.', 400);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const categoryId = requireTrimmedString(body.categoryId, LW_MAX_NAME_LENGTH, 'Kategoria jest wymagana.');
-  const sectionId = requireTrimmedString(body.sectionId, LW_MAX_NAME_LENGTH, 'Sekcja jest wymagana.');
   const description = optionalTrimmedString(body.description, LW_MAX_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 500 znaków.') ?? '';
   const belongsToPersonId = body.belongsToPersonId == null ? null : requireTrimmedString(body.belongsToPersonId, LW_MAX_NAME_LENGTH, 'Nieprawidłowy właściciel.');
+  const sectionId = readEquipmentSectionId(body, belongsToPersonId);
   await validateEquipmentReferences(deps, categoryId, sectionId, belongsToPersonId);
   const { result } = await executeDeclaredAuditedMutation(
     deps,
@@ -1034,7 +1058,7 @@ async function handleDeleteEquipment(req: IncomingMessage, res: ServerResponse, 
   const identity = await deps.authenticate(req, res);
   const id = url.searchParams.get('id');
   if (!id) throw new AuthError('Brak id.', 400);
-  await executeDeclaredAuditedMutation(
+  const { result: removedPhotos } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.equipmentDelete,
     'equipment.deleted',
@@ -1052,9 +1076,147 @@ async function handleDeleteEquipment(req: IncomingMessage, res: ServerResponse, 
         ],
       };
     },
-    async (tx) => deleteEquipmentInTransaction(tx, id),
+    async (tx) => {
+      const existing = await getEquipmentInTransaction(tx, id);
+      await deleteEquipmentInTransaction(tx, id);
+      return existing ? equipmentPhotos(existing) : [];
+    },
   );
+  // After the record is gone, nothing references these objects any more. Best-effort: a failed
+  // delete only leaves an orphaned file in the bucket, never a broken item on the page.
+  await deleteEquipmentPhotoObjects(deps, removedPhotos);
   sendJson(res, 200, { ok: true });
+}
+
+async function deleteEquipmentPhotoObjects(deps: ServerDeps, photos: EquipmentPhoto[]): Promise<void> {
+  if (!deps.equipmentPhotoStorage || photos.length === 0) return;
+  const storage = deps.equipmentPhotoStorage;
+  const results = await Promise.allSettled(photos.map((photo) => storage.delete(photo.path)));
+  for (const result of results) {
+    if (result.status === 'rejected') console.error('Nie udało się usunąć zdjęcia sprzętu z Cloud Storage:', result.reason);
+  }
+}
+
+const EQUIPMENT_PHOTO_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+function requireEquipmentPhotoStorage(deps: ServerDeps): PhotoStorage {
+  if (!deps.equipmentPhotoStorage) throw new AuthError('Przechowywanie zdjęć sprzętu nie jest jeszcze skonfigurowane.', 503);
+  return deps.equipmentPhotoStorage;
+}
+
+// Equipment photos (Cloud Storage, see storage.ts): any member who may edit an item may add,
+// remove and reorder its photos - same permission as handleUpdateEquipment. Photos are published
+// immediately (no admin approval, unlike person photos). The browser already scales/crops the
+// image (sprzet-obozowy.js), so the server only validates and stores it.
+async function handleAddEquipmentPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const storage = requireEquipmentPhotoStorage(deps);
+  const id = url.searchParams.get('id');
+  if (!id) throw new AuthError('Brak id.', 400);
+  const mimeType = url.searchParams.get('mimeType') || 'application/octet-stream';
+  const isMain = url.searchParams.get('isMain') === 'true';
+  requireAllowedMimeType(mimeType, EQUIPMENT_PHOTO_MIME_TYPES);
+  const existingBefore = await deps.firestore.runTransaction((tx) => getEquipmentInTransaction(tx, id));
+  if (!existingBefore) throw new AuthError('Sprzęt nie istnieje.', 404);
+  const photoId = randomUUID();
+  const path = `equipment/${id}/${photoId}.${extensionForMimeType(mimeType)}`;
+  const photoUrl = await storage.upload(path, mimeType, validatedUploadStream(req, deps.maxFileBytes, mimeType));
+  const photo: EquipmentPhoto = { id: photoId, url: photoUrl, path };
+  let result: EquipmentDoc;
+  try {
+    ({ result } = await executeDeclaredAuditedMutation(
+      deps,
+      AUDITED_MEMBER_MUTATION_ROUTES.equipmentPhotoAdd,
+      'equipment.updated',
+      async (tx) => {
+        const existing = await getEquipmentInTransaction(tx, id);
+        if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+        return {
+          actor: { email: identity.email },
+          resource: { kind: 'equipment', key: `equipment:${id}`, display: existing.description || existing.categoryId },
+          changes: [{ field: 'photoId', after: photoId }],
+        };
+      },
+      async (tx) => {
+        const existing = await getEquipmentInTransaction(tx, id);
+        if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+        let photos: EquipmentPhoto[];
+        try {
+          photos = withPhotoAdded(existing, photo, isMain);
+        } catch (err) {
+          if (err instanceof InvalidEquipmentError) throw new AuthError(err.message, 400);
+          throw err;
+        }
+        return saveEquipmentPhotosInTransaction(tx, existing, photos, identity.email);
+      },
+    ));
+  } catch (err) {
+    // The record was never updated, so the just-uploaded object is unreferenced.
+    await deleteEquipmentPhotoObjects(deps, [photo]);
+    throw err;
+  }
+  sendJson(res, 200, { equipment: result });
+}
+
+async function handleDeleteEquipmentPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const id = url.searchParams.get('id');
+  const photoId = url.searchParams.get('photoId');
+  if (!id || !photoId) throw new AuthError('Brak id lub photoId.', 400);
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentPhotoDelete,
+    'equipment.updated',
+    async (tx) => {
+      const existing = await getEquipmentInTransaction(tx, id);
+      if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'equipment', key: `equipment:${id}`, display: existing.description || existing.categoryId },
+        changes: [{ field: 'photoId', before: photoId }],
+      };
+    },
+    async (tx) => {
+      const existing = await getEquipmentInTransaction(tx, id);
+      if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+      const photos = equipmentPhotos(existing);
+      const removed = photos.find((p) => p.id === photoId);
+      if (!removed) throw new AuthError('Zdjęcie nie istnieje.', 404);
+      const updated = await saveEquipmentPhotosInTransaction(tx, existing, photos.filter((p) => p.id !== photoId), identity.email);
+      return { updated, removed };
+    },
+  );
+  await deleteEquipmentPhotoObjects(deps, [result.removed]);
+  sendJson(res, 200, { equipment: result.updated });
+}
+
+async function handleSetEquipmentMainPhoto(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticate(req, res);
+  const id = url.searchParams.get('id');
+  const photoId = url.searchParams.get('photoId');
+  if (!id || !photoId) throw new AuthError('Brak id lub photoId.', 400);
+  const { result } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.equipmentPhotoMain,
+    'equipment.updated',
+    async (tx) => {
+      const existing = await getEquipmentInTransaction(tx, id);
+      if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'equipment', key: `equipment:${id}`, display: existing.description || existing.categoryId },
+        changes: [{ field: 'photoId', before: equipmentPhotos(existing)[0]?.id ?? null, after: photoId }],
+      };
+    },
+    async (tx) => {
+      const existing = await getEquipmentInTransaction(tx, id);
+      if (!existing) throw new AuthError('Sprzęt nie istnieje.', 404);
+      const photos = withMainPhoto(existing, photoId);
+      if (!photos) throw new AuthError('Zdjęcie nie istnieje.', 404);
+      return saveEquipmentPhotosInTransaction(tx, existing, photos, identity.email);
+    },
+  );
+  sendJson(res, 200, { equipment: result });
 }
 
 // Camp-equipment taxonomy editor (Sprzęt obozowy -> "Edytuj grupy i kategorie"): lets any member
@@ -2994,12 +3156,18 @@ async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerRe
   const targetEmail = targetEmailParam ?? identity.email;
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const fields = await parseMemberWritableFields(deps, body);
+  const companionIds = await listCompanionIds(deps.firestore, targetEmail);
+  // Filled by the audit factory, which runs first in the same transaction attempt - every read
+  // (member, companions) happens there, before the writes below.
+  let existing: MemberDoc | null = null;
+  let followingCompanions: PersonDoc[] = [];
   const { result: member } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.tripMember,
     'profile.member.updated',
     async tx => {
-      const existing = await tx.getDoc<MemberDoc>('members', targetEmail.toLowerCase());
+      existing = await tx.getDoc<MemberDoc>('members', targetEmail.toLowerCase());
+      followingCompanions = await findCompanionsFollowingSection(tx, targetEmail, companionIds, existing?.sectionId, fields.sectionId);
       return {
         actor: { email: identity.email },
         resource: { kind: 'member', key: `member:${targetEmail.toLowerCase()}`, display: 'member' },
@@ -3008,10 +3176,15 @@ async function handleListaWyjazdowaPutMember(req: IncomingMessage, res: ServerRe
           { field: 'firstName', ...(existing ? { before: existing.firstName } : {}), after: fields.firstName },
           { field: 'nickname', ...(existing ? { before: existing.nickname } : {}), after: fields.nickname },
           { field: 'sectionId', ...(existing ? { before: existing.sectionId } : {}), after: fields.sectionId },
+          ...(followingCompanions.length ? [{ field: 'movedCompanions', after: followingCompanions.length }] : []),
         ],
       };
     },
-    tx => saveMember(tx, targetEmail, fields, identity.email),
+    async tx => {
+      const saved = await saveMember(tx, targetEmail, fields, identity.email, existing);
+      await moveCompanionsToSection(tx, followingCompanions, fields.sectionId, identity.email);
+      return saved;
+    },
   );
   sendJson(res, 200, { member });
 }
@@ -3044,6 +3217,7 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
   // name/section fields already showing.
   const hasMemberFields = body.lastName !== undefined || body.firstName !== undefined || body.nickname !== undefined || body.sectionId !== undefined;
   const fields = hasMemberFields ? await parseMemberWritableFields(deps, body) : undefined;
+  const companionIds = fields ? await listCompanionIds(deps.firestore, email) : [];
   let categoryId: string | null | undefined;
   if (body.categoryId !== undefined) {
     const categoryIdRaw = body.categoryId;
@@ -3065,12 +3239,17 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
     sendJson(res, 200, { member: existing });
     return;
   }
+  // Filled by the audit factory below, which runs first in the same transaction attempt.
+  let followingCompanions: PersonDoc[] = [];
   const { result: member } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.memberProfile,
     'profile.member.updated',
     async tx => {
       const current = await tx.getDoc<MemberDoc>('members', email.toLowerCase());
+      followingCompanions = fields
+        ? await findCompanionsFollowingSection(tx, email, companionIds, current?.sectionId, fields.sectionId)
+        : [];
       return {
         actor: { email: identity.email },
         resource: { kind: 'member', key: `member:${email.toLowerCase()}`, display: 'member' },
@@ -3080,6 +3259,7 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
             { field: 'firstName', before: current?.firstName ?? null, after: fields.firstName },
             { field: 'nickname', before: current?.nickname ?? null, after: fields.nickname },
             { field: 'sectionId', before: current?.sectionId ?? null, after: fields.sectionId },
+            ...(followingCompanions.length ? [{ field: 'movedCompanions', after: followingCompanions.length }] : []),
           ] : []),
           ...(categoryId !== undefined ? [{ field: 'category', before: current?.categoryId ?? null, after: categoryId }] : []),
           ...(hidden !== undefined ? [{ field: 'hidden', before: current?.hidden ?? false, after: hidden }] : []),
@@ -3101,6 +3281,7 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
         await setMemberHidden(tx, email, hidden, currentDoc);
         saved.hidden = hidden;
       }
+      if (fields) await moveCompanionsToSection(tx, followingCompanions, fields.sectionId, identity.email);
       return saved;
     },
   );
@@ -3415,7 +3596,7 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
     // Same visibility as the Lista Wyjazdowa Składki page itself (read-only for every signed-in
     // member, design.md §8/§9) - showing it again here in the shared profile drawer is not a new
     // exposure, just the same fact in a second place.
-    wpisowePaid: profile?.wpisowePaid ?? false,
+    wpisoweStatus: effectiveWpisoweStatus(profile, member?.categoryId ?? null),
     duesYear,
     duesStatus: effectiveDuesStatus(dues, member?.categoryId ?? null),
     ...editorCapabilities,
@@ -3425,7 +3606,7 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
 async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
-  // wpisowePaid is accountant/admin-only (design.md §7a) and is simply never read out of the
+  // wpisowePaid/wpisoweStatus are accountant/admin-only (design.md §7a) and are simply never read out of the
   // body here - saveProfile carries the stored value forward, so sending it has no effect.
   const fields: ProfileWritableFields = {
     weaponIds: requireArray(body.weaponIds, 'Lista broni ma nieprawidłowy format.').map((id) =>
@@ -3477,21 +3658,21 @@ async function handleListaWyjazdowaGetEvents(req: IncomingMessage, res: ServerRe
   const allSignups = await listAllSignups(deps.firestore);
   const attendingCountByEvent = new Map<string, number>();
   const viewerAttendingByEvent = new Set<string>();
-  const viewerSkladkaPaidByEvent = new Set<string>();
+  const viewerSkladkaStatusByEvent = new Map<string, DuesStatus>();
   const viewerEmail = identity.email.toLowerCase();
   for (const { data } of allSignups) {
     if (!data.attending) continue;
     attendingCountByEvent.set(data.eventId, (attendingCountByEvent.get(data.eventId) ?? 0) + 1);
     if (data.memberEmail === viewerEmail) {
       viewerAttendingByEvent.add(data.eventId);
-      if (data.skladkaPaid) viewerSkladkaPaidByEvent.add(data.eventId);
+      viewerSkladkaStatusByEvent.set(data.eventId, normalizeSkladkaStatus(data));
     }
   }
   const withSummary = events.map((e) => ({
     ...e,
     attendingCount: attendingCountByEvent.get(e.id) ?? 0,
     viewerAttending: viewerAttendingByEvent.has(e.id),
-    viewerSkladkaPaid: viewerSkladkaPaidByEvent.has(e.id),
+    viewerSkladkaStatus: viewerSkladkaStatusByEvent.get(e.id) ?? 'unpaid',
   }));
   sendJson(res, 200, { events: withSummary });
 }
@@ -3776,11 +3957,11 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       sectionId: member?.sectionId ?? null,
       categoryId: member?.categoryId ?? null,
       weaponIds: profile?.weaponIds ?? [],
-      // wpisowePaid is independent of whether the member has ever filled in "Mój profil" -
-      // setWpisowePaid (lista-wyjazdowa-profile.ts) creates a profile document with empty
+      // wpisoweStatus is independent of whether the member has ever filled in "Mój profil" -
+      // setWpisoweStatus (lista-wyjazdowa-profile.ts) creates a profile document with empty
       // weaponIds on first use if none exists yet, so there is no "no
       // profile to record this on" case left to distinguish here.
-      wpisowePaid: profile?.wpisowePaid ?? false,
+      wpisoweStatus: effectiveWpisoweStatus(profile, member?.categoryId ?? null),
       // Current-year składka roczna status (KRKG-0074, see the listDuesForYear fetch above) -
       // the event page's roster badge reads only this, never the raw dues docs.
       duesStatus: effectiveDuesStatus(duesByEmail.get(email) ?? null, member?.categoryId ?? null),
@@ -3815,7 +3996,7 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       sectionId: person.sectionId,
       categoryId: person.categoryId,
       weaponIds: person.weaponIds,
-      wpisowePaid: profile?.wpisowePaid ?? false,
+      wpisoweStatus: effectiveWpisoweStatus(profile, person.categoryId),
       duesStatus: effectiveDuesStatus(duesByEmail.get(person.personId) ?? null, person.categoryId),
       approvedAt: null,
     };
@@ -3876,7 +4057,7 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
       pendingPhotos: [],
       published: false,
       description: null,
-      wpisowePaid: profile?.wpisowePaid ?? false,
+      wpisoweStatus: effectiveWpisoweStatus(profile, person.categoryId),
       duesStatus: effectiveDuesStatus(dues, person.categoryId),
       duesYear: year,
       ...editorCapabilities,
@@ -3956,6 +4137,15 @@ async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerRe
   });
 }
 
+// Wpisowe and a trip's składka take the same three-state body as PUT /dues ({ status }). The old
+// boolean { paid } body is still accepted (true -> paid, false -> unpaid) for a client that has
+// not reloaded since the change.
+function requireDuesStatusBody(body: Record<string, unknown>): DuesStatus {
+  if (isDuesStatus(body.status)) return body.status;
+  if (body.status === undefined && typeof body.paid === 'boolean') return body.paid ? 'paid' : 'unpaid';
+  throw new AuthError('Pole status musi być jednym z: unpaid, paid, not_applicable.', 400);
+}
+
 async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   await requireSkladkiAccess(req, res, deps, identity.email);
@@ -3965,8 +4155,7 @@ async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: Ser
   if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
   const target = await resolvePersonWriteTarget(deps, personIdParam);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
-  if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
-  const paid = body.paid;
+  const status = requireDuesStatusBody(body);
   const { result: signup } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.signupFee,
@@ -3979,12 +4168,12 @@ async function handleListaWyjazdowaPutSkladkaPaid(req: IncomingMessage, res: Ser
         resource: { kind: 'signup', key: `signup:${eventId}:${target.personId}`, display: target.display },
         changes: [
           { field: 'memberEmail', after: target.personId },
-          { field: 'paid', before: existing.skladkaPaid, after: paid },
+          { field: 'status', before: normalizeSkladkaStatus(existing), after: status },
         ],
       };
     },
     async tx => {
-      const updated = await setSkladkaPaid(tx, eventId, target.personId, paid, identity.email);
+      const updated = await setSkladkaStatus(tx, eventId, target.personId, status, identity.email);
       if (!updated) throw new AuthError('Ta osoba nie jest zapisana na ten wyjazd.', 404);
       return updated;
     },
@@ -3999,10 +4188,9 @@ async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerR
   if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
   const target = await resolvePersonWriteTarget(deps, personIdParam);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
-  if (typeof body.paid !== 'boolean') throw new AuthError('Pole paid jest wymagane (true/false).', 400);
-  const paid = body.paid;
+  const status = requireDuesStatusBody(body);
   // Wpisowe is a club due, not a Lista Wyjazdowa feature - whether this person has ever filled in
-  // "Mój profil" must not gate whether they can be marked as having paid it (setWpisowePaid
+  // "Mój profil" must not gate whether they can be marked as having paid it (setWpisoweStatus
   // upserts a profile with empty weaponIds if none exists yet).
   const { result: profile } = await executeDeclaredAuditedMutation(
     deps,
@@ -4010,6 +4198,9 @@ async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerR
     'dues.entry_fee.changed',
     async tx => {
       const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', target.personId);
+      const categoryId = target.accountless
+        ? ((await tx.getDoc<{ categoryId?: string | null }>('persons', target.personId))?.categoryId ?? null)
+        : ((await tx.getDoc<{ categoryId?: string | null }>('members', target.personId))?.categoryId ?? null);
       return {
         actor: { email: identity.email },
         // Same resource key as składka roczna below (due:{personId}, no :entry_fee/:{year} suffix) -
@@ -4017,10 +4208,10 @@ async function handleListaWyjazdowaPutWpisowe(req: IncomingMessage, res: ServerR
         // page's single combined history button. The action field (dues.entry_fee.changed vs
         // dues.annual.changed) already tells the two apart in that timeline.
         resource: { kind: 'due', key: `due:${target.personId}`, display: target.display },
-        changes: [{ field: 'paid', ...(existing ? { before: existing.wpisowePaid } : {}), after: paid }],
+        changes: [{ field: 'status', before: effectiveWpisoweStatus(existing, categoryId), after: status }],
       };
     },
-    tx => setWpisowePaid(tx, target.personId, paid, identity.email),
+    tx => setWpisoweStatus(tx, target.personId, status, identity.email),
   );
   sendJson(res, 200, { profile });
 }
@@ -4053,11 +4244,18 @@ async function handleListaWyjazdowaGetDues(req: IncomingMessage, res: ServerResp
 async function handleListaWyjazdowaGetMyDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const year = requireYear(url.searchParams.get('year'), 'Nieprawidłowy rok.');
-  const [dues, member] = await Promise.all([
+  const [dues, member, profile] = await Promise.all([
     getDues(deps.firestore, identity.email, year),
     getMember(deps.firestore, identity.email),
+    getProfile(deps.firestore, identity.email),
   ]);
-  sendJson(res, 200, { dues, duesStatus: effectiveDuesStatus(dues, member?.categoryId ?? null) });
+  sendJson(res, 200, {
+    dues,
+    duesStatus: effectiveDuesStatus(dues, member?.categoryId ?? null),
+    // Same resolved wpisowe status as the roster and the profile drawer (Bobo default included) -
+    // Mój profil and the dashboard read it from here rather than from the raw profile document.
+    wpisoweStatus: effectiveWpisoweStatus(profile, member?.categoryId ?? null),
+  });
 }
 
 async function handleListaWyjazdowaPutDues(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
@@ -5529,6 +5727,12 @@ export function createRequestListener(deps: ServerDeps) {
         await handleUpdateEquipment(req, res, url, deps);
       } else if (req.method === 'DELETE' && url.pathname === '/equipment') {
         await handleDeleteEquipment(req, res, url, deps);
+      } else if (req.method === 'POST' && url.pathname === '/equipment/photos') {
+        await handleAddEquipmentPhoto(req, res, url, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/equipment/photos') {
+        await handleDeleteEquipmentPhoto(req, res, url, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/equipment/photos/main') {
+        await handleSetEquipmentMainPhoto(req, res, url, deps);
       } else if (req.method === 'POST' && url.pathname === '/equipment/groups') {
         await handleAddEquipmentGroup(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/equipment/groups') {
@@ -5826,6 +6030,7 @@ async function startProductionServer(): Promise<void> {
     listAdminAllowlistEmails: () => adminAllowlist.getEmails(),
     auditReconcilerServiceAccountEmail: config.auditReconcilerServiceAccountEmail,
     auditReconcileAudience: config.auditReconcileAudience,
+    equipmentPhotoStorage: config.equipmentPhotosBucket ? createGcsPhotoStorage(config.equipmentPhotosBucket) : undefined,
   };
   const server = createServer(createRequestListener(productionDeps));
   server.listen(config.port, () => {

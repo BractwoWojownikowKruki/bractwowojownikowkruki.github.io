@@ -127,29 +127,10 @@
 
   // Identity/weapons saves go through authenticateAdminOrHovdingWithStepUp (server.ts), which
   // needs a *fresh* sign-in (30-minute window) on top of the ordinary session - a step-up 401
-  // mid-edit is expected, not exceptional. Several host pages that embed this drawer
-  // (lista-wyjazdowa.js/wyjazd.js/skladki.js/czlonkowie.js) only ever declared a no-op
-  // window.showReauth "for now" (their own comments say so), and pliki.js/sprzet-obozowy.js never
-  // declared one at all - so delegating to window.showReauth left apiFetch's reauth prompt with
-  // no button to click, silently hanging the save forever with no error and no confirmation. The
-  // drawer now renders its own Google Sign-In button into the reauth banner above, so a step-up
-  // works regardless of what (if anything) the host page wired up. This only needs
-  // window.google.accounts.id.initialize() to have already run, which every one of those pages
-  // already does via its own initGoogleSignIn call before a signed-in viewer could ever open this
-  // drawer in the first place.
-  function drawerShowReauth() {
-    const { reauth, reauthButton } = els;
-    reauth.hidden = false;
-    reauth.scrollIntoView({ block: 'center' });
-    if (window.google?.accounts?.id && !reauthButton.dataset.rendered) {
-      window.google.accounts.id.renderButton(reauthButton, { type: 'standard', text: 'signin_with', locale: 'pl' });
-      reauthButton.dataset.rendered = 'true';
-    }
-  }
-
-  function drawerHideReauth() {
-    els.reauth.hidden = true;
-  }
+  // mid-edit is expected. Passing these to apiFetch opts into auth.js's shared reauth modal,
+  // which works regardless of what (if anything) the host page wired up.
+  function drawerShowReauth() {}
+  function drawerHideReauth() {}
 
   function identityDraft(profile) {
     return {
@@ -221,7 +202,7 @@
   // editor panel.
   function profileDuesFormHtml(profile) {
     if (!profile.editor?.canEditDues) return '';
-    const entryFeeDraft = editorState.drafts.entryFee ?? { paid: Boolean(profile.wpisowePaid) };
+    const entryFeeDraft = editorState.drafts.entryFee ?? { status: profile.wpisoweStatus ?? 'unpaid' };
     const annualDuesDraft = editorState.drafts.annualDues ?? { status: profile.duesStatus ?? 'unpaid' };
     const error = editorState.errors.entryFee ?? editorState.errors.annualDues;
     const errorHtml = error
@@ -230,7 +211,11 @@
     return `<section class="profile-dues-section">
       <form class="profile-dues-form" data-profile-section="dues">
         <fieldset><legend>Składki</legend>
-          <label class="profile-dues-option"><input type="checkbox" name="wpisowePaid"${entryFeeDraft.paid ? ' checked' : ''}> Wpisowe opłacone</label>
+          <label>Wpisowe
+            <select name="wpisoweStatus">
+              ${['unpaid', 'paid', 'not_applicable'].map((status) => `<option value="${status}"${entryFeeDraft.status === status ? ' selected' : ''}>${WPISOWE_STATUS_LABELS[status]}</option>`).join('')}
+            </select>
+          </label>
           <button type="button" class="add-album-submit profile-dues-save" data-profile-dues-save="wpisowe">Zapisz wpisowe</button>
           <label>Składka ${escapeHtml(profile.duesYear)}
             <select name="duesStatus">
@@ -275,10 +260,6 @@
         <div class="profile-drawer-panel" role="dialog" aria-label="Profil użytkownika">
           <button type="button" class="profile-drawer-close" aria-label="Zamknij">✕</button>
           <div class="profile-drawer-status" aria-live="polite"></div>
-          <div class="profile-drawer-reauth" hidden role="alert">
-            <p>Aby zapisać zmiany, zaloguj się ponownie.</p>
-            <div class="profile-drawer-reauth-button"></div>
-          </div>
           <div class="profile-drawer-content"></div>
         </div>
       </div>
@@ -296,8 +277,6 @@
       // without scrolling (same "anchor outside what gets rebuilt" fix as KRKG-0102's
       // event-edit-toggle anchor in wyjazd.js).
       status: drawer.querySelector('.profile-drawer-status'),
-      reauth: drawer.querySelector('.profile-drawer-reauth'),
-      reauthButton: drawer.querySelector('.profile-drawer-reauth-button'),
       close: drawer.querySelector('.profile-drawer-close'),
       backdrop: drawer.querySelector('.profile-drawer-backdrop'),
     };
@@ -432,7 +411,7 @@
       : '';
     // Same visibility as the Lista Wyjazdowa Składki page itself (read-only for every signed-in
     // member) - GET /member-profile always includes these fields now, see server.ts's
-    // handleMemberProfile. Same check/cross + coin convention as skladki.js's paidIconHtml, and the
+    // handleMemberProfile. Same check/cross + coin convention as skladki.js's wpisoweIconHtml, and the
     // same three-state roczna status (data-status, grey "nie dotyczy") as its rocznaIconHtml -
     // server.ts's effectiveDuesStatus already resolves an emeryt-with-no-record to
     // 'not_applicable' before this ever sees it, so no category check is needed here. Labels come
@@ -440,8 +419,8 @@
     const duesStatusHtml = `
       <div class="lw-dues-status">
         <span class="lw-dues-status-item">
-          <span class="lw-skladka-icon" data-paid="${profile.wpisowePaid}" aria-hidden="true">${profile.wpisowePaid ? '✓' : '✕'}</span>
-          Wpisowe: ${profile.wpisowePaid ? 'opłacone' : 'nieopłacone'}
+          <span class="lw-skladka-icon" data-status="${escapeHtml(profile.wpisoweStatus ?? 'unpaid')}" aria-hidden="true">${duesStatusGlyph(profile.wpisoweStatus)}</span>
+          ${escapeHtml(wpisoweStatusLabel(profile.wpisoweStatus))}
         </span>
         <span class="lw-dues-status-item">
           <span class="lw-skladka-icon" data-status="${profile.duesStatus}" aria-hidden="true">💰</span>
@@ -532,7 +511,6 @@
 
   function handleProfileDrawerError(err) {
     if (err.status === 401 || err.status === 403) {
-      if (err.status === 401) drawerShowReauth();
       closeDrawer();
       return true;
     }
@@ -708,7 +686,7 @@
   }
 
   function updateDuesDraft(form) {
-    editorState.drafts.entryFee = { paid: form.elements.wpisowePaid.checked };
+    editorState.drafts.entryFee = { status: form.elements.wpisoweStatus.value };
     editorState.drafts.annualDues = { status: form.elements.duesStatus.value };
   }
 
@@ -863,5 +841,63 @@
     if (e.key === 'Escape' && els && !els.drawer.hidden) closeDrawer();
   });
 
-  window.ProfilePanel = { open };
+  // Equipment drawer: the same drawer, photo layout (.person-main-photo/.person-gallery) and
+  // lightbox as a person's profile, filled from data the host page already has (the /equipment
+  // list carries every photo URL), so opening it costs no request. `view` is
+  // { description, photos: [{url}], categoryLabel, groupLabel, sectionId, sectionLabel,
+  //   ownerHtml, editHref?, onEdit? } - the first photo is the main one.
+  let equipmentEditHandler = null;
+
+  function renderEquipment(view) {
+    const [mainPhoto, ...extraPhotos] = view.photos ?? [];
+    const title = view.description || view.categoryLabel || 'Sprzęt';
+    const mainHtml = mainPhoto
+      ? `<div class="person-main-photo" data-photo-index="0"><img src="${escapeHtml(mainPhoto.url)}" alt="${escapeHtml(title)}" /></div>`
+      : '';
+    const galleryHtml = extraPhotos.length
+      ? `<div class="person-gallery">${extraPhotos
+          .map((p, i) => `<img src="${escapeHtml(p.url)}" alt="" loading="lazy" data-photo-index="${i + 1}" />`)
+          .join('')}</div>`
+      : '';
+    const editHtml = view.onEdit
+      ? `<button type="button" class="lw-edit-toggle profile-editor-edit" data-equipment-panel-edit>${EDIT_PENCIL_ICON}<span>Edytuj</span></button>`
+      : view.editHref
+        ? `<a class="lw-edit-toggle profile-editor-edit" href="${escapeHtml(view.editHref)}">${EDIT_PENCIL_ICON}<span>Edytuj</span></a>`
+        : '';
+    return `
+      ${mainHtml}
+      ${galleryHtml}
+      <h3>${escapeHtml(title)}</h3>
+      <dl class="profile-fields">
+        <dt>Właściciel</dt><dd>${view.ownerHtml ?? 'Drużyna'}</dd>
+        ${view.groupLabel ? `<dt>Grupa</dt><dd>${escapeHtml(view.groupLabel)}</dd>` : ''}
+        ${view.categoryLabel ? `<dt>Kategoria</dt><dd>${escapeHtml(view.categoryLabel)}</dd>` : ''}
+        ${view.sectionLabel ? `<dt>Sekcja</dt><dd><span class="section-pill" data-section="${escapeHtml(view.sectionId ?? '')}">${escapeHtml(view.sectionLabel)}</span></dd>` : ''}
+      </dl>
+      ${editHtml ? `<div class="profile-editor-toggle-row">${editHtml}</div>` : ''}
+    `;
+  }
+
+  function openEquipment(view) {
+    lastFocused = document.activeElement;
+    const { drawer, content, close } = ensureDrawer();
+    // A person profile may have been open before - its editor state must not apply here.
+    editorState.profile = null;
+    editorState.target = null;
+    currentPhotos = view.photos ?? [];
+    equipmentEditHandler = view.onEdit ?? null;
+    content.innerHTML = renderEquipment(view);
+    drawer.hidden = false;
+    close.focus();
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('[data-equipment-panel-edit]') || !equipmentEditHandler) return;
+    const handler = equipmentEditHandler;
+    lastFocused = null;
+    closeDrawer();
+    handler();
+  });
+
+  window.ProfilePanel = { open, openEquipment, close: closeDrawer };
 })();

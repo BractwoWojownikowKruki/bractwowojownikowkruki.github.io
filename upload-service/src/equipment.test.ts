@@ -44,6 +44,18 @@ test('validateEquipmentFields rejects an over-long description', () => {
   );
 });
 
+test('validateEquipmentFields: private equipment has no section of its own', () => {
+  assert.doesNotThrow(() => validateEquipmentFields({ categoryId: 'namiot', sectionId: null, belongsToPersonId: 'ala@example.com', description: '' }));
+  assert.throws(
+    () => validateEquipmentFields({ categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: 'ala@example.com', description: '' }),
+    InvalidEquipmentError,
+  );
+  assert.throws(
+    () => validateEquipmentFields({ categoryId: 'namiot', sectionId: null, belongsToPersonId: null, description: '' }),
+    InvalidEquipmentError,
+  );
+});
+
 test('save/get/update/delete round-trip in a transaction', async () => {
   const client = createInMemoryFirestoreClient();
   const doc = buildEquipmentDoc({ categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: null, description: 'a' }, 'a@b.com');
@@ -53,10 +65,11 @@ test('save/get/update/delete round-trip in a transaction', async () => {
   assert.deepEqual(fetched, doc);
 
   const updated = await client.runTransaction((tx) =>
-    updateEquipmentInTransaction(tx, doc, { categoryId: 'wiata', sectionId: 'krakow', belongsToPersonId: 'osoba@example.com', description: 'zmieniony' }, 'editor@example.com'),
+    updateEquipmentInTransaction(tx, doc, { categoryId: 'wiata', sectionId: null, belongsToPersonId: 'osoba@example.com', description: 'zmieniony' }, 'editor@example.com'),
   );
   assert.equal(updated.categoryId, 'wiata');
   assert.equal(updated.belongsToPersonId, 'osoba@example.com');
+  assert.equal(updated.sectionId, null);
   assert.equal(updated.updatedBy, 'editor@example.com');
 
   await client.runTransaction((tx) => deleteEquipmentInTransaction(tx, doc.id));

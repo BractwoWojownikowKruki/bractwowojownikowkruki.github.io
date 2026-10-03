@@ -131,7 +131,7 @@ function createHarness(options: HarnessOptions = {}) {
       if (url === '/lista-wyjazdowa/roster') return { roster };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [{ id: 'kandydat', label: 'Kandydat' }], weapons: [] };
       if (url === '/lista-wyjazdowa/member') return { member: { categoryId: 'kandydat', ...(hiddenMember ? { hidden: true } : {}) } };
-      if (url === '/lista-wyjazdowa/profile') return { profile: { wpisowePaid: true } };
+      if (url === '/lista-wyjazdowa/profile') return { profile: { wpisoweStatus: 'paid' } };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups: [] };
       throw new Error(`unexpected request: ${url}`);
     },
@@ -201,7 +201,7 @@ test('adding an existing companion posts quick-add, closes the panel and bumps t
   harness.elements.get('lw-inline-existing-select')!.value = 'attached-uuid-1';
   harness.setMutationResult({
     person: { personId: 'attached-uuid-1', ksywka: 'Młody', categoryId: 'kandydat', sectionId: null, weaponIds: [], ownerPersonId: 'viewer@example.com' },
-    signup: { memberEmail: 'attached-uuid-1', attending: true, skladkaPaid: false },
+    signup: { memberEmail: 'attached-uuid-1', attending: true, skladkaStatus: 'unpaid' },
   });
 
   await list.clickWith(clickTarget('.lw-inline-add-existing'));
@@ -243,7 +243,7 @@ test('adding a new companion posts quick-add with ksywka+lastName+firstName+cate
   harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
   harness.setMutationResult({
     person: { personId: 'new-uuid-1', ksywka: 'Nowy', lastName: 'Kowalski', firstName: 'Jan', categoryId: 'kandydat', sectionId: null, weaponIds: [], ownerPersonId: 'viewer@example.com' },
-    signup: { memberEmail: 'new-uuid-1', attending: true, skladkaPaid: false },
+    signup: { memberEmail: 'new-uuid-1', attending: true, skladkaStatus: 'unpaid' },
   });
 
   await list.clickWith(clickTarget('.lw-inline-add-new'));
@@ -277,7 +277,7 @@ test('toggling to "Jadę" reveals the + and keeps the toggle track', async () =>
   await harness.signIn();
   const list = harness.elements.get('events-list')!;
   assert.doesNotMatch(list.innerHTML, /lw-add-companion/);
-  harness.setMutationResult({ signup: { memberEmail: 'viewer@example.com', attending: true, skladkaPaid: false } });
+  harness.setMutationResult({ signup: { memberEmail: 'viewer@example.com', attending: true, skladkaStatus: 'unpaid' } });
 
   await list.clickWith(clickTarget('.lw-attend-toggle', { eventId: 'e1', attending: 'false' }));
 

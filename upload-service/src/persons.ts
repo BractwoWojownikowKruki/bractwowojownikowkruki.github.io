@@ -221,6 +221,51 @@ export async function detachPerson(
   return { ...existing, ...writable };
 }
 
+/** Ids of the non-deleted persons attached to `ownerEmail` (their osoby towarzyszące). Read outside
+ * the transaction only to know which documents to re-read inside it - see
+ * findCompanionsFollowingSection, which re-checks every candidate. */
+export async function listCompanionIds(client: FirestoreLikeClient, ownerEmail: string): Promise<string[]> {
+  const owner = ownerEmail.toLowerCase();
+  const persons = await listPersons(client);
+  return persons.filter((d) => d.data.ownerPersonId?.toLowerCase() === owner).map((d) => d.data.personId);
+}
+
+/**
+ * When an opiekun changes section, the companions still in the opiekun's old section move with
+ * them; a companion whose section was set to something else on purpose keeps it. Reads only, so
+ * a caller can run it before any write in its transaction (Firestore requires all reads first),
+ * then pass the result to moveCompanionsToSection.
+ */
+export async function findCompanionsFollowingSection(
+  tx: FirestoreTransaction,
+  ownerEmail: string,
+  candidateIds: readonly string[],
+  oldSectionId: string | null | undefined,
+  newSectionId: string,
+): Promise<PersonDoc[]> {
+  if (!oldSectionId || oldSectionId === newSectionId) return [];
+  const owner = ownerEmail.toLowerCase();
+  const following: PersonDoc[] = [];
+  for (const id of candidateIds) {
+    const person = await tx.getDoc<PersonDoc>(PERSONS_COLLECTION, id);
+    if (!person || person.deletedAt || person.ownerPersonId?.toLowerCase() !== owner) continue;
+    if (person.sectionId === oldSectionId) following.push(person);
+  }
+  return following;
+}
+
+export async function moveCompanionsToSection(
+  tx: FirestoreTransaction,
+  companions: readonly PersonDoc[],
+  newSectionId: string,
+  updatedBy: string,
+): Promise<void> {
+  const updatedAt = new Date().toISOString();
+  for (const companion of companions) {
+    await tx.setDoc(PERSONS_COLLECTION, companion.personId, { sectionId: newSectionId, updatedBy, updatedAt });
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Merging an accountless person into a real account (KRKG-0087 design, "Scalenie konta").
 //
@@ -245,6 +290,7 @@ export async function detachPerson(
 interface PersonMergeProfile {
   weaponIds: string[];
   wpisowePaid: boolean;
+  wpisoweStatus?: 'unpaid' | 'paid' | 'not_applicable';
 }
 
 /** One document that moves from the person's key to the account's key. */
@@ -414,6 +460,8 @@ export async function applyPersonMerge(
       weaponIds: accountProfile?.weaponIds?.length ? accountProfile.weaponIds : (person.weaponIds ?? []),
       wpisowePaid: accountProfile ? accountProfile.wpisowePaid : (personProfile?.wpisowePaid ?? false),
     };
+    const wpisoweStatus = accountProfile ? accountProfile.wpisoweStatus : personProfile?.wpisoweStatus;
+    if (wpisoweStatus) mergedProfile.wpisoweStatus = wpisoweStatus;
   }
   if (mergedProfile) {
     await tx.setDoc(PROFILES_COLLECTION, plan.accountEmail, { ...mergedProfile, updatedBy: mergedBy, updatedAt: now });

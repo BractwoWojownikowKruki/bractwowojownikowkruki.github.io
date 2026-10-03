@@ -26,6 +26,7 @@ import { createInMemoryFirestoreClient } from './firestore.ts';
 import { createDisabledMailer, type MailMessage } from './mailer.ts';
 import { createDisabledPusher, type PushMessage, type PushSubscriptionRecord } from './pusher.ts';
 import { createDisabledSheetsClient } from './sheets.ts';
+import type { PhotoStorage } from './storage.ts';
 import { createRoleAuthorizer } from './roles.ts';
 import { executeAuditedFirestoreMutation, startExternalOperation, completeExternalOperation } from './audit.ts';
 import { getFile } from './files.ts';
@@ -6116,7 +6117,7 @@ test('GET /member-profile returns basic fields, no photos, no description when t
   });
 });
 
-test('GET /member-profile includes wpisowePaid and the current year\'s składka roczna status', async () => {
+test('GET /member-profile includes wpisoweStatus and the current year\'s składka roczna status', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
   const currentYear = new Date().getFullYear();
@@ -6141,7 +6142,7 @@ test('GET /member-profile includes wpisowePaid and the current year\'s składka 
     const res = await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com`);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.equal(body.wpisowePaid, true);
+    assert.equal(body.wpisoweStatus, 'paid');
     assert.equal(body.duesYear, currentYear);
     assert.equal(body.duesStatus, 'paid');
   });
@@ -6166,7 +6167,7 @@ test('GET /member-profile defaults an Emeryt with no dues record for the year to
   });
 });
 
-test('GET /member-profile defaults wpisowePaid to false and duesStatus to unpaid for a member with neither a profile nor a dues record', async () => {
+test('GET /member-profile defaults wpisoweStatus and duesStatus to unpaid for a member with neither a profile nor a dues record', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
   const deps = makeDeps({
@@ -6181,7 +6182,7 @@ test('GET /member-profile defaults wpisowePaid to false and duesStatus to unpaid
     const res = await fetch(`${baseUrl}/member-profile?email=bezprofilu@gmail.com`);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.equal(body.wpisowePaid, false);
+    assert.equal(body.wpisoweStatus, 'unpaid');
     assert.equal(body.duesStatus, 'unpaid');
   });
 });
@@ -8015,7 +8016,7 @@ test('GET /lista-wyjazdowa/roster includes allowlisted members with no members/{
     assert.equal(noProfile.sectionId, null);
     assert.equal(noProfile.categoryId, null);
     assert.deepEqual(noProfile.weaponIds, []);
-    assert.equal(noProfile.wpisowePaid, false);
+    assert.equal(noProfile.wpisoweStatus, 'unpaid');
   });
 });
 
@@ -8225,7 +8226,7 @@ test('PUT /lista-wyjazdowa/events with only dueDate still requires at least one 
   });
 });
 
-test('GET /lista-wyjazdowa/events reports viewerSkladkaPaid for the caller', async () => {
+test('GET /lista-wyjazdowa/events reports viewerSkladkaStatus for the caller', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'wojownik@gmail.com');
   const deps = makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] });
@@ -8237,7 +8238,7 @@ test('GET /lista-wyjazdowa/events reports viewerSkladkaPaid for the caller', asy
     });
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/events`);
     const body = await res.json();
-    assert.equal(body.events[0].viewerSkladkaPaid, false);
+    assert.equal(body.events[0].viewerSkladkaStatus, 'unpaid');
     return event;
   });
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
@@ -8246,7 +8247,18 @@ test('GET /lista-wyjazdowa/events reports viewerSkladkaPaid for the caller', asy
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/events`);
     const body = await res.json();
-    assert.equal(body.events[0].viewerSkladkaPaid, true);
+    assert.equal(body.events[0].viewerSkladkaStatus, 'paid');
+  });
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&personId=wojownik@gmail.com`, { status: 'not_applicable' });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).signup.skladkaStatus, 'not_applicable');
+    const bad = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&personId=wojownik@gmail.com`, { status: 'maybe' });
+    assert.equal(bad.status, 400);
+  });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/events`)).json();
+    assert.equal(body.events[0].viewerSkladkaStatus, 'not_applicable');
   });
 });
 
@@ -8303,11 +8315,12 @@ test('PUT /lista-wyjazdowa/wpisowe succeeds and creates a profile for a member w
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.profile.wpisowePaid, true);
+    assert.equal(body.profile.wpisoweStatus, 'paid');
     assert.deepEqual(body.profile.weaponIds, []);
 
     const roster = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
     const member = roster.roster.find((r: { email: string }) => r.email === 'bezprofilu@example.test');
-    assert.equal(member.wpisowePaid, true);
+    assert.equal(member.wpisoweStatus, 'paid');
   });
 });
 
@@ -8466,7 +8479,7 @@ test('GET /lista-wyjazdowa/dues/mine returns only the caller\'s own dues for the
   await withServer(makeDeps({ firestore }), async baseUrl => {
     const empty = await fetch(`${baseUrl}/lista-wyjazdowa/dues/mine?year=2027`);
     assert.equal(empty.status, 200);
-    assert.deepEqual(await empty.json(), { dues: null, duesStatus: 'unpaid' });
+    assert.deepEqual(await empty.json(), { dues: null, duesStatus: 'unpaid', wpisoweStatus: 'unpaid' });
   });
 
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
@@ -8523,14 +8536,40 @@ test('GET /lista-wyjazdowa/dues/mine resolves duesStatus the same way as GET /me
   });
 });
 
-test('GET /lista-wyjazdowa/roster includes wpisowePaid per member', async () => {
+test('GET /lista-wyjazdowa/roster includes wpisoweStatus per member', async () => {
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore(), listMemberEmails: async () => ['wojownik@gmail.com'] });
   await withServer(deps, async baseUrl => {
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { lastName: 'Ala Kowalska', firstName: 'Ala', sectionId: 'krakow' });
     await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: [], companions: [] });
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/roster`);
     const body = await res.json();
-    assert.equal(body.roster[0].wpisowePaid, false);
+    assert.equal(body.roster[0].wpisoweStatus, 'unpaid');
+  });
+});
+
+test('wpisowe defaults to not_applicable for Bobo, an explicit status wins, and PUT accepts not_applicable', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'dziecko@example.test', { email: 'dziecko@example.test', categoryId: 'bobo' });
+  firestore.seed('members', 'dorosly@example.test', { email: 'dorosly@example.test', categoryId: 'blacha' });
+  const listMemberEmails = async () => ['dziecko@example.test', 'dorosly@example.test'];
+  const roster = async (baseUrl: string) => {
+    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
+    return new Map(body.roster.map((r: { email: string; wpisoweStatus: string }) => [r.email, r.wpisoweStatus]));
+  };
+  await withServer(makeDepsWithRole('accountant', firestore, { listMemberEmails }), async baseUrl => {
+    let byEmail = await roster(baseUrl);
+    assert.equal(byEmail.get('dziecko@example.test'), 'not_applicable');
+    assert.equal(byEmail.get('dorosly@example.test'), 'unpaid');
+
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=dziecko@example.test', { status: 'unpaid' })).status, 200);
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=dorosly@example.test', { status: 'not_applicable' });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).profile.wpisoweStatus, 'not_applicable');
+    byEmail = await roster(baseUrl);
+    assert.equal(byEmail.get('dziecko@example.test'), 'unpaid');
+    assert.equal(byEmail.get('dorosly@example.test'), 'not_applicable');
+
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/wpisowe?personId=dorosly@example.test', { status: 'nope' })).status, 400);
   });
 });
 
@@ -8629,7 +8668,9 @@ test('Firestore member and Wyjazdy mutations emit canonical audit records and le
       { field: 'attending', after: true, visibility: 'memberVisible' },
     ]);
     assert.equal(byAction.get('dues.event_fee.changed')?.audience, 'adminOrAccountant');
-    assert.equal(byAction.get('dues.entry_fee.changed')?.changes[0]?.field, 'paid');
+    assert.deepEqual(byAction.get('dues.entry_fee.changed')?.changes, [
+      { field: 'status', before: 'unpaid', after: 'paid', visibility: 'roleRestricted' },
+    ]);
     assert.deepEqual(byAction.get('dues.annual.changed')?.changes, [
       { field: 'status', after: 'paid', visibility: 'roleRestricted' },
       { field: 'year', after: 2027, visibility: 'roleRestricted' },
@@ -10347,4 +10388,243 @@ test('DELETE /equipment/groups refuses a group still used by a category, then su
   });
   const actions = (await firestore.listDocs<{ action: string }>('auditEvents')).map(e => e.data.action);
   assert.ok(actions.includes('equipment.group.deleted'));
+});
+
+// Equipment photos (Cloud Storage): POST/DELETE /equipment/photos and PUT /equipment/photos/main.
+function makeFakePhotoStorage() {
+  const objects = new Map<string, { contentType: string; bytes: Buffer }>();
+  const deleted: string[] = [];
+  const storage: PhotoStorage = {
+    async upload(objectName, contentType, data) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of data) chunks.push(chunk);
+      objects.set(objectName, { contentType, bytes: Buffer.concat(chunks) });
+      return `https://storage.example.test/${objectName}`;
+    },
+    async delete(objectName) {
+      objects.delete(objectName);
+      deleted.push(objectName);
+    },
+  };
+  return { storage, objects, deleted };
+}
+
+const TINY_JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64)]);
+
+async function createTestEquipment(baseUrl: string): Promise<string> {
+  const res = await fetch(`${baseUrl}/equipment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Namiot', belongsToPersonId: null }),
+  });
+  assert.equal(res.status, 200);
+  return ((await res.json()) as { equipment: { id: string } }).equipment.id;
+}
+
+async function postEquipmentPhoto(baseUrl: string, id: string, isMain: boolean) {
+  return fetch(`${baseUrl}/equipment/photos?id=${id}&mimeType=image/jpeg&isMain=${isMain}`, { method: 'POST', body: TINY_JPEG });
+}
+
+type PhotoResponse = { equipment: { photos: Array<{ id: string; url: string; path: string }> } };
+
+test('POST /equipment/photos answers 503 while no bucket is configured', async () => {
+  const deps = makeDeps({ firestore: makeEquipmentFirestore() });
+  await withServer(deps, async baseUrl => {
+    const id = await createTestEquipment(baseUrl);
+    const res = await postEquipmentPhoto(baseUrl, id, true);
+    assert.equal(res.status, 503);
+  });
+});
+
+test('POST /equipment/photos stores the object and puts a main photo first, extras after', async () => {
+  const firestore = makeEquipmentFirestore();
+  const { storage, objects } = makeFakePhotoStorage();
+  await withServer(makeDeps({ firestore, equipmentPhotoStorage: storage }), async baseUrl => {
+    const id = await createTestEquipment(baseUrl);
+    assert.equal((await postEquipmentPhoto(baseUrl, id, false)).status, 200);
+    const res = await postEquipmentPhoto(baseUrl, id, true);
+    assert.equal(res.status, 200);
+    const { equipment } = (await res.json()) as PhotoResponse;
+    assert.equal(equipment.photos.length, 2);
+    const [main, extra] = equipment.photos;
+    assert.match(main.path, new RegExp(`^equipment/${id}/[0-9a-f-]+\\.jpg$`));
+    assert.equal(main.url, `https://storage.example.test/${main.path}`);
+    assert.ok(objects.has(main.path) && objects.has(extra.path));
+    assert.equal(objects.get(main.path)!.contentType, 'image/jpeg');
+
+    const list = (await (await fetch(`${baseUrl}/equipment`)).json()) as { equipment: Array<{ photos: Array<{ id: string }> }> };
+    assert.deepEqual(list.equipment[0].photos.map(p => p.id), [main.id, extra.id]);
+  });
+  const events = await firestore.listDocs<{ action: string; changes: Array<{ field: string; after?: unknown }> }>('auditEvents');
+  assert.equal(events.filter(e => e.data.action === 'equipment.updated' && e.data.changes[0]?.field === 'photoId').length, 2);
+});
+
+test('POST /equipment/photos rejects content that is not the declared image type and stores nothing', async () => {
+  const { storage, objects } = makeFakePhotoStorage();
+  await withServer(makeDeps({ firestore: makeEquipmentFirestore(), equipmentPhotoStorage: storage }), async baseUrl => {
+    const id = await createTestEquipment(baseUrl);
+    const res = await fetch(`${baseUrl}/equipment/photos?id=${id}&mimeType=image/jpeg`, { method: 'POST', body: Buffer.from('not an image at all') });
+    assert.equal(res.status, 400);
+    const heic = await fetch(`${baseUrl}/equipment/photos?id=${id}&mimeType=image/heic`, { method: 'POST', body: TINY_JPEG });
+    assert.equal(heic.status, 400);
+  });
+  assert.equal(objects.size, 0);
+});
+
+test('POST /equipment/photos returns 404 for an unknown item without uploading', async () => {
+  const { storage, objects } = makeFakePhotoStorage();
+  await withServer(makeDeps({ firestore: makeEquipmentFirestore(), equipmentPhotoStorage: storage }), async baseUrl => {
+    const res = await postEquipmentPhoto(baseUrl, 'nie-ma-takiego', true);
+    assert.equal(res.status, 404);
+  });
+  assert.equal(objects.size, 0);
+});
+
+test('PUT /equipment/photos/main moves a photo to the front; DELETE removes it and its object', async () => {
+  const { storage, objects, deleted } = makeFakePhotoStorage();
+  await withServer(makeDeps({ firestore: makeEquipmentFirestore(), equipmentPhotoStorage: storage }), async baseUrl => {
+    const id = await createTestEquipment(baseUrl);
+    await postEquipmentPhoto(baseUrl, id, true);
+    const second = (await (await postEquipmentPhoto(baseUrl, id, false)).json()) as PhotoResponse;
+    const [first, extra] = second.equipment.photos;
+
+    const mainRes = await fetch(`${baseUrl}/equipment/photos/main?id=${id}&photoId=${extra.id}`, { method: 'PUT' });
+    assert.equal(mainRes.status, 200);
+    assert.deepEqual(((await mainRes.json()) as PhotoResponse).equipment.photos.map(p => p.id), [extra.id, first.id]);
+
+    const delRes = await fetch(`${baseUrl}/equipment/photos?id=${id}&photoId=${extra.id}`, { method: 'DELETE' });
+    assert.equal(delRes.status, 200);
+    assert.deepEqual(((await delRes.json()) as PhotoResponse).equipment.photos.map(p => p.id), [first.id]);
+    assert.deepEqual(deleted, [extra.path]);
+    assert.ok(!objects.has(extra.path));
+
+    const missing = await fetch(`${baseUrl}/equipment/photos?id=${id}&photoId=${extra.id}`, { method: 'DELETE' });
+    assert.equal(missing.status, 404);
+  });
+});
+
+test('PUT /equipment keeps existing photos and DELETE /equipment removes their objects', async () => {
+  const { storage, objects } = makeFakePhotoStorage();
+  await withServer(makeDeps({ firestore: makeEquipmentFirestore(), equipmentPhotoStorage: storage }), async baseUrl => {
+    const id = await createTestEquipment(baseUrl);
+    await postEquipmentPhoto(baseUrl, id, true);
+    const putRes = await fetch(`${baseUrl}/equipment?id=${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Namiot zmieniony', belongsToPersonId: null }),
+    });
+    assert.equal(((await putRes.json()) as PhotoResponse).equipment.photos.length, 1);
+    assert.equal(objects.size, 1);
+    const delRes = await fetch(`${baseUrl}/equipment?id=${id}`, { method: 'DELETE' });
+    assert.equal(delRes.status, 200);
+  });
+  assert.equal(objects.size, 0);
+});
+
+// Private equipment has no section of its own - it follows its owner's current section.
+test('POST /equipment stores sectionId null for a private item, ignoring a sectionId in the body', async () => {
+  const firestore = makeEquipmentFirestore();
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['ala@example.test'], authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', sectionId: 'krakow', description: 'Namiot Ali', belongsToPersonId: 'ala@example.test' }),
+    });
+    assert.equal(res.status, 200);
+    const { equipment } = (await res.json()) as { equipment: { id: string; sectionId: string | null } };
+    assert.equal(equipment.sectionId, null);
+    const stored = await firestore.getDoc<{ sectionId: string | null }>('equipment', equipment.id);
+    assert.equal(stored?.sectionId, null);
+  });
+});
+
+test('POST /equipment still requires a sectionId for drużynowy equipment', async () => {
+  const deps = makeDeps({ firestore: makeEquipmentFirestore(), authenticate: async () => fakeSessionClaims({ email: 'ala@example.test' }) });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/equipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId: 'namiot', description: 'Wiata', belongsToPersonId: null }),
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+// When an opiekun changes section, companions still in the old section move with them; one whose
+// section was set differently on purpose keeps it.
+function seedCompanionsForSectionFollow(firestore: ReturnType<typeof makeFakeFirestore>, ownerEmail: string): void {
+  firestore.seed('lookupLists', 'sections', {
+    items: [
+      { id: 'krakow', label: 'Kraków', retired: false },
+      { id: 'warszawa', label: 'Warszawa', retired: false },
+      { id: 'gdansk', label: 'Gdańsk', retired: false },
+    ],
+  });
+  firestore.seed('members', ownerEmail, {
+    email: ownerEmail, lastName: 'Wojownik', firstName: 'Jan', nickname: null, sectionId: 'krakow',
+    categoryId: null, driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const person = (personId: string, sectionId: string, ownerPersonId: string | null, deletedAt: string | null = null) => ({
+    personId, ksywka: personId, firstName: 'A', lastName: 'B', categoryId: 'kandydat', sectionId, weaponIds: [],
+    ownerPersonId, email: null, deletedAt, mergedInto: null, createdAt: 'x', createdBy: 'x',
+  });
+  firestore.seed('persons', 'same-section', person('same-section', 'krakow', ownerEmail));
+  firestore.seed('persons', 'own-section', person('own-section', 'gdansk', ownerEmail));
+  firestore.seed('persons', 'deleted', person('deleted', 'krakow', ownerEmail, '2026-01-01T00:00:00.000Z'));
+  firestore.seed('persons', 'someone-else', person('someone-else', 'krakow', 'inny@example.test'));
+}
+
+async function personSection(firestore: ReturnType<typeof makeFakeFirestore>, personId: string): Promise<string | undefined> {
+  return (await firestore.getDoc<{ sectionId: string }>('persons', personId))?.sectionId;
+}
+
+test('PUT /lista-wyjazdowa/member moves companions in the old section along with the owner, and only them', async () => {
+  const firestore = makeFakeFirestore();
+  seedCompanionsForSectionFollow(firestore, 'wojownik@gmail.com');
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { lastName: 'Wojownik', firstName: 'Jan', sectionId: 'warszawa' });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(await personSection(firestore, 'same-section'), 'warszawa');
+  assert.equal(await personSection(firestore, 'own-section'), 'gdansk', 'a companion with its own section keeps it');
+  assert.equal(await personSection(firestore, 'deleted'), 'krakow');
+  assert.equal(await personSection(firestore, 'someone-else'), 'krakow', "another owner's companion is untouched");
+
+  const events = await firestore.listDocs<{ action: string; changes: Array<{ field: string; after?: unknown }> }>('auditEvents');
+  const updated = events.map(e => e.data).find(e => e.action === 'profile.member.updated');
+  assert.equal(updated?.changes.find(c => c.field === 'movedCompanions')?.after, 1);
+});
+
+test('PUT /lista-wyjazdowa/member without a section change leaves companions alone', async () => {
+  const firestore = makeFakeFirestore();
+  seedCompanionsForSectionFollow(firestore, 'wojownik@gmail.com');
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/member', { lastName: 'Wojownik', firstName: 'Janek', sectionId: 'krakow' });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(await personSection(firestore, 'same-section'), 'krakow');
+  const events = await firestore.listDocs<{ action: string; changes: Array<{ field: string }> }>('auditEvents');
+  const updated = events.map(e => e.data).find(e => e.action === 'profile.member.updated');
+  assert.equal(updated?.changes.some(c => c.field === 'movedCompanions'), false);
+});
+
+test('PUT /admin/members/profile moves companions in the old section along with the member', async () => {
+  const firestore = makeFakeFirestore();
+  seedCompanionsForSectionFollow(firestore, 'ala@example.com');
+  const deps = makeDeps({
+    firestore,
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', lastName: 'Wojownik', firstName: 'Jan', nickname: null, sectionId: 'warszawa' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.equal(await personSection(firestore, 'same-section'), 'warszawa');
+  assert.equal(await personSection(firestore, 'own-section'), 'gdansk');
+  assert.equal((await firestore.getDoc<{ updatedBy: string }>('persons', 'same-section'))?.updatedBy, 'admin@example.com');
 });

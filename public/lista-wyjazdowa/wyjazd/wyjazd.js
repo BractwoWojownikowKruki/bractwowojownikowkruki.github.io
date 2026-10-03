@@ -322,17 +322,18 @@ async function removeSkladkaFee() {
 
 document.getElementById('skladka-fee-remove').addEventListener('click', removeSkladkaFee);
 
-async function toggleSkladkaPaid(personId, nextPaid, control) {
+// Cycles unpaid -> paid -> not_applicable -> unpaid (shared/dues-status.js's nextDuesStatus).
+async function toggleSkladkaStatus(personId, nextStatus, control) {
   clearError();
   try {
     await confirmedEventMutation(control, () => apiFetch(
       `/lista-wyjazdowa/signups/skladka?eventId=${encodeURIComponent(eventId)}&personId=${encodeURIComponent(personId)}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paid: nextPaid }) },
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: nextStatus }) },
       showReauth,
       hideReauth,
     ), () => {
       const signup = cachedSignups.find(item => item.memberEmail === personId);
-      if (signup) signup.skladkaPaid = nextPaid;
+      if (signup) signup.skladkaStatus = nextStatus;
       renderRoster(cachedRoster, cachedSignups);
     }, 'toast');
   } catch (err) {
@@ -441,6 +442,7 @@ let viewerPersonId = null;
 let sectionLabelById = new Map();
 let categoryLabelById = new Map();
 let equipmentCategoryLabelById = new Map();
+let equipmentGroupLabelByCategoryId = new Map();
 let weaponLabelById = new Map();
 let personById = new Map();
 // The raw categories lookup (id + label, in seed order) for the "new person" <select> in the
@@ -537,12 +539,20 @@ function ownerCellHtml(personId) {
   return `<button type="button" class="profile-trigger" data-profile-trigger ${triggerAttr}>${pill}</button>`;
 }
 
+// Private equipment has no section of its own (stored as null) and follows its owner's *current*
+// section - same rule as sprzet-obozowy.js's itemFilterSectionId. Team equipment uses its own
+// sectionId; the fallback also covers private items saved before sections were cleared.
+function equipmentSectionId(item) {
+  if (!item.belongsToPersonId) return item.sectionId;
+  return personById.get(item.belongsToPersonId)?.sectionId ?? item.sectionId;
+}
+
 function eventEquipmentSortValue(item) {
   switch (eventEquipmentSortState.key) {
     case 'category': return equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
     case 'owner': return item.belongsToPersonId ? displayName(personById.get(item.belongsToPersonId) ?? {}) : 'Kruki';
     case 'going': return item.going;
-    default: return sectionLabelById.get(item.sectionId) ?? item.sectionId;
+    default: return sectionLabelById.get(equipmentSectionId(item)) ?? equipmentSectionId(item);
   }
 }
 
@@ -560,13 +570,14 @@ function renderEventEquipment(items) {
     const going = item.going === true;
     const stateLabel = going ? 'Jedzie' : 'Nie jedzie';
     const category = equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
-    const section = sectionLabelById.get(item.sectionId) ?? item.sectionId;
-    return `<tr data-section="${escapeAttr(item.sectionId)}">
-      <td class="czl-section-cell" title="${escapeAttr(section)}">${escapeHtml(sectionAbbr(item.sectionId))}</td>
+    const sectionId = equipmentSectionId(item);
+    const section = sectionLabelById.get(sectionId) ?? sectionId;
+    return `<tr data-section="${escapeAttr(sectionId)}">
+      <td class="czl-section-cell" title="${escapeAttr(section)}">${escapeHtml(sectionAbbr(sectionId))}</td>
       <td>${escapeHtml(category)}</td>
       <td>${ownerCellHtml(item.belongsToPersonId)}</td>
       <td><button type="button" class="lw-attend-toggle" data-equipment-id="${escapeAttr(item.id)}" data-going="${going}" aria-pressed="${going}"><span class="lw-attend-toggle-track" aria-hidden="true"></span>${stateLabel}</button></td>
-      <td>${escapeHtml(item.description)}</td>
+      <td>${equipmentPillHtml(item, category)}</td>
     </tr>`;
   }).join('');
 }
@@ -580,7 +591,7 @@ function updateEventEquipmentToggle(control, going) {
 // KRKG-0087: the roster endpoint's row shape for a freshly created person (see
 // handleListaWyjazdowaGetRoster), so a quick-added person renders without a full reload. duesStatus
 // mirrors effectiveDuesStatus's default for a person with no record: an Emeryt owes nothing,
-// everyone else starts unpaid.
+// everyone else starts unpaid. wpisoweStatus likewise (a Bobo owes no wpisowe by default).
 function rosterEntryFromPerson(person) {
   return {
     personId: person.personId,
@@ -593,7 +604,7 @@ function rosterEntryFromPerson(person) {
     sectionId: person.sectionId ?? null,
     categoryId: person.categoryId ?? null,
     weaponIds: person.weaponIds ?? [],
-    wpisowePaid: false,
+    wpisoweStatus: effectiveWpisoweStatus(null, person.categoryId),
     duesStatus: effectiveDuesStatus(null, person.categoryId),
   };
 }
@@ -677,10 +688,11 @@ function renderRoster(roster, signups) {
       // (only while something is still owed club-wide) a second row of tiny red badges underneath:
       // the one-time Wpisowe (money bag + "wpisowe") first, then the current year's składka roczna
       // (money bag + "roczna") next to it. member.duesStatus comes from the roster endpoint, which
-      // resolves the emeryt default server-side; not_applicable owes nothing, and a fully settled
-      // member gets no second row at all.
-      const duesBadgesHtml = member.duesStatus === 'unpaid' || !member.wpisowePaid
-        ? `<span class="lw-dues-badges">${!member.wpisowePaid ? '<span class="lw-dues-badge lw-dues-badge--wpisowe" title="Wpisowe nieopłacone">💰<span>wpisowe</span></span>' : ''}${member.duesStatus === 'unpaid' ? '<span class="lw-dues-badge lw-dues-badge--roczna" title="Składka roczna nieopłacona">💰<span>roczna</span></span>' : ''}</span>`
+      // resolves the emeryt default server-side (and wpisoweStatus the Bobo one); not_applicable
+      // owes nothing, and a fully settled member gets no second row at all.
+      const wpisoweUnpaid = member.wpisoweStatus === 'unpaid';
+      const duesBadgesHtml = member.duesStatus === 'unpaid' || wpisoweUnpaid
+        ? `<span class="lw-dues-badges">${wpisoweUnpaid ? '<span class="lw-dues-badge lw-dues-badge--wpisowe" title="Wpisowe nieopłacone">💰<span>wpisowe</span></span>' : ''}${member.duesStatus === 'unpaid' ? '<span class="lw-dues-badge lw-dues-badge--roczna" title="Składka roczna nieopłacona">💰<span>roczna</span></span>' : ''}</span>`
         : '';
       // KRKG-0087: one shared pill renderer, with the "osoba bez konta" marker for an accountless
       // person. A member's name opens the shared profile drawer by e-mail; a person has no e-mail,
@@ -721,7 +733,7 @@ function renderRoster(roster, signups) {
           <span class="lw-attend-toggle-track" aria-hidden="true"></span>
           ${attending ? 'Jadę' : 'Nie jadę'}
         </button>
-        ${attending && normalizeSkladkaFee(cachedEvent?.skladkaFee) ? renderSkladkaIcon(personIdAttr, signup?.skladkaPaid ?? false) : ''}`}
+        ${attending && normalizeSkladkaFee(cachedEvent?.skladkaFee) ? renderSkladkaIcon(personIdAttr, signup?.skladkaStatus ?? 'unpaid') : ''}`}
       </td>
       <td class="${member.weaponIds.length ? '' : 'czl-empty'}">${member.weaponIds.length ? weaponHtml : EMPTY}</td>
       <td class="lw-status-changed-cell">${escapeHtml(formatStatusChangedAt(signup?.statusChangedAt))}</td>
@@ -732,12 +744,13 @@ function renderRoster(roster, signups) {
 
 // A plain, uneditable coin for a member who can't manage składki - reading the row shouldn't
 // suggest a button that would just 403; only canManageSkladki gets the clickable <button> below.
-function renderSkladkaIcon(personIdAttr, paid) {
-  const label = paid ? 'Składka opłacona' : 'Składka nieopłacona';
+// Three-coloured via data-status (green/red/grey), same as the Składki page's roczna coin.
+function renderSkladkaIcon(personIdAttr, status) {
+  const label = skladkaStatusLabel(status);
   if (!canManageSkladki) {
-    return `<span class="lw-skladka-icon" data-paid="${paid}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">💰</span>`;
+    return `<span class="lw-skladka-icon" data-status="${status}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">💰</span>`;
   }
-  return `<button type="button" class="lw-skladka-icon" data-person-id="${personIdAttr}" data-paid="${paid}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
+  return `<button type="button" class="lw-skladka-icon" data-person-id="${personIdAttr}" data-status="${status}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
 }
 
 async function toggleAttending(personId, nextAttending, control) {
@@ -940,11 +953,33 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
   const skladkaBtn = e.target.closest('.lw-skladka-icon');
   if (skladkaBtn && skladkaBtn.dataset.personId) {
     skladkaBtn.disabled = true;
-    toggleSkladkaPaid(skladkaBtn.dataset.personId, skladkaBtn.dataset.paid !== 'true', skladkaBtn).finally(() => { skladkaBtn.disabled = false; });
+    toggleSkladkaStatus(skladkaBtn.dataset.personId, nextDuesStatus(skladkaBtn.dataset.status), skladkaBtn).finally(() => { skladkaBtn.disabled = false; });
   }
 });
 
+// The Opis pill opens the shared equipment drawer from data already on the page; editing happens
+// on Sprzęt obozowy, which opens its edit form for ?edit=<id>.
+function equipmentPanelView(item) {
+  const sectionId = equipmentSectionId(item);
+  return {
+    description: item.description,
+    photos: item.photos ?? [],
+    categoryLabel: equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId,
+    groupLabel: equipmentGroupLabelByCategoryId.get(item.categoryId) ?? '',
+    sectionId,
+    sectionLabel: sectionLabelById.get(sectionId) ?? sectionId,
+    ownerHtml: item.belongsToPersonId ? ownerCellHtml(item.belongsToPersonId) : null,
+    editHref: `/sprzet-obozowy/?edit=${encodeURIComponent(item.id)}`,
+  };
+}
+
 document.getElementById('event-equipment-content').addEventListener('click', (e) => {
+  const pill = e.target.closest('[data-equipment-trigger]');
+  if (pill) {
+    const item = cachedEventEquipment.find((equipment) => equipment.id === pill.dataset.equipmentId);
+    if (item) window.ProfilePanel.openEquipment(equipmentPanelView(item));
+    return;
+  }
   const equipmentBtn = e.target.closest('.lw-attend-toggle');
   if (!equipmentBtn) return;
   equipmentBtn.disabled = true;
@@ -977,6 +1012,8 @@ async function loadAll() {
   sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
   categoryLabelById = new Map((lookupLists.categories ?? []).map((c) => [c.id, c.label]));
   equipmentCategoryLabelById = new Map((lookupLists.equipmentCategories ?? []).map((c) => [c.id, c.label]));
+  const equipmentGroupLabelById = new Map((lookupLists.equipmentGroups ?? []).map((g) => [g.id, g.label]));
+  equipmentGroupLabelByCategoryId = new Map((lookupLists.equipmentCategories ?? []).map((c) => [c.id, equipmentGroupLabelById.get(c.groupId) ?? '']));
   weaponLabelById = new Map((lookupLists.weapons ?? []).map((w) => [w.id, w.label]));
   categoryOptions = lookupLists.categories ?? [];
   openAddPanelOwnerPersonId = null;

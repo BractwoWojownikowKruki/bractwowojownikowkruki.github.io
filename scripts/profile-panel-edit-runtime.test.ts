@@ -40,9 +40,6 @@ class FakeElement {
       drawer.addChild('.profile-drawer-content', new FakeElement('.profile-drawer-content'));
       drawer.addChild('.profile-drawer-close', new FakeElement('.profile-drawer-close'));
       drawer.addChild('.profile-drawer-status', new FakeElement('.profile-drawer-status'));
-      const reauth = drawer.addChild('.profile-drawer-reauth', new FakeElement('.profile-drawer-reauth'));
-      reauth.addChild('.profile-drawer-reauth-button', new FakeElement('.profile-drawer-reauth-button'));
-      reauth.hidden = true;
       drawer.addChild('.profile-drawer-backdrop', new FakeElement('.profile-drawer-backdrop'));
     }
     // The editor toggle/panel is shared across identity/weapons/dues (editorOpen), replacing the
@@ -75,7 +72,7 @@ class FakeElement {
     if (value.includes('profile-dues-form')) {
       const section = this.addChild('.profile-dues-section', new FakeElement('.profile-dues-section'));
       const form = section.addChild('.profile-dues-form', new FakeElement('.profile-dues-form'));
-      form.elements = { wpisowePaid: { checked: value.includes('name="wpisowePaid" checked') }, duesStatus: { value: value.match(/name="duesStatus"[\s\S]*?<option value="([^"]*)" selected/)?.[1] ?? 'unpaid' } } as any;
+      form.elements = { wpisoweStatus: { value: value.match(/name="wpisoweStatus"[\s\S]*?<option value="([^"]*)" selected/)?.[1] ?? 'unpaid' }, duesStatus: { value: value.match(/name="duesStatus"[\s\S]*?<option value="([^"]*)" selected/)?.[1] ?? 'unpaid' } } as any;
       const entry = form.addChild('[data-profile-dues-save="wpisowe"]', new FakeElement('[data-profile-dues-save="wpisowe"]'));
       entry.dataset.profileDuesSave = 'wpisowe';
       const annual = form.addChild('[data-profile-dues-save="annual"]', new FakeElement('[data-profile-dues-save="annual"]'));
@@ -130,7 +127,7 @@ function createHarness(harnessOptions: {
   const defaultProfile = {
     firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik',
     sectionLabel: 'Kruki', categoryLabel: 'Wojownik', weapons: [], weaponIds: ['tarcza'], photos: [], pendingPhotos: [],
-    published: false, wpisowePaid: true, duesStatus: 'paid', duesYear: 2026,
+    published: false, wpisoweStatus: 'paid', duesStatus: 'paid', duesYear: 2026,
     editor: { canEditIdentity: true, canEditWeapons: true, canEditDues: true, lookupLists: { sections: [{ id: 'kruki', label: 'Kruki' }], categories: [{ id: 'wojownik', label: 'Wojownik' }], weapons: [{ id: 'tarcza', label: 'Tarcza' }] } },
   };
   const profile = { ...defaultProfile, ...harnessOptions.profile };
@@ -220,7 +217,7 @@ test('capability-gated weapons and dues controls use their distinct PUT bodies a
   await harness.document.dispatch('click', entryFee);
   await new Promise((resolve) => setImmediate(resolve));
   const entryFeePut = harness.apiCalls.find((call) => call.url === '/lista-wyjazdowa/wpisowe?personId=jan%40example.test');
-  assert.deepEqual(JSON.parse(String(entryFeePut?.options.body)), { paid: true });
+  assert.deepEqual(JSON.parse(String(entryFeePut?.options.body)), { status: 'paid' });
 
   const annual = harness.document.body.querySelector('[data-profile-dues-save="annual"]');
   assert.ok(annual);
@@ -294,7 +291,7 @@ test('refreshing after an identity save retains the unsaved annual-dues draft', 
   assert.equal(harness.apiCalls.filter((call) => call.url.startsWith('/member-profile?')).length, 2);
 });
 
-test('an identity 401 shows the drawer\'s own reauth banner, then closes the drawer once the retry still fails', async () => {
+test('an identity 401 that survives auth.js\'s reauth retry closes the drawer', async () => {
   const harness = createHarness({
     apiFetch: async (_url, request) => {
       if (request.method === 'PUT') throw Object.assign(new Error('Wymagane ponowne logowanie.'), { status: 401 });
@@ -302,13 +299,10 @@ test('an identity 401 shows the drawer\'s own reauth banner, then closes the dra
     },
   });
   await harness.window.ProfilePanel.open('jan@example.test');
-  const reauth = harness.drawer?.querySelector('.profile-drawer-reauth');
-  assert.ok(reauth, 'the drawer renders its own reauth banner, not window.showReauth');
   await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
   await harness.document.dispatch('submit', harness.document.body.querySelector('.profile-identity-form')!);
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(reauth.hidden, false, 'a step-up 401 opens the drawer\'s self-contained reauth banner');
   assert.equal(harness.drawer?.hidden, true);
 });
 
@@ -366,7 +360,7 @@ test('weapons retain their own pending guard while an identity save is in flight
 test('entry and annual dues have separate pending guards', async () => {
   const pendingPut = new Promise<void>(() => {});
   const harness = createHarness({ apiFetch: async (_url, request) => request.method === 'PUT' ? pendingPut : {
-    firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', weapons: [], weaponIds: [], photos: [], pendingPhotos: [], wpisowePaid: true, duesStatus: 'paid', duesYear: 2026, editor: { canEditDues: true, lookupLists: {} },
+    firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', weapons: [], weaponIds: [], photos: [], pendingPhotos: [], wpisoweStatus: 'paid', duesStatus: 'paid', duesYear: 2026, editor: { canEditDues: true, lookupLists: {} },
   } });
   await harness.window.ProfilePanel.open('jan@example.test');
   await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);

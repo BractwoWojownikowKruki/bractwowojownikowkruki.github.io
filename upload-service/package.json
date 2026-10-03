@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@google-cloud/firestore": "^9.0.1",
+    "@google-cloud/storage": "^7.22.0",
     "tsx": "4.23.12",
     "web-push": "^3.6.7"
   },

@@ -75,8 +75,11 @@ function redirectToApp() {
   window.location.replace('/app/');
 }
 
-let pendingReauth = null;
-let pendingReauthHide = null;
+// Every apiFetch call currently paused on a step-up 401, waiting for the shared reauth modal
+// below. A list rather than a single slot: two actions started before signing in (e.g. two
+// "Zatwierdź" clicks) must both resume or both cancel - a single slot let the second overwrite
+// the first, leaving the first awaiting forever.
+let pendingReauths = [];
 // Google Identity Services only keeps ONE active initialize() config per page - calling it
 // twice would silently replace the first caller's callback. So initialize() runs at most once
 // (guarded by this flag) with a single shared callback that fans out to every registered
@@ -120,11 +123,97 @@ async function exchangeForSession(googleIdToken) {
   return res.json();
 }
 
-function promptReauth(showReauthUI, hideReauthUI) {
-  return new Promise(resolve => {
-    pendingReauth = resolve;
-    pendingReauthHide = hideReauthUI;
-    showReauthUI();
+// The shared "zaloguj się ponownie" modal - one for every page, replacing the per-page banners
+// that sat at the top of the page (so a reauth asked for mid-list meant scrolling up to find the
+// button). It stays up while the paused requests are retried, showing a saving state, so the
+// visitor can't click the same action again while the first retry is still in flight (that
+// second click used to fail with "Nie znaleziono pliku" once the first had already moved it).
+let reauthModal = null;
+let reauthRetriesInFlight = 0;
+
+function ensureGoogleIdentityInitialized() {
+  if (!window.google?.accounts?.id) return false;
+  if (!gisInitialized) {
+    window.google.accounts.id.initialize({
+      client_id: GOOGLE_OAUTH_CLIENT_ID,
+      callback: handleCredentialResponse,
+    });
+    gisInitialized = true;
+  }
+  return true;
+}
+
+function reauthModalElements() {
+  if (reauthModal) return reauthModal;
+  const root = document.createElement('div');
+  root.className = 'reauth-modal';
+  root.hidden = true;
+  root.innerHTML = `
+    <div class="reauth-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="reauth-modal-title">
+      <h2 id="reauth-modal-title" class="reauth-modal-title">Zaloguj się ponownie</h2>
+      <div class="reauth-modal-prompt">
+        <p>Ze względów bezpieczeństwa musisz ponownie zalogować się, by potwierdzić tożsamość.</p>
+        <p class="reauth-modal-error" hidden>Logowanie nie powiodło się. Spróbuj ponownie.</p>
+        <div class="reauth-modal-button"></div>
+        <button type="button" class="btn-cancel reauth-modal-cancel">Anuluj</button>
+      </div>
+      <p class="reauth-modal-busy" hidden aria-live="polite"></p>
+    </div>
+  `;
+  document.body.append(root);
+  reauthModal = {
+    root,
+    title: root.querySelector('.reauth-modal-title'),
+    prompt: root.querySelector('.reauth-modal-prompt'),
+    error: root.querySelector('.reauth-modal-error'),
+    button: root.querySelector('.reauth-modal-button'),
+    busy: root.querySelector('.reauth-modal-busy'),
+  };
+  root.querySelector('.reauth-modal-cancel').addEventListener('click', cancelReauth);
+  return reauthModal;
+}
+
+function showReauthModal() {
+  const modal = reauthModalElements();
+  modal.title.textContent = 'Zaloguj się ponownie';
+  modal.prompt.hidden = false;
+  modal.busy.hidden = true;
+  modal.error.hidden = true;
+  modal.root.hidden = false;
+  if (!modal.button.dataset.rendered && ensureGoogleIdentityInitialized()) {
+    window.google.accounts.id.renderButton(modal.button, { type: 'standard', text: 'signin_with', locale: 'pl' });
+    modal.button.dataset.rendered = 'true';
+  }
+}
+
+function hideReauthModal() {
+  if (reauthModal) reauthModal.root.hidden = true;
+}
+
+function showReauthModalBusy(text) {
+  const modal = reauthModalElements();
+  modal.title.textContent = 'Zalogowano';
+  modal.prompt.hidden = true;
+  modal.busy.textContent = text;
+  modal.busy.hidden = false;
+  modal.root.hidden = false;
+}
+
+function cancelReauth() {
+  const cancelled = pendingReauths;
+  pendingReauths = [];
+  hideReauthModal();
+  for (const { reject } of cancelled) {
+    const error = new Error('Zmiana nie została zapisana.');
+    error.reauthCancelled = true;
+    reject(error);
+  }
+}
+
+function promptReauth() {
+  return new Promise((resolve, reject) => {
+    pendingReauths.push({ resolve, reject });
+    showReauthModal();
   });
 }
 
@@ -135,12 +224,25 @@ function promptReauth(showReauthUI, hideReauthUI) {
 // once. This replaces the old proactive "is my locally-tracked token about to expire" check
 // with a reactive one driven by what the server actually says, which is the only option once
 // there's no local token to inspect - and is simpler besides.
+//
+// showReauthUI/hideReauthUI are now only an opt-in: passing them means "on a 401, ask for a fresh
+// sign-in and retry" via the shared modal above; they are no longer called themselves. Omit them
+// to have a 401 simply reject.
 async function apiFetch(path, options = {}, showReauthUI, hideReauthUI) {
   const doFetch = () => fetch(`${UPLOAD_SERVICE_URL}${path}`, { ...options, credentials: 'include' });
   let res = await doFetch();
   if (res.status === 401 && showReauthUI && hideReauthUI) {
-    await promptReauth(showReauthUI, hideReauthUI);
-    res = await doFetch();
+    await promptReauth();
+    reauthRetriesInFlight++;
+    const method = (options.method || 'GET').toUpperCase();
+    showReauthModalBusy(method === 'GET' ? 'Wczytywanie…' : 'Zapisywanie…');
+    try {
+      res = await doFetch();
+    } finally {
+      reauthRetriesInFlight--;
+      // A new 401 prompt may have opened meanwhile - leave that one up.
+      if (reauthRetriesInFlight === 0 && pendingReauths.length === 0) hideReauthModal();
+    }
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -182,21 +284,18 @@ async function handleCredentialResponse(response) {
   const googleIdToken = response.credential;
   const payload = decodeJwtPayload(googleIdToken);
 
-  if (pendingReauth) {
+  if (pendingReauths.length) {
     // A step-up/reauth prompt needs the exchange to actually succeed before resolving the
-    // paused caller - failing here should leave the prompt up, not resolve as if it worked.
+    // paused callers - failing here should leave the prompt up, not resolve as if it worked.
     try {
       await exchangeForSession(googleIdToken);
     } catch {
+      if (reauthModal) reauthModal.error.hidden = false;
       return;
     }
-    const resolve = pendingReauth;
-    pendingReauth = null;
-    if (pendingReauthHide) {
-      pendingReauthHide();
-      pendingReauthHide = null;
-    }
-    resolve();
+    const resumed = pendingReauths;
+    pendingReauths = [];
+    for (const { resolve } of resumed) resolve();
     return;
   }
 
@@ -316,14 +415,7 @@ function initGoogleSignIn({ buttonIds, onSignedIn, onSignedOut, onForbidden, onI
   }
 
   function render() {
-    if (!window.google?.accounts?.id) return;
-    if (!gisInitialized) {
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_OAUTH_CLIENT_ID,
-        callback: handleCredentialResponse,
-      });
-      gisInitialized = true;
-    }
+    if (!ensureGoogleIdentityInitialized()) return;
     const config = { type: 'standard', text: 'signin_with', locale: 'pl', ...buttonConfig };
     for (const id of buttonIds) {
       const el = document.getElementById(id);

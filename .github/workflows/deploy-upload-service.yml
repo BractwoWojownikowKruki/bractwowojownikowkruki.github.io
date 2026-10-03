@@ -124,6 +124,7 @@ jobs:
             GOOGLE_OAUTH_CLIENT_ID=${{ secrets.UPLOAD_OAUTH_CLIENT_ID }}
             DRIVE_PARENT_FOLDER_ID=${{ secrets.UPLOAD_DRIVE_PARENT_FOLDER_ID }}
             GITHUB_REPO=BractwoWojownikowKruki/bractwowojownikowkruki.github.io
+            EQUIPMENT_PHOTOS_BUCKET=krucze-galery-upload-sprzet
             AUDIT_RECONCILER_SERVICE_ACCOUNT=${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}
           secrets: |
             DRIVE_REFRESH_TOKEN=drive-refresh-token:latest

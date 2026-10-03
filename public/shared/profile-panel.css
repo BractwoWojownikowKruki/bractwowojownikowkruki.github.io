@@ -164,14 +164,13 @@
   padding: 0;
 }
 
-.profile-weapons-option,
-.profile-dues-option {
+.profile-weapons-option {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.profile-dues-form label:not(.profile-dues-option) {
+.profile-dues-form label {
   display: grid;
   gap: 0.25rem;
   color: var(--text-muted);
@@ -211,21 +210,6 @@
 
 .profile-editor-actions {
   margin-top: 0.5rem;
-}
-
-/* Reauth banner (KRKG-0104 follow-up): the drawer renders its own Google Sign-In button here for
-   a step-up 401 instead of relying on the host page's own (often absent) reauth UI - see
-   drawerShowReauth's comment in profile-panel.js. */
-.profile-drawer-reauth {
-  margin: 0.75rem 0;
-  padding: 0.75rem;
-  border: 1px solid var(--danger, #c0392b);
-  border-radius: 6px;
-}
-
-.profile-drawer-reauth p {
-  margin: 0 0 0.5rem;
-  color: var(--danger, #c0392b);
 }
 
 /* KRKG-0070: heading above the pendingPhotos gallery, distinguishing a member's still-unapproved

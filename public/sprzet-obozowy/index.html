@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="../style.css" />
   <link rel="stylesheet" href="../member-area.css" />
   <link rel="stylesheet" href="../shared/profile-panel.css" />
+  <link rel="stylesheet" href="../vendor/cropperjs/cropper.min.css" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -47,13 +48,13 @@
                 Spis sprzętu obozowego Bractwa (namioty, wiaty, meble, kuchnia) - drużynowych oraz prywatnych, użyczonych na wyjazdy. Każdy członek może dodać, edytować i usunąć dowolną pozycję.
               </p>
             </div>
-            <div class="pliki-header-actions">
+            <div class="pliki-header-actions equipment-header-actions">
               <a class="audyt-history-btn" href="/audyt/?category=equipment" title="Historia" aria-label="Historia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></a>
-              <button type="button" class="btn-add-album" id="equipment-add-toggle">Dodaj</button>
+              <button type="button" class="btn-add-album" id="equipment-add-toggle">Dodaj sprzęt</button>
+              <button type="button" class="member-action" id="equipment-taxonomy-toggle" aria-expanded="false" aria-controls="equipment-taxonomy">Edytuj grupy i kategorie</button>
             </div>
           </div>
 
-          <button type="button" class="member-action" id="equipment-taxonomy-toggle" aria-expanded="false" aria-controls="equipment-taxonomy">Edytuj grupy i kategorie</button>
           <section id="equipment-taxonomy" class="pliki-add-form equipment-taxonomy" hidden>
             <p style="color: var(--text-muted);">Usunąć można tylko kategorię, której nie używa żaden sprzęt, i grupę, której nie używa żadna kategoria.</p>
             <div id="equipment-taxonomy-body"></div>
@@ -82,11 +83,23 @@
               <datalist id="equipment-owner-datalist"></datalist>
             </div>
 
-            <label for="equipment-add-section">Sekcja</label>
-            <select id="equipment-add-section" name="sectionId" required></select>
+            <div id="equipment-add-section-wrap">
+              <label for="equipment-add-section">Sekcja</label>
+              <select id="equipment-add-section" name="sectionId" required></select>
+            </div>
 
             <label for="equipment-add-description">Opis</label>
             <textarea id="equipment-add-description" name="description" maxlength="500" rows="2" placeholder="Np. Namiot 4-osobowy, zielony"></textarea>
+
+            <!-- Same photo picker + "Kadruj" modal as Mój profil (profil.js). Existing photos are
+                 changed immediately; newly picked ones upload after the item itself is saved. -->
+            <div id="equipment-current-photos" class="lw-photo-preview" hidden></div>
+            <label for="equipment-main-photo">Główne zdjęcie</label>
+            <input type="file" id="equipment-main-photo" accept="image/*" />
+            <label for="equipment-extra-photos">Dodatkowe zdjęcia (opcjonalnie)</label>
+            <input type="file" id="equipment-extra-photos" accept="image/*" multiple />
+            <div id="equipment-photo-preview" class="lw-photo-preview" hidden></div>
+            <p id="equipment-photo-progress" style="color: var(--text-muted);" hidden></p>
 
             <div class="pliki-add-form-actions">
               <button type="submit" class="btn-add-album" id="equipment-add-submit">Dodaj</button>
@@ -94,6 +107,11 @@
             </div>
             <p class="pliki-add-error" id="equipment-add-error" hidden></p>
           </form>
+
+          <div class="equipment-section-filter" id="equipment-section-filter" role="group" aria-labelledby="equipment-section-filter-heading">
+            <h2 class="equipment-section-filter-heading" id="equipment-section-filter-heading">Filtry</h2>
+            <div class="equipment-section-filter-buttons" id="equipment-section-filter-buttons"></div>
+          </div>
 
           <div id="equipment-tables">
             <h2>Sprzęt drużynowy</h2>
@@ -136,6 +154,19 @@
     <!-- PARTIAL:social_sidebar -->
   </main>
 
+  <div class="crop-modal" id="crop-modal" hidden>
+    <div class="crop-modal-inner">
+      <img id="crop-target" alt="" />
+    </div>
+    <p class="crop-modal-error" id="crop-modal-error" hidden>
+      Nie udało się otworzyć tego zdjęcia w tej przeglądarce. Wybierz plik JPG lub PNG.
+    </p>
+    <div class="crop-modal-actions">
+      <button type="button" class="add-album-submit" id="crop-save">Zapisz</button>
+      <button type="button" class="btn-cancel" id="crop-cancel">Anuluj</button>
+    </div>
+  </div>
+
   <!-- PARTIAL:footer -->
 
   <script src="../auth.js"></script>
@@ -146,6 +177,7 @@
   <script src="../shared/profile-panel.js"></script>
   <script src="../shared/sortable-table.js"></script>
   <script src="../shared/person-pill.js"></script>
+  <script src="../vendor/cropperjs/cropper.min.js"></script>
   <script src="sprzet-obozowy.js"></script>
 </body>
 </html>

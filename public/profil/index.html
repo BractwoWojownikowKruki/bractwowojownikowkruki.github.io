@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="../style.css" />
   <link rel="stylesheet" href="../member-area.css" />
   <link rel="stylesheet" href="../vendor/cropperjs/cropper.min.css" />
+  <link rel="stylesheet" href="../shared/profile-panel.css" />
   <link rel="stylesheet" href="profil.css" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -44,10 +45,6 @@
         <p class="upload-forbidden" id="forbidden-panel" hidden>
           Brak uprawnień. Ta sekcja jest dostępna tylko dla członków Bractwa.
         </p>
-        <div class="upload-reauth" id="lw-reauth" hidden>
-          <p>Twoja sesja logowania wygasła. Zaloguj się ponownie, aby kontynuować.</p>
-          <div id="google-reauth-button"></div>
-        </div>
 
         <section id="profile-form-panel" hidden>
           <!-- Photos have their own "Prześlij zdjęcia" button: "Zapisz profil" lives in the Dane
@@ -206,6 +203,9 @@
   <script src="../vendor/cropperjs/cropper.min.js"></script>
   <script src="profil-notifications.js"></script>
   <script src="../shared/dues-status.js"></script>
+  <script src="../shared/display-name.js"></script>
+  <script src="../shared/person-pill.js"></script>
+  <script src="../shared/profile-panel.js"></script>
   <script src="profil.js"></script>
 </body>
 </html>

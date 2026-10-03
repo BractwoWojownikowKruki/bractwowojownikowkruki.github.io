@@ -7,6 +7,7 @@ const page = readFileSync(new URL('../public/profil/index.html', import.meta.url
 const script = readFileSync(new URL('../public/profil/profil.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/profil/profil.css', import.meta.url), 'utf8');
 const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
+const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 
 // Minimal DOM stub - just enough for profil.js's top-level (module-load-time) statements to run
 // without throwing, so the function declarations below it (equipmentForOwner, equipmentItemHtml,
@@ -48,6 +49,7 @@ function createContext(overrides: { apiFetch?: (...args: unknown[]) => Promise<u
     encodeURIComponent,
   };
   vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
+  vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
   vm.runInNewContext(script, context, { filename: 'profil.js' });
   return context;
 }
@@ -79,6 +81,22 @@ test('equipmentItemHtml renders a delete button only when the item is deletable,
 
   const withoutDelete = equipmentItemHtml(equipmentB);
   assert.doesNotMatch(withoutDelete, /person-equipment-delete/);
+});
+
+test('equipmentItemHtml renders the Opis as a pill that opens the equipment drawer, or the category when there is no Opis', () => {
+  const context = createContext();
+  const equipmentItemHtml = context.equipmentItemHtml as (item: unknown) => string;
+  assert.match(equipmentItemHtml(equipmentA), /<button type="button" class="profile-trigger" data-equipment-trigger data-equipment-id="eq-1"><span class="category-name-pill equipment-pill">Duży namiot<\/span>/);
+  assert.match(equipmentItemHtml(equipmentB), /data-equipment-trigger data-equipment-id="eq-2"><span class="category-name-pill equipment-pill">wiata</);
+  assert.match(equipmentItemHtml(equipmentA), /equipment-pill">Duży namiot<\/span><svg class="equipment-photo-icon"[^>]*aria-hidden="true"/, 'flat image icon on every item, photos or not');
+});
+
+test('the profile page loads the shared drawer and pill scripts the equipment pill needs', () => {
+  for (const src of ['../shared/display-name.js', '../shared/person-pill.js', '../shared/profile-panel.js']) {
+    assert.ok(page.indexOf(`<script src="${src}"></script>`) !== -1, `missing ${src}`);
+    assert.ok(page.indexOf(`<script src="${src}"></script>`) < page.indexOf('<script src="profil.js"></script>'), `${src} must load before profil.js`);
+  }
+  assert.match(page, /<link rel="stylesheet" href="\.\.\/shared\/profile-panel\.css" \/>/);
 });
 
 test('personEquipmentInnerHtml shows a "Brak." hint for an empty list and a <ul> of items otherwise, plus the add controls', () => {
@@ -139,12 +157,12 @@ test('equipment add/delete are wired as their own immediate POST/DELETE /equipme
   assert.match(script, /MutationFeedback\.confirmed\(\{/);
 
   // Wired from a delegated click listener on the mini-list container, not the form's submit event.
-  assert.match(script, /function wireEquipmentMiniList\(container, ownerId, getSectionId\) \{/);
+  assert.match(script, /function wireEquipmentMiniList\(container, ownerId\) \{/);
   assert.match(script, /container\.addEventListener\('click', \(event\) => \{/);
 });
 
 test('only the member\'s own equipment uses wireEquipmentMiniList - companions don\'t have one', () => {
-  assert.match(script, /wireEquipmentMiniList\(document\.getElementById\('own-equipment'\), viewerEmail\.toLowerCase\(\), \(\) => ownerSectionId\)/);
+  assert.match(script, /wireEquipmentMiniList\(document\.getElementById\('own-equipment'\), viewerEmail\.toLowerCase\(\)\)/);
   // One definition + exactly one call site (the own-equipment panel above) - a second call site
   // would mean a companion mini-list crept back in.
   assert.equal((script.match(/wireEquipmentMiniList\(/g) ?? []).length, 2, 'wireEquipmentMiniList must have exactly one call site (definition + the own-equipment call only)');
@@ -168,10 +186,12 @@ test('CSS defines the mini-list item/list/delete-button classes referenced by th
 // onto the item addPersonEquipmentItem's `apply` pushes into equipmentItems, a freshly-added item
 // would render with no delete button (equipmentItemHtml gates it on item.canDelete) until reload.
 test('a freshly-added equipment item renders with a working delete button immediately, even though POST /equipment omits canEdit/canDelete', async () => {
+  let postedBody: unknown = null;
   const context = createContext({
     apiFetch: async (...args: unknown[]) => {
       const [url, options] = args as [string, Record<string, unknown>];
       if (url === '/equipment' && options.method === 'POST') {
+        postedBody = JSON.parse(String(options.body));
         // Mirrors the real server response shape (server.ts's handleAddEquipment): no
         // canEdit/canDelete fields at all.
         return { equipment: { id: 'new-eq', categoryId: 'namiot', sectionId: 'krakow', belongsToPersonId: 'ala@example.com', description: '' } };
@@ -198,12 +218,12 @@ test('a freshly-added equipment item renders with a working delete button immedi
   const addPersonEquipmentItem = context.addPersonEquipmentItem as (
     container: unknown,
     ownerId: string,
-    getSectionId: () => string,
     control: unknown,
   ) => Promise<void>;
 
-  await addPersonEquipmentItem(container, 'ala@example.com', () => 'krakow', {});
+  await addPersonEquipmentItem(container, 'ala@example.com', {});
 
   assert.match(container.innerHTML, /data-equipment-id="new-eq"/);
   assert.match(container.innerHTML, /person-equipment-delete/, 'the freshly-added item must render its delete button right away, not only after a reload');
+  assert.deepEqual(postedBody, { categoryId: 'namiot', description: '', belongsToPersonId: 'ala@example.com' }, 'no sectionId - private equipment follows its owner');
 });
