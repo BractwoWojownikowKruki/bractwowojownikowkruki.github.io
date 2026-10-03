@@ -2852,9 +2852,22 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   border-color: var(--text-muted);
 }
 
-.lw-cal-day--current {
+.lw-cal-day--has-event {
   border-color: var(--gold);
-  background: rgba(196, 150, 42, 0.18);
+  background: rgba(196, 150, 42, 0.22);
+}
+
+.lw-cal-day--has-event .lw-cal-daynum {
+  color: var(--gold);
+}
+
+.lw-cal-day--current {
+  background: var(--gold);
+}
+
+.lw-cal-day--current .lw-cal-daynum,
+.content-section .lw-cal-day--current a.lw-cal-trip {
+  color: var(--bg);
 }
 
 .lw-cal-daynum {
@@ -2869,7 +2882,7 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   margin-top: 1px;
   border-bottom: none;
   color: var(--gold);
-  font-size: 9px;
+  font-size: 8px;
   line-height: 1.2;
   text-decoration: none;
   white-space: nowrap;

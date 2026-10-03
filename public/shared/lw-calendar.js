@@ -156,13 +156,14 @@
       const classes = ['lw-cal-day'];
       if (!cell.inMonth) classes.push('lw-cal-day--outside');
       if (cell.iso === today) classes.push('lw-cal-day--today');
+      if (cell.events.length) classes.push('lw-cal-day--has-event');
       if (cell.events.some((e) => e.id === event.id)) classes.push('lw-cal-day--current');
       const trips = cell.events.map((e) => `<a class="lw-cal-trip" href="${escapeHtml(eventLink(e))}" title="${escapeHtml(e.name)}">${escapeHtml(shortName(e.name))}</a>`).join('');
       return `<div class="${classes.join(' ')}"><span class="lw-cal-daynum">${cell.day}</span>${trips}</div>`;
     }).join('');
     return `
       <div class="lw-cal-actions">
-        <button type="button" class="lw-cal-add" data-lw-cal-action="google">Dodaj do kalendarza</button>
+        <button type="button" class="lw-cal-add" data-lw-cal-action="google">Dodaj do swojego kalendarza</button>
         <button type="button" class="lw-cal-ics" data-lw-cal-action="ics">Pobierz plik .ics (Apple, Outlook)</button>
       </div>
       <div class="lw-cal-month">

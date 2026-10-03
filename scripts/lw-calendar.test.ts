@@ -70,10 +70,10 @@ test('shortName cuts long names with an ellipsis and leaves short ones alone', (
   assert.equal(cal.shortName('Festiwal Słowian'), 'Festiw…');
 });
 
-test('popover puts "Dodaj do kalendarza" before the month and escapes names', () => {
+test('popover puts "Dodaj do swojego kalendarza" before the month and escapes names', () => {
   const evil: Ev = { id: 'e', name: '<b>x</b>', startDate: '2026-07-05', status: 'active' };
   const html = cal.popoverHtml({ event: evil, events: [evil], view: { year: 2026, month: 7 }, today: '2026-07-01' });
-  assert.ok(html.indexOf('Dodaj do kalendarza') < html.indexOf('lw-cal-month'));
+  assert.ok(html.indexOf('Dodaj do swojego kalendarza') < html.indexOf('lw-cal-month'));
   assert.doesNotMatch(html, /<b>x/);
   assert.match(html, /lipiec 2026/);
   assert.match(html, /lw-cal-day--current/);
