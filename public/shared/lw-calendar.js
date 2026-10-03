@@ -158,7 +158,7 @@
       if (cell.iso === today) classes.push('lw-cal-day--today');
       if (cell.events.length) classes.push('lw-cal-day--has-event');
       if (cell.events.some((e) => e.id === event.id)) classes.push('lw-cal-day--current');
-      const trips = cell.events.map((e) => `<a class="lw-cal-trip" href="${escapeHtml(eventLink(e))}" title="${escapeHtml(e.name)}">${escapeHtml(shortName(e.name))}</a>`).join('');
+      const trips = cell.events.map((e, i) => `<a class="lw-cal-trip${i === 0 ? ' lw-cal-trip--cover' : ''}" href="${escapeHtml(eventLink(e))}" title="${escapeHtml(e.name)}">${escapeHtml(shortName(e.name))}</a>`).join('');
       return `<div class="${classes.join(' ')}"><span class="lw-cal-daynum">${cell.day}</span>${trips}</div>`;
     }).join('');
     return `

@@ -2853,6 +2853,8 @@ a.dashboard-widget:hover { border-color: var(--gold); }
 }
 
 .lw-cal-day--has-event {
+  position: relative;
+  cursor: pointer;
   border-color: var(--gold);
   background: rgba(196, 150, 42, 0.22);
 }
@@ -2892,4 +2894,22 @@ a.dashboard-widget:hover { border-color: var(--gold); }
 
 .content-section a.lw-cal-trip:hover {
   text-decoration: underline;
+}
+
+/* Whole day cell is a link to its trip: the first trip's anchor stretches over the cell. With
+   several trips on one day, the others stay clickable above it by their own label. */
+.content-section a.lw-cal-trip {
+  position: relative;
+  z-index: 1;
+}
+
+.content-section a.lw-cal-trip--cover {
+  position: static;
+}
+
+.lw-cal-trip--cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
 }
