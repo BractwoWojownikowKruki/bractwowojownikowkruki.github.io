@@ -15,7 +15,8 @@ import { getClientIp, isRateLimited } from './rate-limit.ts';
 import {
   bootstrapAboutUsStructure,
   buildPersonFolderName,
-  computeOrderForDepartmentMove,
+  planNewcomerOrder,
+  planCategoryReorder,
   departmentFolderId,
   fetchCategoryPeople,
   IN_MEMORIAM_FILE_NAME,
@@ -2335,6 +2336,33 @@ async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerRes
   sendJson(res, 200, { ok: true });
 }
 
+// Saves a manually dragged order of one public category ("Zarządzanie kolejnością"): `folderIds`
+// is the whole category, first to last. Every person ends up numbered 1..N without gaps or
+// duplicates, so the next newcomer gets N+1 (or lowest - 1 for Emeryci) and lands correctly. One
+// audited order change per person whose number actually changes, same shape as the single-person
+// handler above; a list that no longer matches Drive (someone added/moved meanwhile) is a 409.
+async function handleAdminReorderPeople(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  const { category, folderIds } = await readJsonBody<{ category?: string; folderIds?: unknown }>(req, deps.maxJsonBodyBytes);
+  const validCategory = parseAboutUsCategory(category ?? null);
+  if (!Array.isArray(folderIds) || folderIds.length === 0) throw new AuthError('Brak folderIds.', 400);
+  const ids = folderIds.map(id => requireDriveId(typeof id === 'string' ? id : undefined, 'Brak folderIds.'));
+  const folders = await bootstrapAboutUsStructure(deps.drive);
+  const current = await deps.drive.listGalleryFolders(folders.categories[validCategory]);
+  let renames;
+  try {
+    renames = planCategoryReorder(current.map(f => ({ id: f.id, name: f.name })), ids);
+  } catch (error) {
+    throw new AuthError(`${(error as Error).message} Odśwież stronę i spróbuj ponownie.`, 409);
+  }
+  for (const { folderId, newName } of renames) {
+    const { name, order } = parsePersonFolderName(newName);
+    await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.order.updated', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: name }, changes: [{ field: 'name', after: name }, { field: 'order', after: order }] }, async () => deps.drive.renameFolder(folderId, newName));
+  }
+  invalidateAboutUsCache();
+  sendJson(res, 200, { ok: true, changed: renames.length });
+}
+
 // Moves a person's folder into a different department (any of the public categories, "upload", or
 // "deleted" - the admin panel's "remove from site" action, see AboutUsFolders.deletedRoot) -
 // e.g. reviewing a self-service submission and moving it out of the staging folder into
@@ -2342,8 +2370,8 @@ async function handleAdminUpdatePersonOrder(req: IncomingMessage, res: ServerRes
 // moveFolder; this just resolves the target department name to its folder id.
 //
 // Moving into one of the *public* categories also reassigns the person's display order (see
-// computeOrderForDepartmentMove): every department appends them at the end, except Emeryci and
-// Założyciele, which prepend instead - by design, not something the admin panel asks for
+// computeOrderForDepartmentMove): every department appends them at the end, except Emeryci,
+// which prepends instead - by design, not something the admin panel asks for
 // explicitly. "upload"/"deleted" skip this entirely since order is meaningless there.
 async function handleAdminMovePerson(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateAdminWithStepUp(req, res);
@@ -2353,7 +2381,13 @@ async function handleAdminMovePerson(req: IncomingMessage, res: ServerResponse, 
   await requirePersonFolder(deps, folderId);
   await executeAuditedExternalMutation(deps.firestore, { action: 'profile.person.category.changed', actor: { email: identity.email }, resource: { kind: 'person', key: `person:${folderId}`, display: folderId }, changes: [{ field: 'category', after: department }] }, async () => {
     const folders = await bootstrapAboutUsStructure(deps.drive); const targetFolderId = departmentFolderId(folders, department); const { name: currentFolderName } = await deps.drive.moveFolder(folderId, targetFolderId);
-    if (isAboutUsCategory(department)) { const siblings = await deps.drive.listGalleryFolders(targetFolderId); const newOrder = computeOrderForDepartmentMove(department, siblings.filter(f => f.id !== folderId).map(f => f.name)); const { name: personName } = parsePersonFolderName(currentFolderName); await deps.drive.renameFolder(folderId, buildPersonFolderName(personName, newOrder)); }
+    if (isAboutUsCategory(department)) {
+      const siblings = (await deps.drive.listGalleryFolders(targetFolderId)).filter(f => f.id !== folderId);
+      const { newcomerOrder, renames } = planNewcomerOrder(department, siblings.map(f => ({ id: f.id, name: f.name })));
+      for (const rename of renames) await deps.drive.renameFolder(rename.folderId, rename.newName);
+      const { name: personName } = parsePersonFolderName(currentFolderName);
+      await deps.drive.renameFolder(folderId, buildPersonFolderName(personName, newcomerOrder));
+    }
   });
 
   invalidateAboutUsCache();
@@ -2605,7 +2639,13 @@ async function handleAdminApprovePhoto(req: IncomingMessage, res: ServerResponse
       },
       async () => {
         const folders = await bootstrapAboutUsStructure(deps.drive);
-        const id = await deps.drive.createAlbumFolder(folders.categories[validCategory], buildPersonFolderName(name, null));
+        // Numbered like a person moved in (see handleAdminMovePerson): joining a category is what
+        // decides where they land, so a brand-new folder must not stay unnumbered (which would
+        // sort it alphabetically after everyone else, even in Emeryci where newcomers go first).
+        const siblings = await deps.drive.listGalleryFolders(folders.categories[validCategory]);
+        const { newcomerOrder, renames } = planNewcomerOrder(validCategory, siblings.map(f => ({ id: f.id, name: f.name })));
+        for (const rename of renames) await deps.drive.renameFolder(rename.folderId, rename.newName);
+        const id = await deps.drive.createAlbumFolder(folders.categories[validCategory], buildPersonFolderName(name, newcomerOrder));
         if (description) await deps.drive.writeTextFile(id, 'Opis.txt', description);
         return id;
       },
@@ -5757,6 +5797,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminUpdateDescription(req, res, url, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/order') {
         await handleAdminUpdatePersonOrder(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/people/reorder') {
+        await handleAdminReorderPeople(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/category') {
         await handleAdminMovePerson(req, res, deps);
       } else if (req.method === 'DELETE' && url.pathname === '/admin/people') {

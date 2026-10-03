@@ -47,6 +47,7 @@ Last synced with implementation-contract.md: 2026-10-03 (equipment photos: added
 | POST/DELETE `/admin/redirects` | businessWrite — `site.redirect.created` / `site.redirect.deleted` | redirect; GitHub | auditedOperationEnvelope |
 | PUT `/admin/people/description` | businessWrite — `profile.person.description.updated` | person; Drive text file | auditedOperationEnvelope |
 | PUT `/admin/people/order` | businessWrite — `profile.person.order.updated` | person; Drive folder rename | auditedOperationEnvelope |
+| PUT `/admin/people/reorder` | businessWrite — `profile.person.order.updated` (one per person whose number changes) | person; Drive folder renames | auditedOperationEnvelope |
 | PUT `/admin/people/category` | businessWrite — `profile.person.category.changed` | person; Drive folder move/rename | auditedOperationEnvelope |
 | DELETE `/admin/people` | businessWrite — `profile.person.deleted` | person; Drive folder deletion | auditedOperationEnvelope |
 | POST/DELETE `/admin/people/photo` | businessWrite — `profile.person.photo.added` / `profile.person.photo.deleted` | person; Drive/Firestore | auditedOperationEnvelope |

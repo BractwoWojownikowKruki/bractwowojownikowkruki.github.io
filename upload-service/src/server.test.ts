@@ -1463,6 +1463,46 @@ test('PUT /admin/people/order accepts a null order (unnumbered, sorted alphabeti
   assert.equal(renamedTo, 'Ragnar');
 });
 
+test('PUT /admin/people/reorder renumbers the whole category 1..N in the given order', async () => {
+  const renames: Record<string, string> = {};
+  const deps = makeDeps({
+    drive: makePersonTreeDrive({
+      listGalleryFolders: async () => [
+        { id: 'p1', name: '1. Anna' }, { id: 'p2', name: '2. Bolek' }, { id: 'p3', name: 'Cezary' },
+      ] as never,
+      renameFolder: async (folderId, newName) => { renames[folderId] = newName; },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/reorder`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'Niewiasty', folderIds: ['p3', 'p1', 'p2'] }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.deepEqual(renames, { p3: '1. Cezary', p1: '2. Anna', p2: '3. Bolek' });
+});
+
+test('PUT /admin/people/reorder rejects a stale list with 409 and renames nothing', async () => {
+  let renamed = 0;
+  const deps = makeDeps({
+    drive: makePersonTreeDrive({
+      listGalleryFolders: async () => [{ id: 'p1', name: '1. Anna' }, { id: 'p2', name: '2. Bolek' }] as never,
+      renameFolder: async () => { renamed++; },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/reorder`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'Niewiasty', folderIds: ['p2'] }),
+    });
+    assert.equal(res.status, 409);
+  });
+  assert.equal(renamed, 0);
+});
+
 test('PUT /admin/people/order rejects a missing name', async () => {
   const deps = makeDeps();
   await withServer(deps, async baseUrl => {
@@ -2218,7 +2258,7 @@ test('PUT /admin/people/photo/approve, first approval: creates the public folder
     const body = await res.json();
     assert.equal(body.folderId, 'new-public-folder');
   });
-  assert.equal(createdFolderName, 'Storm Wojowniczka');
+  assert.equal(createdFolderName, '1. Storm Wojowniczka'); // joins an empty category as number 1
   assert.ok(!createdFolderName.includes('anna@gmail.com'), 'public folder name must never contain the email');
   assert.equal(movedTo, 'new-public-folder');
   const updated = await firestore.getDoc<{ driveFolderId: string | null }>('members', 'anna@gmail.com');
@@ -6608,6 +6648,7 @@ const STEP_UP_GATED_ROUTES: { method: string; path: string; stepUpDep: keyof Ser
   { method: 'DELETE', path: '/admin/redirects', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'PUT', path: '/admin/people/description', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'PUT', path: '/admin/people/order', stepUpDep: 'authenticateAdminWithStepUp' },
+  { method: 'PUT', path: '/admin/people/reorder', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'PUT', path: '/admin/people/category', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'DELETE', path: '/admin/people', stepUpDep: 'authenticateAdminWithStepUp' },
   { method: 'POST', path: '/admin/people/photo', stepUpDep: 'authenticateAdminWithStepUp' },

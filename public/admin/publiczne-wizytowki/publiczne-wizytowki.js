@@ -86,6 +86,8 @@ async function loadManageList() {
       apiFetch('/admin/people?category=upload', { method: 'GET' }, showReauth, hideReauth),
     ]);
     renderManageList(data.people || [], transferTargets);
+    closeReorderPanel();
+    document.getElementById('reorder-open').hidden = category === 'upload' || category === 'deleted';
     transferTargetsCache = transferTargets;
     updateUploadPendingBanner(uploadData.people || []);
   } catch (err) {
@@ -685,5 +687,91 @@ document.getElementById('manage-people-list').addEventListener('change', async e
   }
   } catch (err) {
     window.alert(`Błąd: ${err.message}`);
+  }
+});
+
+
+// "Zarządzanie kolejnością": a compact nickname-only list (two per row, like the public page)
+// that can be reordered by dragging the handle. Nothing is written until "Zapisz kolejność".
+function closeReorderPanel() {
+  document.getElementById('reorder-panel').hidden = true;
+  document.getElementById('reorder-list').innerHTML = '';
+}
+
+document.getElementById('reorder-open').addEventListener('click', async () => {
+  const category = document.getElementById('manage-category').value;
+  const listEl = document.getElementById('reorder-list');
+  listEl.textContent = 'Ładowanie...';
+  document.getElementById('reorder-panel').hidden = false;
+  try {
+    const data = await apiFetch(`/admin/people?category=${encodeURIComponent(category)}`, { method: 'GET' }, showReauth, hideReauth);
+    listEl.innerHTML = (data.people || []).map(p => `
+      <li class="reorder-item" data-folder-id="${escapeAttr(p.folderId)}">
+        <span class="reorder-handle" title="Przeciągnij" aria-label="Przeciągnij, aby zmienić kolejność">⠿</span>
+        <span class="reorder-num"></span>
+        <span class="reorder-name">${escapeHtml(p.name)}</span>
+      </li>`).join('');
+    renumberReorderList();
+  } catch (err) {
+    listEl.textContent = `Błąd: ${err.message}`;
+  }
+});
+
+function renumberReorderList() {
+  document.querySelectorAll('#reorder-list .reorder-item').forEach((item, i) => {
+    item.querySelector('.reorder-num').textContent = `${i + 1}.`;
+  });
+}
+
+// Pointer events (not HTML5 drag&drop) so the handle also works by touch.
+(function setupReorderDrag() {
+  const listEl = document.getElementById('reorder-list');
+  let dragged = null;
+  listEl.addEventListener('pointerdown', e => {
+    const handle = e.target.closest('.reorder-handle');
+    if (!handle) return;
+    dragged = handle.closest('.reorder-item');
+    dragged.classList.add('dragging');
+    handle.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  listEl.addEventListener('pointermove', e => {
+    if (!dragged) return;
+    const over = document.elementFromPoint(e.clientX, e.clientY)?.closest('.reorder-item');
+    if (!over || over === dragged || over.parentElement !== listEl) return;
+    const items = [...listEl.children];
+    if (items.indexOf(dragged) < items.indexOf(over)) over.after(dragged);
+    else over.before(dragged);
+    renumberReorderList();
+  });
+  const end = () => {
+    if (!dragged) return;
+    dragged.classList.remove('dragging');
+    dragged = null;
+  };
+  listEl.addEventListener('pointerup', end);
+  listEl.addEventListener('pointercancel', end);
+})();
+
+document.getElementById('reorder-cancel').addEventListener('click', closeReorderPanel);
+
+document.getElementById('reorder-save').addEventListener('click', async e => {
+  const saveBtn = e.currentTarget;
+  const category = document.getElementById('manage-category').value;
+  const folderIds = [...document.querySelectorAll('#reorder-list .reorder-item')].map(item => item.dataset.folderId);
+  if (!folderIds.length) return;
+  try {
+    await confirmedPersonWrite(saveBtn, null, () => apiFetch(
+      '/admin/people/reorder',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, folderIds }),
+      },
+      showReauth, hideReauth,
+    ), () => {});
+    await loadManageList();
+  } catch (err) {
+    window.alert(`Nie udało się zapisać kolejności: ${err.message}`);
   }
 });
