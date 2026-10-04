@@ -173,30 +173,50 @@ window.PeoplePhotoCache = (function () {
     return img;
   }
 
+  // Avatar slot flush against a name pill's left edge. It is a background-image box, not an <img>,
+  // so it has no intrinsic height: it stretches to the pill's own height and can never enlarge the
+  // pill. `contain` shows the whole picture. Resolves true once the image has loaded and been placed.
+  function placeLeadAvatar(url, pill) {
+    return new Promise((resolve) => {
+      const probe = new Image();
+      probe.onload = () => {
+        if (!pill.isConnected) return resolve(false);
+        const slot = document.createElement('span');
+        slot.className = 'person-avatar-slot';
+        slot.setAttribute('aria-hidden', 'true');
+        slot.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")';
+        pill.before(slot);
+        resolve(true);
+      };
+      probe.onerror = () => resolve(false);
+      probe.src = url;
+    });
+  }
+
   function upgradeTrigger(trigger) {
     if (trigger.hasAttribute('data-equipment-trigger')) {
       const url = equipmentAvatars && equipmentAvatars.get(trigger.dataset.equipmentId);
       const icon = trigger.querySelector('svg.equipment-photo-icon');
       if (!url || !icon) return;
+      // Same place as a person's avatar: flush against the pill's left edge, replacing the icon.
       const img = makeAvatar(url, 'person-avatar--equipment');
-      img.addEventListener('error', () => img.replaceWith(icon), { once: true });
-      icon.replaceWith(img);
+      img.addEventListener('error', () => img.remove(), { once: true });
+      trigger.prepend(img);
+      icon.remove();
       trigger.setAttribute('data-avatar', '');
       return;
     }
     const url = personAvatarUrl(trigger.dataset.folderId);
     if (!url) return;
     if (trigger.matches(ICON_TRIGGER)) {
-      // Next to a name pill (Lista Wyjazdowa, Spis Ludności): the avatar sits flush against the
-      // pill's left edge and replaces the redundant "show profile" icon button.
+      // Next to a name pill (Lista Wyjazdowa, Spis Ludności): the avatar leads the pill and replaces
+      // the redundant "show profile" icon button.
       const pillTrigger = trigger.previousElementSibling;
       const pill = pillTrigger && pillTrigger.matches('[data-profile-trigger]') ? pillTrigger.querySelector('.category-name-pill') : null;
       if (pill) {
-        const img = makeAvatar(url, 'person-avatar--lead');
-        img.addEventListener('error', () => img.remove(), { once: true });
-        pill.before(img);
+        trigger.setAttribute('data-avatar', '');
         pillTrigger.setAttribute('data-avatar', '');
-        trigger.remove();
+        placeLeadAvatar(url, pill).then((placed) => { if (placed) trigger.remove(); });
         return;
       }
       const icon = trigger.querySelector('svg');
@@ -209,6 +229,12 @@ window.PeoplePhotoCache = (function () {
       // the pill instead. When an icon trigger follows, that one carries the avatar.
       const next = trigger.nextElementSibling;
       if (next && next.matches(ICON_TRIGGER)) return;
+      const pill = trigger.querySelector('.category-name-pill');
+      if (pill) {
+        trigger.setAttribute('data-avatar', '');
+        placeLeadAvatar(url, pill);
+        return;
+      }
       const img = makeAvatar(url, 'person-avatar--lead');
       img.addEventListener('error', () => img.remove(), { once: true });
       trigger.prepend(img);

@@ -63,7 +63,11 @@ class FakeEl {
   add(child: FakeEl) { child.parent = this; this.children.push(child); return child; }
   hasAttribute(n: string) { return n in this.attrs; }
   setAttribute(n: string, v: string) { this.attrs[n] = v; }
-  matches(sel: string) { return sel.split(',').map(x => x.trim()).some(c => c.startsWith('.') && this.cls.split(' ').includes(c.slice(1))); }
+  matches(sel: string) { return sel.split(',').map(x => x.trim()).some(c => (c.startsWith('.') && this.cls.split(' ').includes(c.slice(1))) || (c.startsWith('[') && c.endsWith(']') && c.slice(1, -1) in this.attrs)); }
+  get previousElementSibling() { const i = this.parent!.children.indexOf(this); return i > 0 ? this.parent!.children[i - 1] : null; }
+  get isConnected() { return this.parent !== null; }
+  before(el: FakeEl) { const i = this.parent!.children.indexOf(this); el.parent = this.parent; this.parent!.children.splice(i, 0, el); }
+  style: Record<string, string> = {};
   get nextElementSibling() { const i = this.parent!.children.indexOf(this); return this.parent!.children[i + 1] ?? null; }
   querySelector(sel: string): FakeEl | null {
     const [tag, cls] = sel.split('.');
@@ -92,6 +96,7 @@ function loadWithDom(triggers: FakeEl[], routes: Record<string, unknown>) {
   const fetchImpl = (url: string) => (url in routes ? ok(routes[url]) : Promise.resolve({ ok: false }));
   vm.runInNewContext(readFileSync(new URL('../public/people-photos.js', import.meta.url), 'utf8'), {
     window, document, fetch: fetchImpl, Math, Promise, setTimeout, Object, MutationObserver: undefined,
+    Image: class { onload: () => void = () => {}; onerror: () => void = () => {}; set src(_v: string) { setImmediate(() => this.onload()); } },
   });
   return window.PeoplePhotoCache;
 }
@@ -150,11 +155,16 @@ test('a pill trigger without an icon button gets a leading avatar; with an icon 
   await cache.loadAllStaticPeople();
   await new Promise(r => setImmediate(r));
   cache.applyAvatars();
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
 
-  assert.equal(lone.children[0].tag, 'img');
-  assert.ok(lone.children[0].cls.includes('person-avatar--lead'));
-  assert.equal(paired.children[0].tag, 'span', 'pill untouched when the icon carries the avatar');
-  assert.equal(iconBtn.children[0].tag, 'img');
+  // The avatar is a background-image slot (no intrinsic height) placed flush before the pill.
+  assert.equal(lone.children[0].tag, 'span');
+  assert.ok(lone.children[0].cls.includes('person-avatar-slot'));
+  assert.ok(lone.children[0].style.backgroundImage.includes('/people-photos/m1-64-aaaaaaaaaa.jpg'));
+  assert.ok(lone.children[1].cls.includes('category-name-pill'));
+  assert.ok(paired.children[0].cls.includes('person-avatar-slot'), 'with an icon button next to it, the avatar still leads the pill');
+  assert.ok(!row2.children.includes(iconBtn), 'the redundant icon button is removed once the avatar is placed');
 });
 
 test('an equipment pill swaps its image icon for the cached equipment avatar (photo id -> manifest)', async () => {
@@ -172,10 +182,11 @@ test('an equipment pill swaps its image icon for the cached equipment avatar (ph
   await cache.loadEquipmentAvatars();
   await new Promise(r => setImmediate(r));
   cache.applyAvatars();
-  assert.equal(btn.children[1].tag, 'img');
-  assert.equal(btn.children[1].src, '/people-photos/p1-64-0.webp');
-  assert.ok(btn.children[1].cls.includes('person-avatar--equipment'));
+  assert.equal(btn.children[0].tag, 'img', 'equipment avatar leads the pill, like a person avatar');
+  assert.equal(btn.children[0].src, '/people-photos/p1-64-0.webp');
+  assert.ok(btn.children[0].cls.includes('person-avatar--equipment'));
+  assert.ok(!btn.children.includes(icon), 'the image icon is replaced');
   assert.equal(other.children[0].tag, 'svg', 'item without a cached avatar keeps its icon');
-  btn.children[1].listeners.error();
-  assert.equal(btn.children[1], icon);
+  btn.children[0].listeners.error();
+  assert.ok(!btn.children.some(c => c.cls.includes('person-avatar--equipment')), 'a broken image is dropped');
 });
