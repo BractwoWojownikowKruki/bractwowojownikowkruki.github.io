@@ -1662,6 +1662,29 @@ button.lw-date-pill[aria-expanded="true"] {
   margin-left: 0;
 }
 
+/* Dashboard variant: same behaviour, but a muted outline so it doesn't compete with the card. */
+.lw-date-wrap--quiet {
+  display: inline-block;
+  margin-left: 0;
+}
+
+.lw-date-pill--quiet {
+  gap: 0.35rem;
+  padding: 0.1rem 0.55rem;
+  border-color: var(--border);
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-weight: 400;
+}
+
+button.lw-date-pill--quiet:hover,
+button.lw-date-pill--quiet[aria-expanded="true"] {
+  border-color: var(--gold);
+  background: transparent;
+  color: var(--gold);
+}
+
 .lw-date-pill svg {
   width: 1.1em;
   height: 1.1em;
@@ -2745,13 +2768,19 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   top: calc(100% + 0.4rem);
   right: 0;
   z-index: 30;
-  width: min(92vw, 340px);
+  width: min(86vw, 340px);
   padding: 0.75rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
   font-size: 13px;
+}
+
+/* Dashboard cards: the pill sits mid-row, so the dropdown opens toward the side that has room. */
+.lw-cal-popover--start {
+  right: auto;
+  left: 0;
 }
 
 .lw-cal-actions {
@@ -2847,7 +2876,7 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   border-radius: 4px;
   background: var(--surface-deep);
   text-align: center;
-  overflow: hidden;
+  min-width: 0;
 }
 
 .lw-cal-day--outside {
@@ -2874,7 +2903,7 @@ a.dashboard-widget:hover { border-color: var(--gold); }
 }
 
 .lw-cal-day--current .lw-cal-daynum,
-.content-section .lw-cal-day--current a.lw-cal-trip {
+.lw-cal-grid .lw-cal-day--current a.lw-cal-trip {
   color: var(--bg);
 }
 
@@ -2885,31 +2914,33 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   font-weight: 700;
 }
 
-.content-section a.lw-cal-trip {
+.lw-cal-grid a.lw-cal-trip {
   display: block;
   margin-top: 1px;
   border-bottom: none;
   color: var(--gold);
-  font-size: 8px;
+  font-size: 7px;
   line-height: 1.2;
   text-decoration: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Full trip name, wrapped over as many lines as it needs; very long words break instead of
+     pushing the grid wider. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
-.content-section a.lw-cal-trip:hover {
+.lw-cal-grid a.lw-cal-trip:hover {
   text-decoration: underline;
 }
 
 /* Whole day cell is a link to its trip: the first trip's anchor stretches over the cell. With
    several trips on one day, the others stay clickable above it by their own label. */
-.content-section a.lw-cal-trip {
+.lw-cal-grid a.lw-cal-trip {
   position: relative;
   z-index: 1;
 }
 
-.content-section a.lw-cal-trip--cover {
+.lw-cal-grid a.lw-cal-trip--cover {
   position: static;
 }
 

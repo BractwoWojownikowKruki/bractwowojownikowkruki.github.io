@@ -158,7 +158,7 @@
       if (cell.iso === today) classes.push('lw-cal-day--today');
       if (cell.events.length) classes.push('lw-cal-day--has-event');
       if (cell.events.some((e) => e.id === event.id)) classes.push('lw-cal-day--current');
-      const trips = cell.events.map((e, i) => `<a class="lw-cal-trip${i === 0 ? ' lw-cal-trip--cover' : ''}" href="${escapeHtml(eventLink(e))}" title="${escapeHtml(e.name)}">${escapeHtml(shortName(e.name))}</a>`).join('');
+      const trips = cell.events.map((e, i) => `<a class="lw-cal-trip${i === 0 ? ' lw-cal-trip--cover' : ''}" href="${escapeHtml(eventLink(e))}" title="${escapeHtml(e.name)}">${escapeHtml(e.name)}</a>`).join('');
       return `<div class="${classes.join(' ')}"><span class="lw-cal-daynum">${cell.day}</span>${trips}</div>`;
     }).join('');
     return `
@@ -176,7 +176,100 @@
       </div>`;
   }
 
+  function todayIso() {
+    const d = new Date();
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  function downloadIcs(event) {
+    const blob = new Blob([icsContent(event)], { type: 'text/calendar;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = icsFilename(event);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }
+
+  /**
+   * Wires every date pill on the page to its calendar dropdown. Markup contract:
+   *   <div class="lw-date-wrap" data-lw-cal-key="unique" data-lw-cal-event="<event id>">
+   *     <button data-lw-cal-toggle>...</button><div class="lw-cal-popover" hidden></div>
+   *   </div>
+   * Only one dropdown is open at a time; it opens on the month of its own trip. `refresh()` repaints
+   * after the page re-renders (the open key survives, the DOM nodes do not).
+   *
+   * Clicks are classified through composedPath(): a month step re-renders the popover, which
+   * detaches the clicked button, and a plain `target.closest()` on the detached node would read as
+   * an outside click and close the dropdown right after every prev/next press.
+   */
+  function mountDropdowns({ getEvents, findEvent }) {
+    let open = null; // { key, view }
+
+    function refresh() {
+      document.querySelectorAll('.lw-date-wrap[data-lw-cal-key]').forEach((wrap) => {
+        const popover = wrap.querySelector('.lw-cal-popover');
+        const pill = wrap.querySelector('[data-lw-cal-toggle]');
+        const event = open && open.key === wrap.dataset.lwCalKey ? findEvent(wrap.dataset.lwCalEvent) : null;
+        if (popover) popover.hidden = !event;
+        if (pill) pill.setAttribute('aria-expanded', String(Boolean(event)));
+        if (event && popover) {
+          popover.innerHTML = popoverHtml({ event, events: getEvents(), view: open.view, today: todayIso() });
+        }
+      });
+    }
+
+    function close() {
+      open = null;
+      refresh();
+    }
+
+    document.addEventListener('click', (e) => {
+      const path = e.composedPath().filter((n) => n && typeof n.matches === 'function');
+      const within = (selector) => path.find((n) => n.matches(selector));
+      const wrap = within('.lw-date-wrap[data-lw-cal-key]');
+      if (!wrap) {
+        if (open) close();
+        return;
+      }
+      const key = wrap.dataset.lwCalKey;
+      const event = findEvent(wrap.dataset.lwCalEvent);
+      if (within('[data-lw-cal-toggle]')) {
+        if (open && open.key === key) {
+          close();
+        } else if (event) {
+          const [year, month] = event.startDate.split('-').map(Number);
+          open = { key, view: { year, month } };
+          refresh();
+        }
+        return;
+      }
+      const button = within('[data-lw-cal-action]');
+      if (!button || !event || !open || open.key !== key) return;
+      const action = button.dataset.lwCalAction;
+      if (action === 'google') {
+        window.open(googleUrl(event), '_blank', 'noopener');
+      } else if (action === 'ics') {
+        downloadIcs(event);
+      } else if (action === 'prev' || action === 'next') {
+        open.view = shiftMonth(open.view, action === 'next' ? 1 : -1);
+        refresh();
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !open) return;
+      const key = open.key;
+      close();
+      document.querySelector(`.lw-date-wrap[data-lw-cal-key="${key}"] [data-lw-cal-toggle]`)?.focus();
+    });
+
+    return { refresh, close };
+  }
+
   window.LwCalendar = {
+    mountDropdowns,
     googleUrl,
     icsContent,
     icsFilename,

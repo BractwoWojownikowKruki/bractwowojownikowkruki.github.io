@@ -143,76 +143,16 @@ function renderEventDateAndStatus(event) {
   const pill = document.getElementById('event-date-pill');
   pill.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${escapeHtml(formatDate(event.startDate))}`;
   document.getElementById('event-date-wrap').hidden = false;
-  if (calendarOpen) renderCalendarPopover();
+  calendarDropdowns.refresh();
   document.getElementById('event-meta').textContent = event.status === 'cancelled' ? 'Odwołany' : '';
 }
 
 // Date pill -> dropdown (not a modal): "Dodaj do kalendarza" on top, then a one-month view with
-// every booked trip on its day. `calendarView` is the month shown, re-centred on this trip's month
-// each time the menu opens; the markup itself comes from shared/lw-calendar.js.
-let calendarOpen = false;
-let calendarView = null;
-
-function todayIso() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function renderCalendarPopover() {
-  const popover = document.getElementById('event-calendar-popover');
-  const pill = document.getElementById('event-date-pill');
-  popover.hidden = !calendarOpen;
-  pill.setAttribute('aria-expanded', String(calendarOpen));
-  if (!calendarOpen || !cachedEvent) return;
-  popover.innerHTML = window.LwCalendar.popoverHtml({
-    event: cachedEvent,
-    events: cachedNavEvents,
-    view: calendarView,
-    today: todayIso(),
-  });
-}
-
-function setCalendarOpen(open) {
-  calendarOpen = open;
-  if (open && cachedEvent) {
-    const [year, month] = cachedEvent.startDate.split('-').map(Number);
-    calendarView = { year, month };
-  }
-  renderCalendarPopover();
-}
-
-document.getElementById('event-date-pill').addEventListener('click', () => setCalendarOpen(!calendarOpen));
-
-document.getElementById('event-calendar-popover').addEventListener('click', (e) => {
-  const button = e.target.closest('[data-lw-cal-action]');
-  if (!button || !cachedEvent) return;
-  const action = button.dataset.lwCalAction;
-  if (action === 'google') {
-    window.open(window.LwCalendar.googleUrl(cachedEvent), '_blank', 'noopener');
-  } else if (action === 'ics') {
-    const blob = new Blob([window.LwCalendar.icsContent(cachedEvent)], { type: 'text/calendar;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = window.LwCalendar.icsFilename(cachedEvent);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-  } else if (action === 'prev' || action === 'next') {
-    calendarView = window.LwCalendar.shiftMonth(calendarView, action === 'next' ? 1 : -1);
-    renderCalendarPopover();
-  }
-});
-
-// Closes like any dropdown: a click anywhere outside it, or Escape (focus back on the pill).
-document.addEventListener('click', (e) => {
-  if (calendarOpen && !e.target.closest('#event-date-wrap')) setCalendarOpen(false);
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && calendarOpen) {
-    setCalendarOpen(false);
-    document.getElementById('event-date-pill').focus();
-  }
+// every booked trip on its day. Open/month state and click handling live in shared/lw-calendar.js
+// (mountDropdowns), which the dashboard reuses; this page only supplies the events.
+const calendarDropdowns = window.LwCalendar.mountDropdowns({
+  getEvents: () => cachedNavEvents,
+  findEvent: () => cachedEvent,
 });
 
 function formatStatusChangedAt(iso) {
