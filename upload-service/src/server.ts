@@ -1090,6 +1090,7 @@ async function handleDeleteEquipment(req: IncomingMessage, res: ServerResponse, 
   // After the record is gone, nothing references these objects any more. Best-effort: a failed
   // delete only leaves an orphaned file in the bucket, never a broken item on the page.
   await deleteEquipmentPhotoObjects(deps, removedPhotos);
+  if (removedPhotos.length > 0) await deps.peopleSync?.request();
   sendJson(res, 200, { ok: true });
 }
 
@@ -1160,6 +1161,7 @@ async function handleAddEquipmentPhoto(req: IncomingMessage, res: ServerResponse
     await deleteEquipmentPhotoObjects(deps, [photo]);
     throw err;
   }
+  await deps.peopleSync?.request();
   sendJson(res, 200, { equipment: result });
 }
 
@@ -1192,6 +1194,7 @@ async function handleDeleteEquipmentPhoto(req: IncomingMessage, res: ServerRespo
     },
   );
   await deleteEquipmentPhotoObjects(deps, [result.removed]);
+  await deps.peopleSync?.request();
   sendJson(res, 200, { equipment: result.updated });
 }
 
@@ -1221,6 +1224,7 @@ async function handleSetEquipmentMainPhoto(req: IncomingMessage, res: ServerResp
       return saveEquipmentPhotosInTransaction(tx, existing, photos, identity.email);
     },
   );
+  await deps.peopleSync?.request();
   sendJson(res, 200, { equipment: result });
 }
 
@@ -1741,6 +1745,18 @@ async function handleAboutUs(res: ServerResponse, url: URL, deps: ServerDeps): P
   const folders = await bootstrapAboutUsStructure(deps.drive);
   const people = await fetchCategoryPeople(deps.drive, folders.categories[category]);
   sendJson(res, 200, { people });
+}
+
+// Public like /about-us (the nightly sync-people-photos job calls it without credentials): the
+// main photo of every equipment item that has one, so the job can cache a 64px avatar per item.
+// Exposes only the item id and the photo's Cloud Storage URL (already a public, unguessable
+// link) - never the description, owner or any other field.
+async function handleEquipmentAvatars(res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const items = (await listEquipment(deps.firestore)).flatMap((doc) => {
+    const photo = equipmentPhotos(doc)[0];
+    return photo ? [{ id: doc.id, photoId: photo.id, url: photo.url }] : [];
+  });
+  sendJson(res, 200, { items });
 }
 
 async function handleAdminWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
@@ -5749,6 +5765,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleGalleries(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/about-us') {
         await handleAboutUs(res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/equipment-avatars') {
+        await handleEquipmentAvatars(res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/whoami') {
         await handleAdminWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/members/whoami') {

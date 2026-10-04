@@ -1,15 +1,21 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import sharp from 'sharp';
 import {
+  AVATAR_SIZE,
   CATEGORY_SLUGS,
   PEOPLE_PHOTO_CATEGORIES,
+  buildEquipmentAvatarsSnapshot,
   buildManifest,
   buildSnapshot,
+  collectAvatarPhotos,
+  collectEquipmentAvatarPhotos,
   collectWantedPhotos,
   extensionForContentType,
   fileNameFor,
   parseFileName,
   planSync,
+  type RemoteEquipmentAvatar,
   type RemotePersonFull,
   type WantedPhoto,
 } from './people-photos-utils.ts';
@@ -25,6 +31,16 @@ const DATA_DIR = join(ROOT, 'public/people-data');
 const BACKEND_URL = process.env.PEOPLE_PHOTOS_BACKEND_URL ?? 'https://krucze-galery-upload-x6mr6ilyha-ew.a.run.app';
 const CONCURRENCY = 6;
 
+// Public, unauthenticated: only equipment ids and the (already public) Cloud Storage URL of each
+// item's main photo.
+async function fetchEquipmentAvatars(): Promise<RemoteEquipmentAvatar[]> {
+  const res = await fetch(`${BACKEND_URL}/equipment-avatars`);
+  if (!res.ok) throw new Error(`/equipment-avatars: HTTP ${res.status}`);
+  const data = (await res.json()) as { items?: RemoteEquipmentAvatar[] };
+  if (!Array.isArray(data.items)) throw new Error('/equipment-avatars: unexpected response');
+  return data.items;
+}
+
 async function fetchCategory(category: string): Promise<RemotePersonFull[]> {
   const res = await fetch(`${BACKEND_URL}/about-us?category=${encodeURIComponent(category)}`);
   if (!res.ok) throw new Error(`/about-us?category=${category}: HTTP ${res.status}`);
@@ -38,10 +54,12 @@ async function download(w: WantedPhoto): Promise<string | null> {
   try {
     const res = await fetch(w.sourceUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const ext = extensionForContentType(res.headers.get('content-type'));
+    const ext = w.resize ? 'webp' : extensionForContentType(res.headers.get('content-type'));
     if (!ext) throw new Error(`unsupported content-type ${res.headers.get('content-type')}`);
-    const buf = Buffer.from(await res.arrayBuffer());
+    let buf = Buffer.from(await res.arrayBuffer());
     if (buf.length === 0) throw new Error('empty body');
+    // Equipment photos are full-size images from Cloud Storage: scale to a square avatar.
+    if (w.resize) buf = await sharp(buf).rotate().resize(AVATAR_SIZE, AVATAR_SIZE, { fit: 'cover' }).webp({ quality: 80 }).toBuffer();
     const name = fileNameFor(w, ext);
     writeFileSync(join(PHOTOS_DIR, name), buf);
     return name;
@@ -72,8 +90,13 @@ async function main(): Promise<void> {
   console.log(`[sync-people-photos] Pobieranie list z ${BACKEND_URL}/about-us`);
   const byCategory = await Promise.all(PEOPLE_PHOTO_CATEGORIES.map(fetchCategory));
   const people = byCategory.flat();
+  const equipmentAvatars = await fetchEquipmentAvatars();
 
-  const wanted = collectWantedPhotos(people);
+  const wanted = [
+    ...collectWantedPhotos(people),
+    ...collectAvatarPhotos(people),
+    ...collectEquipmentAvatarPhotos(equipmentAvatars),
+  ];
   const existing = listPhotoFiles();
   if (wanted.length === 0 && existing.length > 0) {
     throw new Error('Backend zwrócił zero zdjęć, a cache nie jest pusty - przerywam bez usuwania.');
@@ -96,6 +119,10 @@ async function main(): Promise<void> {
     const snapshot = buildSnapshot(byCategory[i], manifest);
     writeIfChanged(join(DATA_DIR, `${CATEGORY_SLUGS[category]}.json`), JSON.stringify(snapshot, null, 1) + '\n');
   });
+  writeIfChanged(
+    join(DATA_DIR, 'equipment-avatars.json'),
+    JSON.stringify(buildEquipmentAvatarsSnapshot(equipmentAvatars, manifest), null, 1) + '\n',
+  );
 }
 
 // Written only when the content changed, so an up-to-date run leaves a clean working tree (=> no commit).

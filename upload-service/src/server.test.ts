@@ -10544,6 +10544,27 @@ test('PUT /equipment/photos/main moves a photo to the front; DELETE removes it a
   });
 });
 
+test('GET /equipment-avatars is public and lists only the main photo of items that have one', async () => {
+  const { storage } = makeFakePhotoStorage();
+  let syncRequests = 0;
+  const deps = makeDeps({
+    firestore: makeEquipmentFirestore(),
+    equipmentPhotoStorage: storage,
+    peopleSync: { request: async () => { syncRequests += 1; } },
+  });
+  await withServer(deps, async baseUrl => {
+    const withPhotoId = await createTestEquipment(baseUrl);
+    await createTestEquipment(baseUrl); // no photo -> not listed
+    await postEquipmentPhoto(baseUrl, withPhotoId, false);
+    const main = (await (await postEquipmentPhoto(baseUrl, withPhotoId, true)).json()) as PhotoResponse;
+    const res = await fetch(`${baseUrl}/equipment-avatars`); // no session cookie: the route is public
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { items: Array<Record<string, unknown>> };
+    assert.deepEqual(body.items, [{ id: withPhotoId, photoId: main.equipment.photos[0].id, url: main.equipment.photos[0].url }]);
+  });
+  assert.equal(syncRequests, 2, 'every photo change asks for a static refresh');
+});
+
 test('PUT /equipment keeps existing photos and DELETE /equipment removes their objects', async () => {
   const { storage, objects } = makeFakePhotoStorage();
   await withServer(makeDeps({ firestore: makeEquipmentFirestore(), equipmentPhotoStorage: storage }), async baseUrl => {

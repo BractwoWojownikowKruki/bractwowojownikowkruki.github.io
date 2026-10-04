@@ -296,6 +296,44 @@
   height: 70%;
 }
 
+/* Round avatar (people-photos.js) swapped in for the generic person icon / equipment image icon.
+   64px source scaled down in CSS; object-fit keeps a non-square Drive thumbnail undistorted. */
+.person-avatar {
+  display: inline-block;
+  width: 1.5em;
+  height: 1.5em;
+  border-radius: 50%;
+  object-fit: cover;
+  vertical-align: middle;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* In the icon slot: replaces the 1em icon, so the button grows to the avatar's size. */
+.profile-trigger--icon-inline:has(.person-avatar) {
+  width: auto;
+  height: auto;
+}
+
+.profile-trigger--icon-inline .person-avatar--icon {
+  width: 1.5em;
+  height: 1.5em;
+}
+
+.profile-trigger--icon .person-avatar--icon {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+/* Leading a pill that has no icon button next to it. */
+.person-avatar--lead {
+  margin-right: 0.35em;
+}
+
+/* Replaces the muted image icon that follows an equipment pill (same spacing as that icon). */
+.person-avatar--equipment {
+  margin-left: 0.35rem;
+}
+
 /* Compact slide-out: smaller photos, headings and spacing than the page-level .person-* styles
    (style.css), scoped to the drawer so the public O Nas grid is unaffected. */
 .profile-drawer-panel .person-main-photo {

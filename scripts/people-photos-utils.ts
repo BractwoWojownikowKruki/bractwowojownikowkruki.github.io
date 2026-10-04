@@ -12,6 +12,12 @@ export const PEOPLE_PHOTO_CATEGORIES = ['Założyciele', 'Blachowi', 'Niewiasty'
 // for gallery thumbnails. The 1600px lightbox size is deliberately not cached (repo size).
 export const PHOTO_SIZES = [800, 300] as const;
 
+// Tiny round avatar shown in name pills (and equipment pills). Not part of PHOTO_SIZES: that list
+// filters which API-supplied URLs are cached, while the avatar URL is derived (see
+// collectAvatarPhotos) from a person's main photo, or - for equipment - generated from the item's
+// Cloud Storage photo.
+export const AVATAR_SIZE = 64;
+
 export interface RemotePhoto {
   id: string;
   url: string;
@@ -28,6 +34,9 @@ export interface WantedPhoto {
   size: number;
   version: string;
   sourceUrl: string;
+  // True when the source is not a Drive thumbnail link (which Drive resizes for us) but a full
+  // image that has to be scaled down and re-encoded locally (equipment photos in Cloud Storage).
+  resize?: boolean;
 }
 
 export type Manifest = {
@@ -66,6 +75,60 @@ export function collectWantedPhotos(people: RemotePerson[]): WantedPhoto[] {
     }
   }
   return [...wanted.values()];
+}
+
+// One 64px avatar per person, derived from the main photo: Drive serves any size by swapping the
+// "=sN" suffix of the thumbnail link, so no extra API data is needed. Keyed by the main photo's
+// own id and md5, so changing the main photo yields a new file and the old one is pruned.
+export function collectAvatarPhotos(people: RemotePerson[]): WantedPhoto[] {
+  const wanted = new Map<string, WantedPhoto>();
+  for (const person of people) {
+    const photo = person.mainPhoto;
+    if (!photo || !SAFE_ID.test(photo.id) || sizeFromUrl(photo.url) === null) continue;
+    wanted.set(photo.id, {
+      id: photo.id,
+      size: AVATAR_SIZE,
+      version: versionOf(photo.md5),
+      sourceUrl: photo.url.replace(/=s\d+$/, `=s${AVATAR_SIZE}`),
+    });
+  }
+  return [...wanted.values()];
+}
+
+// ---- Equipment avatars -------------------------------------------------------------------------
+// Equipment photos live in Cloud Storage (not Drive), under a unique, immutable URL per upload, so
+// the photo id alone identifies the content (version '0'). They are cached through the same
+// manifest as person photos: manifest.photos[<photoId>].files['64'].
+
+export interface RemoteEquipmentAvatar {
+  id: string; // equipment item id
+  photoId: string;
+  url: string;
+}
+
+export interface EquipmentAvatarsSnapshot {
+  version: 1;
+  // equipment item id -> photo id; the image itself is looked up in the photo manifest.
+  items: Record<string, string>;
+}
+
+export function collectEquipmentAvatarPhotos(items: RemoteEquipmentAvatar[]): WantedPhoto[] {
+  const wanted = new Map<string, WantedPhoto>();
+  for (const item of items) {
+    if (!SAFE_ID.test(item.photoId) || !/^https:\/\//.test(item.url)) continue;
+    wanted.set(item.photoId, { id: item.photoId, size: AVATAR_SIZE, version: NO_MD5_VERSION, sourceUrl: item.url, resize: true });
+  }
+  return [...wanted.values()];
+}
+
+// Only items whose avatar really is cached are listed, so the snapshot never points at a file that
+// is not deployed. Sorted by item id so an unchanged cache never rewrites the file.
+export function buildEquipmentAvatarsSnapshot(items: RemoteEquipmentAvatar[], manifest: Manifest): EquipmentAvatarsSnapshot {
+  const out: Record<string, string> = {};
+  for (const item of [...items].sort((a, b) => a.id.localeCompare(b.id))) {
+    if (SAFE_ID.test(item.id) && manifest.photos[item.photoId]?.files[String(AVATAR_SIZE)]) out[item.id] = item.photoId;
+  }
+  return { version: 1, items: out };
 }
 
 const FILE_RE = /^([A-Za-z0-9_-]+)-(\d+)-([0-9a-f]+)\.(jpg|png|webp)$/;
@@ -153,6 +216,8 @@ export interface StaticPhoto {
 }
 
 export interface StaticPerson {
+  // 64px round avatar for name pills, derived from the main photo (null when not cached yet).
+  avatar: StaticPhoto | null;
   // The public About-Us Drive folder id: lets the profile drawer find a person's snapshot entry
   // without any e-mail (or e-mail-derived value) in this public file.
   folderId: string;
@@ -184,9 +249,9 @@ export function sortPeopleDeterministically<T extends { name: string; order: num
 // at an image that is not deployed (a failed download just leaves it out until tomorrow). Drive
 // thumbnail URLs are deliberately not stored: they expire within about an hour.
 export function buildSnapshot(people: RemotePersonFull[], manifest: Manifest): PeopleSnapshot {
-  const toStatic = (photo: RemotePhoto | null): StaticPhoto | null => {
+  const toStatic = (photo: RemotePhoto | null, forcedSize?: number): StaticPhoto | null => {
     if (!photo) return null;
-    const size = sizeFromUrl(photo.url);
+    const size = forcedSize ?? sizeFromUrl(photo.url);
     const file = size === null ? undefined : manifest.photos[photo.id]?.files[String(size)];
     return file ? { id: photo.id, url: `/${file}` } : null;
   };
@@ -194,13 +259,14 @@ export function buildSnapshot(people: RemotePersonFull[], manifest: Manifest): P
   return {
     version: 1,
     people: sorted.map(p => ({
+      avatar: toStatic(p.mainPhoto, AVATAR_SIZE),
       folderId: p.folderId,
       name: p.name,
       order: p.order,
       description: p.description,
       inMemoriam: p.inMemoriam,
       mainPhoto: toStatic(p.mainPhoto),
-      photos: p.photos.map(toStatic).filter((x): x is StaticPhoto => x !== null),
+      photos: p.photos.map(ph => toStatic(ph)).filter((x): x is StaticPhoto => x !== null),
     })),
   };
 }
