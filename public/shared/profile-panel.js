@@ -448,10 +448,14 @@
         ${weaponsHtml}
       </dl>`;
     return `
-      ${avatarHtml}
-      ${revealable(duesStatusHtml)}
+      <div class="profile-header-row">
+        ${avatarHtml}
+        <div class="profile-header-content">
+          <h3>${profile.accountless ? PERSON_MARKER_ICON : ''}${escapeHtml(shownName)}</h3>
+          ${revealable(duesStatusHtml)}
+        </div>
+      </div>
       ${galleryHtml}
-      <h3>${profile.accountless ? PERSON_MARKER_ICON : ''}${escapeHtml(shownName)}</h3>
       ${revealable(fieldsHtml)}
       ${descriptionHtml}
       ${pendingHtml}

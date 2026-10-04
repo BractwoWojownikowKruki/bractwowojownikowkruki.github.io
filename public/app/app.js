@@ -451,6 +451,11 @@ function bindDashboardWidgetEvents() {
   if (dashboardWidgetEventsBound) return;
   dashboardWidgetEventsBound = true;
   document.getElementById('app-widget-grid-slot').addEventListener('click', async (e) => {
+    // Let calendar dropdown handle its own clicks
+    if (e.target.closest('[data-lw-cal-toggle]')) {
+      return;
+    }
+
     const toggle = e.target.closest('.lw-attend-toggle');
     if (toggle) {
       await setDashAttending(toggle.dataset.eventId, toggle.dataset.attending !== 'true', toggle);

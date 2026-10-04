@@ -336,9 +336,23 @@
 
 /* Compact slide-out: smaller photos, headings and spacing than the page-level .person-* styles
    (style.css), scoped to the drawer so the public O Nas grid is unaffected. */
-.profile-drawer-panel .person-main-photo {
-  max-width: 170px;
+.profile-header-row {
+  display: flex;
+  gap: 0;
+  align-items: flex-start;
   margin-bottom: 0.5rem;
+}
+
+.profile-header-content {
+  flex: 1;
+}
+
+.profile-drawer-panel .person-main-photo {
+  width: 60px;
+  height: 80px;
+  max-width: none;
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .profile-drawer-panel .person-gallery {
