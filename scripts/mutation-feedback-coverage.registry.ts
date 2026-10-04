@@ -89,6 +89,12 @@ const mutationFeedbackWiredRoutes = new Set([
   'PUT /lista-wyjazdowa/wpisowe',
   'PUT /lista-wyjazdowa/dues',
   'PUT /lista-wyjazdowa/dues/year-fee',
+  // Składki as a list of charges + the "Jak płacić" text, all on the Składki page.
+  'POST /lista-wyjazdowa/dues/charges',
+  'PUT /lista-wyjazdowa/dues/charges',
+  'DELETE /lista-wyjazdowa/dues/charges',
+  'PUT /lista-wyjazdowa/dues/extra',
+  'PUT /lista-wyjazdowa/dues/payment-info',
   // KRKG-0087/KRKG-0091: the accountless-person record routes are now wired by the frontend
   // (Mój profil, Zarządzanie ludźmi, the event page's quick-add).
   'POST /lista-wyjazdowa/persons',

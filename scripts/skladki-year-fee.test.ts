@@ -57,12 +57,21 @@ const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'main-content', 'skladki-error',
   'skladka-fee-panel', 'skladki-year-fee-display', 'skladki-year-fee-edit',
   'skladki-year-fee-input', 'skladki-year-fee-duedate-input', 'skladki-year-fee-save',
-  'skladki-year-fee-remove', 'skladki-year-fee-history-link', 'skladki-year-select',
+  'skladki-year-fee-remove', 'skladki-year-fee-history-link', 'skladki-year-creator',
+  'skladki-charge-buttons', 'skladki-payment-panel', 'skladki-payment-text', 'skladki-payment-form',
+  'skladki-payment-edit-toggle', 'skladki-payment-input', 'skladki-payment-save', 'skladki-payment-cancel',
+  'skladki-add-toggle', 'skladki-add-form', 'skladki-add-kind', 'skladki-add-kind-annual',
+  'skladki-add-annual-fields', 'skladki-add-extra-fields', 'skladki-add-year', 'skladki-add-name',
+  'skladki-add-amount', 'skladki-add-description', 'skladki-add-duedate', 'skladki-add-error',
+  'skladki-add-submit', 'skladki-add-cancel', 'skladki-extra-panel', 'skladki-extra-title',
+  'skladki-extra-creator', 'skladki-extra-details', 'skladki-extra-history-link', 'skladki-extra-edit',
+  'skladki-extra-name-input', 'skladki-extra-amount-input', 'skladki-extra-description-input',
+  'skladki-extra-duedate-input', 'skladki-extra-save', 'skladki-extra-delete',
   'summary-content', 'summary-panel', 'skladki-content', 'skladki-table', 'skladki-emeryci',
   'skladki-emeryci-table', 'skladki-emeryci-heading',
 ];
 
-function createHarness(yearFee: Record<string, unknown> | null, options: { roster?: Array<Record<string, unknown>>; dues?: Array<Record<string, unknown>> } = {}) {
+function createHarness(yearFee: Record<string, unknown> | null, options: { roster?: Array<Record<string, unknown>>; dues?: Array<Record<string, unknown>>; charges?: Array<Record<string, unknown>>; extraStatuses?: Array<Record<string, unknown>>; paymentInfo?: { text: string } | null } = {}) {
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   let mutationResult: unknown = {};
@@ -74,6 +83,11 @@ function createHarness(yearFee: Record<string, unknown> | null, options: { roste
   // Captured here because apiFetch's own `options` parameter (the fetch options) would shadow the
   // harness options inside the closure below.
   const duesFixture = options.dues ?? [];
+  const extraStatusFixture = options.extraStatuses ?? [];
+  const options_paymentInfo = options.paymentInfo ?? null;
+  const options_charges = options.charges ?? [
+    { id: `annual-${new Date().getFullYear()}`, kind: 'annual', year: new Date().getFullYear(), name: String(new Date().getFullYear()), createdBy: '', canEdit: false },
+  ];
   const context: Record<string, unknown> = {
     URLSearchParams,
     Map,
@@ -120,6 +134,13 @@ function createHarness(yearFee: Record<string, unknown> | null, options: { roste
         return mutationResult;
       }
       if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: true };
+      if (url === '/lista-wyjazdowa/dues/charges') {
+        return {
+          charges: options_charges,
+          paymentInfo: options_paymentInfo,
+        };
+      }
+      if (url.startsWith('/lista-wyjazdowa/dues/extra?')) return { statuses: extraStatusFixture };
       if (url === '/lista-wyjazdowa/roster') return { roster };
       if (url.startsWith('/lista-wyjazdowa/dues?')) return { dues: duesFixture, yearFee };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [], weapons: [] };
@@ -232,7 +253,9 @@ test('wpisowe view: unpaid in the main table, not_applicable in a "Nie dotyczy" 
     ],
   });
   await harness.signIn();
-  await harness.elements.get('skladki-year-select')!.change('wpisowe');
+  await harness.elements.get('skladki-charge-buttons')!.clickWith({
+    closest: (selector: string) => selector === '[data-charge-id]' ? { dataset: { chargeId: 'wpisowe' } } : null,
+  });
 
   const main = harness.elements.get('skladki-table')!.querySelector('tbody')!.innerHTML;
   assert.match(main, /Nieoplacony/);
@@ -259,4 +282,65 @@ test('wpisowe view: unpaid in the main table, not_applicable in a "Nie dotyczy" 
   assert.deepEqual(JSON.parse(String(put?.options.body)), { status: 'paid' });
   assert.equal(control.dataset.status, 'paid');
   assert.equal(control.textContent, '✓');
+});
+
+
+test('charge buttons: alphabetical, one pressed, defaulting to the current year', async () => {
+  const year = new Date().getFullYear();
+  const harness = createHarness(null, {
+    charges: [
+      { id: `annual-${year}`, kind: 'annual', year, name: String(year), createdBy: 'a@example.com', canEdit: false },
+      { id: 'extra-1', kind: 'extra', name: 'Koszulki', amount: '50 zł', description: 'A\nB', dueDate: null, createdBy: 'member@example.com', canEdit: true },
+    ],
+  });
+  await harness.signIn();
+  const html = harness.elements.get('skladki-charge-buttons')!.innerHTML;
+  const labels = [...html.matchAll(/>([^<]+)<\/button>/g)].map((m) => m[1]);
+  assert.deepEqual(labels, [String(year), 'Koszulki', 'Wpisowe']);
+  assert.match(html, new RegExp(`data-charge-id="annual-${year}"[^>]*aria-pressed="true"`));
+  assert.match(html, /data-charge-id="extra-1"[^>]*aria-pressed="false"/);
+  assert.equal(harness.elements.get('skladki-extra-panel')!.hidden, true);
+});
+
+test('extra charge: details, creator, default "nie dotyczy" and status PUT to the extra endpoint', async () => {
+  const harness = createHarness(null, {
+    charges: [{ id: 'extra-1', kind: 'extra', name: 'Koszulki', amount: '50 zł', description: 'A\nB', dueDate: '2026-12-01', createdBy: 'member@example.com', canEdit: true }],
+    extraStatuses: [],
+  });
+  await harness.signIn();
+  // No current-year annual exists, so the first button alphabetically (Koszulki) is selected.
+  assert.equal(harness.elements.get('skladki-extra-panel')!.hidden, false);
+  assert.equal(harness.elements.get('skladki-extra-title')!.textContent, 'Koszulki');
+  assert.equal(harness.elements.get('skladki-extra-creator')!.textContent, 'Założone przez: Member');
+  assert.match(harness.elements.get('skladki-extra-details')!.innerHTML, /Kwota: 50 zł/);
+  assert.match(harness.elements.get('skladki-extra-details')!.innerHTML, /01\.12\.2026/);
+  assert.equal(harness.elements.get('skladka-fee-panel')!.hidden, true);
+  const tbody = harness.elements.get('skladki-table')!.querySelector('tbody')!.innerHTML;
+  assert.match(tbody, /data-kind="roczna"[^>]*data-status="not_applicable"|data-status="not_applicable"[^>]*data-kind="roczna"/);
+  assert.doesNotMatch(tbody, /audyt-history-btn/);
+
+  await harness.elements.get('skladki-content')!.clickWith({
+    closest: (selector: string) => selector === '.lw-skladka-icon[data-kind]'
+      ? { dataset: { kind: 'roczna', personId: 'member@example.com', status: 'not_applicable' }, title: '', setAttribute() {} }
+      : null,
+  });
+  const put = harness.apiCalls.filter((call) => call.options.method === 'PUT').at(-1);
+  assert.equal(put?.url, '/lista-wyjazdowa/dues/extra?id=extra-1&personId=member%40example.com');
+  assert.deepEqual(JSON.parse(String(put?.options.body)), { status: 'unpaid' });
+});
+
+test('extra charge: a viewer who cannot edit sees read-only badges and no edit form', async () => {
+  const harness = createHarness(null, {
+    charges: [{ id: 'extra-1', kind: 'extra', name: 'Koszulki', amount: null, description: null, dueDate: null, createdBy: 'ktos@example.com', canEdit: false }],
+  });
+  await harness.signIn();
+  assert.equal(harness.elements.get('skladki-extra-edit')!.hidden, true);
+  assert.doesNotMatch(harness.elements.get('skladki-table')!.querySelector('tbody')!.innerHTML, /data-kind="roczna"/);
+});
+
+test('payment info: shown as plain text to everyone, hidden when empty for the read-only', async () => {
+  const withText = createHarness(null, { paymentInfo: { text: 'Konto: 12 3456\n  BLIK: 600' } });
+  await withText.signIn();
+  assert.equal(withText.elements.get('skladki-payment-panel')!.hidden, false);
+  assert.equal(withText.elements.get('skladki-payment-text')!.textContent, 'Konto: 12 3456\n  BLIK: 600');
 });

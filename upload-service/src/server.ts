@@ -125,7 +125,7 @@ import {
   type SignupWritableFields,
 } from './signups.ts';
 import { getGrantedRoles, getEffectiveRoles, satisfiesRole, requireRole, setGrantedRoles, listAllGrantedRoles, createRoleAuthorizer } from './roles.ts';
-import { listDuesForYear, saveDues, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, type DuesYearFeeWritableFields, getDues, normalizeDuesStatus, effectiveDuesStatus, effectiveWpisoweStatus, isDuesStatus, normalizeSkladkaStatus, type DuesStatus } from './dues.ts';
+import { listDuesForYear, saveDues, getCharge, saveCharge, listExtraCharges, listAnnualYears, listExtraStatuses, getExtraStatus, saveExtraStatus, deleteExtraCharge, newAnnualChargeDoc, newExtraChargeDoc, applyExtraChargeFields, getPaymentInfo, savePaymentInfo, annualChargeId, type DuesChargeDoc, type ExtraChargeWritableFields, getDuesYearFee, saveDuesYearFee, type DuesYearFeeDoc, type DuesYearFeeWritableFields, getDues, normalizeDuesStatus, effectiveDuesStatus, effectiveWpisoweStatus, isDuesStatus, normalizeSkladkaStatus, type DuesStatus } from './dues.ts';
 import { buildSharedFileDoc, saveFileInTransaction, deleteFileInTransaction, getFileInTransaction, listFiles, InvalidFileUrlError, type SharedFileDoc } from './files.ts';
 import {
   buildEquipmentDoc,
@@ -317,6 +317,11 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   entryFee: auditedRoute('PUT', '/lista-wyjazdowa/wpisowe', ['dues.entry_fee.changed']),
   annualDues: auditedRoute('PUT', '/lista-wyjazdowa/dues', ['dues.annual.changed']),
   yearFee: auditedRoute('PUT', '/lista-wyjazdowa/dues/year-fee', ['dues.year_fee.changed']),
+  chargeCreate: auditedRoute('POST', '/lista-wyjazdowa/dues/charges', ['dues.charge.created']),
+  chargeUpdate: auditedRoute('PUT', '/lista-wyjazdowa/dues/charges', ['dues.charge.updated']),
+  chargeDelete: auditedRoute('DELETE', '/lista-wyjazdowa/dues/charges', ['dues.charge.deleted']),
+  extraStatus: auditedRoute('PUT', '/lista-wyjazdowa/dues/extra', ['dues.extra.changed']),
+  paymentInfo: auditedRoute('PUT', '/lista-wyjazdowa/dues/payment-info', ['dues.payment_info.changed']),
   filesAdd: auditedRoute('POST', '/files', ['file.added']),
   filesDelete: auditedRoute('DELETE', '/files', ['file.deleted']),
   equipmentAdd: auditedRoute('POST', '/equipment', ['equipment.added']),
@@ -4429,6 +4434,240 @@ async function handleListaWyjazdowaPutDuesYearFee(req: IncomingMessage, res: Ser
 }
 
 // ---------------------------------------------------------------------------------------------
+// Składki as a list of charges (see dues.ts). Everyone signed in reads; a składka roczna and the
+// "Jak płacić" text are staff-only (accountant/admin); a składka dodatkowa can be created by any
+// member, and then changed, deleted and have its statuses set by its creator or staff.
+// ---------------------------------------------------------------------------------------------
+
+const DUES_PAYMENT_INFO_MAX_LENGTH = 2000;
+const DUES_EXTRA_NAME_MAX_LENGTH = 80;
+const DUES_EXTRA_AMOUNT_MAX_LENGTH = 200;
+const DUES_EXTRA_DESCRIPTION_MAX_LENGTH = 1000;
+
+function chargeView(charge: DuesChargeDoc, viewerEmail: string, staff: boolean) {
+  return {
+    ...charge,
+    canEdit: charge.kind === 'extra' && (staff || charge.createdBy.toLowerCase() === viewerEmail.toLowerCase()),
+  };
+}
+
+function requireChargeId(url: URL): string {
+  const id = url.searchParams.get('id') ?? url.searchParams.get('chargeId');
+  if (!id) throw new AuthError('Brak identyfikatora składki.', 400);
+  return id;
+}
+
+// Staff, or the member who created this składka dodatkowa.
+async function requireExtraChargeEditor(
+  req: IncomingMessage, res: ServerResponse, deps: ServerDeps, email: string, charge: DuesChargeDoc | null,
+): Promise<DuesChargeDoc> {
+  if (!charge || charge.kind !== 'extra') throw new AuthError('Nie znaleziono takiej składki.', 404);
+  if (charge.createdBy.toLowerCase() === email.toLowerCase()) return charge;
+  if (await canManageSkladki(req, res, deps, email)) return charge;
+  throw new AuthError('Tę składkę może zmieniać tylko jej twórca, księgowa lub administrator.', 403);
+}
+
+async function handleListaWyjazdowaGetCharges(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const staff = await canManageSkladki(req, res, deps, identity.email);
+  const [years, extras, paymentInfo] = await Promise.all([
+    listAnnualYears(deps.firestore),
+    listExtraCharges(deps.firestore),
+    getPaymentInfo(deps.firestore),
+  ]);
+  const annual = years.map((year) => chargeView(newAnnualChargeDoc(year, ''), identity.email, staff));
+  sendJson(res, 200, {
+    charges: [...annual, ...extras.map((charge) => chargeView(charge, identity.email, staff))],
+    paymentInfo: paymentInfo ? { text: paymentInfo.text, updatedAt: paymentInfo.updatedAt } : null,
+  });
+}
+
+function readExtraChargeFields(body: Record<string, unknown>, requireName: boolean): ExtraChargeWritableFields {
+  const fields: ExtraChargeWritableFields = {};
+  if (requireName || body.name !== undefined) fields.name = requireTrimmedString(body.name, DUES_EXTRA_NAME_MAX_LENGTH, 'Nazwa składki jest wymagana (do 80 znaków).');
+  if (body.amount !== undefined) fields.amount = optionalTrimmedString(body.amount, DUES_EXTRA_AMOUNT_MAX_LENGTH, 'Kwota składki jest nieprawidłowa.');
+  if (body.description !== undefined) fields.description = optionalTrimmedString(body.description, DUES_EXTRA_DESCRIPTION_MAX_LENGTH, 'Opis składki jest nieprawidłowy (do 1000 znaków).');
+  if (body.dueDate !== undefined) fields.dueDate = body.dueDate === null || body.dueDate === '' ? null : requireDateString(body.dueDate, 'Nieprawidłowy termin płatności (RRRR-MM-DD).');
+  return fields;
+}
+
+async function handleListaWyjazdowaPostCharge(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  if (body.kind === 'annual') {
+    await requireSkladkiAccess(req, res, deps, identity.email);
+    const year = requireYear(typeof body.year === 'number' ? String(body.year) : null, 'Nieprawidłowy rok.');
+    if ((await listAnnualYears(deps.firestore)).includes(year)) {
+      throw new AuthError(`Składka roczna ${year} już istnieje.`, 409);
+    }
+    const { result: charge } = await executeDeclaredAuditedMutation(
+      deps,
+      AUDITED_MEMBER_MUTATION_ROUTES.chargeCreate,
+      'dues.charge.created',
+      async tx => {
+        // Re-checked inside the transaction so two concurrent creations cannot both pass.
+        if (await getCharge(tx, annualChargeId(year))) throw new AuthError(`Składka roczna ${year} już istnieje.`, 409);
+        return {
+          actor: { email: identity.email },
+          resource: { kind: 'due', key: `due:year:${year}`, display: String(year) },
+          changes: [{ field: 'chargeKind', after: 'annual' }, { field: 'year', after: year }],
+        };
+      },
+      tx => saveCharge(tx, newAnnualChargeDoc(year, identity.email)),
+    );
+    sendJson(res, 200, { charge: chargeView(charge, identity.email, true) });
+    return;
+  }
+  if (body.kind !== 'extra') throw new AuthError('Pole kind musi być jednym z: annual, extra.', 400);
+  const parsed = readExtraChargeFields(body, true);
+  const fields = {
+    name: parsed.name as string,
+    amount: parsed.amount ?? null,
+    description: parsed.description ?? null,
+    dueDate: parsed.dueDate ?? null,
+  };
+  const id = `extra-${randomUUID()}`;
+  const { result: charge } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.chargeCreate,
+    'dues.charge.created',
+    async () => ({
+      actor: { email: identity.email },
+      resource: { kind: 'due', key: `due:charge:${id}`, display: fields.name },
+      changes: [
+        { field: 'chargeKind', after: 'extra' },
+        { field: 'name', after: fields.name },
+        { field: 'amount', after: fields.amount },
+        { field: 'dueDate', after: fields.dueDate },
+      ],
+    }),
+    tx => saveCharge(tx, newExtraChargeDoc(id, fields, identity.email)),
+  );
+  sendJson(res, 200, { charge: chargeView(charge, identity.email, await canManageSkladki(req, res, deps, identity.email)) });
+}
+
+async function handleListaWyjazdowaPutCharge(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const id = requireChargeId(url);
+  await requireExtraChargeEditor(req, res, deps, identity.email, await getCharge(deps.firestore, id));
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const fields = readExtraChargeFields(body, false);
+  if (Object.keys(fields).length === 0) throw new AuthError('Podaj co najmniej jedno pole składki do zmiany.', 400);
+  const { result: charge } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.chargeUpdate,
+    'dues.charge.updated',
+    async tx => {
+      const existing = await getCharge(tx, id);
+      if (!existing || existing.kind !== 'extra') throw new AuthError('Nie znaleziono takiej składki.', 404);
+      const change = (field: 'name' | 'amount' | 'description' | 'dueDate') =>
+        fields[field] !== undefined ? [{ field, before: existing[field] ?? null, after: fields[field] ?? null }] : [];
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'due', key: `due:charge:${id}`, display: fields.name ?? existing.name },
+        changes: [...change('name'), ...change('amount'), ...change('description'), ...change('dueDate')],
+      };
+    },
+    async tx => {
+      const existing = await getCharge(tx, id);
+      if (!existing) throw new AuthError('Nie znaleziono takiej składki.', 404);
+      return saveCharge(tx, applyExtraChargeFields(existing, fields, identity.email));
+    },
+  );
+  sendJson(res, 200, { charge: chargeView(charge, identity.email, await canManageSkladki(req, res, deps, identity.email)) });
+}
+
+async function handleListaWyjazdowaDeleteCharge(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const id = requireChargeId(url);
+  const existing = await requireExtraChargeEditor(req, res, deps, identity.email, await getCharge(deps.firestore, id));
+  const statuses = await listExtraStatuses(deps.firestore, id);
+  await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.chargeDelete,
+    'dues.charge.deleted',
+    async () => ({
+      actor: { email: identity.email },
+      resource: { kind: 'due', key: `due:charge:${id}`, display: existing.name },
+      changes: [{ field: 'chargeKind', before: 'extra' }, { field: 'name', before: existing.name }],
+    }),
+    tx => deleteExtraCharge(tx, id, statuses),
+  );
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleListaWyjazdowaGetExtraStatuses(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateWojownicyUpload(req, res);
+  const id = requireChargeId(url);
+  const charge = await getCharge(deps.firestore, id);
+  if (!charge || charge.kind !== 'extra') throw new AuthError('Nie znaleziono takiej składki.', 404);
+  const statuses = await listExtraStatuses(deps.firestore, id);
+  sendJson(res, 200, { statuses: statuses.map(({ personId, status }) => ({ personId, status })) });
+}
+
+async function handleListaWyjazdowaPutExtraStatus(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  const id = requireChargeId(url);
+  await requireExtraChargeEditor(req, res, deps, identity.email, await getCharge(deps.firestore, id));
+  const personIdParam = url.searchParams.get('personId');
+  if (!personIdParam) throw new AuthError('Brak identyfikatora osoby.', 400);
+  const target = await resolvePersonWriteTarget(deps, personIdParam);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  const status = requireDuesStatusBody(body);
+  const { result: doc } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.extraStatus,
+    'dues.extra.changed',
+    async tx => {
+      const charge = await getCharge(tx, id);
+      if (!charge || charge.kind !== 'extra') throw new AuthError('Nie znaleziono takiej składki.', 404);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'due', key: `due:charge:${id}`, display: charge.name },
+        changes: [
+          { field: 'memberEmail', after: target.personId },
+          { field: 'status', before: await getExtraStatus(tx, id, target.personId), after: status },
+        ],
+      };
+    },
+    tx => saveExtraStatus(tx, id, target.personId, status, identity.email),
+  );
+  sendJson(res, 200, { status: { personId: doc.personId, status: doc.status } });
+}
+
+// Plain text, stored exactly as typed (line breaks included) - rendered with white-space: pre-wrap
+// and textContent on the page, never as HTML.
+async function handleListaWyjazdowaPutPaymentInfo(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  await requireSkladkiAccess(req, res, deps, identity.email);
+  const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
+  if (typeof body.text !== 'string') throw new AuthError('Pole text musi być tekstem.', 400);
+  const text = body.text.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
+  if (text.length > DUES_PAYMENT_INFO_MAX_LENGTH) {
+    throw new AuthError(`Informacja o płatności może mieć najwyżej ${DUES_PAYMENT_INFO_MAX_LENGTH} znaków.`, 400);
+  }
+  const digest = (value: string): string => createHash('sha256').update(value).digest('hex');
+  const { result: paymentInfo } = await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.paymentInfo,
+    'dues.payment_info.changed',
+    async tx => {
+      const existing = await getPaymentInfo(tx);
+      return {
+        actor: { email: identity.email },
+        resource: { kind: 'due', key: 'due:payment-info', display: 'Jak płacić' },
+        changes: [
+          { field: 'feeDigest', before: existing ? digest(existing.text) : null, after: digest(text) },
+          { field: 'feeLength', before: existing?.text.length ?? 0, after: text.length },
+        ],
+      };
+    },
+    tx => savePaymentInfo(tx, text, identity.email),
+  );
+  sendJson(res, 200, { paymentInfo: { text: paymentInfo.text, updatedAt: paymentInfo.updatedAt } });
+}
+
+// ---------------------------------------------------------------------------------------------
 // KRKG-0087: accountless-person record routes. Staff (admin, hovding, accountant) may manage any
 // person; a plain member may only create/update/delete/detach a person attached to them - their own
 // "osoba towarzysząca". Merging a person with a real account is administrator-only.
@@ -5958,6 +6197,20 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaPutDues(req, res, url, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/dues/year-fee') {
         await handleListaWyjazdowaPutDuesYearFee(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/dues/charges') {
+        await handleListaWyjazdowaGetCharges(req, res, deps);
+      } else if (req.method === 'POST' && url.pathname === '/lista-wyjazdowa/dues/charges') {
+        await handleListaWyjazdowaPostCharge(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/dues/charges') {
+        await handleListaWyjazdowaPutCharge(req, res, url, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/lista-wyjazdowa/dues/charges') {
+        await handleListaWyjazdowaDeleteCharge(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/dues/extra') {
+        await handleListaWyjazdowaGetExtraStatuses(req, res, url, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/dues/extra') {
+        await handleListaWyjazdowaPutExtraStatus(req, res, url, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/dues/payment-info') {
+        await handleListaWyjazdowaPutPaymentInfo(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/instagram-posts') {
         if (!rejectIfRateLimited(req, res)) await handleInstagramPosts(res);
       } else if (req.method === 'GET' && url.pathname === '/facebook-posts') {
