@@ -314,7 +314,7 @@ async function viewerCanSignUp() {
   }
 }
 
-const calendarDropdowns = window.LwCalendar.mountDropdowns({
+const calendarDropdowns = window.LwCalendar?.mountDropdowns({
   getEvents: () => dash.events,
   findEvent: (id) => dash.events.find((e) => e.id === id),
 });
@@ -328,7 +328,7 @@ function renderDashboardWidgets() {
   if (nearestWidget) widgetGrid.append(nearestWidget);
   widgetGrid.append(renderMySignupsWidget(dash.events), dash.galleriesWidget);
   document.getElementById('app-widget-grid-slot').replaceChildren(widgetGrid);
-  calendarDropdowns.refresh();
+  calendarDropdowns?.refresh();
 }
 
 // Per-event składka depends on attendance, so the dues panel is refreshed after every change too.
