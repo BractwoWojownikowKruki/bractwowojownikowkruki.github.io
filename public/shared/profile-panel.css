@@ -342,3 +342,32 @@
   height: 28px;
   object-fit: contain;
 }
+
+/* Blocks that arrive from the backend after the instant preview slide in - the row grows from 0 to
+   its natural height, so everything below it is pushed down smoothly instead of jumping. */
+.profile-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  animation: profile-reveal 0.28s ease-out forwards;
+}
+
+.profile-reveal-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@keyframes profile-reveal {
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-reveal {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    animation: none;
+  }
+}
