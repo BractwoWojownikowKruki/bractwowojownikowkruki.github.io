@@ -296,13 +296,15 @@
   height: 70%;
 }
 
-/* Rectangular avatar (people-photos.js) swapped in for the generic person icon / equipment image
-   icon. object-fit: contain keeps the whole thumbnail visible, never cropped. */
+/* Round avatar (people-photos.js) swapped in for the generic person icon / equipment image icon.
+   object-fit: contain + padding keeps the whole thumbnail visible inside the circle, never cropped. */
 .person-avatar {
   display: inline-block;
+  box-sizing: border-box;
   width: 1.5em;
   height: 1.5em;
-  border-radius: 0;
+  padding: 0.22em;
+  border-radius: 50%;
   object-fit: contain;
   vertical-align: middle;
   background: rgba(255, 255, 255, 0.08);
@@ -324,59 +326,40 @@
   height: 1.5rem;
 }
 
-/* Leading a name pill: flush against its left edge (no gap). A fixed 2em square background box, so
-   every avatar has the same size; `contain` scales the whole picture to fit inside it. */
+/* Trailing a name pill: a fixed round box, the same size for everyone. The picture is scaled to fit
+   inside the circle's inscribed square (padding + content-box), so none of it is cropped. */
 .person-avatar-slot {
   flex: 0 0 auto;
-  align-self: stretch;
-  width: 2em;
-  height: 2em;
+  box-sizing: border-box;
+  width: 1.9em;
+  height: 1.9em;
+  margin-left: 0.35em;
+  padding: 0.28em;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.08);
   background-repeat: no-repeat;
   background-position: center;
   background-size: contain;
+  background-origin: content-box;
 }
 
 .profile-trigger:has(> .person-avatar-slot),
 .profile-trigger:has(> .person-avatar--equipment) {
   display: inline-flex;
-  align-items: stretch;
-}
-
-.profile-trigger:has(> .person-avatar--equipment) {
   align-items: center;
 }
 
-/* Every pill with a subline reserves the same 2em avatar column - whether or not the person has an
-   avatar - so pills and sublines line up across rows. The slot is a fixed 2em square and the
-   picture is scaled to fit inside it (contain), whatever its aspect ratio. */
-.person-pill-cell {
-  display: grid;
-  grid-template-columns: 2em auto;
-  justify-content: start;
-  justify-items: start;
-  align-items: start;
-}
-
+/* A pill with a subline: the pill and the avatar share the first row, the subline sits under the pill.
+   The avatar only adds a trailing column, so pills start at the same left edge with or without one. */
 .person-pill-cell > .person-avatar-slot {
   grid-row: 1;
-  grid-column: 1;
-  align-self: start;
-  justify-self: start;
-}
-
-.person-pill-cell > .category-name-pill {
-  grid-row: 1;
   grid-column: 2;
-}
-
-.person-pill-cell > .person-pill-subline {
-  grid-row: 2;
-  grid-column: 2;
+  align-self: center;
 }
 
 /* Legacy <img> lead avatar (pill-less triggers only). */
 .person-avatar--lead {
-  margin-right: 0.35em;
+  margin-left: 0.35em;
 }
 
 /* Replaces the muted image icon that follows an equipment pill (same spacing as that icon). */

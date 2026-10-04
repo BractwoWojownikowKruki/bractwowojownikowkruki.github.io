@@ -66,6 +66,7 @@ class FakeEl {
   matches(sel: string) { return sel.split(',').map(x => x.trim()).some(c => (c.startsWith('.') && this.cls.split(' ').includes(c.slice(1))) || (c.startsWith('[') && c.endsWith(']') && c.slice(1, -1) in this.attrs)); }
   get previousElementSibling() { const i = this.parent!.children.indexOf(this); return i > 0 ? this.parent!.children[i - 1] : null; }
   get isConnected() { return this.parent !== null; }
+  after(el: FakeEl) { const i = this.parent!.children.indexOf(this); el.parent = this.parent; this.parent!.children.splice(i + 1, 0, el); }
   before(el: FakeEl) { const i = this.parent!.children.indexOf(this); el.parent = this.parent; this.parent!.children.splice(i, 0, el); }
   style: Record<string, string> = {};
   get nextElementSibling() { const i = this.parent!.children.indexOf(this); return this.parent!.children[i + 1] ?? null; }
@@ -142,7 +143,7 @@ test('the icon trigger swaps its svg for the avatar and restores it if the image
   assert.equal(iconBtn.children[0], svg, 'a broken image falls back to the original icon');
 });
 
-test('a pill trigger without an icon button gets a leading avatar; with an icon button next to it the icon takes it', async () => {
+test('a pill trigger without an icon button gets a trailing avatar; with an icon button next to it the icon takes it', async () => {
   const row = new FakeEl('td', '');
   const lone = row.add(new FakeEl('button', 'profile-trigger', { 'data-profile-trigger': '', 'data-folder-id': 'F1' }));
   lone.add(new FakeEl('span', 'category-name-pill'));
@@ -158,12 +159,12 @@ test('a pill trigger without an icon button gets a leading avatar; with an icon 
   await new Promise(r => setImmediate(r));
   await new Promise(r => setImmediate(r));
 
-  // The avatar is a background-image slot (no intrinsic height) placed flush before the pill.
-  assert.equal(lone.children[0].tag, 'span');
-  assert.ok(lone.children[0].cls.includes('person-avatar-slot'));
-  assert.ok(lone.children[0].style.backgroundImage.includes('/people-photos/m1-64-aaaaaaaaaa.jpg'));
-  assert.ok(lone.children[1].cls.includes('category-name-pill'));
-  assert.ok(paired.children[0].cls.includes('person-avatar-slot'), 'with an icon button next to it, the avatar still leads the pill');
+  // The avatar is a background-image slot (no intrinsic height) placed right after the pill.
+  assert.ok(lone.children[0].cls.includes('category-name-pill'));
+  assert.equal(lone.children[1].tag, 'span');
+  assert.ok(lone.children[1].cls.includes('person-avatar-slot'));
+  assert.ok(lone.children[1].style.backgroundImage.includes('/people-photos/m1-64-aaaaaaaaaa.jpg'));
+  assert.ok(paired.children[1].cls.includes('person-avatar-slot'), 'with an icon button next to it, the avatar still trails the pill');
   assert.ok(!row2.children.includes(iconBtn), 'the redundant icon button is removed once the avatar is placed');
 });
 

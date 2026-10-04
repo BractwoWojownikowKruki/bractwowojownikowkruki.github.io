@@ -91,15 +91,18 @@
    personPillHtml, only when a `subline` is given - every other pill's markup is unchanged). */
 .person-pill-cell {
   display: inline-grid;
-  grid-template-columns: 2em auto;
+  grid-template-columns: auto auto;
   justify-items: start;
   align-items: start;
   gap: 0;
 }
 
-.person-pill-cell > .category-name-pill,
+.person-pill-cell > .category-name-pill {
+  grid-column: 1;
+}
+
 .person-pill-cell > .person-pill-subline {
-  grid-column: 2;
+  grid-column: 1 / -1;
 }
 
 .person-pill-subline {
