@@ -1571,7 +1571,13 @@ button.lw-filter-chip {
   white-space: pre-wrap;
 }
 
-/* "termin <date> (za N dni)" pill in the Składka header. */
+/* Sits on its own row under the Składka heading row (Edytuj / Historia), above the fee text, so the
+   heading row stays narrow on phones. */
+.lw-fee-deadline:has(.lw-deadline-pill:not([hidden])) {
+  margin: 0.4rem 0;
+}
+
+/* "termin <date> (za N dni)" pill under the Składka header. */
 .lw-deadline-pill {
   display: inline-flex;
   align-items: baseline;
