@@ -958,6 +958,7 @@ initGoogleSignIn({
         personId: m.email,
         accountless: false,
         email: m.email,
+        driveFolderId: m.driveFolderId,
         lastName: m.lastName,
         firstName: m.firstName,
         nickname: m.nickname,
