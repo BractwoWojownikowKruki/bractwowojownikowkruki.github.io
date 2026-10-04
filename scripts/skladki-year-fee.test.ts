@@ -59,7 +59,7 @@ const elementIds = [
   'skladki-year-fee-input', 'skladki-year-fee-duedate-input', 'skladki-year-fee-save',
   'skladki-year-fee-remove', 'skladki-year-fee-history-link', 'skladki-year-creator',
   'skladki-charge-buttons', 'skladki-payment-panel', 'skladki-payment-text', 'skladki-payment-form',
-  'skladki-payment-edit-toggle', 'skladki-payment-toggle', 'skladki-payment-input', 'skladki-payment-save', 'skladki-payment-cancel',
+  'skladki-payment-edit-toggle', 'skladki-payment-toggle', 'skladki-payment-box', 'skladki-payment-input', 'skladki-payment-save', 'skladki-payment-cancel',
   'skladki-add-toggle', 'skladki-add-form', 'skladki-add-kind', 'skladki-add-kind-annual',
   'skladki-add-annual-fields', 'skladki-add-extra-fields', 'skladki-add-year', 'skladki-add-name',
   'skladki-add-amount', 'skladki-add-description', 'skladki-add-duedate', 'skladki-add-error',
@@ -311,7 +311,7 @@ test('extra charge: details, creator, default "nie dotyczy" and status PUT to th
   // No current-year annual exists, so the first button alphabetically (Koszulki) is selected.
   assert.equal(harness.elements.get('skladki-extra-panel')!.hidden, false);
   assert.equal(harness.elements.get('skladki-extra-title')!.textContent, 'Koszulki');
-  assert.equal(harness.elements.get('skladki-extra-creator')!.textContent, 'Założone przez: Member');
+  assert.match(harness.elements.get('skladki-extra-creator')!.innerHTML, /Założone przez: [\s\S]*data-email="member@example.com"[\s\S]*Member/);
   assert.match(harness.elements.get('skladki-extra-details')!.innerHTML, /Kwota: 50 zł/);
   assert.match(harness.elements.get('skladki-extra-details')!.innerHTML, /01\.12\.2026/);
   assert.equal(harness.elements.get('skladka-fee-panel')!.hidden, true);

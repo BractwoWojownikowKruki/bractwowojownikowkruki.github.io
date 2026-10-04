@@ -1930,7 +1930,6 @@ button.lw-edit-toggle.lw-share--active {
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  margin-bottom: 0.5rem;
 }
 
 .skladki-payment-head {
@@ -1942,6 +1941,46 @@ button.lw-edit-toggle.lw-share--active {
 
 .skladki-payment-head .skladki-payment-toggle {
   width: auto;
+}
+
+/* "Jak płacić?" + Edytuj on the left, "+ Dodaj składkę" pushed to the right of the same row. */
+.skladki-top-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.skladki-top-row .skladki-add-btn {
+  margin-left: auto;
+}
+
+/* Group box with a gold legend - the same look as the Mój profil fieldsets (profil.css .lw-fieldset). */
+.skladki-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem 1.25rem;
+  margin: 0 0 1.5rem;
+  min-width: 0;
+}
+
+.skladki-fieldset legend {
+  font-family: 'Cinzel', serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--gold);
+  padding: 0 0.4rem;
+}
+
+.skladki-fieldset[hidden] {
+  display: none;
+}
+
+/* The page's charge buttons are navigation, so the unselected ones stay clearly readable
+   (the shared filter pills dim to 0.45). */
+.skladki-charge-groups .lw-filter-chip[aria-pressed="false"] {
+  opacity: 0.8;
 }
 
 .skladki-payment-form {
