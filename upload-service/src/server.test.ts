@@ -6260,6 +6260,53 @@ test('GET /member-profile returns pendingPhotos alongside a published profile wh
   });
 });
 
+test('GET /member-profile?skipPublic=1 does not read the public folder from Drive but still reads pending photos', async () => {
+  resetAboutUsBootstrapForTests();
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ driveFolderId: 'public-folder', stagingFolderId: 'staging-folder' }));
+  await firestore.setDoc('members', 'bez@gmail.com', seedMemberDoc({ driveFolderId: null, stagingFolderId: null }));
+  const driveCalls: string[] = [];
+  const deps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['ktos@gmail.com', 'bez@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'viewer@gmail.com' }),
+    authenticateAdminOrHovding: async () => {
+      throw new AuthError('Brak uprawnień administracyjnych.', 403);
+    },
+    drive: makeFakeDrive({
+      folderExists: async id => { driveCalls.push(`exists:${id}`); return true; },
+      listImageFiles: async id => {
+        driveCalls.push(`list:${id}`);
+        return id === 'staging-folder' ? [{ id: 'stg-main', name: '!main.jpg', thumbnailLink: 'https://example.test/stg-main=s220' }] : [{ id: 'pub-main', name: '!main.jpg', thumbnailLink: 'https://example.test/pub-main=s220' }];
+      },
+      readTextFile: async id => { driveCalls.push(`text:${id}`); return 'Opis.'; },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com&skipPublic=1`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.publicSkipped, true);
+    assert.equal(body.mainPhoto, null);
+    assert.deepEqual(body.photos, []);
+    assert.equal(body.pendingPhotos[0].id, 'stg-main');
+    assert.ok(driveCalls.every(c => !c.endsWith('public-folder')), `public folder must not be read: ${driveCalls.join(', ')}`);
+    assert.ok(driveCalls.includes('list:staging-folder'));
+
+    // Without the flag nothing changes: the public folder is read as before.
+    driveCalls.length = 0;
+    const full = await (await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com`)).json();
+    assert.equal(full.publicSkipped, undefined);
+    assert.equal(full.mainPhoto.id, 'pub-main');
+    assert.ok(driveCalls.includes('list:public-folder'));
+
+    // A member with no public folder has nothing to skip, so the flag is ignored.
+    const none = await (await fetch(`${baseUrl}/member-profile?email=bez@gmail.com&skipPublic=1`)).json();
+    assert.equal(none.publicSkipped, undefined);
+    assert.equal(none.published, false);
+  });
+});
+
 test('GET /member-profile returns photos and description when driveFolderId is under a public category', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
