@@ -84,13 +84,13 @@ function sectionAbbr(sectionId) {
 // rendered by shared/person-pill.js, which adds the "osoba bez konta" marker. A member's pill opens
 // the shared profile drawer by e-mail; an accountless person has no e-mail, so their pill opens the
 // same drawer through the person-keyed endpoint (data-person-id).
-function nameCellHtml(member, personIdAttr, categoryLabel) {
+function nameCellHtml(member, personIdAttr, categoryLabel, withSubline = true) {
   const namePill = personPillHtml({
     name: displayName(member),
     categoryId: member.categoryId,
     categoryLabel,
     accountless: member.accountless === true,
-    subline: personSubline(member),
+    subline: withSubline ? personSubline(member) : null,
   });
   if (member.accountless) {
     return `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}">
@@ -281,7 +281,7 @@ function renderChargeBar() {
   const groupHtml = (title, group) => {
     const items = buttons.filter((b) => b.group === group);
     if (items.length === 0) return '';
-    return `<div class="skladki-charge-group"><h2 class="skladki-charge-group-title">${title}</h2><div class="lw-summary-chips">${items.map((b) =>
+    return `<div class="skladki-charge-group"><h3 class="skladki-charge-group-title">${title}</h3><div class="lw-summary-chips">${items.map((b) =>
       `<button type="button" class="lw-summary-chip lw-filter-chip skladki-charge-btn" data-charge-id="${escapeAttr(b.id)}" title="${escapeAttr(b.title)}" aria-pressed="${b.id === selectedChargeId}">${escapeHtml(b.label)}</button>`,
     ).join('')}</div></div>`;
   };
@@ -689,6 +689,33 @@ function renderWpisoweList(roster) {
   document.getElementById('skladki-emeryci').hidden = notApplicableRoster.length === 0;
 }
 
+// The payment deadline is shown as the site's one calendar (shared/lw-calendar.js): an icon button
+// opening the same dropdown as the trip date pills, with the deadline marked on the month grid next
+// to every trip. A deadline is passed in as a pseudo-event ({ deadline: true }) so the shared
+// popover can mark its day and offer "add to calendar" without a second calendar implementation.
+let tripEvents = [];
+const deadlineEvents = new Map();
+const calendarDropdowns = window.LwCalendar?.mountDropdowns({
+  getEvents: () => [...tripEvents, ...deadlineEvents.values()],
+  findEvent: (id) => deadlineEvents.get(id),
+});
+
+function renderDeadline(containerId, name, dueDate, description) {
+  const container = document.getElementById(containerId);
+  const id = `deadline:${containerId}`;
+  if (!dueDate || !window.LwCalendar) {
+    deadlineEvents.delete(id);
+    container.innerHTML = '';
+    container.hidden = true;
+    return;
+  }
+  const event = { id, name: `Termin płatności: ${name}`, startDate: dueDate, status: 'active', description: description ?? '', deadline: true };
+  deadlineEvents.set(id, event);
+  container.innerHTML = window.LwCalendar.datePillHtml(event, containerId, 'start', { iconOnly: true, label: `Termin płatności: ${formatDueDate(dueDate)} — pokaż w kalendarzu` });
+  container.hidden = false;
+  calendarDropdowns?.refresh();
+}
+
 // Tracks the dueDate last loaded/rendered into the edit input, so saveYearFee can tell whether the
 // accountant actually changed the date (vs. only the note text) and skip sending dueDate in the PUT
 // body when it's unchanged - the backend logs an audit row for any dueDate present in the body,
@@ -706,7 +733,10 @@ function renderYearFee(yearFee) {
   // keeps its own details (renderExtraPanel), so this panel only shows for a składka roczna.
   const panel = document.getElementById('skladka-fee-panel');
   panel.hidden = wpisoweMode || extraMode;
-  if (wpisoweMode || extraMode) return;
+  if (wpisoweMode || extraMode) {
+    renderDeadline('skladki-year-deadline', '', null);
+    return;
+  }
   const creatorEl = document.getElementById('skladki-year-creator');
   creatorEl.hidden = !selectedCharge?.createdBy;
   if (selectedCharge?.createdBy) creatorEl.innerHTML = `Założone przez: ${creatorHtml(selectedCharge.createdBy)}`;
@@ -718,7 +748,7 @@ function renderYearFee(yearFee) {
   display.textContent = note ? `Składka ${selectedYear}: ${note}` : `Składka ${selectedYear}: nie ustalono`;
   // A due date only ever exists alongside a note (see updateYearFeeFormState), so it is never
   // shown on its own even for legacy data that still carries an orphaned date.
-  if (note && dueDate) display.textContent += ` (termin: ${formatDueDate(dueDate)})`;
+  renderDeadline('skladki-year-deadline', `składka ${selectedYear}`, note ? dueDate : null, note);
   lastLoadedYearFee = { note, dueDate };
   editPanel.hidden = !canManageSkladki;
   if (canManageSkladki) {
@@ -762,8 +792,9 @@ async function saveYearFee(control = document.getElementById('skladki-year-fee-s
       lastLoadedYearFeeDueDate = dueDateValue;
       lastLoadedYearFee = { note: value || null, dueDate: dueDateValue };
       document.getElementById('skladki-year-fee-display').textContent = value
-        ? `Składka ${selectedYear}: ${value}${dueDateValue ? ` (termin: ${formatDueDate(dueDateValue)})` : ''}`
+        ? `Składka ${selectedYear}: ${value}`
         : `Składka ${selectedYear}: nie ustalono`;
+      renderDeadline('skladki-year-deadline', `składka ${selectedYear}`, value ? dueDateValue : null, value);
       updateYearFeeFormState();
     }, control, rollback);
   } catch (err) {
@@ -794,7 +825,8 @@ function creatorHtml(email) {
   const member = rosterForNames.find((m) => m.personId === email);
   if (!member) return escapeHtml(email);
   const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
-  return nameCellHtml(member, escapeAttr(member.personId), categoryLabel);
+  // Outside the tables only the nickname pill + avatar, never the "Nazwisko, Imię" line.
+  return nameCellHtml(member, escapeAttr(member.personId), categoryLabel, false);
 }
 
 function personNameFor(email) {
@@ -803,14 +835,17 @@ function personNameFor(email) {
 }
 
 async function loadAndRender() {
-  const [{ canManageSkladki: role }, { roster }, chargesResponse, lookupLists] = await Promise.all([
+  const [{ canManageSkladki: role }, { roster }, chargesResponse, lookupLists, eventsResponse] = await Promise.all([
     apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/dues/charges', { method: 'GET' }, showReauth, hideReauth),
     // GET /lista-wyjazdowa/lookup-lists answers with the lists themselves ({ sections, categories,
     // weapons }), not wrapped in an envelope - see handleListaWyjazdowaLookupLists.
     apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
+    // Trips for the deadline calendar's month grid; the page works without them.
+    apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth).catch(() => ({ events: [] })),
   ]);
+  tripEvents = eventsResponse.events ?? [];
   canManageSkladki = role;
   charges = chargesResponse.charges ?? [];
   paymentInfo = chargesResponse.paymentInfo ?? null;
@@ -903,14 +938,18 @@ document.getElementById('skladki-payment-form').addEventListener('submit', async
 function renderExtraPanel() {
   const panel = document.getElementById('skladki-extra-panel');
   panel.hidden = !extraMode;
-  if (!extraMode) return;
+  document.getElementById('skladki-wpisowe-panel').hidden = !wpisoweMode;
+  if (!extraMode) {
+    renderDeadline('skladki-extra-deadline', '', null);
+    return;
+  }
   const charge = selectedCharge;
   document.getElementById('skladki-extra-title').textContent = charge.name;
   document.getElementById('skladki-extra-creator').innerHTML = `Założone przez: ${creatorHtml(charge.createdBy)}`;
   document.getElementById('skladki-extra-details').innerHTML = `
     <p>Kwota: ${charge.amount ? escapeHtml(charge.amount) : 'nie ustalono'}</p>
-    ${charge.description ? `<p class="skladki-pre">${escapeHtml(charge.description)}</p>` : ''}
-    <p>Termin płatności: ${charge.dueDate ? escapeHtml(formatDueDate(charge.dueDate)) : 'nie ustalono'}</p>`;
+    ${charge.description ? `<p class="skladki-pre">${escapeHtml(charge.description)}</p>` : ''}`;
+  renderDeadline('skladki-extra-deadline', charge.name, charge.dueDate, charge.amount);
   const historyLink = document.getElementById('skladki-extra-history-link');
   historyLink.hidden = !canManageSkladki;
   historyLink.href = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:charge:${charge.id}`)}`;

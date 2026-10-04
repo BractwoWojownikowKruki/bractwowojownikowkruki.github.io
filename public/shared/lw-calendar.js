@@ -41,6 +41,8 @@
   }
 
   function eventLink(event) {
+    // A payment deadline (Składki page) is a marker on the grid, not a trip: it has no page.
+    if (event.deadline) return '';
     return window.LwFriendlyUrl ? window.LwFriendlyUrl.eventUrl(event) : '';
   }
 
@@ -158,7 +160,9 @@
       if (cell.iso === today) classes.push('lw-cal-day--today');
       if (cell.events.length) classes.push('lw-cal-day--has-event');
       if (cell.events.some((e) => e.id === event.id)) classes.push('lw-cal-day--current');
-      const trips = cell.events.map((e, i) => `<a class="lw-cal-trip${i === 0 ? ' lw-cal-trip--cover' : ''}" href="${escapeHtml(eventLink(e))}" title="${escapeHtml(e.name)}">${escapeHtml(e.name)}</a>`).join('');
+      const trips = cell.events.map((e, i) => e.deadline
+        ? `<span class="lw-cal-trip lw-cal-trip--deadline" title="${escapeHtml(e.name)}">${escapeHtml(e.name)}</span>`
+        : `<a class="lw-cal-trip${i === 0 ? ' lw-cal-trip--cover' : ''}" href="${escapeHtml(eventLink(e))}" title="${escapeHtml(e.name)}">${escapeHtml(e.name)}</a>`).join('');
       return `<div class="${classes.join(' ')}"><span class="lw-cal-daynum">${cell.day}</span>${trips}</div>`;
     }).join('');
     return `
@@ -270,11 +274,16 @@
 
   // Quiet date pill + dropdown anchor for dashboard cards and list rows. Must not be placed inside a
   // <p>: the popover is a <div>, which the HTML parser would pull out of the wrapper.
-  function datePillHtml(event, key, popoverSide) {
+  // `options.iconOnly` drops the date text (the Składki page's payment deadline); `options.label` is
+  // then the button's tooltip and accessible name.
+  function datePillHtml(event, key, popoverSide, options = {}) {
     const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
     const [y, m, d] = event.startDate.split('-');
+    const text = options.iconOnly ? '' : `${d}.${m}.${y}`;
+    const title = escapeHtml(options.label ?? 'Pokaż w kalendarzu');
+    const classes = `lw-date-pill lw-date-pill--quiet${options.iconOnly ? ' lw-date-pill--icon' : ''}`;
     return `<span class="lw-date-wrap lw-date-wrap--quiet" data-lw-cal-key="${escapeHtml(key)}" data-lw-cal-event="${escapeHtml(event.id)}">
-    <button type="button" class="lw-date-pill lw-date-pill--quiet" data-lw-cal-toggle aria-haspopup="true" aria-expanded="false" title="Pokaż w kalendarzu">${icon}${d}.${m}.${y}</button>
+    <button type="button" class="${classes}" data-lw-cal-toggle aria-haspopup="true" aria-expanded="false" title="${title}"${options.iconOnly ? ` aria-label="${title}"` : ''}>${icon}${text}</button>
     <div class="lw-cal-popover lw-cal-popover--${popoverSide}" hidden></div>
   </span>`;
   }
