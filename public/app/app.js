@@ -101,6 +101,16 @@ function attendeeBadge(count) {
   return badge;
 }
 
+// Quiet date pill + calendar dropdown (behaviour in shared/lw-calendar.js). `key` must be stable
+// across re-renders so an open dropdown survives the widgets being rebuilt.
+function datePillHtml(event, key, popoverSide) {
+  const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
+  return `<span class="lw-date-wrap lw-date-wrap--quiet" data-lw-cal-key="${key}" data-lw-cal-event="${event.id}">
+    <button type="button" class="lw-date-pill lw-date-pill--quiet" data-lw-cal-toggle aria-haspopup="true" aria-expanded="false" title="Pokaż w kalendarzu">${icon}${formatDate(event.startDate)}</button>
+    <div class="lw-cal-popover lw-cal-popover--${popoverSide}" hidden></div>
+  </span>`;
+}
+
 function renderNearestEventWidget(events) {
   const upcoming = events
     .filter((e) => e.status === 'active' && e.startDate >= todayIsoDate())
@@ -130,7 +140,7 @@ function renderNearestEventWidget(events) {
     <h3>Najbliższy wyjazd</h3>
     <p class="dashboard-event-name"><a class="dashboard-event-name-link"></a></p>
     <p class="dashboard-event-date">
-      <span class="dashboard-event-date-text"></span>
+      ${datePillHtml(event, 'nearest', 'start')}
     </p>
     <p class="dashboard-event-countdown"></p>
     ${toggleHtml}
@@ -140,7 +150,6 @@ function renderNearestEventWidget(events) {
   const nameLink = widget.querySelector('.dashboard-event-name-link');
   nameLink.href = eventDetailHref(event);
   nameLink.textContent = event.name;
-  widget.querySelector('.dashboard-event-date-text').textContent = formatDate(event.startDate);
   const days = daysUntil(event.startDate);
   widget.querySelector('.dashboard-event-countdown').textContent = `za ${days} ${days === 1 ? 'dzień' : 'dni'}`;
   widget.querySelector('.dashboard-event-date').append(attendeeBadge(event.attendingCount));
@@ -183,7 +192,7 @@ function renderMySignupsWidget(events) {
     nameLink.href = eventDetailHref(e);
     nameLink.textContent = e.name;
     const meta = items[i].querySelector('.dashboard-mini-item-meta');
-    meta.textContent = formatDate(e.startDate);
+    meta.innerHTML = datePillHtml(e, `mine-${e.id}`, 'end');
     meta.append(attendeeBadge(e.attendingCount));
   });
   return widget;
@@ -305,6 +314,11 @@ async function viewerCanSignUp() {
   }
 }
 
+const calendarDropdowns = window.LwCalendar.mountDropdowns({
+  getEvents: () => dash.events,
+  findEvent: (id) => dash.events.find((e) => e.id === id),
+});
+
 // (Re)builds every widget derived from dash.events. The signups card and the nearest-trip card
 // must stay in sync after an attend toggle or a companion add, so they always render together.
 function renderDashboardWidgets() {
@@ -314,6 +328,7 @@ function renderDashboardWidgets() {
   if (nearestWidget) widgetGrid.append(nearestWidget);
   widgetGrid.append(renderMySignupsWidget(dash.events), dash.galleriesWidget);
   document.getElementById('app-widget-grid-slot').replaceChildren(widgetGrid);
+  calendarDropdowns.refresh();
 }
 
 // Per-event składka depends on attendance, so the dues panel is refreshed after every change too.
