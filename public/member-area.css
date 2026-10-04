@@ -1934,7 +1934,7 @@ button.lw-edit-toggle.lw-share--active {
 
 .skladki-payment-head {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
@@ -1947,7 +1947,7 @@ button.lw-edit-toggle.lw-share--active {
 .skladki-top-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
@@ -1977,10 +1977,55 @@ button.lw-edit-toggle.lw-share--active {
   display: none;
 }
 
-/* The page's charge buttons are navigation, so the unselected ones stay clearly readable
-   (the shared filter pills dim to 0.45). */
-.skladki-charge-groups .lw-filter-chip[aria-pressed="false"] {
-  opacity: 0.8;
+/* The annual-charge box reuses #skladka-fee-panel (the wyjazd page's accent-bordered fee panel), whose
+   id rules would otherwise add the gold left bar and a different padding/background. */
+#skladka-fee-panel.skladki-fieldset {
+  padding: 1rem 1.25rem 1.25rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* Payment deadline: the calendar icon sits on top of a charge's box, the description below it. */
+.skladki-deadline {
+  margin-bottom: 0.6rem;
+}
+
+.skladki-deadline[hidden] {
+  display: none;
+}
+
+.lw-date-pill--icon {
+  padding: 0.3rem 0.5rem;
+}
+
+.skladki-wpisowe-text {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* The page's charge buttons are navigation, so every one stays clearly visible: a gold outline when
+   unselected, solid gold when selected - never dimmed like the shared filter pills (whose dimming
+   rule is more specific than a plain class, hence the longer selector). */
+button.skladki-charge-btn.lw-filter-chip {
+  border: 1px solid var(--gold);
+  background: rgba(196, 150, 42, 0.16);
+  color: var(--gold);
+  font-weight: 600;
+}
+
+button.skladki-charge-btn.lw-filter-chip:hover {
+  background: rgba(196, 150, 42, 0.32);
+}
+
+button.skladki-charge-btn.lw-filter-chip[aria-pressed="true"] {
+  background: var(--gold);
+  color: var(--bg);
+}
+
+.lw-summary-filter[data-filter-active="true"] .skladki-charge-groups .lw-filter-chip[aria-pressed="false"],
+.lw-summary-filter[data-filter-active="true"] .skladki-charge-groups .lw-filter-chip[aria-pressed="false"]:hover {
+  opacity: 1;
 }
 
 .skladki-payment-form {
@@ -2006,16 +2051,16 @@ button.lw-edit-toggle.lw-share--active {
 .skladki-charge-groups {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.4rem;
 }
 
-.skladki-charge-group-title {
-  font-size: 12px;
-  font-weight: 600;
+/* An h3 (one level below the page sections); the doubled selector beats .content-section h3. */
+.skladki-charge-groups .skladki-charge-group-title {
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-muted);
-  margin: 0 0 0.3rem;
+  color: var(--gold);
+  margin: 0 0 0.2rem;
 }
 
 /* "+ Dodaj składkę": the page's one red call to action. */
@@ -3069,6 +3114,21 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   white-space: normal;
   overflow-wrap: anywhere;
   hyphens: auto;
+}
+
+/* Payment deadline marker (Składki page): same label look as a trip, but not a link. */
+.lw-cal-grid span.lw-cal-trip--deadline {
+  display: block;
+  margin-top: 1px;
+  color: var(--gold);
+  font-size: 7px;
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.lw-cal-day--current span.lw-cal-trip--deadline {
+  color: var(--bg);
 }
 
 .lw-cal-grid a.lw-cal-trip:hover {

@@ -68,7 +68,7 @@ const elementIds = [
   'skladki-extra-name-input', 'skladki-extra-amount-input', 'skladki-extra-description-input',
   'skladki-extra-duedate-input', 'skladki-extra-save', 'skladki-extra-delete',
   'summary-content', 'summary-panel', 'skladki-content', 'skladki-table', 'skladki-emeryci',
-  'skladki-emeryci-table', 'skladki-emeryci-heading',
+  'skladki-emeryci-table', 'skladki-emeryci-heading', 'skladki-wpisowe-panel', 'skladki-year-deadline', 'skladki-extra-deadline',
 ];
 
 function createHarness(yearFee: Record<string, unknown> | null, options: { roster?: Array<Record<string, unknown>>; dues?: Array<Record<string, unknown>>; charges?: Array<Record<string, unknown>>; extraStatuses?: Array<Record<string, unknown>>; paymentInfo?: { text: string } | null } = {}) {
@@ -103,6 +103,11 @@ function createHarness(yearFee: Record<string, unknown> | null, options: { roste
     window: {
       location: { search: '' },
       confirm: () => true,
+      LwCalendar: {
+        mountDropdowns: () => ({ refresh() {}, close() {} }),
+        datePillHtml: (event: { startDate: string; name: string }, key: string, _side: string, options: { iconOnly?: boolean }) =>
+          `<button data-lw-cal-toggle data-key="${key}" data-icon-only="${options.iconOnly === true}" data-date="${event.startDate}">${event.name}</button>`,
+      },
       MutationFeedback: {
         confirmed: async ({ execute, apply, rollback }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown }) => {
           let result: unknown;
@@ -141,6 +146,7 @@ function createHarness(yearFee: Record<string, unknown> | null, options: { roste
         };
       }
       if (url.startsWith('/lista-wyjazdowa/dues/extra?')) return { statuses: extraStatusFixture };
+      if (url === '/lista-wyjazdowa/events') return { events: [] };
       if (url === '/lista-wyjazdowa/roster') return { roster };
       if (url.startsWith('/lista-wyjazdowa/dues?')) return { dues: duesFixture, yearFee };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [], weapons: [] };
@@ -313,7 +319,10 @@ test('extra charge: details, creator, default "nie dotyczy" and status PUT to th
   assert.equal(harness.elements.get('skladki-extra-title')!.textContent, 'Koszulki');
   assert.match(harness.elements.get('skladki-extra-creator')!.innerHTML, /Założone przez: [\s\S]*data-email="member@example.com"[\s\S]*Member/);
   assert.match(harness.elements.get('skladki-extra-details')!.innerHTML, /Kwota: 50 zł/);
-  assert.match(harness.elements.get('skladki-extra-details')!.innerHTML, /01\.12\.2026/);
+  // The deadline is the shared calendar's icon button, not text in the description.
+  assert.doesNotMatch(harness.elements.get('skladki-extra-details')!.innerHTML, /01\.12\.2026|Termin/);
+  assert.match(harness.elements.get('skladki-extra-deadline')!.innerHTML, /data-icon-only="true" data-date="2026-12-01"/);
+  assert.equal(harness.elements.get('skladki-extra-deadline')!.hidden, false);
   assert.equal(harness.elements.get('skladka-fee-panel')!.hidden, true);
   const tbody = harness.elements.get('skladki-table')!.querySelector('tbody')!.innerHTML;
   assert.match(tbody, /data-kind="roczna"[^>]*data-status="not_applicable"|data-status="not_applicable"[^>]*data-kind="roczna"/);
@@ -343,4 +352,27 @@ test('payment info: shown as plain text to everyone, hidden when empty for the r
   await withText.signIn();
   assert.equal(withText.elements.get('skladki-payment-panel')!.hidden, false);
   assert.equal(withText.elements.get('skladki-payment-text')!.textContent, 'Konto: 12 3456\n  BLIK: 600');
+});
+
+test('year fee: the deadline is a calendar icon on top, not text in the display line', async () => {
+  const harness = createHarness({ note: '100 zł', dueDate: '2026-10-20' });
+  await harness.signIn();
+  assert.equal(harness.elements.get('skladki-year-fee-display')!.textContent.includes('termin'), false);
+  assert.match(harness.elements.get('skladki-year-deadline')!.innerHTML, /data-date="2026-10-20"/);
+  assert.equal(harness.elements.get('skladki-year-deadline')!.hidden, false);
+
+  const none = createHarness({ note: '100 zł', dueDate: null });
+  await none.signIn();
+  assert.equal(none.elements.get('skladki-year-deadline')!.hidden, true);
+});
+
+test('wpisowe view shows its info box, other views do not', async () => {
+  const harness = createHarness(null);
+  await harness.signIn();
+  assert.equal(harness.elements.get('skladki-wpisowe-panel')!.hidden, true);
+  await harness.elements.get('skladki-charge-buttons')!.clickWith({
+    closest: (selector: string) => selector === '[data-charge-id]' ? { dataset: { chargeId: 'wpisowe' } } : null,
+  });
+  assert.equal(harness.elements.get('skladki-wpisowe-panel')!.hidden, false);
+  assert.equal(harness.elements.get('skladka-fee-panel')!.hidden, true);
 });

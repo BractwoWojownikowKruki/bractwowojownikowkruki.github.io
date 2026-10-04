@@ -112,10 +112,17 @@
             </div>
           </form>
 
+          <!-- Wpisowe: a one-line explainer in the same group box as the other charges. -->
+          <fieldset id="skladki-wpisowe-panel" class="skladki-fieldset" hidden>
+            <legend>Wpisowe</legend>
+            <p class="skladki-wpisowe-text">Jednorazowa opłata wpisowa do Bractwa płacona przez kandydatów.</p>
+          </fieldset>
+
           <!-- Details of a składka dodatkowa (the roczna one uses the panel below): who created it,
                amount, description and deadline; editable by its creator, an accountant or an admin. -->
           <fieldset id="skladki-extra-panel" class="skladki-fieldset skladki-extra-panel" hidden>
             <legend id="skladki-extra-title"></legend>
+            <div id="skladki-extra-deadline" class="skladki-deadline" hidden></div>
             <p id="skladki-extra-creator" class="skladki-extra-meta"></p>
             <div class="lw-fee-summary">
               <div id="skladki-extra-details" class="skladki-extra-details"></div>
@@ -151,6 +158,7 @@
                plain text otherwise). Replaces the old per-member "Kwota" text field. -->
           <fieldset id="skladka-fee-panel" class="skladki-fieldset">
             <legend>Składka roczna</legend>
+            <div id="skladki-year-deadline" class="skladki-deadline" hidden></div>
             <p id="skladki-year-creator" class="skladki-extra-meta" hidden></p>
             <div class="lw-fee-summary">
               <span id="skladki-year-fee-display"></span>
@@ -226,6 +234,8 @@
   <script src="../../shared/sortable-table.js"></script>
   <script src="../../shared/summary-filter.js"></script>
   <script src="../../shared/dues-status.js"></script>
+  <script src="../../shared/lw-friendly-url.js"></script>
+  <script src="../../shared/lw-calendar.js"></script>
   <script src="../../people-photos.js"></script>
   <script src="../../shared/profile-panel.js"></script>
   <script src="skladki.js"></script>
