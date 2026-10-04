@@ -2,6 +2,10 @@
  "version": 1,
  "people": [
   {
+   "avatar": {
+    "id": "1808WyVuZYWyyUWHtS_txRmlwbJ6KNDz0",
+    "url": "/people-photos/1808WyVuZYWyyUWHtS_txRmlwbJ6KNDz0-64-c20e8ca112.jpg"
+   },
    "folderId": "1O2CmYKK0tTw0RbboX4GOePCRbYAv0jYR",
    "name": "Tata Ragnar",
    "order": -15,
@@ -19,6 +23,10 @@
    ]
   },
   {
+   "avatar": {
+    "id": "1wfo-VytDB-cnJi8J5MJOGz_Unhdq5w17",
+    "url": "/people-photos/1wfo-VytDB-cnJi8J5MJOGz_Unhdq5w17-64-e77daf8962.jpg"
+   },
    "folderId": "14nctAAN0pr_qdImNJ4G9wB2MTI7F-vi9",
    "name": "Liponsson",
    "order": -7,
@@ -31,6 +39,10 @@
    "photos": []
   },
   {
+   "avatar": {
+    "id": "1hMG9d98eGsWnxqvtPgraB-O1ORO7KW4I",
+    "url": "/people-photos/1hMG9d98eGsWnxqvtPgraB-O1ORO7KW4I-64-536993d50e.jpg"
+   },
    "folderId": "1jhmMlSaCq2XDu8SdKr9GTw9b_0jM41Aq",
    "name": "Orpik",
    "order": -6,
@@ -43,6 +55,10 @@
    "photos": []
   },
   {
+   "avatar": {
+    "id": "1YRgDMSvKxfSnC20NqvrP5dxVQmU3oFdJ",
+    "url": "/people-photos/1YRgDMSvKxfSnC20NqvrP5dxVQmU3oFdJ-64-426a086230.jpg"
+   },
    "folderId": "12SZSZ2GofImqwx6xEi5al67YlUu5kCyg",
    "name": "Bjorn",
    "order": -5,
@@ -55,6 +71,10 @@
    "photos": []
   },
   {
+   "avatar": {
+    "id": "1ArMCrZBZerTn3lQHd46bAc-tku-B-EoV",
+    "url": "/people-photos/1ArMCrZBZerTn3lQHd46bAc-tku-B-EoV-64-3da530f18b.jpg"
+   },
    "folderId": "108VWQMuoqO5ffNgMP990-or1As3x_FWV",
    "name": "Sygurd",
    "order": -4,
@@ -67,6 +87,10 @@
    "photos": []
   },
   {
+   "avatar": {
+    "id": "19B-hE-6b1gC_IITUi1T5okgPK9vib-6E",
+    "url": "/people-photos/19B-hE-6b1gC_IITUi1T5okgPK9vib-6E-64-1c6cae33ec.jpg"
+   },
    "folderId": "1IuORR061pMU0ll04K3Zk63xlE6S5tQiD",
    "name": "Ugrost",
    "order": -3,
@@ -79,6 +103,10 @@
    "photos": []
   },
   {
+   "avatar": {
+    "id": "1B-gXTMFlAJh_Z7XGZNp9Sj-jxehNY_vV",
+    "url": "/people-photos/1B-gXTMFlAJh_Z7XGZNp9Sj-jxehNY_vV-64-e7096b2aa5.jpg"
+   },
    "folderId": "1SjAyIwFSDVEvNeYBw6GaUCr1vOK0NxB-",
    "name": "Marcus",
    "order": -2,
@@ -91,6 +119,10 @@
    "photos": []
   },
   {
+   "avatar": {
+    "id": "1L13w0e4FXeJjv0NgGGjDw5qJTxPhmmO4",
+    "url": "/people-photos/1L13w0e4FXeJjv0NgGGjDw5qJTxPhmmO4-64-8e7e9d9605.jpg"
+   },
    "folderId": "1zEkzFlTQrsQzTPQwKy698SlfwPW5xj0G",
    "name": "Wojciech",
    "order": -1,
@@ -103,6 +135,10 @@
    "photos": []
   },
   {
+   "avatar": {
+    "id": "1lsgCt-jTEtHPyRY82wkq9eKK8miYMDBV",
+    "url": "/people-photos/1lsgCt-jTEtHPyRY82wkq9eKK8miYMDBV-64-f617826d41.jpg"
+   },
    "folderId": "1kfXUBGNjBEff65m2PnABVpTTT0RJMB-h",
    "name": "Kiartan",
    "order": 0,
