@@ -331,8 +331,8 @@
   align-self: stretch;
   width: 2em;
   background-repeat: no-repeat;
-  background-position: right center;
-  background-size: contain;
+  background-position: center;
+  background-size: cover;
 }
 
 .profile-trigger:has(> .person-avatar-slot),
@@ -345,9 +345,12 @@
   align-items: center;
 }
 
-.person-pill-cell:has(> .person-avatar-slot) {
+/* Every pill with a subline reserves the same 2em avatar column - whether or not the person has an
+   avatar - so pills and sublines line up across rows. The slot is a fixed 2em wide and always
+   cropped to fill (cover), so every avatar renders at the same size regardless of its aspect ratio. */
+.person-pill-cell {
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: 2em auto;
   justify-content: start;
   justify-items: start;
   align-items: start;
@@ -357,14 +360,16 @@
   grid-row: 1;
   grid-column: 1;
   align-self: stretch;
+  justify-self: stretch;
+  width: auto;
 }
 
-.person-pill-cell:has(> .person-avatar-slot) > .category-name-pill {
+.person-pill-cell > .category-name-pill {
   grid-row: 1;
   grid-column: 2;
 }
 
-.person-pill-cell:has(> .person-avatar-slot) > .person-pill-subline {
+.person-pill-cell > .person-pill-subline {
   grid-row: 2;
   grid-column: 2;
 }
