@@ -122,6 +122,11 @@ function visibleEvents() {
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
 }
 
+const calendarDropdowns = window.LwCalendar?.mountDropdowns({
+  getEvents: () => cachedEvents,
+  findEvent: (id) => cachedEvents.find((e) => e.id === id),
+});
+
 function renderEvents() {
   renderLwNav();
   const container = document.getElementById('events-list');
@@ -160,7 +165,7 @@ function renderEvents() {
         <div class="lw-event-row">
           <a href="${escapeAttr(window.LwFriendlyUrl.eventUrl(e))}" class="lw-event-name">${escapeHtml(e.name)}${statusLabel}</a>
           <span class="lw-event-meta">
-            <span class="lw-event-date">${escapeHtml(formatDate(e.startDate))}</span>
+            ${window.LwCalendar.datePillHtml(e, `list-${e.id}`, 'start')}
             <span class="attendee-badge" title="Zgłoszone osoby: ${e.attendingCount ?? 0}" aria-label="Zgłoszone osoby: ${e.attendingCount ?? 0}"><img class="attendee-badge-icon" src="/icons/attendees-badge.png" alt="" aria-hidden="true"> <span class="attendee-badge-count">${e.attendingCount ?? 0}</span></span>
           </span>
           <div class="lw-event-actions">
@@ -178,6 +183,7 @@ function renderEvents() {
       `;
     })
     .join('');
+  calendarDropdowns?.refresh();
   if (openEditPanelEventId) {
     const openEvent = events.find((e) => e.id === openEditPanelEventId);
     if (openEvent) window.EventEditForm.wireUrlWarning(`lw-event-edit-${openEvent.id}`, openEvent);

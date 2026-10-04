@@ -296,14 +296,14 @@
   height: 70%;
 }
 
-/* Round avatar (people-photos.js) swapped in for the generic person icon / equipment image icon.
-   64px source scaled down in CSS; object-fit keeps a non-square Drive thumbnail undistorted. */
+/* Rectangular avatar (people-photos.js) swapped in for the generic person icon / equipment image
+   icon. object-fit: contain keeps the whole thumbnail visible, never cropped. */
 .person-avatar {
   display: inline-block;
   width: 1.5em;
   height: 1.5em;
-  border-radius: 50%;
-  object-fit: cover;
+  border-radius: 0;
+  object-fit: contain;
   vertical-align: middle;
   background: rgba(255, 255, 255, 0.08);
 }
@@ -324,14 +324,59 @@
   height: 1.5rem;
 }
 
-/* Leading a pill that has no icon button next to it. */
+/* Leading a name pill: flush against its left edge (no gap). A background box with no intrinsic
+   height, so it stretches to the pill's height and never makes the pill taller. */
+.person-avatar-slot {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 2em;
+  background-repeat: no-repeat;
+  background-position: right center;
+  background-size: contain;
+}
+
+.profile-trigger:has(> .person-avatar-slot),
+.profile-trigger:has(> .person-avatar--equipment) {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.profile-trigger:has(> .person-avatar--equipment) {
+  align-items: center;
+}
+
+.person-pill-cell:has(> .person-avatar-slot) {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: start;
+  justify-items: start;
+  align-items: start;
+}
+
+.person-pill-cell > .person-avatar-slot {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: stretch;
+}
+
+.person-pill-cell:has(> .person-avatar-slot) > .category-name-pill {
+  grid-row: 1;
+  grid-column: 2;
+}
+
+.person-pill-cell:has(> .person-avatar-slot) > .person-pill-subline {
+  grid-row: 2;
+  grid-column: 2;
+}
+
+/* Legacy <img> lead avatar (pill-less triggers only). */
 .person-avatar--lead {
   margin-right: 0.35em;
 }
 
 /* Replaces the muted image icon that follows an equipment pill (same spacing as that icon). */
 .person-avatar--equipment {
-  margin-left: 0.35rem;
+  margin: 0;
 }
 
 /* Compact slide-out: smaller photos, headings and spacing than the page-level .person-* styles
