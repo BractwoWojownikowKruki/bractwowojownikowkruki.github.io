@@ -92,7 +92,7 @@ function createHarness() {
   const confirmedCalls: Array<Record<string, any>> = [];
 
   const members = [
-    { email: 'ala@example.com', lastName: 'Kowalska', firstName: 'Ala', nickname: null, sectionId: 'krakow', sectionLabel: 'Kraków', categoryId: 'wojownik', categoryLabel: 'Wojownik' },
+    { email: 'ala@example.com', driveFolderId: 'folder-ala', lastName: 'Kowalska', firstName: 'Ala', nickname: null, sectionId: 'krakow', sectionLabel: 'Kraków', categoryId: 'wojownik', categoryLabel: 'Wojownik' },
   ];
   const roster = [
     { personId: 'ala@example.com', accountless: false, email: 'ala@example.com', lastName: 'Kowalska', firstName: 'Ala', nickname: null, sectionId: 'krakow', categoryId: 'wojownik' },
@@ -632,6 +632,17 @@ test('filterEquipmentBySections returns everything for an empty selection', () =
 function pillTarget(equipmentId: string) {
   return { closest: (selector: string) => (selector === '[data-equipment-trigger]' ? { dataset: { equipmentId } } : null) };
 }
+
+test('a member owner pill carries data-folder-id so the profile drawer can show the cached photo instantly', async () => {
+  const harness = createHarness();
+  privateItem.belongsToPersonId = 'ala@example.com';
+  try {
+    await harness.signIn();
+    assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /data-email="ala@example.com" data-folder-id="folder-ala"/);
+  } finally {
+    privateItem.belongsToPersonId = 'person-uuid-1';
+  }
+});
 
 test('the Opis cell is a pill; clicking it opens the shared drawer with photos, labels and owner, without a request', async () => {
   const harness = createHarness();
