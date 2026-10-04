@@ -324,15 +324,16 @@
   height: 1.5rem;
 }
 
-/* Leading a name pill: flush against its left edge (no gap). A background box with no intrinsic
-   height, so it stretches to the pill's height and never makes the pill taller. */
+/* Leading a name pill: flush against its left edge (no gap). A fixed 2em square background box, so
+   every avatar has the same size; `contain` scales the whole picture to fit inside it. */
 .person-avatar-slot {
   flex: 0 0 auto;
   align-self: stretch;
   width: 2em;
+  height: 2em;
   background-repeat: no-repeat;
   background-position: center;
-  background-size: cover;
+  background-size: contain;
 }
 
 .profile-trigger:has(> .person-avatar-slot),
@@ -346,8 +347,8 @@
 }
 
 /* Every pill with a subline reserves the same 2em avatar column - whether or not the person has an
-   avatar - so pills and sublines line up across rows. The slot is a fixed 2em wide and always
-   cropped to fill (cover), so every avatar renders at the same size regardless of its aspect ratio. */
+   avatar - so pills and sublines line up across rows. The slot is a fixed 2em square and the
+   picture is scaled to fit inside it (contain), whatever its aspect ratio. */
 .person-pill-cell {
   display: grid;
   grid-template-columns: 2em auto;
@@ -359,9 +360,8 @@
 .person-pill-cell > .person-avatar-slot {
   grid-row: 1;
   grid-column: 1;
-  align-self: stretch;
-  justify-self: stretch;
-  width: auto;
+  align-self: start;
+  justify-self: start;
 }
 
 .person-pill-cell > .category-name-pill {
