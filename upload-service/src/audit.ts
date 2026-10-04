@@ -83,6 +83,11 @@ const duesFields = {
   // date, not sensitive like a fee amount, so it's logged as a direct before/after value (no
   // digest needed, unlike feeDigest/feeLength above for the free-text fee description).
   dueDate: 'roleRestricted',
+  // Składki list: a charge's kind ('annual' | 'extra'), name and description. The "Jak płacić" text
+  // is logged only as feeDigest/feeLength (it holds account numbers).
+  chargeKind: 'roleRestricted',
+  name: 'roleRestricted',
+  description: 'roleRestricted',
 } as const;
 const profileFields = {
   memberEmail: 'roleRestricted',
@@ -211,6 +216,11 @@ export const ACTION_REGISTRY = {
   'dues.entry_fee.changed': action('dues', 'adminOrAccountant', ['due'], duesFields),
   'dues.event_fee.changed': action('dues', 'adminOrAccountant', ['eventFee', 'signup'], duesFields),
   'dues.year_fee.changed': action('dues', 'adminOrAccountant', ['due'], duesFields),
+  'dues.charge.created': action('dues', 'adminOrAccountant', ['due'], duesFields),
+  'dues.charge.updated': action('dues', 'adminOrAccountant', ['due'], duesFields),
+  'dues.charge.deleted': action('dues', 'adminOrAccountant', ['due'], duesFields),
+  'dues.extra.changed': action('dues', 'adminOrAccountant', ['due'], duesFields),
+  'dues.payment_info.changed': action('dues', 'adminOrAccountant', ['due'], duesFields),
   'profile.member.updated': action('profile', 'adminOrHovding', ['member'], profileFields),
   'profile.drive_folder.changed': action('profile', 'adminOrHovding', ['member'], profileFields),
   'profile.person.created': action('profile', 'adminOrHovding', ['person'], profileFields),

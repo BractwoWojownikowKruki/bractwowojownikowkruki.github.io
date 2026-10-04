@@ -71,6 +71,11 @@ Last synced with implementation-contract.md: 2026-10-03 (equipment photos: added
 | PUT `/lista-wyjazdowa/wpisowe` | businessWrite — `dues.entry_fee.changed` | due; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/dues` | businessWrite — `dues.annual.changed` | due; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/dues/year-fee` | businessWrite — `dues.year_fee.changed` | due; Firestore | requestAwaited |
+| POST `/lista-wyjazdowa/dues/charges` | businessWrite — `dues.charge.created` | due; Firestore | requestAwaited |
+| PUT `/lista-wyjazdowa/dues/charges` | businessWrite — `dues.charge.updated` | due; Firestore | requestAwaited |
+| DELETE `/lista-wyjazdowa/dues/charges` | businessWrite — `dues.charge.deleted` | due; Firestore | requestAwaited |
+| PUT `/lista-wyjazdowa/dues/extra` | businessWrite — `dues.extra.changed` | due; Firestore | requestAwaited |
+| PUT `/lista-wyjazdowa/dues/payment-info` | businessWrite — `dues.payment_info.changed` | due; Firestore | requestAwaited |
 | POST `/lista-wyjazdowa/persons` | businessWrite — `person.created` | person; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/persons` | businessWrite — `person.updated` | person; Firestore | requestAwaited |
 | DELETE `/lista-wyjazdowa/persons` | businessWrite — `person.deleted` | person; Firestore | requestAwaited |

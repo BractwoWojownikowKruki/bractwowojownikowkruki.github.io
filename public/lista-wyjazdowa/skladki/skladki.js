@@ -9,7 +9,14 @@
  * server re-checks the role on every PUT/GET regardless, this only controls what the UI offers
  * (design.md §8, §9).
  *
- * The "Składka:" select's first option, "Wpisowe" (renderWpisoweList), swaps the whole page from
+ * Składki are a list of buttons (renderChargeBar), alphabetical, one pressed at a time: the built-in
+ * "Wpisowe", one per składka roczna year, and one per składka dodatkowa (any member can create
+ * those with "Dodaj składkę"; their creator, accountants and admins set the statuses and edit the
+ * details - extra statuses default to "nie dotyczy"). A "Jak płacić" text block at the top, written
+ * by accountants/admins, is shown to everyone exactly as typed. Extra charges are ignored by the
+ * reminder panel on the dashboard (app.js reads only the annual dues).
+ *
+ * The "Wpisowe" button (renderWpisoweList) swaps the whole page from
  * the year table (renderTable - Składka roczna as its own icon-only column, no visible year
  * number) to a flat list of every member who still owes wpisowe, with its own Dołączył column
  * instead of Składka, sorted by join date (members.ts's approvedAt) so the oldest unpaid debt
@@ -121,6 +128,8 @@ function memberWpisoweStatus(member) {
 // joined partway through the year). The default itself, the labels and EMERYT_CATEGORY_ID live in
 // shared/dues-status.js (mirroring dues.ts) - this only looks up the stored record for the row.
 function memberDuesStatus(member, duesByPersonId) {
+  // A składka dodatkowa has no category defaults: whoever has no stored status is "nie dotyczy".
+  if (extraMode) return duesByPersonId.get(member.personId)?.status ?? 'not_applicable';
   // KRKG-0087: dues are keyed by the canonical personId (a member's e-mail, an accountless
   // person's UUID), not by e-mail - a person row has email: null, so keying by e-mail both missed
   // their stored status and crashed on the null. For a member the value is identical.
@@ -128,7 +137,13 @@ function memberDuesStatus(member, duesByPersonId) {
 }
 
 function rocznaLabel(status) {
-  return duesStatusLabel(selectedYear, status);
+  return duesStatusLabel(chargeTitle(), status);
+}
+
+// Wpisowe and składka roczna: accountants/admins only. A składka dodatkowa: its creator too (the
+// server's canEdit already says so for this viewer).
+function canChangeStatuses() {
+  return extraMode ? selectedCharge.canEdit === true : canManageSkladki;
 }
 
 // Click-to-cycle order for both badges (see the click handler below) is shared/dues-status.js's
@@ -139,7 +154,7 @@ function rocznaLabel(status) {
 // column stays visually uniform, only its background says "this member doesn't owe this at all".
 function rocznaIconHtml(personIdAttr, status) {
   const label = rocznaLabel(status);
-  if (!canManageSkladki) {
+  if (!canChangeStatuses()) {
     return `<span class="lw-skladka-icon" data-status="${status}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">💰</span>`;
   }
   return `<button type="button" class="lw-skladka-icon" data-kind="roczna" data-person-id="${personIdAttr}" data-status="${status}" title="${escapeAttr(label)} — kliknij, aby zmienić" aria-label="${escapeAttr(label)}">💰</button>`;
@@ -195,9 +210,10 @@ function clearError() {
 // passes fallbackAnchor 'toast' (or a still-connected element) for that case - MutationFeedback requires its feedback anchor to stay
 // isConnected after apply(), same reasoning as zarzadzanie-ludzmi.js's postMembershipTransition
 // anchoring to the table when apply() removes a row.
-function confirmedDuesMutation(control, execute, apply, fallbackAnchor = null, rollback) {
+function confirmedDuesMutation(control, execute, apply, fallbackAnchor = null, rollback, toast = false) {
   return window.MutationFeedback.confirmed({
     control,
+    toast,
     fallbackAnchor,
     execute,
     apply,
@@ -209,30 +225,57 @@ function confirmedDuesMutation(control, execute, apply, fallbackAnchor = null, r
 
 const currentYear = new Date().getFullYear();
 
-// The <select>'s special first option (above every year) - picks the unpaid-wpisowe list view
-// instead of a year's składka roczna table, see renderWpisoweList below.
-const WPISOWE_OPTION = 'wpisowe';
+// The id of the built-in Wpisowe button (every other id comes from GET /lista-wyjazdowa/dues/charges).
+const WPISOWE_ID = 'wpisowe';
 
-// Selected in the "Składka:" <select> - defaults to the current year, but the backend has
-// always accepted any year 2000-2100 (see server.ts's requireYear), so this is purely a frontend
-// gap being closed: someone paying składka roczna for next year (joining late) or checking a past
-// year's records needs a way to pick a year other than "now". selectedYear keeps its last numeric
-// value even while wpisoweMode is true, so switching back to a year doesn't need re-picking one.
+// Selected charge button - defaults to the current year's składka roczna. selectedYear keeps its last
+// numeric value while Wpisowe or an extra charge is selected, so switching back needs no re-picking.
 let selectedYear = currentYear;
+let selectedChargeId = null;
+let selectedCharge = null; // null for Wpisowe
 let wpisoweMode = false;
-const YEAR_RANGE_PAST = 5;
-const YEAR_RANGE_FUTURE = 1;
-// The club only started tracking składki from 2026 onward - no point offering earlier years the
-// backend would happily accept (server.ts's requireYear allows 2000-2100) but that never have data.
-const MIN_DUES_YEAR = 2026;
+let extraMode = false;
+let charges = [];
+let paymentInfo = null;
 
-function populateYearSelect() {
-  const select = document.getElementById('skladki-year-select');
-  const years = [];
-  for (let y = Math.max(MIN_DUES_YEAR, currentYear - YEAR_RANGE_PAST); y <= currentYear + YEAR_RANGE_FUTURE; y++) years.push(y);
-  const yearOptions = years.map((y) => `<option value="${y}">${y}</option>`).join('');
-  select.innerHTML = `<option value="${WPISOWE_OPTION}">Wpisowe</option>${yearOptions}`;
-  select.value = wpisoweMode ? WPISOWE_OPTION : String(selectedYear);
+function chargeLabel(charge) {
+  return charge.kind === 'annual' ? String(charge.year) : charge.name;
+}
+
+// The title shown in per-row status labels and the summary: the year for a roczna, the name for an extra.
+function chargeTitle() {
+  return extraMode ? selectedCharge.name : selectedYear;
+}
+
+function chargeButtons() {
+  return [
+    { id: WPISOWE_ID, label: 'Wpisowe', title: 'Wpisowe' },
+    ...charges.map((charge) => ({
+      id: charge.id,
+      label: chargeLabel(charge),
+      title: charge.kind === 'annual' ? `Składka roczna ${charge.year}` : `Składka dodatkowa: ${charge.name}`,
+    })),
+  ].sort((a, b) => a.label.localeCompare(b.label, 'pl', { numeric: true, sensitivity: 'base' }));
+}
+
+// Keeps the previous selection when it still exists; otherwise falls back to the current year's roczna,
+// then to the first button alphabetically.
+function resolveSelection() {
+  const buttons = chargeButtons();
+  if (!buttons.some((b) => b.id === selectedChargeId)) {
+    const current = charges.find((c) => c.kind === 'annual' && c.year === currentYear);
+    selectedChargeId = current ? current.id : buttons[0].id;
+  }
+  selectedCharge = charges.find((c) => c.id === selectedChargeId) ?? null;
+  wpisoweMode = selectedChargeId === WPISOWE_ID;
+  extraMode = selectedCharge?.kind === 'extra';
+  if (selectedCharge?.kind === 'annual') selectedYear = selectedCharge.year;
+}
+
+function renderChargeBar() {
+  document.getElementById('skladki-charge-buttons').innerHTML = chargeButtons().map((b) =>
+    `<button type="button" class="lw-summary-chip lw-filter-chip skladki-charge-btn" data-charge-id="${escapeAttr(b.id)}" title="${escapeAttr(b.title)}" aria-pressed="${b.id === selectedChargeId}">${escapeHtml(b.label)}</button>`,
+  ).join('');
 }
 
 // Click-to-sort wiring (shared/sortable-table.js) for both of this page's tables - they share one
@@ -277,13 +320,14 @@ function renderCurrentView() {
   }
 }
 
-document.getElementById('skladki-year-select').addEventListener('change', async (e) => {
-  wpisoweMode = e.target.value === WPISOWE_OPTION;
-  if (!wpisoweMode) selectedYear = Number(e.target.value);
-  // Each mode's table has a different natural default sort - "Dołączył" for the Wpisowe-only list
-  // (the whole point of that view), "Sekcja" for the year table - rather than carrying over
-  // whatever was active in the other one, which may not even name a column that still exists.
-  skladkiSortState.reset(wpisoweMode ? 'joined' : 'section');
+document.getElementById('skladki-charge-buttons').addEventListener('click', async (e) => {
+  const button = e.target.closest('[data-charge-id]');
+  if (!button || button.dataset.chargeId === selectedChargeId) return;
+  selectedChargeId = button.dataset.chargeId;
+  // Each view's table has a different natural default sort - "Dołączył" for the Wpisowe-only list
+  // (the whole point of that view), "Sekcja" otherwise - rather than carrying over whatever was
+  // active in the other one, which may not even name a column that still exists.
+  skladkiSortState.reset(selectedChargeId === WPISOWE_ID ? 'joined' : 'section');
   emeryciSortState.reset('section');
   clearError();
   try {
@@ -407,9 +451,11 @@ function renderSummary(roster, duesByPersonId) {
     ? (unpaidTotal === 0
       ? `Wpisowe: wszyscy opłacili ${unpaidBadgeHtml(0, countedTotal)}`
       : `Nieopłacone wpisowe: <strong>${unpaidTotal}</strong> z ${countedTotal} osób.`)
-    : (unpaidTotal === 0
-      ? `Składka ${selectedYear}: wszyscy opłacili ${unpaidBadgeHtml(0, countedTotal)}`
-      : `Nieopłacona składka ${selectedYear}: <strong>${unpaidTotal}</strong> z ${countedTotal} osób.`);
+    : (extraMode && countedTotal === 0
+      ? `Składka ${escapeHtml(chargeTitle())}: nikt nie jest jeszcze oznaczony jako płacący (domyślnie „nie dotyczy”).`
+      : unpaidTotal === 0
+        ? `Składka ${escapeHtml(String(chargeTitle()))}: wszyscy opłacili ${unpaidBadgeHtml(0, countedTotal)}`
+        : `Nieopłacona składka ${escapeHtml(String(chargeTitle()))}: <strong>${unpaidTotal}</strong> z ${countedTotal} osób.`);
 
   // Spelled out so the numbers above visibly add up (countedTotal + notApplicableCount ===
   // roster.length) rather than leaving an accountant to wonder why the total isn't the whole
@@ -462,7 +508,7 @@ function renderTable(roster, duesByPersonId) {
   const emeryciRoster = [];
   for (const member of roster) {
     if (!skladkiFilterMatches(member)) continue;
-    if (member.categoryId === EMERYT_CATEGORY_ID) emeryciRoster.push(member);
+    if (!extraMode && member.categoryId === EMERYT_CATEGORY_ID) emeryciRoster.push(member);
     else mainRoster.push(member);
   }
 
@@ -484,6 +530,9 @@ function renderTable(roster, duesByPersonId) {
     return compareValues(displayName(a), displayName(b), 'asc');
   });
 
+  // The per-person Historia link points at the shared due:{personId} timeline (wpisowe + roczna),
+  // which says nothing about an extra charge - that one has its own link in the details panel.
+  const showHistory = canManageSkladki && !extraMode;
   const rowHtml = (member) => {
     const personIdAttr = escapeAttr(member.personId);
     const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
@@ -494,7 +543,7 @@ function renderTable(roster, duesByPersonId) {
           ${nameCellHtml(member, personIdAttr, categoryLabel)}
         </td>
         <td>${rocznaIconHtml(personIdAttr, memberDuesStatus(member, duesByPersonId))}</td>
-        ${canManageSkladki ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.personId))}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a></td>` : ''}
+        ${showHistory ? `<td><a class="audyt-history-btn" href="${escapeAttr(dueHistoryHref(member.personId))}" title="Historia" aria-label="Historia składek">${HISTORY_ICON}</a></td>` : ''}
       </tr>`;
   };
 
@@ -504,12 +553,12 @@ function renderTable(roster, duesByPersonId) {
       <th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
       <th scope="col" class="lw-roster-name-cell" data-sort-key="name" aria-sort="none"><button type="button">Nazwa</button></th>
       <th scope="col" class="lw-narrow-col" data-sort-key="roczna" aria-sort="none" title="Składka roczna"><button type="button"><span class="lw-col-icon" aria-hidden="true">💰</span><span class="lw-col-label">Składka</span></button></th>
-      ${canManageSkladki ? `<th scope="col" class="lw-narrow-col" title="Historia"><span class="lw-col-icon" aria-hidden="true">${HISTORY_ICON}</span><span class="lw-col-label">Historia</span></th>` : ''}
+      ${showHistory ? `<th scope="col" class="lw-narrow-col" title="Historia"><span class="lw-col-icon" aria-hidden="true">${HISTORY_ICON}</span><span class="lw-col-label">Historia</span></th>` : ''}
     </tr>
   `;
   table.querySelector('tbody').innerHTML = sorted.length
     ? sorted.map(rowHtml).join('')
-    : `<tr><td colspan="${canManageSkladki ? 4 : 3}" class="czl-empty">Brak osób dla wybranych filtrów.</td></tr>`;
+    : `<tr><td colspan="${showHistory ? 4 : 3}" class="czl-empty">Brak osób dla wybranych filtrów.</td></tr>`;
   skladkiSortState.refresh();
 
   const emeryciSortValue = (member) => {
@@ -531,7 +580,7 @@ function renderTable(roster, duesByPersonId) {
       <th scope="col" class="czl-section-cell" data-sort-key="section" aria-sort="none" title="Sekcja"><button type="button">S</button></th>
       <th scope="col" class="lw-roster-name-cell" data-sort-key="name" aria-sort="none"><button type="button">Nazwa</button></th>
       <th scope="col" class="lw-narrow-col" data-sort-key="roczna" aria-sort="none" title="Składka roczna"><button type="button"><span class="lw-col-icon" aria-hidden="true">💰</span><span class="lw-col-label">Składka</span></button></th>
-      ${canManageSkladki ? `<th scope="col" class="lw-narrow-col" title="Historia"><span class="lw-col-icon" aria-hidden="true">${HISTORY_ICON}</span><span class="lw-col-label">Historia</span></th>` : ''}
+      ${showHistory ? `<th scope="col" class="lw-narrow-col" title="Historia"><span class="lw-col-icon" aria-hidden="true">${HISTORY_ICON}</span><span class="lw-col-label">Historia</span></th>` : ''}
     </tr>
   `;
   emeryciTable.querySelector('tbody').innerHTML = emeryciSorted.map(rowHtml).join('');
@@ -541,7 +590,7 @@ function renderTable(roster, duesByPersonId) {
   document.getElementById('skladki-emeryci').hidden = emeryciRoster.length === 0;
 }
 
-// The "Wpisowe" option in the Składka: select (see WPISOWE_OPTION) - a flat list of everyone who
+// The "Wpisowe" button (see WPISOWE_ID) - a flat list of everyone who
 // still owes wpisowe (plus, in the second table below, everyone it doesn't apply to), sorted by join date (members.ts's approvedAt, the closest thing this
 // codebase has to one) so the accountant chases the longest-standing debt first. A member with no
 // approvedAt yet (no members/{email} document, or one predating KRKG-0046) sorts to the end rather
@@ -643,10 +692,14 @@ let lastLoadedYearFee = { note: null, dueDate: null };
 // The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety") - same
 // display/edit-panel pattern as wyjazd.js's renderSkladkaFee/saveSkladkaFee for its per-event fee.
 function renderYearFee(yearFee) {
-  // Wpisowe has no per-year rate note - it's a one-off due, not a yearly one - so this whole panel has nothing to show while the "Wpisowe" option is selected.
+  // Wpisowe has no per-year rate note - it's a one-off due, not a yearly one - and an extra charge
+  // keeps its own details (renderExtraPanel), so this panel only shows for a składka roczna.
   const panel = document.getElementById('skladka-fee-panel');
-  panel.hidden = wpisoweMode;
-  if (wpisoweMode) return;
+  panel.hidden = wpisoweMode || extraMode;
+  if (wpisoweMode || extraMode) return;
+  const creatorEl = document.getElementById('skladki-year-creator');
+  creatorEl.hidden = !selectedCharge?.createdBy;
+  if (selectedCharge?.createdBy) creatorEl.textContent = `Założone przez: ${personNameFor(selectedCharge.createdBy)}`;
   const display = document.getElementById('skladki-year-fee-display');
   const editPanel = document.getElementById('skladki-year-fee-edit');
   const historyLink = document.getElementById('skladki-year-fee-history-link');
@@ -722,21 +775,47 @@ async function removeYearFee() {
 
 document.getElementById('skladki-year-fee-remove').addEventListener('click', removeYearFee);
 
+// The roster entry's display name for an e-mail (a charge's creator), falling back to the e-mail
+// itself for someone no longer on the roster.
+let rosterForNames = [];
+function personNameFor(email) {
+  const member = rosterForNames.find((m) => m.personId === email);
+  return member ? displayName(member) : email;
+}
+
 async function loadAndRender() {
-  populateYearSelect();
-  const [{ canManageSkladki: role }, { roster }, { dues, yearFee }, lookupLists] = await Promise.all([
+  const [{ canManageSkladki: role }, { roster }, chargesResponse, lookupLists] = await Promise.all([
     apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth),
     apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }, showReauth, hideReauth),
-    apiFetch(`/lista-wyjazdowa/dues?year=${selectedYear}`, { method: 'GET' }, showReauth, hideReauth),
+    apiFetch('/lista-wyjazdowa/dues/charges', { method: 'GET' }, showReauth, hideReauth),
     // GET /lista-wyjazdowa/lookup-lists answers with the lists themselves ({ sections, categories,
     // weapons }), not wrapped in an envelope - see handleListaWyjazdowaLookupLists.
     apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
   ]);
   canManageSkladki = role;
+  charges = chargesResponse.charges ?? [];
+  paymentInfo = chargesResponse.paymentInfo ?? null;
+  rosterForNames = roster;
   sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
   categoryLabelById = new Map((lookupLists.categories ?? []).map((c) => [c.id, c.label]));
+  resolveSelection();
+
+  // Only the selected charge's own per-person statuses are fetched; Wpisowe lives on the roster.
+  let duesByPersonId = new Map();
+  let yearFee = null;
+  if (extraMode) {
+    const { statuses } = await apiFetch(`/lista-wyjazdowa/dues/extra?id=${encodeURIComponent(selectedChargeId)}`, { method: 'GET' }, showReauth, hideReauth);
+    duesByPersonId = new Map(statuses.map((d) => [d.personId, d]));
+  } else if (!wpisoweMode) {
+    const result = await apiFetch(`/lista-wyjazdowa/dues?year=${selectedYear}`, { method: 'GET' }, showReauth, hideReauth);
+    yearFee = result.yearFee;
+    duesByPersonId = new Map(result.dues.map((d) => [d.personId, d]));
+  }
+
+  renderChargeBar();
+  renderPaymentInfo();
   renderYearFee(yearFee);
-  const duesByPersonId = new Map(dues.map((d) => [d.personId, d]));
+  renderExtraPanel();
   renderSummary(roster, duesByPersonId);
   if (wpisoweMode) {
     renderWpisoweList(roster);
@@ -744,6 +823,208 @@ async function loadAndRender() {
     renderTable(roster, duesByPersonId);
   }
 }
+
+// "Jak płacić": plain text shown with pre-wrap (textContent, never HTML), so line breaks and spacing
+// stay exactly as typed. Everyone reads it; accountants/admins get the editor.
+function renderPaymentInfo() {
+  const text = paymentInfo?.text ?? '';
+  document.getElementById('skladki-payment-panel').hidden = !text && !canManageSkladki;
+  document.getElementById('skladki-payment-text').textContent = text || 'Nie podano jeszcze informacji o płatności.';
+  document.getElementById('skladki-payment-text').hidden = !text && !canManageSkladki;
+  const form = document.getElementById('skladki-payment-form');
+  if (form.hidden) document.getElementById('skladki-payment-edit-toggle').hidden = !canManageSkladki;
+}
+
+function closePaymentForm() {
+  document.getElementById('skladki-payment-form').hidden = true;
+  document.getElementById('skladki-payment-edit-toggle').hidden = !canManageSkladki;
+}
+
+document.getElementById('skladki-payment-edit-toggle').addEventListener('click', () => {
+  document.getElementById('skladki-payment-input').value = paymentInfo?.text ?? '';
+  document.getElementById('skladki-payment-form').hidden = false;
+  document.getElementById('skladki-payment-edit-toggle').hidden = true;
+});
+
+document.getElementById('skladki-payment-cancel').addEventListener('click', closePaymentForm);
+
+document.getElementById('skladki-payment-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearError();
+  const control = document.getElementById('skladki-payment-save');
+  try {
+    await confirmedDuesMutation(control, () => apiFetch(
+      '/lista-wyjazdowa/dues/payment-info',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: document.getElementById('skladki-payment-input').value }) },
+      showReauth,
+      hideReauth,
+    ), (result) => {
+      paymentInfo = result.paymentInfo;
+      closePaymentForm();
+      renderPaymentInfo();
+    }, null, undefined, true);
+  } catch (err) {
+    showError(`Nie udało się zapisać informacji o płatności: ${err.message}`);
+  }
+});
+
+// Details of a składka dodatkowa: creator, amount, description (line breaks kept), deadline. The
+// edit form is offered to whoever may change it (creator, accountant, admin - charge.canEdit).
+function renderExtraPanel() {
+  const panel = document.getElementById('skladki-extra-panel');
+  panel.hidden = !extraMode;
+  if (!extraMode) return;
+  const charge = selectedCharge;
+  document.getElementById('skladki-extra-title').textContent = charge.name;
+  document.getElementById('skladki-extra-creator').textContent = `Założone przez: ${personNameFor(charge.createdBy)}`;
+  document.getElementById('skladki-extra-details').innerHTML = `
+    <p>Kwota: ${charge.amount ? escapeHtml(charge.amount) : 'nie ustalono'}</p>
+    ${charge.description ? `<p class="skladki-pre">${escapeHtml(charge.description)}</p>` : ''}
+    <p>Termin płatności: ${charge.dueDate ? escapeHtml(formatDueDate(charge.dueDate)) : 'nie ustalono'}</p>`;
+  const historyLink = document.getElementById('skladki-extra-history-link');
+  historyLink.hidden = !canManageSkladki;
+  historyLink.href = `/admin/audyt/?resourceKey=${encodeURIComponent(`due:charge:${charge.id}`)}`;
+  document.getElementById('skladki-extra-edit').hidden = charge.canEdit !== true;
+  if (charge.canEdit === true) {
+    document.getElementById('skladki-extra-name-input').value = charge.name;
+    document.getElementById('skladki-extra-amount-input').value = charge.amount ?? '';
+    document.getElementById('skladki-extra-description-input').value = charge.description ?? '';
+    document.getElementById('skladki-extra-duedate-input').value = charge.dueDate ?? '';
+  }
+}
+
+document.getElementById('skladki-extra-save').addEventListener('click', async () => {
+  clearError();
+  const control = document.getElementById('skladki-extra-save');
+  const id = selectedChargeId;
+  const body = {
+    name: document.getElementById('skladki-extra-name-input').value,
+    amount: document.getElementById('skladki-extra-amount-input').value.trim() || null,
+    description: document.getElementById('skladki-extra-description-input').value.trim() || null,
+    dueDate: document.getElementById('skladki-extra-duedate-input').value || null,
+  };
+  try {
+    await confirmedDuesMutation(control, () => apiFetch(
+      `/lista-wyjazdowa/dues/charges?id=${encodeURIComponent(id)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      showReauth,
+      hideReauth,
+    ), (result) => {
+      charges = charges.map((c) => (c.id === id ? result.charge : c));
+      resolveSelection();
+      renderChargeBar();
+      renderExtraPanel();
+    });
+  } catch (err) {
+    showError(`Nie udało się zapisać składki: ${err.message}`);
+  }
+});
+
+document.getElementById('skladki-extra-delete').addEventListener('click', async () => {
+  clearError();
+  const id = selectedChargeId;
+  if (!window.confirm(`Usunąć składkę „${selectedCharge.name}”? Znikną też statusy opłacenia.`)) return;
+  try {
+    await confirmedDuesMutation(document.getElementById('skladki-extra-delete'), () => apiFetch(
+      `/lista-wyjazdowa/dues/charges?id=${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+      showReauth,
+      hideReauth,
+    ), async () => {
+      selectedChargeId = null;
+      skladkiSortState.reset('section');
+      await loadAndRender();
+    }, null, undefined, true);
+  } catch (err) {
+    showError(`Nie udało się usunąć składki: ${err.message}`);
+  }
+});
+
+// "Dodaj składkę": a roczna (year only; accountants/admins) or a dodatkowa (anyone). The new charge
+// becomes the selected one.
+let addKind = 'extra';
+
+function setAddKind(kind) {
+  addKind = kind;
+  document.getElementById('skladki-add-annual-fields').hidden = kind !== 'annual';
+  document.getElementById('skladki-add-extra-fields').hidden = kind !== 'extra';
+}
+
+function closeAddForm() {
+  document.getElementById('skladki-add-form').hidden = true;
+  document.getElementById('skladki-add-error').hidden = true;
+}
+
+document.getElementById('skladki-add-toggle').addEventListener('click', () => {
+  const form = document.getElementById('skladki-add-form');
+  if (!form.hidden) return closeAddForm();
+  // Only accountants/admins may create a składka roczna, so everyone else is never offered the choice.
+  document.getElementById('skladki-add-kind').hidden = !canManageSkladki;
+  document.getElementById('skladki-add-kind-annual').hidden = !canManageSkladki;
+  setAddKind('extra');
+  const takenYears = new Set(charges.filter((c) => c.kind === 'annual').map((c) => c.year));
+  let year = currentYear;
+  while (takenYears.has(year)) year += 1;
+  document.getElementById('skladki-add-year').value = String(year);
+  for (const id of ['skladki-add-name', 'skladki-add-amount', 'skladki-add-description', 'skladki-add-duedate']) {
+    document.getElementById(id).value = '';
+  }
+  document.getElementById('skladki-add-error').hidden = true;
+  form.hidden = false;
+});
+
+document.getElementById('skladki-add-cancel').addEventListener('click', closeAddForm);
+
+document.getElementById('skladki-add-form').addEventListener('change', (e) => {
+  if (e.target?.name === 'kind') setAddKind(e.target.value);
+});
+
+document.getElementById('skladki-add-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById('skladki-add-error');
+  errorEl.hidden = true;
+  let body;
+  if (addKind === 'annual') {
+    const year = Number(document.getElementById('skladki-add-year').value);
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      errorEl.textContent = 'Podaj rok z zakresu 2000–2100.';
+      errorEl.hidden = false;
+      return;
+    }
+    body = { kind: 'annual', year };
+  } else {
+    const name = document.getElementById('skladki-add-name').value.trim();
+    if (!name) {
+      errorEl.textContent = 'Podaj nazwę składki.';
+      errorEl.hidden = false;
+      return;
+    }
+    body = {
+      kind: 'extra',
+      name,
+      amount: document.getElementById('skladki-add-amount').value.trim() || null,
+      description: document.getElementById('skladki-add-description').value.trim() || null,
+      dueDate: document.getElementById('skladki-add-duedate').value || null,
+    };
+  }
+  try {
+    await confirmedDuesMutation(document.getElementById('skladki-add-submit'), () => apiFetch(
+      '/lista-wyjazdowa/dues/charges',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      showReauth,
+      hideReauth,
+    ), async (result) => {
+      selectedChargeId = result.charge.id;
+      skladkiSortState.reset('section');
+      emeryciSortState.reset('section');
+      closeAddForm();
+      await loadAndRender();
+    }, null, undefined, true);
+  } catch (err) {
+    errorEl.textContent = `Nie udało się dodać składki: ${err.message}`;
+    errorEl.hidden = false;
+  }
+});
 
 // Same reversible three-stop click as toggleRoczna below. The row stays where it is (see
 // renderWpisoweList), and the cached roster is updated so the next re-render (sorting, summary)
@@ -776,12 +1057,16 @@ async function toggleRoczna(personId, nextStatus, control) {
   clearError();
   try {
     await confirmedDuesMutation(control, () => apiFetch(
-      `/lista-wyjazdowa/dues?personId=${encodeURIComponent(personId)}&year=${selectedYear}`,
+      extraMode
+        ? `/lista-wyjazdowa/dues/extra?id=${encodeURIComponent(selectedChargeId)}&personId=${encodeURIComponent(personId)}`
+        : `/lista-wyjazdowa/dues?personId=${encodeURIComponent(personId)}&year=${selectedYear}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: nextStatus }) },
       showReauth,
       hideReauth,
     ), () => {
       control.dataset.status = nextStatus;
+      // Keep the cached statuses in step so a later sort/filter re-render doesn't show the old one.
+      cachedDuesByPersonId.set(personId, { ...(cachedDuesByPersonId.get(personId) ?? {}), personId, status: nextStatus });
       const label = rocznaLabel(nextStatus);
       control.title = `${label} — kliknij, aby zmienić`;
       control.setAttribute('aria-label', label);

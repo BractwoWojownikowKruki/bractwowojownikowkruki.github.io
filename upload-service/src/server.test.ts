@@ -10737,3 +10737,94 @@ test('PUT /admin/members/profile moves companions in the old section along with 
   assert.equal(await personSection(firestore, 'own-section'), 'gdansk');
   assert.equal((await firestore.getDoc<{ updatedBy: string }>('persons', 'same-section'))?.updatedBy, 'admin@example.com');
 });
+
+// --- Składki as a list of charges (annual + extra) and the "Jak płacić" text ---
+
+function makePlainMemberDeps(firestore = makeListaWyjazdowaFirestore()) {
+  return makeDeps({
+    firestore,
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+}
+
+function deleteListaWyjazdowa(baseUrl: string, path: string): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, { method: 'DELETE' });
+}
+
+test('annual charges: staff-only creation, no duplicate years, years with existing data are listed', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('duesYearFee', '2026', { year: 2026, note: '100 zł', dueDate: null, updatedBy: 'x', updatedAt: 'x' });
+  await withServer(makePlainMemberDeps(firestore), async baseUrl => {
+    const res = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/charges', { kind: 'annual', year: 2027 });
+    assert.equal(res.status, 403);
+  });
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    assert.equal((await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/charges', { kind: 'annual', year: 2026 })).status, 409);
+    assert.equal((await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/charges', { kind: 'annual', year: 2027 })).status, 200);
+    assert.equal((await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/charges', { kind: 'annual', year: 2027 })).status, 409);
+    const list = await (await fetch(`${baseUrl}/lista-wyjazdowa/dues/charges`)).json();
+    assert.deepEqual(list.charges.map((c: { kind: string; year: number }) => [c.kind, c.year]), [['annual', 2026], ['annual', 2027]]);
+  });
+});
+
+test('extra charges: any member creates, creator/staff edit and set statuses, others cannot', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  let chargeId = '';
+  await withServer(makePlainMemberDeps(firestore), async baseUrl => {
+    const created = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/charges', { kind: 'extra', name: 'Koszulki', amount: '50 zł', description: 'Linia 1\nLinia 2', dueDate: '2027-02-01' });
+    assert.equal(created.status, 200);
+    const { charge } = await created.json();
+    chargeId = charge.id;
+    assert.equal(charge.canEdit, true);
+    assert.equal(charge.createdBy, 'wojownik@gmail.com');
+    assert.equal((await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/charges', { kind: 'extra', name: '  ' })).status, 400);
+
+    // Default for everyone is not_applicable; the creator can change it.
+    const statusRes = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/dues/extra?id=${chargeId}&personId=wojownik@gmail.com`, { status: 'paid' });
+    assert.equal(statusRes.status, 200);
+    const statuses = await (await fetch(`${baseUrl}/lista-wyjazdowa/dues/extra?id=${chargeId}`)).json();
+    assert.deepEqual(statuses.statuses, [{ personId: 'wojownik@gmail.com', status: 'paid' }]);
+
+    const updated = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/dues/charges?id=${chargeId}`, { amount: '60 zł' });
+    assert.equal((await updated.json()).charge.amount, '60 zł');
+  });
+
+  // Someone else's charge: a plain member can read but not edit it.
+  firestore.seed('duesCharges', 'extra-other', {
+    id: 'extra-other', kind: 'extra', year: null, name: 'Obóz', amount: null, description: null, dueDate: null,
+    createdBy: 'kamil@gmail.com', createdAt: 'x', updatedBy: 'kamil@gmail.com', updatedAt: 'x',
+  });
+  await withServer(makePlainMemberDeps(firestore), async baseUrl => {
+    const list = await (await fetch(`${baseUrl}/lista-wyjazdowa/dues/charges`)).json();
+    assert.equal(list.charges.find((c: { id: string }) => c.id === 'extra-other').canEdit, false);
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/extra?id=extra-other&personId=wojownik@gmail.com', { status: 'paid' })).status, 403);
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/charges?id=extra-other', { name: 'X' })).status, 403);
+    assert.equal((await deleteListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/charges?id=extra-other')).status, 403);
+  });
+  // Staff may manage it.
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/extra?id=extra-other&personId=wojownik@gmail.com', { status: 'unpaid' })).status, 200);
+    assert.equal((await deleteListaWyjazdowa(baseUrl, `/lista-wyjazdowa/dues/charges?id=${chargeId}`)).status, 200);
+    assert.equal((await firestore.listDocs('duesExtraStatus')).filter(d => (d.data as { chargeId: string }).chargeId === chargeId).length, 0);
+    const actions = (await firestore.listDocs<{ action: string }>('auditEvents')).map(e => e.data.action);
+    for (const a of ['dues.charge.created', 'dues.charge.updated', 'dues.charge.deleted', 'dues.extra.changed']) assert.ok(actions.includes(a), a);
+  });
+});
+
+test('payment info: members read it via charges, only staff write it, text is kept as typed', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makePlainMemberDeps(firestore), async baseUrl => {
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/payment-info', { text: 'x' })).status, 403);
+  });
+  await withServer(makeDepsWithRole('admin', firestore), async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/payment-info', { text: 'Konto:\r\n12 3456\n\n  BLIK: 600 000 000  \n' });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).paymentInfo.text, 'Konto:\n12 3456\n\n  BLIK: 600 000 000');
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/dues/payment-info', { text: 'a'.repeat(2001) })).status, 400);
+  });
+  await withServer(makePlainMemberDeps(firestore), async baseUrl => {
+    const list = await (await fetch(`${baseUrl}/lista-wyjazdowa/dues/charges`)).json();
+    assert.equal(list.paymentInfo.text, 'Konto:\n12 3456\n\n  BLIK: 600 000 000');
+  });
+});

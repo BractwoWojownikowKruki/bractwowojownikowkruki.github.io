@@ -1,4 +1,4 @@
-import type { FirestoreLikeClient } from './firestore.ts';
+import type { FirestoreLikeClient, FirestoreTransaction } from './firestore.ts';
 
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
 
@@ -171,5 +171,189 @@ export async function saveDuesYearFee(
     updatedAt: new Date().toISOString(),
   };
   await client.setDoc(YEAR_FEE_COLLECTION, String(year), doc);
+  return doc;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Charges (składki as a list): the Składki page shows one button per charge. Three kinds exist:
+//  - Wpisowe: built in, not stored here (see effectiveWpisoweStatus above).
+//  - 'annual' (składka roczna): one per year. Its rate note and deadline stay in duesYearFee and
+//    its per-person statuses in duesAnnual, exactly as before; the `duesCharges` document only
+//    records that the year was created on purpose. A year that already has year-fee or status
+//    data counts as existing without one (listAnnualYears), so nothing recorded earlier vanishes.
+//  - 'extra' (składka dodatkowa): created by any member, who then manages its statuses.
+//    Per-person statuses live in `duesExtraStatus`; a person without a record is 'not_applicable'.
+// ---------------------------------------------------------------------------------------------
+
+export type DuesChargeKind = 'annual' | 'extra';
+
+export interface DuesChargeDoc {
+  id: string;
+  kind: DuesChargeKind;
+  year: number | null; // annual only
+  name: string; // annual: String(year)
+  amount: string | null; // extra only - free text, like the annual rate note
+  description: string | null; // extra only
+  dueDate: string | null; // extra only, YYYY-MM-DD
+  createdBy: string;
+  createdAt: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export interface ExtraChargeWritableFields {
+  name?: string;
+  amount?: string | null;
+  description?: string | null;
+  dueDate?: string | null;
+}
+
+export interface ExtraStatusDoc {
+  chargeId: string;
+  personId: string;
+  status: DuesStatus;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+const CHARGES_COLLECTION = 'duesCharges';
+const EXTRA_STATUS_COLLECTION = 'duesExtraStatus';
+const PAYMENT_INFO_COLLECTION = 'duesPaymentInfo';
+const PAYMENT_INFO_ID = 'current';
+
+export function annualChargeId(year: number): string {
+  return `annual-${year}`;
+}
+
+export function extraStatusId(chargeId: string, personId: string): string {
+  return `${chargeId}_${personId.toLowerCase()}`;
+}
+
+export function newAnnualChargeDoc(year: number, createdBy: string): DuesChargeDoc {
+  const now = new Date().toISOString();
+  return {
+    id: annualChargeId(year),
+    kind: 'annual',
+    year,
+    name: String(year),
+    amount: null,
+    description: null,
+    dueDate: null,
+    createdBy,
+    createdAt: now,
+    updatedBy: createdBy,
+    updatedAt: now,
+  };
+}
+
+export function newExtraChargeDoc(id: string, fields: Required<ExtraChargeWritableFields>, createdBy: string): DuesChargeDoc {
+  const now = new Date().toISOString();
+  return {
+    id,
+    kind: 'extra',
+    year: null,
+    name: fields.name,
+    amount: fields.amount,
+    description: fields.description,
+    dueDate: fields.dueDate,
+    createdBy,
+    createdAt: now,
+    updatedBy: createdBy,
+    updatedAt: now,
+  };
+}
+
+export function applyExtraChargeFields(existing: DuesChargeDoc, fields: ExtraChargeWritableFields, updatedBy: string): DuesChargeDoc {
+  return {
+    ...existing,
+    name: fields.name !== undefined ? fields.name : existing.name,
+    amount: fields.amount !== undefined ? fields.amount : existing.amount,
+    description: fields.description !== undefined ? fields.description : existing.description,
+    dueDate: fields.dueDate !== undefined ? fields.dueDate : existing.dueDate,
+    updatedBy,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export async function getCharge(client: Pick<FirestoreLikeClient, 'getDoc'> | FirestoreWriteContext, id: string): Promise<DuesChargeDoc | null> {
+  return client.getDoc<DuesChargeDoc>(CHARGES_COLLECTION, id);
+}
+
+export async function saveCharge(client: FirestoreWriteContext, doc: DuesChargeDoc): Promise<DuesChargeDoc> {
+  await client.setDoc(CHARGES_COLLECTION, doc.id, doc);
+  return doc;
+}
+
+export async function listExtraCharges(client: FirestoreLikeClient): Promise<DuesChargeDoc[]> {
+  const all = await client.listDocs<DuesChargeDoc>(CHARGES_COLLECTION);
+  return all.map((d) => d.data).filter((d) => d.kind === 'extra');
+}
+
+// Every year that exists as a składka roczna: created explicitly, or already carrying a year-fee
+// note or any person's status from before years had to be created by hand.
+export async function listAnnualYears(client: FirestoreLikeClient): Promise<number[]> {
+  const [charges, yearFees, statuses] = await Promise.all([
+    client.listDocs<DuesChargeDoc>(CHARGES_COLLECTION),
+    client.listDocs<{ year?: unknown }>(YEAR_FEE_COLLECTION),
+    client.listDocs<{ year?: unknown }>(COLLECTION),
+  ]);
+  const years = new Set<number>();
+  for (const { data } of charges) if (data.kind === 'annual' && typeof data.year === 'number') years.add(data.year);
+  for (const { data } of yearFees) if (typeof data.year === 'number') years.add(data.year);
+  for (const { data } of statuses) if (typeof data.year === 'number') years.add(data.year);
+  return [...years].sort((a, b) => a - b);
+}
+
+export async function listExtraStatuses(client: FirestoreLikeClient, chargeId: string): Promise<ExtraStatusDoc[]> {
+  const all = await client.listDocs<ExtraStatusDoc>(EXTRA_STATUS_COLLECTION);
+  return all.map((d) => d.data).filter((d) => d.chargeId === chargeId && isDuesStatus(d.status));
+}
+
+export async function getExtraStatus(
+  client: FirestoreWriteContext,
+  chargeId: string,
+  personId: string,
+): Promise<DuesStatus> {
+  const doc = await client.getDoc<ExtraStatusDoc>(EXTRA_STATUS_COLLECTION, extraStatusId(chargeId, personId));
+  return doc && isDuesStatus(doc.status) ? doc.status : 'not_applicable';
+}
+
+export async function saveExtraStatus(
+  client: FirestoreWriteContext,
+  chargeId: string,
+  personId: string,
+  status: DuesStatus,
+  updatedBy: string,
+): Promise<ExtraStatusDoc> {
+  const doc: ExtraStatusDoc = { chargeId, personId: personId.toLowerCase(), status, updatedBy, updatedAt: new Date().toISOString() };
+  await client.setDoc(EXTRA_STATUS_COLLECTION, extraStatusId(chargeId, personId), doc);
+  return doc;
+}
+
+// Takes the statuses read just before the transaction (a transaction cannot list a collection).
+export async function deleteExtraCharge(
+  tx: Pick<FirestoreTransaction, 'deleteDoc'>,
+  chargeId: string,
+  statuses: readonly ExtraStatusDoc[],
+): Promise<void> {
+  for (const status of statuses) await tx.deleteDoc(EXTRA_STATUS_COLLECTION, extraStatusId(chargeId, status.personId));
+  await tx.deleteDoc(CHARGES_COLLECTION, chargeId);
+}
+
+// "Jak płacić": one club-wide free-text block (account number, BLIK, ...) shown at the top of the
+// Składki page. Whitespace and line breaks are stored exactly as typed.
+export interface DuesPaymentInfoDoc {
+  text: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export async function getPaymentInfo(client: Pick<FirestoreLikeClient, 'getDoc'> | FirestoreWriteContext): Promise<DuesPaymentInfoDoc | null> {
+  return client.getDoc<DuesPaymentInfoDoc>(PAYMENT_INFO_COLLECTION, PAYMENT_INFO_ID);
+}
+
+export async function savePaymentInfo(client: FirestoreWriteContext, text: string, updatedBy: string): Promise<DuesPaymentInfoDoc> {
+  const doc: DuesPaymentInfoDoc = { text, updatedBy, updatedAt: new Date().toISOString() };
+  await client.setDoc(PAYMENT_INFO_COLLECTION, PAYMENT_INFO_ID, doc);
   return doc;
 }

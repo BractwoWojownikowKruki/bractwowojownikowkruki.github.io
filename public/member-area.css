@@ -1914,15 +1914,66 @@ button.lw-edit-toggle.lw-share--active {
   border-top: 1px dashed var(--border);
 }
 
-/* Year <select> above the Składki table (skladki.js's populateYearSelect, KRKG-0047) - same
-   inline-select look as .lw-roster-controls select on the wyjazd page. */
-#skladki-year-label select {
-  margin-left: 0.4rem;
+/* Składki page: payment info ("Jak płacić"), the charge buttons, the add form and the details of an
+   extra charge. */
+.skladki-payment-text {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-bottom: 0.5rem;
+}
+
+.skladki-payment-form {
+  margin-top: 0.5rem;
+}
+
+.skladki-payment-form textarea {
   background: var(--surface-deep);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.25rem 0.5rem;
+}
+
+.skladki-charge-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.skladki-charge-bar .lw-summary-filter {
+  margin-bottom: 0;
+}
+
+/* Bigger than the 12px summary pills - these are the page's primary navigation. */
+.skladki-charge-btn.lw-summary-chip {
+  font-size: 14px;
+  padding: 0.3rem 0.9rem;
+}
+
+.skladki-add-form,
+.skladki-extra-panel {
+  margin-bottom: 1rem;
+}
+
+.skladki-add-kind {
+  border: none;
+  padding: 0;
+  margin: 0 0 0.75rem;
+}
+
+.skladki-add-kind label {
+  margin-right: 1rem;
+}
+
+.skladki-extra-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem;
+}
+
+.skladki-pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 768px) {
