@@ -59,7 +59,7 @@ const elementIds = [
   'skladki-year-fee-input', 'skladki-year-fee-duedate-input', 'skladki-year-fee-save',
   'skladki-year-fee-remove', 'skladki-year-fee-history-link', 'skladki-year-creator',
   'skladki-charge-buttons', 'skladki-payment-panel', 'skladki-payment-text', 'skladki-payment-form',
-  'skladki-payment-edit-toggle', 'skladki-payment-input', 'skladki-payment-save', 'skladki-payment-cancel',
+  'skladki-payment-edit-toggle', 'skladki-payment-toggle', 'skladki-payment-input', 'skladki-payment-save', 'skladki-payment-cancel',
   'skladki-add-toggle', 'skladki-add-form', 'skladki-add-kind', 'skladki-add-kind-annual',
   'skladki-add-annual-fields', 'skladki-add-extra-fields', 'skladki-add-year', 'skladki-add-name',
   'skladki-add-amount', 'skladki-add-description', 'skladki-add-duedate', 'skladki-add-error',
@@ -285,7 +285,7 @@ test('wpisowe view: unpaid in the main table, not_applicable in a "Nie dotyczy" 
 });
 
 
-test('charge buttons: alphabetical, one pressed, defaulting to the current year', async () => {
+test('charge buttons: Obowiązkowy (Wpisowe, roczne) then Dodatkowe, one pressed, defaulting to the current year', async () => {
   const year = new Date().getFullYear();
   const harness = createHarness(null, {
     charges: [
@@ -296,7 +296,7 @@ test('charge buttons: alphabetical, one pressed, defaulting to the current year'
   await harness.signIn();
   const html = harness.elements.get('skladki-charge-buttons')!.innerHTML;
   const labels = [...html.matchAll(/>([^<]+)<\/button>/g)].map((m) => m[1]);
-  assert.deepEqual(labels, [String(year), 'Koszulki', 'Wpisowe']);
+  assert.deepEqual(labels, ['Wpisowe', String(year), 'Koszulki']);
   assert.match(html, new RegExp(`data-charge-id="annual-${year}"[^>]*aria-pressed="true"`));
   assert.match(html, /data-charge-id="extra-1"[^>]*aria-pressed="false"/);
   assert.equal(harness.elements.get('skladki-extra-panel')!.hidden, true);
