@@ -366,6 +366,16 @@
     lightboxPhotoIndex = -1;
   }
 
+  // True only for the first render after the instant preview (see showPreview): the blocks that
+  // came from the backend then slide in (height 0 -> auto) instead of making the content jump.
+  // Later re-renders (after a save) never animate.
+  let revealNewBlocks = false;
+
+  // Wraps a block in the slide-in container when revealNewBlocks is set; otherwise returns it as is.
+  function revealable(html) {
+    return revealNewBlocks ? `<div class="profile-reveal"><div class="profile-reveal-inner">${html}</div></div>` : html;
+  }
+
   function renderProfile(profile) {
     const pendingPhotos = profile.pendingPhotos || [];
     // KRKG-0070: pendingPhotos are a member's own still-unapproved staging-folder uploads,
@@ -428,19 +438,20 @@
         </span>
       </div>
     `;
-    return `
-      ${avatarHtml}
-      ${duesStatusHtml}
-      ${galleryHtml}
-      <h3>${profile.accountless ? PERSON_MARKER_ICON : ''}${escapeHtml(shownName)}</h3>
-      <dl class="profile-fields">
+    const fieldsHtml = `<dl class="profile-fields">
         ${(profile.lastName || profile.firstName) ? `<dt>Nazwisko i imię</dt><dd>${escapeHtml([profile.lastName, profile.firstName].filter(Boolean).join(', '))}</dd>` : ''}
         ${profile.nickname ? `<dt>Ksywka</dt><dd>${escapeHtml(profile.nickname)}</dd>` : ''}
         ${profile.sectionLabel ? `<dt>Sekcja</dt><dd><span class="section-pill" data-section="${escapeHtml(profile.sectionId ?? '')}">${escapeHtml(profile.sectionLabel)}</span></dd>` : ''}
         ${profile.categoryLabel ? `<dt>Status</dt><dd><span class="category-name-pill" data-category="${escapeHtml(profile.categoryId ?? '')}" title="${escapeHtml(profile.categoryLabel)}">${categoryPillBroccoliIconHtml(profile.categoryId, 'category-label')}${escapeHtml(profile.categoryLabel)}</span></dd>` : ''}
         ${profile.ownerName ? `<dt>Osoba towarzysząca</dt><dd>${escapeHtml(profile.ownerName)}</dd>` : ''}
         ${weaponsHtml}
-      </dl>
+      </dl>`;
+    return `
+      ${avatarHtml}
+      ${revealable(duesStatusHtml)}
+      ${galleryHtml}
+      <h3>${profile.accountless ? PERSON_MARKER_ICON : ''}${escapeHtml(shownName)}</h3>
+      ${revealable(fieldsHtml)}
       ${descriptionHtml}
       ${pendingHtml}
       ${profileEditorHtml(profile)}
@@ -450,6 +461,7 @@
   function renderProfileDrawer() {
     if (!els || !editorState.profile) return;
     els.content.innerHTML = renderProfile(editorState.profile);
+    revealNewBlocks = false;
   }
 
   // Compact "busy sticker" loader (same sticker/label as the full-page one, small variant). Shown
@@ -553,6 +565,7 @@
       ? window.PeoplePhotoCache.findStaticByFolderId(folderId)
       : null;
     content.innerHTML = previewHtml(name, found);
+    revealNewBlocks = true;
   }
 
   async function open(email, name = '', folderId = '') {
@@ -570,6 +583,7 @@
       renderProfileDrawer();
     } catch (err) {
       currentPhotos = [];
+      revealNewBlocks = false;
       if (handleProfileDrawerError(err)) return;
       content.innerHTML = `<p class="profile-drawer-error">Nie udało się wczytać profilu: ${escapeHtml(err.message)}</p>`;
     }
@@ -593,6 +607,7 @@
       renderProfileDrawer();
     } catch (err) {
       currentPhotos = [];
+      revealNewBlocks = false;
       if (handleProfileDrawerError(err)) return;
       content.innerHTML = `<p class="profile-drawer-error">Nie udało się wczytać profilu: ${escapeHtml(err.message)}</p>`;
     }
