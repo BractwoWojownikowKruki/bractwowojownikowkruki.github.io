@@ -3621,7 +3621,13 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
   let description: string | null = null;
   let published = false;
 
-  if (member?.driveFolderId) {
+  // skipPublic=1: the caller already shows this member's published photos and description from the
+  // static people snapshot (public/people-data, keyed by this same driveFolderId), so the three
+  // Drive reads for the public folder are skipped - only the pending staging folder below, which is
+  // never in the snapshot, still hits Drive. The caller merges the snapshot back in (see
+  // profile-panel.js); `publicSkipped` tells it that the empty photo fields mean "not read".
+  const publicSkipped = url.searchParams.get('skipPublic') === '1' && Boolean(member?.driveFolderId);
+  if (member?.driveFolderId && !publicSkipped) {
     const exists = await deps.drive.folderExists(member.driveFolderId);
     if (exists) {
       const [images, desc] = await Promise.all([
@@ -3667,6 +3673,7 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
     pendingPhotos,
     description,
     published,
+    ...(publicSkipped ? { publicSkipped: true } : {}),
     // Same visibility as the Lista Wyjazdowa Składki page itself (read-only for every signed-in
     // member, design.md §8/§9) - showing it again here in the shared profile drawer is not a new
     // exposure, just the same fact in a second place.

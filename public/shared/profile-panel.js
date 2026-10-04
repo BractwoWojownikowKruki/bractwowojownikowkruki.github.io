@@ -341,6 +341,7 @@
     lightbox.hidden = false;
     document.body.style.overflow = 'hidden';
     setLightboxIndex(photoIndex);
+    upgradeStaticPhotosForLightbox();
   }
 
   function setLightboxIndex(photoIndex) {
@@ -485,7 +486,7 @@
   // What is known before the request returns: the trigger's name and, when the static snapshot has
   // an unambiguous match, the photos and description. The rest is a placeholder + loader.
   function previewHtml(name, staticPerson) {
-    const photos = staticPerson ? [staticPerson.mainPhoto, ...(staticPerson.photos || [])].filter(Boolean) : [];
+    const photos = staticPerson ? [staticPerson.mainPhoto, ...(staticPerson.photos || [])].filter(Boolean).map((p) => ({ ...p })) : [];
     currentPhotos = photos;
     const main = photos[0];
     const avatarHtml = main
@@ -517,15 +518,57 @@
       );
       return profile;
     }
+    // With a snapshot entry for this person (target.staticPerson) the published photos and
+    // description are already known, so the backend is asked to skip its Google Drive reads for the
+    // public folder (skipPublic=1) and the snapshot is merged back below. No entry (new member,
+    // unpublished, snapshot not loaded) = the full request, exactly as before.
+    const staticPerson = target.staticPerson || null;
     const profile = await apiFetch(
-      `/member-profile?email=${encodeURIComponent(target.email)}`,
+      `/member-profile?email=${encodeURIComponent(target.email)}${staticPerson ? '&skipPublic=1' : ''}`,
       { method: 'GET' },
       drawerShowReauth,
       drawerHideReauth,
     );
+    if (profile && profile.publicSkipped && staticPerson) {
+      // Copies: the lightbox later adds a short-lived Drive link to these objects, which must not
+      // stick to the shared snapshot entry.
+      profile.mainPhoto = staticPerson.mainPhoto ? { ...staticPerson.mainPhoto } : null;
+      profile.photos = (staticPerson.photos || []).map((p) => ({ ...p }));
+      profile.description = staticPerson.description || null;
+      profile.published = true;
+      return profile;
+    }
     // Published photos come from the static cache when available (people-photos.js); a page
     // that doesn't load that script just keeps the Drive URLs.
     return window.PeoplePhotoCache ? window.PeoplePhotoCache.applyToProfile(profile) : profile;
+  }
+
+  // The 1600px lightbox size is not cached and its Drive link only exists in a live API answer
+  // (thumbnail links expire within about an hour). Photos that came from the snapshot therefore
+  // have no remoteUrl; this fetches the full profile once, when the lightbox is opened, and hands
+  // the Drive links to the photos already on screen (matched by file id). Until it answers the
+  // lightbox shows the cached copy, so opening is never blocked.
+  async function upgradeStaticPhotosForLightbox() {
+    const photos = currentPhotos;
+    const target = editorState.target;
+    if (!target || target.kind !== 'member' || !photos.some((p) => p.fromStatic && !p.remoteUrl)) return;
+    try {
+      const live = await apiFetch(
+        `/member-profile?email=${encodeURIComponent(target.email)}`,
+        { method: 'GET' },
+        drawerShowReauth,
+        drawerHideReauth,
+      );
+      if (currentPhotos !== photos) return; // another profile was opened meanwhile
+      const byId = new Map([live.mainPhoto, ...(live.photos || [])].filter(Boolean).map((p) => [p.id, p]));
+      for (const photo of photos) {
+        const remote = byId.get(photo.id);
+        if (remote && !photo.remoteUrl) photo.remoteUrl = remote.url;
+      }
+      if (lightboxPhotoIndex !== -1) setLightboxIndex(lightboxPhotoIndex);
+    } catch {
+      // The cached copy stays on screen.
+    }
   }
 
   async function refreshProfileDrawer(savedSection = null) {
@@ -560,10 +603,14 @@
     return false;
   }
 
-  function showPreview(content, name, folderId) {
-    const found = window.PeoplePhotoCache && window.PeoplePhotoCache.findStaticByFolderId
+  function findStaticPerson(folderId) {
+    return window.PeoplePhotoCache && window.PeoplePhotoCache.findStaticByFolderId
       ? window.PeoplePhotoCache.findStaticByFolderId(folderId)
       : null;
+  }
+
+  function showPreview(content, name, folderId) {
+    const found = findStaticPerson(folderId);
     content.innerHTML = previewHtml(name, found);
     revealNewBlocks = true;
   }
@@ -575,7 +622,7 @@
     drawer.hidden = false;
     close.focus();
     try {
-      editorState.target = { kind: 'member', email };
+      editorState.target = { kind: 'member', email, staticPerson: findStaticPerson(folderId) };
       editorState.drafts = {};
       editorState.errors = {};
       editorState.editorOpen = false;

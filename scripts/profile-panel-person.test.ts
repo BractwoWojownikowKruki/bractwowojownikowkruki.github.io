@@ -26,3 +26,17 @@ test('the profile drawer shows who an accountless person is a companion of', () 
 test('the profile drawer shows a decorative Brokuł icon in a visible category label', () => {
   assert.match(panel, /categoryPillBroccoliIconHtml\(profile\.categoryId, 'category-label'\)/);
 });
+
+test('the drawer asks the backend to skip its Drive reads only when a snapshot entry exists, and merges the snapshot back', () => {
+  assert.match(panel, /staticPerson: findStaticPerson\(folderId\)/);
+  assert.match(panel, /\$\{staticPerson \? '&skipPublic=1' : ''\}/);
+  assert.match(panel, /profile\.publicSkipped && staticPerson/);
+  assert.match(panel, /profile\.description = staticPerson\.description \|\| null/);
+  assert.match(panel, /profile\.published = true/);
+});
+
+test('opening the lightbox fetches the live Drive links for snapshot photos (the 1600px size is not cached)', () => {
+  assert.match(panel, /async function upgradeStaticPhotosForLightbox\(\)/);
+  assert.match(panel, /photos\.some\(\(p\) => p\.fromStatic && !p\.remoteUrl\)/);
+  assert.match(panel, /setLightboxIndex\(photoIndex\);\s+upgradeStaticPhotosForLightbox\(\);/);
+});
