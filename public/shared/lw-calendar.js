@@ -268,8 +268,20 @@
     return { refresh, close };
   }
 
+  // Quiet date pill + dropdown anchor for dashboard cards and list rows. Must not be placed inside a
+  // <p>: the popover is a <div>, which the HTML parser would pull out of the wrapper.
+  function datePillHtml(event, key, popoverSide) {
+    const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
+    const [y, m, d] = event.startDate.split('-');
+    return `<span class="lw-date-wrap lw-date-wrap--quiet" data-lw-cal-key="${escapeHtml(key)}" data-lw-cal-event="${escapeHtml(event.id)}">
+    <button type="button" class="lw-date-pill lw-date-pill--quiet" data-lw-cal-toggle aria-haspopup="true" aria-expanded="false" title="Pokaż w kalendarzu">${icon}${d}.${m}.${y}</button>
+    <div class="lw-cal-popover lw-cal-popover--${popoverSide}" hidden></div>
+  </span>`;
+  }
+
   window.LwCalendar = {
     mountDropdowns,
+    datePillHtml,
     googleUrl,
     icsContent,
     icsFilename,

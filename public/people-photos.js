@@ -187,6 +187,18 @@ window.PeoplePhotoCache = (function () {
     const url = personAvatarUrl(trigger.dataset.folderId);
     if (!url) return;
     if (trigger.matches(ICON_TRIGGER)) {
+      // Next to a name pill (Lista Wyjazdowa, Spis Ludności): the avatar sits flush against the
+      // pill's left edge and replaces the redundant "show profile" icon button.
+      const pillTrigger = trigger.previousElementSibling;
+      const pill = pillTrigger && pillTrigger.matches('[data-profile-trigger]') ? pillTrigger.querySelector('.category-name-pill') : null;
+      if (pill) {
+        const img = makeAvatar(url, 'person-avatar--lead');
+        img.addEventListener('error', () => img.remove(), { once: true });
+        pill.before(img);
+        pillTrigger.setAttribute('data-avatar', '');
+        trigger.remove();
+        return;
+      }
       const icon = trigger.querySelector('svg');
       if (!icon) return;
       const img = makeAvatar(url, 'person-avatar--icon');

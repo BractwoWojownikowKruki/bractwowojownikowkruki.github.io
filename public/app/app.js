@@ -101,14 +101,10 @@ function attendeeBadge(count) {
   return badge;
 }
 
-// Quiet date pill + calendar dropdown (behaviour in shared/lw-calendar.js). `key` must be stable
-// across re-renders so an open dropdown survives the widgets being rebuilt.
+// Quiet date pill + calendar dropdown (shared/lw-calendar.js). `key` must be stable across
+// re-renders so an open dropdown survives the widgets being rebuilt.
 function datePillHtml(event, key, popoverSide) {
-  const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
-  return `<span class="lw-date-wrap lw-date-wrap--quiet" data-lw-cal-key="${key}" data-lw-cal-event="${event.id}">
-    <button type="button" class="lw-date-pill lw-date-pill--quiet" data-lw-cal-toggle aria-haspopup="true" aria-expanded="false" title="Pokaż w kalendarzu">${icon}${formatDate(event.startDate)}</button>
-    <div class="lw-cal-popover lw-cal-popover--${popoverSide}" hidden></div>
-  </span>`;
+  return window.LwCalendar.datePillHtml(event, key, popoverSide);
 }
 
 function renderNearestEventWidget(events) {
@@ -139,9 +135,9 @@ function renderNearestEventWidget(events) {
   widget.innerHTML = `
     <h3>Najbliższy wyjazd</h3>
     <p class="dashboard-event-name"><a class="dashboard-event-name-link"></a></p>
-    <p class="dashboard-event-date">
+    <div class="dashboard-event-date">
       ${datePillHtml(event, 'nearest', 'start')}
-    </p>
+    </div>
     <p class="dashboard-event-countdown"></p>
     ${toggleHtml}
     <div class="dashboard-event-panel"></div>
@@ -451,11 +447,6 @@ function bindDashboardWidgetEvents() {
   if (dashboardWidgetEventsBound) return;
   dashboardWidgetEventsBound = true;
   document.getElementById('app-widget-grid-slot').addEventListener('click', async (e) => {
-    // Let calendar dropdown handle its own clicks
-    if (e.target.closest('[data-lw-cal-toggle]')) {
-      return;
-    }
-
     const toggle = e.target.closest('.lw-attend-toggle');
     if (toggle) {
       await setDashAttending(toggle.dataset.eventId, toggle.dataset.attending !== 'true', toggle);
