@@ -2,6 +2,7 @@
  "version": 1,
  "people": [
   {
+   "folderId": "1O2CmYKK0tTw0RbboX4GOePCRbYAv0jYR",
    "name": "Tata Ragnar",
    "order": -15,
    "description": "Zwany Tatą. Nasz Jarl i założyciel drużyny. Autorytet niemoralny. Lubi występować topless.",
@@ -18,6 +19,7 @@
    ]
   },
   {
+   "folderId": "14nctAAN0pr_qdImNJ4G9wB2MTI7F-vi9",
    "name": "Liponsson",
    "order": -7,
    "description": "Mały, dwunożny czołg. Nie lubi, gdy ktoś bije go w miejsca, gdzie ma tatuaże (czyli praktycznie gdziekolwiek).",
@@ -29,6 +31,7 @@
    "photos": []
   },
   {
+   "folderId": "1jhmMlSaCq2XDu8SdKr9GTw9b_0jM41Aq",
    "name": "Orpik",
    "order": -6,
    "description": "Podróżnik. Dobrze walczy, wspina się i pływa. Prawie jak Thorgal. Ma nawet podobny moher na klacie.",
@@ -40,6 +43,7 @@
    "photos": []
   },
   {
+   "folderId": "12SZSZ2GofImqwx6xEi5al67YlUu5kCyg",
    "name": "Bjorn",
    "order": -5,
    "description": "Niegdyś posiadacz najbardziej kombatanckiej blizny pośród Kruków. Dawno temu odpadł jednak z dalszej rywalizacji. Tymczasem zabawa trwa dalej.",
@@ -51,6 +55,7 @@
    "photos": []
   },
   {
+   "folderId": "108VWQMuoqO5ffNgMP990-or1As3x_FWV",
    "name": "Sygurd",
    "order": -4,
    "description": "W pewnych kręgach zwany „Aptekarzem”, z racji swego perfekcjonizmu w napełnianiu niewielkich naczyń szklanych płynami o niskiej gęstości.",
@@ -62,6 +67,7 @@
    "photos": []
   },
   {
+   "folderId": "1IuORR061pMU0ll04K3Zk63xlE6S5tQiD",
    "name": "Ugrost",
    "order": -3,
    "description": "Pierwszy Słowianin w Drużynie. Od czasu Wolina 2001 posiadacz najbardziej przewiewnego hełmu w załodze.",
@@ -73,6 +79,7 @@
    "photos": []
   },
   {
+   "folderId": "1SjAyIwFSDVEvNeYBw6GaUCr1vOK0NxB-",
    "name": "Marcus",
    "order": -2,
    "description": "Atak nieustającego optymizmu z dwumetrowej wysokości. Za czasów Bitwy pod Cedynią w 2000 r. Główny Specjalista ds. Pustoszenia Samą Tarczą.",
@@ -84,6 +91,7 @@
    "photos": []
   },
   {
+   "folderId": "1zEkzFlTQrsQzTPQwKy698SlfwPW5xj0G",
    "name": "Wojciech",
    "order": -1,
    "description": "Wojciech, kruczy bard i showman, lider utworzonej przez siebie sekcji Kumaków Ogrodowych, która przestała istnieć wkrótce po powrocie jej członków z odmiennego stanu świadomości.",
@@ -95,6 +103,7 @@
    "photos": []
   },
   {
+   "folderId": "1kfXUBGNjBEff65m2PnABVpTTT0RJMB-h",
    "name": "Kiartan",
    "order": 0,
    "description": "Był z nami w początkach naszej działalności. Kilka lat temu opuścił nasze szeregi na rzecz formacji Elag Nord.",

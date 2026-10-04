@@ -2,6 +2,7 @@
  "version": 1,
  "people": [
   {
+   "folderId": "1QAc3tuxevjx6q84HiO1myBNNnuKccKYy",
    "name": "Justyna",
    "order": 4,
    "description": "Specjalistka od celnych ripost słownych (i nie tylko). Potrafi sprawić, że Houshold chodzi jak w zegarku, a przy tym jest urocza i ma talent do zarażania dobrym nastrojem.",
@@ -13,6 +14,7 @@
    "photos": []
   },
   {
+   "folderId": "1EI6eVp5g5lRzxEztzOb_FnS9FkYgr31F",
    "name": "Pela",
    "order": 5,
    "description": "Wytrwała tkaczka krajek, która wyznaje zasadę „ze spokojem do celu”. Wygląda na łagodną, jednak potrafi pokazać siłę żelaznej damy – nie tylko wobec nieułożonego drewna, wobec męża też.",
@@ -24,6 +26,7 @@
    "photos": []
   },
   {
+   "folderId": "1eJ6gRiiHZtYf1Dokbv84lOoNmHKH9FKC",
    "name": "Angelika",
    "order": 6,
    "description": "Jedna z najgłośniejszych niewiast, wszędzie jej pełno, przy czym niezwykle łagodna wobec swego męża. Najchętniej realizuje się przy swoim ulubionym rzemiośle – gotowaniu potraw w obozowej kuchni.",
@@ -35,6 +38,7 @@
    "photos": []
   },
   {
+   "folderId": "18oM0hG0LDes1_p7JCpf5bps-9suzaLSZ",
    "name": "St.Szyszka",
    "order": 7,
    "description": "…",
@@ -46,6 +50,7 @@
    "photos": []
   },
   {
+   "folderId": "1WFaeLuisCy1Z1wTnem2hTJi7K-xrhI0D",
    "name": "Hania",
    "order": 8,
    "description": "Dziewczyna udowodniła nam, że jest uparta, kiedy okazało się, że mimo zakazu goszczenia w obozie osób postronnych przejeździła z Bractwem dwa sezony. Rodowita wielkopolanka, obecnie prowadząca twardą ręką sprawy finansowe sekcji warszawskiej. Cierpliwości natomiast dowodzi cały czas, bo my Przeszczepa musimy znosić od święta, a ona na codzień.",
@@ -57,6 +62,7 @@
    "photos": []
   },
   {
+   "folderId": "1ItGR2Saa9_UytHbL26GY2OiNzp8bm-g1",
    "name": "Marika",
    "order": null,
    "description": "",

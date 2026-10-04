@@ -2,6 +2,7 @@
  "version": 1,
  "people": [
   {
+   "folderId": "13ba6slrLdSCdxtPE9R9K3YDKG2WsffjL",
    "name": "Maria",
    "order": -10,
    "description": "Niesamowicie opanowana osoba. Nawet Wilku tylko niekiedy wyprowadza ją z równowagi. Prawdopodobnie chce przetestować granice swej wytrzymałości, gdyż postanowiła wyjść za niego za mąż.",
@@ -13,6 +14,7 @@
    "photos": []
   },
   {
+   "folderId": "1hLhOQebqriLA5Xe_RIYcO-6b7G3BO0o0",
    "name": "Justyna",
    "order": -9,
    "description": "Druga połowa Raka. Na szczęście – złośliwa, więc dostarcza nam regularnie nowe zabawne pseudonimy dla swego oblubieńca.",
@@ -24,6 +26,7 @@
    "photos": []
   },
   {
+   "folderId": "1irtSaeBNqLakfymez7oHco9PN4KvXBou",
    "name": "Ola",
    "order": -8,
    "description": "Dziewczyna Patryka. Cicha osóbka, ale z wyjazdu na wyjazd się rozkręca. Prawdopodobnie zorientowała się, że nie wszystko, co mówimy, jest na poważnie.",
@@ -35,6 +38,7 @@
    "photos": []
   },
   {
+   "folderId": "1OoLvfZ78BaDOVLD1TFARhvIi0SWgnTBL",
    "name": "Asia",
    "order": -7,
    "description": "Jedna z nielicznych kobiet, które dołączyły do nas samodzielnie i dobrowolnie. Intensywnie doskonali swoje rzemiosło i wiedzę historyczną. Prawdopodobnie stara się tym odwrócić swą uwagę od myśli co z nas za ludzie.",
@@ -46,6 +50,7 @@
    "photos": []
   },
   {
+   "folderId": "1a95j_j8dAyHnAK-eQuo5YMrpQiJ7yMPd",
    "name": "Sandra",
    "order": -6,
    "description": "Dziewczyna z charakterkiem. Miłośniczka zwierząt, dla których dobra lepiej, żeby nie piła energetyków, bo przypomina „Pan z Dragon Ball GT”.",
@@ -57,6 +62,7 @@
    "photos": []
   },
   {
+   "folderId": "1SZrpvtvhO4AEQ_5o5UlpXErdviRSq25h",
    "name": "Storrada",
    "order": -5,
    "description": "Jak każda kobieta kocha ozdoby, co widać na załączonym obrazku. Słynie z kunsztownych haftów, w przeciwieństwie do części drużyny, robionych nićmi.",
@@ -68,6 +74,7 @@
    "photos": []
   },
   {
+   "folderId": "1ZkssZduqjsqEu67EdhI_36mBzEucjEDf",
    "name": "Eleonora",
    "order": -4,
    "description": "Bardzo spokojna osoba, która jednak potrafi działać impulsywnie kiedy ktoś wciera jej garść smalcu we włosy.",
@@ -79,6 +86,7 @@
    "photos": []
   },
   {
+   "folderId": "1_hQY5ZGTM3oXaVFOhUvniGbMxQZDt-Yt",
    "name": "Ulfar",
    "order": -3,
    "description": "Do pierwszej bitwy wyszedł z tarczą wielkości blatu od kawiarnianego stolika. Niestety, nie zrobił w niej wizjera. Ma taki specyficzny charakter, że jednocześnie chce się go przytulić i zasunąć mu z łokcia.",
@@ -90,6 +98,7 @@
    "photos": []
   },
   {
+   "folderId": "1z73lquOKVP0VCxjmMD3SW1svmbd4LR7X",
    "name": "Krzypas",
    "order": -2,
    "description": "Duży, głośny i wszędzie go pełno. Prawie jak autobusy Jelcz w małym mieście. Jak widać posiada czasami nieodpartą chęć blokowania ciosów twarzą i resztą głowy.. Wcielenie ducha powieści Grek Zorba, ale słabo sobie radzi ze spokojem. Niespokojnie reaguje na ksywkę Przypas, i dlatego pewnie niedługo tak go będziemy nazywać.",
@@ -101,6 +110,7 @@
    "photos": []
   },
   {
+   "folderId": "1RGUsO0rgeDM-j47OjzKYs-1GAneai0aj",
    "name": "Michu",
    "order": -2,
    "description": "Nieco kontrowersyjny człowiek-Wikipedia, specjalista od PR techniką kopiuj-wklej. Ucząc bawi, bawiąc obraża.",
@@ -112,6 +122,7 @@
    "photos": []
   },
   {
+   "folderId": "1JsnZmrZL6Of6nqaz3oGdRvGFBBeMvm8t",
    "name": "Bjartr",
    "order": -1,
    "description": "Spokojny i cichy. Nauczymy go walczyć, potem podtuczymy i przekażemy nieco bardziej barbarzyńskie wzorce zachowań. Kolejny psycholog w drużynie. Ich zainteresowanie naszą grupą powoli zaczyna nas zastanawiać.",
@@ -123,6 +134,7 @@
    "photos": []
   },
   {
+   "folderId": "1LwgXYY7ICb_QhoAx07Q9txtEnWIawk58",
    "name": "Depczygar",
    "order": -1,
    "description": "Żołnierz idealny – najpierw strzeli, potem spyta, i jeszcze zwróci amunicję. W wojsku szkolony do nocnych operacji specjalnych. Sprawdziliśmy stopień wyszkolenia podczas jednego z wyjazdów, i w rezultacie nadaliśmy mu kryptonim 'Depczygar'.",
@@ -134,6 +146,7 @@
    "photos": []
   },
   {
+   "folderId": "1SHowbIhoZjEmid-7D-pN9-jY9G0qLKH-",
    "name": "Dorian",
    "order": -1,
    "description": "Elficki książę, ale zbyt wysoki nie jest, i w lesie też nie mieszka, stąd wniosek, że to xsiażę średnich elfów. Przyszedł jako pracoholik. Już rok kruczej terapii zaowocował poprawą, teraz to patologiczny pracoholik.",
@@ -145,6 +158,7 @@
    "photos": []
   },
   {
+   "folderId": "1VkCt4kL3ZiTnP3QTdcKYg5SufyKuA5Xw",
    "name": "Gunar",
    "order": -1,
    "description": "Młodszy klon Nellego, choć bardziej marudny. Lepiej go ubierać niż karmić i poić. Znany także jako BEMBEN z powodu mięśnia piwnego, którego można by używać w zastępstwie bębna wolińskiego. Dajcie mu agregat spalinowy, a będzie się cieszył jak małe dziecko.",
@@ -156,6 +170,7 @@
    "photos": []
   },
   {
+   "folderId": "1bn0LTk_6J2Lj4BxR6_sx8mJOpkdIWBDA",
    "name": "Hvitserk Harfager",
    "order": -1,
    "description": "Zwany również Paprykiem Skwarkiem. Obiecujący kandydat, na wyjazdach pracuje tak ciężko, że potrafi zasnąć podczas wiecu. Na Yule 2017 został niekwestionowanym królem imprezy, a przynajmniej tak mu mówimy",
@@ -167,6 +182,7 @@
    "photos": []
   },
   {
+   "folderId": "1CpTzAJN27KtVzM6q14AEyd3w_M38AK7V",
    "name": "Ivar",
    "order": -1,
    "description": "Jeszcze bardziej złośliwy niż pozostali. W walce nie tylko widzi jak przeciwnik ustawia broń, barki czy stopy, ale potrafi również to wykorzystać. Sezonowo u przeciwników prowadzi „akcję żebra” albo „akcję oczy”. Kiedyś, po obcięciu włosów wyglądał jak wytatuowany Maksymilian Kolbe. Kiedyś.",
@@ -178,6 +194,7 @@
    "photos": []
   },
   {
+   "folderId": "1Ex-qYLwLwcTtpa9VORsQZtj_iAtlaxnm",
    "name": "Raku",
    "order": -1,
    "description": "Niby wszystko byłoby z nim fajnie, ale niestety – on jest leworęczny. Stara się nadrabiać zdolnościami muzycznymi i aktywnością na treningach.",
@@ -189,6 +206,7 @@
    "photos": []
   },
   {
+   "folderId": "1ZGnmi3PwdDtrWXtMl6GjCJYAGSktDFHq",
    "name": "Sławoj",
    "order": -1,
    "description": "Jest na tyle wysoki, że stojąc przed przeciwnikiem potrafi go uderzyć toporem w potylicę. Jest mu naprawdę dobrze tylko kiedy robi nacięcia i dziury w skórze. Na szczęście, takiej na buty i karwasze.",
@@ -200,6 +218,7 @@
    "photos": []
   },
   {
+   "folderId": "1p5rxwlYKQASGxthXdHWI4v6aeW2Y5KDc",
    "name": "Alf",
    "order": 0,
    "description": "Opancerzony przypomina krasnoluda- -tarana, choć krasnoludy mają lepsze maniery. W walce dużo skacze i nabiega, a stawać mu na drodze, to jak próbować zatrzymać lawinę.",
@@ -211,6 +230,7 @@
    "photos": []
   },
   {
+   "folderId": "123hO-xckLypVc776Kw6x-XqxQ2Z3ORkS",
    "name": "Gorm",
    "order": 0,
    "description": "Hövding Sekcji Kruki-Inowrocław. Początkowo był bardziej defensywny niż armia francuska, teraz doskonali się w eliminowaniu broni drzewcowej przeciwnika. Jego testy ataku strefowego nie zostały zatwierdzone.",
@@ -222,6 +242,7 @@
    "photos": []
   },
   {
+   "folderId": "1qKa9w3rdQjJRJTBUOEdVr4mFzJ1bbHSw",
    "name": "Jaro",
    "order": 0,
    "description": "Zwany czasem Pancerną Traszką. Zaczyna w walce tak wysoko skakać, że chyba zostanie naszym oddziałem powietrznodesantowym.",
@@ -233,6 +254,7 @@
    "photos": []
   },
   {
+   "folderId": "1yU7mxD3FSrXfWNK0j2R4XTQmIpGzxEUt",
    "name": "Klon",
    "order": 0,
    "description": "Mniej wredna wersja Myszego. Potrafi doprowadzić do łez – wcale nie ze śmiechu – stąd przydomek Chemiczny Ali.",
@@ -244,6 +266,7 @@
    "photos": []
   },
   {
+   "folderId": "1GdnduvwLzEwmRcm5uPyiwRxN7At0mdtz",
    "name": "Szoszon",
    "order": 0,
    "description": "Zastępca Jarla. Nieco wyrównuje nam niedobory ludzi z brodami. Jest żywym dowodem na to, że nie dyskryminujemy mniejszosci tureckiej.",
@@ -255,6 +278,7 @@
    "photos": []
   },
   {
+   "folderId": "1ktJx5JpHCJt2Fd2VUB628WUHcD2j_d3F",
    "name": "Valgard",
    "order": 0,
    "description": "Zwany Myszoskoczkiem, gdyż jest zapalonym zwolennikiem taktyki „podskocz i uderz sześćdziesiąt razy, siedemnaście z tego wejdzie”. Czasami myślimy żeby mu zrobić testy antydopingowe.",
@@ -266,6 +290,7 @@
    "photos": []
   },
   {
+   "folderId": "14MJ1qBLhHQwuGPdJc3Mj5YJDRr2eTGPf",
    "name": "Miłosz",
    "order": 2,
    "description": "Nasz pimp, handlarz niewolników i czekoladowy kaznodzieja. Nie mówi tylko wtedy, gdy krzyczy. Autoryzowany dostawca Kruków na Wolin. Dostawa w dużych ilościach i dogodnych terminach. Bierzesz teraz, płacisz całe życie.",
@@ -277,6 +302,7 @@
    "photos": []
   },
   {
+   "folderId": "1_tJOtxYMMt4BAqZJEeYGiLCnmCf3qWM5",
    "name": "Zadar",
    "order": 3,
    "description": "Niepoprawny abstynent, do tego niepotrzebnie uprzejmy. W zasadzie nie wiemy co go z nami trzymało, ale najwyraźniej przestało.",
@@ -288,6 +314,7 @@
    "photos": []
   },
   {
+   "folderId": "1ROCywndvwFlQbBsb-8E1Opn4q2Mhs_UR",
    "name": "Brzoza",
    "order": 4,
    "description": "Brzoza – masywny rasowy wiking, żeglujący, walczący czasami germańska pływaczka – lubi ubierać damskie ciuszki i prezentować wdzięki – Wolin 2013, drużynowy egzorcysta! Jeden z rekordzistów na dystansie od blachowego do emeryta.",
@@ -299,6 +326,7 @@
    "photos": []
   },
   {
+   "folderId": "1IXNhIB7aGAh6JbPqQ3ugDFyouJYBU1l4",
    "name": "Hakon",
    "order": 5,
    "description": "Wiecznie zdziwione spojrzenie. W każdej sytuacji. Nie tylko w finale kręgu walki. Naprawdę w KAŻDEJ sytuacji.",
@@ -310,6 +338,7 @@
    "photos": []
   },
   {
+   "folderId": "1OoCnwbwYynf4xYalCNY7N2MUi2qWL3wL",
    "name": "Kaśka",
    "order": 5,
    "description": "Pochodzenie jej przydomku (Ślimak) kryje się w mrokach średniowiecza. Niezliczona ilość biżuterii – nie tylko historycznej – dodaje jej wyglądowi charakteru oraz uroku.",
@@ -321,6 +350,7 @@
    "photos": []
   },
   {
+   "folderId": "1ppOyq-tQN-FhDCHYPFmJs9csL7GRb1ee",
    "name": "Kuba",
    "order": 7,
    "description": "Szalony introwertyk. Planuje karierę psychoterapeuty i zastanawiamy się, czy nie nabiera na nas praktyki. Poza tym dziwnie przywiązany do swojego zarostu.",
@@ -332,6 +362,7 @@
    "photos": []
   },
   {
+   "folderId": "15nhQ7dRYyFoBq3PQ8hT4h4lCfbe8HPzm",
    "name": "Egil",
    "order": 8,
    "description": "Nie wiemy czy do końca przemyślał wymowę swojego imienia, ale z czasem smark przywyknie do tego. Patolog ze sprężyną w nadgarstku, jednak tylko na kacu. Posiadacz tatuażu z pinczerkiem. Młodszy brat Gorma.",
@@ -343,6 +374,7 @@
    "photos": []
   },
   {
+   "folderId": "1DngnZbyMennqleVe3WjipYb4UtIHfI-e",
    "name": "Leszko",
    "order": 9,
    "description": "Zwany również Tatą G. W zasadzie ma już na swoim koncie 2 blachy. Nie chcecie spotkać go w turnieju kiedy jest na kacu. Razem z Maliniakiem stworzyli ugrupowanie „kandydatów na emeryta”.",
@@ -354,6 +386,7 @@
    "photos": []
   },
   {
+   "folderId": "1zvNxrcgUa-c9SA1e0zkBg23BEP7HqNgp",
    "name": "Olaf",
    "order": 11,
    "description": "Przejawia patologiczne zamiłowanie do cyfr. Wyliczyć można wiele z jego zasług, nie sposób zliczyć jego walorów, zaliczył już niejedną z… przygód. Z pewnością niejednemu w walce porachuje kości.",
@@ -365,6 +398,7 @@
    "photos": []
   },
   {
+   "folderId": "1oEPs3gRQdKWUhu2CToiZiwvBpbXBA5_N",
    "name": "Ewa",
    "order": 12,
    "description": "Spokojna osoba, znosząca z godością fakt, że Szoszon tatuuje sobie coraz więcej oczu na rękach i nie chce powiedzieć dlaczego.",
@@ -376,6 +410,7 @@
    "photos": []
   },
   {
+   "folderId": "1IEBVRV6-aaeqFIoc4RiJE6-fJAlpDXQA",
    "name": "Horik",
    "order": 13,
    "description": "Kilka sezonów pracy i oto victoria, ten niewinny blondynek jest już tak zwyrodniały jak cała reszta. Specjalista od unikania ciosów włócznią w stopę. A, no i jeszcze potrafi się bić.",
@@ -387,6 +422,7 @@
    "photos": []
   },
   {
+   "folderId": "194Y00p2doZ2N7N3fldnQ61qY5n47FOMR",
    "name": "Paszko",
    "order": 14,
    "description": "Niegdyś ludzie często wbijali mu coś w głowę lub w twarz, od jakiegoś czasu stanowczo popularniejsze jest jego krzyżowanie. Zupełnie nie mamy pojęcia dlaczego.",
@@ -398,6 +434,7 @@
    "photos": []
   },
   {
+   "folderId": "1M09-vVRvL9Wr_-p6dBMLuDEx4PQCC9z-",
    "name": "Gudrun",
    "order": 16,
    "description": "Od dawna w drużynie, czuje się swobodnie zarówno w stroju wikińskiej pani jak i w gotyckich koronkach.",
@@ -409,6 +446,7 @@
    "photos": []
   },
   {
+   "folderId": "1-laZA0WQwk_-VJ_sKsoL92i3JygY-gc_",
    "name": "Grimar",
    "order": 17,
    "description": "Lata mijają, a on ani się nie odprężył, ani nie złagodniał. Jedyne co, to wymienił szablę na tasak, ale niespecjalnie cieszy nas ta zamiana. Opracował tajemną technikę obrony tarczą trzymaną za plecami i głową.",
@@ -420,6 +458,7 @@
    "photos": []
   },
   {
+   "folderId": "1F--naRPA53h7Jjq5hmsZncu-keA3Ng3S",
    "name": "Eldar",
    "order": 18,
    "description": "Hövding Sekcji Kruki-Poznań. Pierwszy na tej stronie przedstawiciel rocznika hmm… ’88. Ostatnio coś kręci. Ogniem na łańcuchach. Niedawno opanował robienie takich iskier, że zespół Rammstein byłby zachwycony.",
@@ -431,6 +470,7 @@
    "photos": []
   },
   {
+   "folderId": "1iuzzGvte-JX0AfW-lbv7_4vVWvJwx_GC",
    "name": "Eliza",
    "order": 19,
    "description": "…",
@@ -442,6 +482,7 @@
    "photos": []
   },
   {
+   "folderId": "17KROL5W3_PDKghO5i6-jGa7HRaMiudRx",
    "name": "Westar",
    "order": 20,
    "description": "Wygląd pluszowej maskotki, skuteczność siepacza. Sporo ludzi nabiera się na pierwsze i przekonuje o drugim. Gdy się uśmiecha jest podobny do ludzi, którzy mieszkają w domach ze śniegu i tłuką pałami foki.",
@@ -453,6 +494,7 @@
    "photos": []
   },
   {
+   "folderId": "1fnBNDyQ2hd7hdVXnqwKyMA5Aov_CO6Fc",
    "name": "Eryk",
    "order": 21,
    "description": "Niegdyś posiadał najbardziej jamajską fryzurę w Krukach, jednak z przyczyn nam nieznanych, postanowił pozbyć się jej. Należy zachować szczególną ostrożność w walce z nim, zwłaszcza, gdy jest na kacu.",
@@ -464,6 +506,7 @@
    "photos": []
   },
   {
+   "folderId": "1D3UjK5gj892weiGLvGfG2vjboMWuefHp",
    "name": "Norek",
    "order": 22,
    "description": "Wzrostu i budowy Bruce’a Lee, a nawet podobnie szybki. Strój i bose stopy sugerują hipisowskie tendencje, na szczęście nie śpiewa „Children of the Revolution” ani nie proponuje nam wolnej miłości.",
@@ -475,6 +518,7 @@
    "photos": []
   },
   {
+   "folderId": "179qz9pBx0e1vEtSTEtT7VvlOAKtI9sDK",
    "name": "Krzesimir",
    "order": 23,
    "description": "Vel PiBis. Zaczął od łuku. Potem okazało się, że wywija ogniem. Teraz wywija również toporem, i dobrze, bo psuł nam koncepcję podziału ludzi na stronie.",
@@ -486,6 +530,7 @@
    "photos": []
   },
   {
+   "folderId": "1ctxoQVpyO61de8CHVLSID9oULsaq-2WE",
    "name": "Orm",
    "order": 24,
    "description": "Niech Was nie zwiedzie jego wygląd cherubinka! Zrobił się tak zwyrodniały jak pozostali. Przepraszamy niniejszym jego mamę.",
@@ -497,6 +542,7 @@
    "photos": []
   },
   {
+   "folderId": "1oYtG4MoF_2P_tBaU3ox53OzxtI2M-fNs",
    "name": "Wojbor",
    "order": 25,
    "description": "",
@@ -508,6 +554,7 @@
    "photos": []
   },
   {
+   "folderId": "1yr8Z49s1YL0cwbHrgkYuLCKGkUgzADSA",
    "name": "Vader",
    "order": 26,
    "description": "",
@@ -519,6 +566,7 @@
    "photos": []
   },
   {
+   "folderId": "1nC-DnPnziL-nF5gbxFXXPrrPBKWQ3rUE",
    "name": "Orlik",
    "order": 27,
    "description": "Stary wiarus, choć ostatnio zdecydował, że nie chce dalej walczyć. Powszechnie lubiany, nie tylko dlatego, że zapewnia dużo cienia.",
@@ -530,6 +578,7 @@
    "photos": []
   },
   {
+   "folderId": "1eIPjKVfZ711inF6GA2-16FWrYq76Lxg3",
    "name": "Łysy",
    "order": 28,
    "description": "Nie jest już łysy, choć imię zostało. W obronie czci zawsze gotów do walki. Także przy użyciu drewnianej ławy. Bohater filmu Listonosz zawsze przydzwoni dwa razy. Niestety, pochłonięty przez szarą rzeczywistość.",
@@ -541,6 +590,7 @@
    "photos": []
   },
   {
+   "folderId": "1tnbhS4NMxIm0-1AA7z9dcw-cqcER0RJ0",
    "name": "Monika",
    "order": 29,
    "description": "Razem z Freythis znalazła się niespodziewanie w sytuacji jak z antycznych dramatów i podobnie jak Antygona przedłożyła rodzinę nad prawa wspólnoty.",
@@ -552,6 +602,7 @@
    "photos": []
   },
   {
+   "folderId": "15_KHzu0VXfNd5cewsRAKNVuFOr00XOAV",
    "name": "Freythis",
    "order": 30,
    "description": "Razem z Moniką znalazła się niespodziewanie w sytuacji jak z antycznych dramatów i podobnie jak Antygona przedłożyła rodzinę nad prawa wspólnoty.",
@@ -563,6 +614,7 @@
    "photos": []
   },
   {
+   "folderId": "1mUaGVWyhu65UexPjduH8zpehR48sh6Rb",
    "name": "Justyna",
    "order": 31,
    "description": "Razem z Hornem zdecydowali się opuścić drużynę zaraz po obrzędzie swoich zaślubin. A przecież nie domagaliśmy się Prawa Pierwszej Nocy…",
@@ -574,6 +626,7 @@
    "photos": []
   },
   {
+   "folderId": "1lJhqc3yq9-A-YMjH_lfthgb7zLbakxBy",
    "name": "Horn",
    "order": 32,
    "description": "Wizualnie był najbardziej rasowym wikingiem z nas wszystkich. Razem z Justyną zdecydowali się opuścić drużynę zaraz po obrzędzie swoich zaślubin. A przecież nie domagaliśmy się Prawa Pierwszej Nocy…",
@@ -585,6 +638,7 @@
    "photos": []
   },
   {
+   "folderId": "19lG3cx0ag74lD0_z_j8cIP4klCtkITT9",
    "name": "Ulf",
    "order": 33,
    "description": "Kolejny patolog z Kruszwicy. Taki im urósł. A ludzie mówią, że w Gople można już bezpiecznie się kąpać. Ostatnio okazało się, że u niego „agresja zero, aktywność zero”, więc w emerytach jest jego miejsce.",
@@ -596,6 +650,7 @@
    "photos": []
   },
   {
+   "folderId": "1HM2UQYxGHxUoDXE1S2Dt1sxLtjBK_rHT",
    "name": "Nergal",
    "order": 34,
    "description": "Jeden z największych talentów do walki w drużynie. Potrafił robić niewyobrażalne rzeczy z kończynami, zwłaszcza swoimi. Niestety aktualnie uznał, że cena jednego smsa jest tak niewyobrażalna, że nie będzie rujnował majątku na kontakt z drużyną.",
@@ -607,6 +662,7 @@
    "photos": []
   },
   {
+   "folderId": "1-amCGe-nd9SdrfrJlmnBiKMwIIE2RB7M",
    "name": "ORM ROSTÄRGAD",
    "order": 35,
    "description": "Aktualnie pracuje w ochronie na statku wycieczkowym pływającym po całym świecie, czyli bije ludzi i pływa po morzach. Całkiem wikińskie…",
@@ -618,6 +674,7 @@
    "photos": []
   },
   {
+   "folderId": "1dz8ZXWkuDR5nQccIeLYYM4iDVRFgeExy",
    "name": "Asgerd",
    "order": 36,
    "description": "Spośród nas miała chyba największą wiedzę na temat ludów północy, umiała nawet poskładać język i pogadać nieco w old norse. W 2005 r. postanowiła, że będzie się lansować poza drużyną.",
@@ -629,6 +686,7 @@
    "photos": []
   },
   {
+   "folderId": "1IWy30Ke4nGMd2XpcGSVWm8XVoGeIptkZ",
    "name": "Gosia i Sygurd",
    "order": 37,
    "description": "Gosia – lepsza połowa Sygurda, ma język ostry jak jego miecz, a choć krótszy to nie mniej niebezpieczny",
@@ -640,6 +698,7 @@
    "photos": []
   },
   {
+   "folderId": "1hUoPBkdVnYuukXvZKG52lJeMcqnkeXbW",
    "name": "Małgorzata i Bjorn",
    "order": 38,
    "description": "Małgorzata (i Bjorn), przyszła pani doktor, której fachowa pomoc nie raz się nam przydała.",
@@ -651,6 +710,7 @@
    "photos": []
   },
   {
+   "folderId": "1BVzlQOpLWmCnJvVGe0D79HU00JZYjO46",
    "name": "Osvald",
    "order": 39,
    "description": "Spokojny, zrównoważny, lubił topory, wiec został naszym drużynowym czekanoterapeutą. Był wredny, bo starał się wyglądać na normalnego. Tak się tym przejął, że STAŁ się normalny.",
@@ -662,6 +722,7 @@
    "photos": []
   },
   {
+   "folderId": "1adjHqAB6Nhals_Ea7o7Yx8YCBgPjwTP9",
    "name": "Borg",
    "order": 40,
    "description": "Dysponował najcięższą tarczą w drużynie. W 2003 r. rywalizował z Paszkiem o tytuł Najbardziej Pokancerowanej Głowy Roku.",
@@ -673,6 +734,7 @@
    "photos": []
   },
   {
+   "folderId": "1cmt85_NgtCxCv2vZNo3blTGzhSRlJEh7",
    "name": "Ottar",
    "order": 41,
    "description": "W niektórych środowiskach znany jako Diabeł. Pomagaliśmy mu jak mogliśmy w utrzymaniu tego przezwiska, bo przecież, co to za diabeł bez blizny na twarzy. Teraz uznał, że starczy już tych ozdób i zniknął. Bez oparów siarki.",
@@ -684,6 +746,7 @@
    "photos": []
   },
   {
+   "folderId": "1lyH0v4tOpZ5faJjpyx2PnaEmhEQ5lsOk",
    "name": "Leif",
    "order": 42,
    "description": "Jeden z założycieli Bractwa z Sekcji Kruki-Poznań. Uznał, że także dla niego Wojny Czas, lecz ostatnio przygniotło go brzemię rzeczywistości.",
@@ -695,6 +758,7 @@
    "photos": []
   },
   {
+   "folderId": "1oMHlQ2OcQDWaJ-HFULO3EresBvl-Cy9N",
    "name": "Thorvald",
    "order": 43,
    "description": "Posiadacz wendelskiego hełmu z wieloma pobrzękującymi blaszkami, w którym po prostu nie da się walczyć na kacu. Thorvald, o dziwo, mógł. Może to dlatego został amatorskim filozofem – egzystencjalistą?",
@@ -706,6 +770,7 @@
    "photos": []
   },
   {
+   "folderId": "19dIYqBicbMV3eHzeAB28UYtbr7Vcc_G1",
    "name": "Radosław",
    "order": 44,
    "description": "Preferowaną przez niego taktyką był szturm głową w przód. Widać to bardzo na jego hełmie.",
@@ -717,6 +782,7 @@
    "photos": []
   },
   {
+   "folderId": "1i6gB4_aatZmfQ_kMA1_aZt_QoxjCeexI",
    "name": "Jędrek",
    "order": 45,
    "description": "Interesowały go bronie drzewcowe, lecz jego ulubioną bronią było marudzenie. Ragnar opatentował na nim powiedzenie (przez zaciśnięte zęby): „Trzymaj blok!”",
@@ -728,6 +794,7 @@
    "photos": []
   },
   {
+   "folderId": "1IFtOQNT1tmNeN3GOnu911UeMhrdDCR23",
    "name": "Gunnar",
    "order": 46,
    "description": "Skondensowana wojna, artysta bicia z bańki. Ostatnio Kruki przegrały z jego żoną i dzieckiem, ale w przyszłości… Gunnar, wróć!",

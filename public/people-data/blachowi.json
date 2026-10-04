@@ -2,6 +2,7 @@
  "version": 1,
  "people": [
   {
+   "folderId": "1OJrIwKRu4bpmxkk-1gSN7-o_eC_PAbsv",
    "name": "Bartias",
    "order": 1,
    "description": "Nasz Jarl i póki co najbardziej utytułowany wojownik w drużynie. Umie zgasić człowieka jednym zdaniem. Albo włócznią w żebra.",
@@ -22,6 +23,7 @@
    ]
   },
   {
+   "folderId": "17udaWnvzAgssSPw42rLw_hpBKixdXC4B",
    "name": "Herger",
    "order": 2,
    "description": "Odkąd zmienił rękawice na o kilogram lżejsze, kończy mu się półka na trofea. Jego występ aktorski w 2004 roku w Gudvangen zrujnował emocjonalnie 1/3 populacji Norwegii. Zrobi wszystko, byle tylko uzyskać „spokój duszy”.",
@@ -33,6 +35,7 @@
    "photos": []
   },
   {
+   "folderId": "1UnLRwdfB-H3BZHLMfSTUPonAUAK__wC1",
    "name": "Bjorn Leif",
    "order": 3,
    "description": "Z powodu lapsusa językowego zwany również Nelly. W boksie początkowo prezentował zabawne problemy z błędnikiem, ale solidny trening z krajanami oderwanymi granatem od pługa zrobił swoje. Jego hełm jest tylko nieco większy niż wieża artyleryjska pancernika Bismarck.",
@@ -49,6 +52,7 @@
    ]
   },
   {
+   "folderId": "1PMn-CHT-yQDh4Q8Qc0JvPI13he8G79K1",
    "name": "Thorn",
    "order": 4,
    "description": "Bardzo wesoły cyklop bojowy. Pokazał „cojones” wracając do walki po bardzo poważnym urazie. Pierwsze miejsce w rankingu na największe Kruczory wytatuowane na plecach (sorry Jorund).",
@@ -60,6 +64,7 @@
    "photos": []
   },
   {
+   "folderId": "1HJ4or8K-5JPuESlA8JmNn9Qe30liCB3q",
    "name": "Szatan",
    "order": 5,
    "description": "Tak naprawdę ma na imię Maciuś. Na Cedyni 2009 ktoś próbował poszerzyć mu uśmiech. Po nieudanej próbie dokończyliśmy dzieła na treningu. Jest do złudzenia podobny do pewniej znanej piosenkarki. Na Wolinie 2010 zniknął na kilka godzin z grupą wielkich, wytatuowanych Niemców. Mamy nadzieję, że właśnie nie z tego powodu.",
@@ -71,6 +76,7 @@
    "photos": []
   },
   {
+   "folderId": "15AsdzNxKJrxmdRzNA6urIF6CFXirlWMb",
    "name": "Przemko",
    "order": 6,
    "description": "Poliglota i motocyklista. Artysta tworzący dzieła światowej klasy na podstawie instalacji z miedzianych rureczek. Jakby ktoś pytał, to przywalić też potrafi. Zna niepokojąco wiele faktów o kaczych narządach rozrodczych. Obecnie kierownik sekcji Czukcze.",
@@ -82,6 +88,7 @@
    "photos": []
   },
   {
+   "folderId": "16dog9KWIzR3V0vWPAXjYkTMnZ4LwUT4a",
    "name": "Eowina",
    "order": 7,
    "description": "Samozwańcze najgłębsze gardło Inowrocławia. Pod wpływem procentów wykazuje silne zaburzenia błędnika.",
@@ -98,6 +105,7 @@
    ]
   },
   {
+   "folderId": "1Bl_DSVEqxBXVYd0UqYCRDwzHIIPSS5Cu",
    "name": "Kaziu",
    "order": 8,
    "description": "Stopień w rodzinie – szeregowy. Przynajmniej u nas ma blachę. Realne wcielenie Wróżki – Zębuszki.",
@@ -109,6 +117,7 @@
    "photos": []
   },
   {
+   "folderId": "1vPlZ8h9OUiG-1leFfszqepMH_D2v0zAC",
    "name": "Przemklin",
    "order": 9,
    "description": "Przeważnie głośny, sympatyczny i wesoły, ma jednak pewną wadę. Z dunem w ręku staje się raczej gwałtowny i bardzo zamaszysty. Oczywiście, to jest wada tylko dla stojących naprzeciwko.",
@@ -120,6 +129,7 @@
    "photos": []
   },
   {
+   "folderId": "1HSaoLgZkY8wPJ3WLvPvclCaKwuS8CKNJ",
    "name": "Geir",
    "order": 10,
    "description": "Ten młody wojownik nie podał nam żadnego imienia nadającego się na publikację – dostał zatem losowe imię „z przydziału”",
@@ -131,6 +141,7 @@
    "photos": []
   },
   {
+   "folderId": "1Hcr4jpB2ynGBsWrc96jVXomTxr4MSaM2",
    "name": "Ivarr",
    "order": 11,
    "description": "Po gorączce sobotniej nocy nazywany również Tulipanem. Zawsze się uśmiecha, nawet gdy nie rozumie. Obawiamy się, że może to być wynik jakiegoś urazu na treningu. Sprawność ostrza wykorzystuje również w kuchni i kusi nas żeby wreszcie spróbować. Szukamy ochotników do testu.",
@@ -151,6 +162,7 @@
    ]
   },
   {
+   "folderId": "1SooIYWLfk0LZ3HZXOgQW-kgI4BUD1voq",
    "name": "Grim",
    "order": 12,
    "description": "Do perfekcji opanował sztukę krzyku przez zaciśnięte zęby oraz łamania grubych kijów na głowach niesfornych zawodników. Obu umiejętności używa równocześnie, z podziwu godnym zapałem.\n\nJeżeli coś jest niemożliwe, należy udać się do Artura. On już zna kogoś, kto to załatwi. Szybko, skutecznie i w uczciwej cenie.",
@@ -162,6 +174,7 @@
    "photos": []
   },
   {
+   "folderId": "1N8zAhtSt6x_4Jp08aZw88pwZMlyVfk82",
    "name": "Ahmed",
    "order": 13,
    "description": "Mogło by się wydawać, że to element obcy kulturowo i etnicznie dla naszych ziem, a jego obecność grozi obozowi wybuchowymi konsekwencjami. Lecz nic bardziej mylnego, na Wolinie czuje się jakby się tam urodził.",
@@ -186,6 +199,7 @@
    ]
   },
   {
+   "folderId": "1-3hsYNx38TYyCNBnYx5xg21VT46Qy6iV",
    "name": "Cherubinek",
    "order": 14,
    "description": "",
@@ -202,6 +216,7 @@
    ]
   },
   {
+   "folderId": "1CPTCm08RyMmJm4QOTjMpLxad_4qA3P7q",
    "name": "Dżuma",
    "order": 15,
    "description": "",
@@ -213,6 +228,7 @@
    "photos": []
   },
   {
+   "folderId": "1u2jhV_jEUXT1jyVYKAvVL3d3ArXzPeUl",
    "name": "Gąbka",
    "order": 16,
    "description": "",
@@ -233,6 +249,7 @@
    ]
   },
   {
+   "folderId": "1YO7p9nNEeJXdEZ96O2n5PoqbCJ5f8q8b",
    "name": "Włodek",
    "order": 17,
    "description": "",
@@ -244,6 +261,7 @@
    "photos": []
   },
   {
+   "folderId": "1PDuyPPvirXxADNXD6eLtl0pNqMpxK8U1",
    "name": "Hagrid",
    "order": 18,
    "description": "",
@@ -255,6 +273,7 @@
    "photos": []
   },
   {
+   "folderId": "1T9jy8qduRpepxEqkBQx9B8ZmzHAxTRs1",
    "name": "Hipis",
    "order": 19,
    "description": "",
@@ -271,6 +290,7 @@
    ]
   },
   {
+   "folderId": "101iJ0rQWlS22jNBr-hVQdYXi5L90Fc3w",
    "name": "Rumcajs",
    "order": 20,
    "description": "",
@@ -282,6 +302,7 @@
    "photos": []
   },
   {
+   "folderId": "17Nq-1MvSrve1L9XoZrxj84BUzUhzr9zd",
    "name": "Jarek",
    "order": 21,
    "description": "Ułożony starszy pan lubujący się w wojaczce,  ginie i motocyklach. Zwłaszcza w motocyklach. Przyszedł do nas z doświadczeniami samuraja ale jeździ Harleyem gdy tylko pogoda na to pozwala. Oddał w nasze ręce potomka i kocha swój motór. Na polu walki wjeżdża w przeciwnika jak ktoś jemu w Harleya.",
@@ -298,6 +319,7 @@
    ]
   },
   {
+   "folderId": "1BfpK9T3TOvsDdAt36ecR7xSXWJiZN3dS",
    "name": "Sum",
    "order": 22,
    "description": "Zwany Sumem, ze względu na praktyczną wiedzę na temat struktury aparatu oralnego tego gatunku ryb. W niektórych kręgach cenna wiedza.",
@@ -309,6 +331,7 @@
    "photos": []
   },
   {
+   "folderId": "1tppC4nf0T66fKznI-LpNNJfgzxhocxTJ",
    "name": "Krab",
    "order": 23,
    "description": "",
@@ -320,6 +343,7 @@
    "photos": []
   },
   {
+   "folderId": "1cNDcYeQeE4UrxG9N4A0qAFqe-kxbt6gF",
    "name": "Przeszczep",
    "order": 24,
    "description": "Operator duna i zawodowy tłumacz, który przetłumaczy trudny tekst z angielskiego oraz wytłumaczy stojącemu naprzeciwko czemu dla swojego dobra nie powinien się tam znajdować. Jego tłumaczenia przeciwnikom nie zawsze trafiają do serca, lecz trafiają w inne strefy punktowane, więc nie dzielmy włosa na czworo.\nNie wiemy czemu Przeszczep, ale czasem zdarza mu sie burknąć \"te włosy nie były tanie\". Nadal kombinujemy. ",
@@ -336,6 +360,7 @@
    ]
   },
   {
+   "folderId": "1c7oPGIdrdhv1WWcibaC7ee8JsLMubcuv",
    "name": "Pompka",
    "order": 25,
    "description": "",
@@ -356,6 +381,7 @@
    ]
   },
   {
+   "folderId": "16bHJ6MO5F8BxTcgkn5HKbdRcD4Ci1BQK",
    "name": "Neo",
    "order": 26,
    "description": "",
@@ -372,6 +398,7 @@
    ]
   },
   {
+   "folderId": "1zZ8sJBpxJFn0e6G8DQU0jIanFMolB_Xh",
    "name": "Sambor",
    "order": 27,
    "description": "",
@@ -396,6 +423,7 @@
    ]
   },
   {
+   "folderId": "1hozxBScKVl0uRiiUiYqBZXcjdMCVJipB",
    "name": "Gruzin",
    "order": 28,
    "description": "",

@@ -2,6 +2,7 @@
  "version": 1,
  "people": [
   {
+   "folderId": "1wEcwgI0qdjaL9EYnG0DHmY8SaOPFCf8G",
    "name": "Huginn",
    "order": 1,
    "description": "Jak sam o sobie powiedział, nie jest przystojny jak Brad Pitt, nie jest zbudowany jak Schwarzenegger, za to liże jak Lassie. Drużyna rozumie, toleruje i nie ma nic do dodania.",
@@ -13,6 +14,7 @@
    "photos": []
   },
   {
+   "folderId": "1w1mohywxC63oocRvoZ1Joely6BPLGTiA",
    "name": "Cali",
    "order": null,
    "description": "",
@@ -29,6 +31,7 @@
    ]
   },
   {
+   "folderId": "1UNZcmTV3FmakryuWAFlxu1N49-Ct47nU",
    "name": "Dawid",
    "order": null,
    "description": "",
@@ -45,6 +48,7 @@
    ]
   },
   {
+   "folderId": "113a9HNJ91KCWQztF9Xg3OeVY2uSmB-Ot",
    "name": "Hubert",
    "order": null,
    "description": "Nasze bohurtowe cudowne dziecko. Im dziwniejsza formuła turnieju, tym większa szansa, że zabłyśnie. Prawdopodobnie wynika to z wieloletniego doświadczenia z ludowymi sztukami walk. Albo walców...",
@@ -61,6 +65,7 @@
    ]
   },
   {
+   "folderId": "1W_NCg1mUrkPtMeAM12WawNwLt5eDXqQM",
    "name": "Huckleberry",
    "order": null,
    "description": "",
@@ -77,6 +82,7 @@
    ]
   },
   {
+   "folderId": "1JPMoqT_64WZgICS3qYkoet7Ulg4hOinS",
    "name": "Kac",
    "order": null,
    "description": "",
@@ -93,6 +99,7 @@
    ]
   },
   {
+   "folderId": "17rQ4sLz8yGbRzPiT6aszLTTN3N6U54pf",
    "name": "Kamil",
    "order": null,
    "description": "",
@@ -104,6 +111,7 @@
    "photos": []
   },
   {
+   "folderId": "1NAf3ollxM7n2jyMgfI4X77X1GGe9SlfB",
    "name": "Lewy",
    "order": null,
    "description": "",
@@ -115,6 +123,7 @@
    "photos": []
   },
   {
+   "folderId": "1KSRS70A9odxrJOBwh6z8SM3RpCE5We2x",
    "name": "Lotgar",
    "order": null,
    "description": "",
@@ -131,6 +140,7 @@
    ]
   },
   {
+   "folderId": "1jIcE2m66AnDyMcLJvNcTfTm4sFcnvxWy",
    "name": "Marcin",
    "order": null,
    "description": "",
@@ -142,6 +152,7 @@
    "photos": []
   },
   {
+   "folderId": "1hwzmmK8rGW96l9R8S8osmZh9OU42w0vx",
    "name": "Ozzy",
    "order": null,
    "description": "",
@@ -158,6 +169,7 @@
    ]
   },
   {
+   "folderId": "1Lf2qKCXSMGquGocjeFrPKJVFIDjZImF0",
    "name": "Waza",
    "order": null,
    "description": "",
