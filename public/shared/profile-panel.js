@@ -568,10 +568,34 @@
     revealNewBlocks = true;
   }
 
+  // email -> public About-Us folder id, from /members/directory. Lets the drawer show the cached
+  // photo instantly on any page, without each page having to put data-folder-id on its triggers
+  // (which data-folder-id, when present, still overrides). Loaded once, on first hover/click of a
+  // trigger, so the very first open on a page may still wait for the profile request.
+  let folderIdByEmail = null;
+  let folderIdLoad = null;
+
+  function warmFolderIds() {
+    if (folderIdLoad) return folderIdLoad;
+    folderIdLoad = apiFetch('/members/directory', { method: 'GET' })
+      .then(({ members }) => {
+        folderIdByEmail = new Map(members
+          .filter((m) => m.driveFolderId)
+          .map((m) => [String(m.email).toLowerCase(), m.driveFolderId]));
+      })
+      .catch(() => { folderIdLoad = null; });
+    return folderIdLoad;
+  }
+
+  document.addEventListener('pointerover', (e) => {
+    if (!folderIdLoad && e.target.closest('[data-profile-trigger]')) warmFolderIds();
+  });
+
   async function open(email, name = '', folderId = '') {
     lastFocused = document.activeElement;
+    warmFolderIds();
     const { drawer, content, close } = ensureDrawer();
-    showPreview(content, name, folderId);
+    showPreview(content, name, folderId || folderIdByEmail?.get(String(email).toLowerCase()) || '');
     drawer.hidden = false;
     close.focus();
     try {
