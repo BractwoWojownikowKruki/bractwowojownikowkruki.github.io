@@ -7,17 +7,17 @@
    "description": "Nasz Jarl i póki co najbardziej utytułowany wojownik w drużynie. Umie zgasić człowieka jednym zdaniem. Albo włócznią w żebra.",
    "inMemoriam": false,
    "mainPhoto": {
-    "id": "1GuJWuPDCmHISQlTxqPSqgcOdV8sKWjle",
-    "url": "/people-photos/1GuJWuPDCmHISQlTxqPSqgcOdV8sKWjle-800-bd73b0f7a3.jpg"
+    "id": "1wsiozuuuwSesaitcFcyxxE15i23eUoOF",
+    "url": "/people-photos/1wsiozuuuwSesaitcFcyxxE15i23eUoOF-800-a56aa753ce.jpg"
    },
    "photos": [
     {
-     "id": "1wsiozuuuwSesaitcFcyxxE15i23eUoOF",
-     "url": "/people-photos/1wsiozuuuwSesaitcFcyxxE15i23eUoOF-300-a56aa753ce.jpg"
-    },
-    {
      "id": "1UeKr7zfyEg-Jr05ESpS6ZCg3zwnQCYU_",
      "url": "/people-photos/1UeKr7zfyEg-Jr05ESpS6ZCg3zwnQCYU_-300-6ae691628a.jpg"
+    },
+    {
+     "id": "1GuJWuPDCmHISQlTxqPSqgcOdV8sKWjle",
+     "url": "/people-photos/1GuJWuPDCmHISQlTxqPSqgcOdV8sKWjle-300-bd73b0f7a3.jpg"
     }
    ]
   },
