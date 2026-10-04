@@ -248,14 +248,17 @@ function chargeTitle() {
 }
 
 function chargeButtons() {
+  const byLabel = (a, b) => a.label.localeCompare(b.label, 'pl', { numeric: true, sensitivity: 'base' });
+  const toButton = (charge) => ({
+    id: charge.id,
+    label: chargeLabel(charge),
+    title: charge.kind === 'annual' ? `Składka roczna ${charge.year}` : `Składka dodatkowa: ${charge.name}`,
+  });
   return [
-    { id: WPISOWE_ID, label: 'Wpisowe', title: 'Wpisowe' },
-    ...charges.map((charge) => ({
-      id: charge.id,
-      label: chargeLabel(charge),
-      title: charge.kind === 'annual' ? `Składka roczna ${charge.year}` : `Składka dodatkowa: ${charge.name}`,
-    })),
-  ].sort((a, b) => a.label.localeCompare(b.label, 'pl', { numeric: true, sensitivity: 'base' }));
+    { id: WPISOWE_ID, label: 'Wpisowe', title: 'Wpisowe', group: 'mandatory' },
+    ...charges.filter((c) => c.kind === 'annual').map((c) => ({ ...toButton(c), group: 'mandatory' })).sort(byLabel),
+    ...charges.filter((c) => c.kind !== 'annual').map((c) => ({ ...toButton(c), group: 'extra' })).sort(byLabel),
+  ];
 }
 
 // Keeps the previous selection when it still exists; otherwise falls back to the current year's roczna,
@@ -264,7 +267,8 @@ function resolveSelection() {
   const buttons = chargeButtons();
   if (!buttons.some((b) => b.id === selectedChargeId)) {
     const current = charges.find((c) => c.kind === 'annual' && c.year === currentYear);
-    selectedChargeId = current ? current.id : buttons[0].id;
+    const firstAlphabetically = [...buttons].sort((a, b) => a.label.localeCompare(b.label, 'pl', { numeric: true, sensitivity: 'base' }))[0];
+    selectedChargeId = current ? current.id : firstAlphabetically.id;
   }
   selectedCharge = charges.find((c) => c.id === selectedChargeId) ?? null;
   wpisoweMode = selectedChargeId === WPISOWE_ID;
@@ -273,9 +277,15 @@ function resolveSelection() {
 }
 
 function renderChargeBar() {
-  document.getElementById('skladki-charge-buttons').innerHTML = chargeButtons().map((b) =>
-    `<button type="button" class="lw-summary-chip lw-filter-chip skladki-charge-btn" data-charge-id="${escapeAttr(b.id)}" title="${escapeAttr(b.title)}" aria-pressed="${b.id === selectedChargeId}">${escapeHtml(b.label)}</button>`,
-  ).join('');
+  const buttons = chargeButtons();
+  const groupHtml = (title, group) => {
+    const items = buttons.filter((b) => b.group === group);
+    if (items.length === 0) return '';
+    return `<div class="skladki-charge-group"><h2 class="skladki-charge-group-title">${title}</h2><div class="lw-summary-chips">${items.map((b) =>
+      `<button type="button" class="lw-summary-chip lw-filter-chip skladki-charge-btn" data-charge-id="${escapeAttr(b.id)}" title="${escapeAttr(b.title)}" aria-pressed="${b.id === selectedChargeId}">${escapeHtml(b.label)}</button>`,
+    ).join('')}</div></div>`;
+  };
+  document.getElementById('skladki-charge-buttons').innerHTML = groupHtml('Obowiązkowy', 'mandatory') + groupHtml('Dodatkowe', 'extra');
 }
 
 // Click-to-sort wiring (shared/sortable-table.js) for both of this page's tables - they share one
@@ -826,14 +836,22 @@ async function loadAndRender() {
 
 // "Jak płacić": plain text shown with pre-wrap (textContent, never HTML), so line breaks and spacing
 // stay exactly as typed. Everyone reads it; accountants/admins get the editor.
+let paymentOpen = false;
+
 function renderPaymentInfo() {
   const text = paymentInfo?.text ?? '';
   document.getElementById('skladki-payment-panel').hidden = !text && !canManageSkladki;
   document.getElementById('skladki-payment-text').textContent = text || 'Nie podano jeszcze informacji o płatności.';
-  document.getElementById('skladki-payment-text').hidden = !text && !canManageSkladki;
+  document.getElementById('skladki-payment-text').hidden = !paymentOpen;
+  document.getElementById('skladki-payment-toggle').setAttribute('aria-expanded', String(paymentOpen));
   const form = document.getElementById('skladki-payment-form');
   if (form.hidden) document.getElementById('skladki-payment-edit-toggle').hidden = !canManageSkladki;
 }
+
+document.getElementById('skladki-payment-toggle').addEventListener('click', () => {
+  paymentOpen = !paymentOpen;
+  renderPaymentInfo();
+});
 
 function closePaymentForm() {
   document.getElementById('skladki-payment-form').hidden = true;

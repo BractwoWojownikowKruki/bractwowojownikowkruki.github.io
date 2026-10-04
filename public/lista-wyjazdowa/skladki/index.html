@@ -45,9 +45,11 @@
                accountant/admin and shown to everyone. Rendered with textContent + pre-wrap so line
                breaks are kept exactly as typed. Hidden for non-staff while nothing is written. -->
           <section id="skladki-payment-panel" hidden>
-            <h2>Jak płacić</h2>
-            <div id="skladki-payment-text" class="skladki-payment-text"></div>
-            <button type="button" class="btn-cancel" id="skladki-payment-edit-toggle" hidden>Edytuj</button>
+            <div class="skladki-payment-head">
+              <button type="button" class="btn-cancel skladki-payment-toggle" id="skladki-payment-toggle" aria-expanded="false" aria-controls="skladki-payment-text">Jak płacić?</button>
+              <button type="button" id="skladki-payment-edit-toggle" class="lw-edit-toggle" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>Edytuj</span></button>
+            </div>
+            <div id="skladki-payment-text" class="skladki-payment-text" hidden></div>
             <form id="skladki-payment-form" class="skladki-payment-form" hidden>
               <div class="field">
                 <label for="skladki-payment-input">Informacje o płatności</label>
@@ -60,13 +62,14 @@
             </form>
           </section>
 
-          <!-- One button per składka (Wpisowe, every roczna year, every dodatkowa), alphabetical;
-               exactly one is pressed and the rest dim - the same look as the summary filter pills. -->
+          <!-- One button per składka, in two groups: "Obowiązkowy" (Wpisowe, then every roczna year) and
+               "Dodatkowe" (every dodatkowa, alphabetical). Exactly one is pressed and the rest dim - the
+               same look as the summary filter pills. -->
           <div class="skladki-charge-bar">
             <div class="lw-summary-filter" data-filter-active="true">
-              <div class="lw-summary-chips" id="skladki-charge-buttons"></div>
+              <div class="skladki-charge-groups" id="skladki-charge-buttons"></div>
             </div>
-            <button type="button" class="btn-cancel" id="skladki-add-toggle">+ Dodaj składkę</button>
+            <button type="button" class="skladki-add-btn" id="skladki-add-toggle">+ Dodaj składkę</button>
           </div>
 
           <form id="skladki-add-form" class="skladki-add-form" hidden>
