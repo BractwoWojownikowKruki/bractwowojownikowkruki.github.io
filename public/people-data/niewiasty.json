@@ -2,6 +2,10 @@
  "version": 1,
  "people": [
   {
+   "avatar": {
+    "id": "1KAKdDzjDjqWBuqG7Ry2ABNUaFI569P5p",
+    "url": "/people-photos/1KAKdDzjDjqWBuqG7Ry2ABNUaFI569P5p-64-8b700e0b5c.jpg"
+   },
    "folderId": "1QAc3tuxevjx6q84HiO1myBNNnuKccKYy",
    "name": "Justyna",
    "order": 4,
@@ -14,6 +18,10 @@
    "photos": []
   },
   {
+   "avatar": {
+    "id": "1D8ZPQtkYsKPgfQMt4J6dHEwU7lZQBM_y",
+    "url": "/people-photos/1D8ZPQtkYsKPgfQMt4J6dHEwU7lZQBM_y-64-53013d2e98.jpg"
+   },
    "folderId": "1EI6eVp5g5lRzxEztzOb_FnS9FkYgr31F",
    "name": "Pela",
    "order": 5,
@@ -26,6 +34,10 @@
    "photos": []
   },
   {
+   "avatar": {
+    "id": "1czqdP9m0kLQQkTmL84Zdr5JSi7kNKumW",
+    "url": "/people-photos/1czqdP9m0kLQQkTmL84Zdr5JSi7kNKumW-64-72f1d543b8.jpg"
+   },
    "folderId": "1eJ6gRiiHZtYf1Dokbv84lOoNmHKH9FKC",
    "name": "Angelika",
    "order": 6,
@@ -38,6 +50,10 @@
    "photos": []
   },
   {
+   "avatar": {
+    "id": "1D6ZWS1JW6D--tihXloT-VVkHpBSSyzQz",
+    "url": "/people-photos/1D6ZWS1JW6D--tihXloT-VVkHpBSSyzQz-64-d6f6fde1a7.jpg"
+   },
    "folderId": "18oM0hG0LDes1_p7JCpf5bps-9suzaLSZ",
    "name": "St.Szyszka",
    "order": 7,
@@ -50,6 +66,10 @@
    "photos": []
   },
   {
+   "avatar": {
+    "id": "1TtR3P9uY0y7NmqcXYDLLCXX9grSDq2aC",
+    "url": "/people-photos/1TtR3P9uY0y7NmqcXYDLLCXX9grSDq2aC-64-f7a1c632cd.jpg"
+   },
    "folderId": "1WFaeLuisCy1Z1wTnem2hTJi7K-xrhI0D",
    "name": "Hania",
    "order": 8,
@@ -62,6 +82,10 @@
    "photos": []
   },
   {
+   "avatar": {
+    "id": "11e-z2JIVvjNO2InFReKqWxEopuKwmffL",
+    "url": "/people-photos/11e-z2JIVvjNO2InFReKqWxEopuKwmffL-64-b23ffe3f59.jpg"
+   },
    "folderId": "1ItGR2Saa9_UytHbL26GY2OiNzp8bm-g1",
    "name": "Marika",
    "order": null,
