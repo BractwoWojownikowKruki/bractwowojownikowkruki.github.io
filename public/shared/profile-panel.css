@@ -297,17 +297,22 @@
 }
 
 /* Round avatar (people-photos.js) swapped in for the generic person icon / equipment image icon.
-   object-fit: contain + padding keeps the whole thumbnail visible inside the circle, never cropped. */
+   object-fit: cover fills the whole circle. */
 .person-avatar {
   display: inline-block;
   box-sizing: border-box;
   width: 1.5em;
   height: 1.5em;
-  padding: 0.22em;
   border-radius: 50%;
-  object-fit: contain;
+  object-fit: cover;
   vertical-align: middle;
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* The generic "show profile" person icon next to a name pill is not needed: the pill itself opens
+   the profile. It is only kept once people-photos.js has swapped it for the person's avatar. */
+.profile-trigger--icon-inline:not(:has(.person-avatar)) {
+  display: none;
 }
 
 /* In the icon slot: replaces the 1em icon, so the button grows to the avatar's size. */
@@ -326,21 +331,19 @@
   height: 1.5rem;
 }
 
-/* Trailing a name pill: a fixed round box, the same size for everyone. The picture is scaled to fit
-   inside the circle's inscribed square (padding + content-box), so none of it is cropped. */
+/* Trailing a name pill: a fixed round box, the same size for everyone, completely filled by the
+   picture (cover - the edges of a non-square photo are cropped). */
 .person-avatar-slot {
   flex: 0 0 auto;
   box-sizing: border-box;
   width: 1.9em;
   height: 1.9em;
   margin-left: 0.35em;
-  padding: 0.28em;
   border-radius: 50%;
   background-color: rgba(255, 255, 255, 0.08);
   background-repeat: no-repeat;
   background-position: center;
-  background-size: contain;
-  background-origin: content-box;
+  background-size: cover;
 }
 
 .profile-trigger:has(> .person-avatar-slot),
