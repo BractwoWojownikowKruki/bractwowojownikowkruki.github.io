@@ -90,10 +90,10 @@ function nameCellHtml(member, personIdAttr, categoryLabel) {
             ${namePill}
           </button>`;
   }
-  return `<button type="button" class="profile-trigger" data-profile-trigger data-email="${personIdAttr}">
+  return `<button type="button" class="profile-trigger" data-profile-trigger data-email="${personIdAttr}"${profileFolderAttr(member)}>
             ${namePill}
           </button>
-          <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${personIdAttr}" aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>`;
+          <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${personIdAttr}"${profileFolderAttr(member)} aria-label="Pokaż profil" title="Pokaż profil">${PERSON_ICON}</button>`;
 }
 
 // displayName(member) itself now lives in shared/display-name.js (included via index.html) - see

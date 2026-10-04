@@ -140,6 +140,7 @@ export const CATEGORY_SLUGS: Record<(typeof PEOPLE_PHOTO_CATEGORIES)[number], st
 };
 
 export interface RemotePersonFull extends RemotePerson {
+  folderId: string;
   name: string;
   order: number | null;
   description: string;
@@ -152,6 +153,9 @@ export interface StaticPhoto {
 }
 
 export interface StaticPerson {
+  // The public About-Us Drive folder id: lets the profile drawer find a person's snapshot entry
+  // without any e-mail (or e-mail-derived value) in this public file.
+  folderId: string;
   name: string;
   order: number | null;
   description: string;
@@ -190,6 +194,7 @@ export function buildSnapshot(people: RemotePersonFull[], manifest: Manifest): P
   return {
     version: 1,
     people: sorted.map(p => ({
+      folderId: p.folderId,
       name: p.name,
       order: p.order,
       description: p.description,

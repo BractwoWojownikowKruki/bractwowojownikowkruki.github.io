@@ -87,9 +87,9 @@ window.PeoplePhotoCache = (function () {
 
   // ---- Instant preview for the profile drawer ----
   // The drawer needs *something* to show before /member-profile answers. The static snapshots
-  // carry no e-mail (they are public), so a person is looked up by the name the trigger shows.
-  // Only an unambiguous match is used; anything else returns null and the drawer shows a
-  // placeholder until the API answers. The API response always replaces this preview.
+  // carry no e-mail (they are public), so a person is looked up by their public About-Us folder
+  // id, which the trigger carries (data-folder-id). No folder id / no match returns null and the
+  // drawer shows a placeholder until the API answers. The API response always replaces this.
   let allStaticPromise = null;
 
   function loadAllStaticPeople() {
@@ -100,23 +100,18 @@ window.PeoplePhotoCache = (function () {
     return allStaticPromise;
   }
 
-  const normalizeName = (n) => String(n || '').trim().replace(/\s+/g, ' ').toLowerCase();
-
-  // Synchronous once loadAllStaticPeople() has resolved (the drawer warms it up on page load).
-  let staticByName = null;
+  // Synchronous once loadAllStaticPeople() has resolved (warmed up on page load).
+  let staticByFolderId = null;
   function indexStatic(people) {
-    staticByName = new Map();
-    for (const p of people) {
-      const key = normalizeName(p.name);
-      staticByName.set(key, staticByName.has(key) ? null : p);
-    }
+    staticByFolderId = new Map();
+    for (const p of people) if (p.folderId) staticByFolderId.set(p.folderId, p);
   }
   loadAllStaticPeople().then(indexStatic);
 
-  function findStaticByName(name) {
-    if (!staticByName) return null;
-    return staticByName.get(normalizeName(name)) || null;
+  function findStaticByFolderId(folderId) {
+    if (!staticByFolderId || !folderId) return null;
+    return staticByFolderId.get(folderId) || null;
   }
 
-  return { applyToPeople, applyToProfile, loadStaticPeople, loadAllStaticPeople, findStaticByName };
+  return { applyToPeople, applyToProfile, loadStaticPeople, loadAllStaticPeople, findStaticByFolderId };
 })();

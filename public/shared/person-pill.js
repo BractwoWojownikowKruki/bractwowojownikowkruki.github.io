@@ -84,3 +84,12 @@ function equipmentPillHtml(item, fallbackLabel) {
   const photoIcon = '<svg class="equipment-photo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>';
   return `<button type="button" class="profile-trigger" data-equipment-trigger data-equipment-id="${personPillEscapeAttr(item.id)}"><span class="category-name-pill equipment-pill">${personPillEscapeHtml(label)}</span>${photoIcon}</button>`;
 }
+
+/**
+ * ` data-folder-id="..."` for a profile trigger whose person has a public About-Us folder, else ''.
+ * The profile drawer uses it to show the person's cached public photo instantly (the static
+ * snapshot is keyed by folder id - never by e-mail).
+ */
+function profileFolderAttr(person) {
+  return person && person.driveFolderId ? ` data-folder-id="${personPillEscapeAttr(person.driveFolderId)}"` : '';
+}

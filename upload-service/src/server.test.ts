@@ -10343,7 +10343,7 @@ test('GET /admin/people?category=upload identifies the uploader (name, category 
     const byId = new Map(people.map((p: { folderId: string }) => [p.folderId, p]));
     assert.deepEqual((byId.get('s1') as { owner: unknown }).owner, {
       email: 'ktos@gmail.com', firstName: 'Jan', lastName: 'Nowak', nickname: 'Kruk',
-      categoryId: 'blachowi', categoryLabel: 'Blachowi', status: 'active',
+      categoryId: 'blachowi', categoryLabel: 'Blachowi', status: 'active', driveFolderId: null,
     });
     assert.equal((byId.get('s2') as { owner: unknown }).owner, null);
   });
