@@ -90,10 +90,16 @@
 /* KRKG-0103: wraps a name pill plus its small "Nazwisko, Imię" subline (person-pill.js's
    personPillHtml, only when a `subline` is given - every other pill's markup is unchanged). */
 .person-pill-cell {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
+  display: inline-grid;
+  grid-template-columns: 2em auto;
+  justify-items: start;
+  align-items: start;
   gap: 0;
+}
+
+.person-pill-cell > .category-name-pill,
+.person-pill-cell > .person-pill-subline {
+  grid-column: 2;
 }
 
 .person-pill-subline {
