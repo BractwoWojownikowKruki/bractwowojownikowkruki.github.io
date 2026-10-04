@@ -24,6 +24,13 @@ Zdjęcia osób (kategorie „Wojownicy” oraz zdjęcia opublikowane w profilach
 
 Ten sam job zapisuje też `public/people-data/<kategoria>.json` (imię, opis, kolejność, in memoriam, zdjęcia). Strony „Wojownicy” czytają najpierw ten plik — bez pytania backendu — a do API wracają tylko, gdy pliku brakuje lub jest nieprawidłowy.  Osoby o tym samym numerze kolejności są ułożone alfabetycznie.
 
+### Awatary w pigułkach
+
+Zamiast ikonki człowieka (i ikonki obrazka przy sprzęcie) pigułki pokazują małe, okrągłe awatary 64 px — wyłącznie ze statycznych plików, bez zapytań do Drive ani backendu (`people-photos.js` podmienia ikonki po wyrenderowaniu strony; brak awatara lub błąd obrazka = zostaje dotychczasowa ikonka).
+
+- **Osoby:** job pobiera z Drive wersję `=s64` zdjęcia głównego (`<id>-64-<md5>.jpg`) i zapisuje ją w snapshocie jako `avatar`. Pigułka znajduje osobę po `data-folder-id` (publiczny folder wizytówki), tak samo jak podgląd w szufladzie. Osoby bez konta i bez opublikowanej wizytówki nie mają awatara.
+- **Sprzęt:** zdjęcia sprzętu leżą w Cloud Storage. Job pyta publiczny endpoint backendu `GET /equipment-avatars` (id przedmiotu + adres zdjęcia głównego), skaluje zdjęcie do kwadratu 64 px (`sharp`, WebP) i zapisuje `<id zdjęcia>-64-0.webp`; mapowanie „przedmiot → zdjęcie” jest w `public/people-data/equipment-avatars.json`. Backend wywołuje job po dodaniu/usunięciu/zmianie zdjęcia głównego sprzętu.
+
 Odświeżenie poza nocnym uruchomieniem: backend (`upload-service/src/people-sync.ts`) wywołuje `workflow_dispatch` tego workflow z `debounce_seconds=120` po każdej zmianie wykonanej w panelu admina oraz gdy członek zmieni swoje zdjęcie główne. Workflow czeka tyle sekund (kilka szybkich edycji = jeden przebieg), a jego `concurrency` trzyma w kolejce najwyżej jeden kolejny przebieg. Usunięcie zdjęcia przez członka czeka na przebieg nocny. Wymaga, by `GITHUB_TOKEN` backendu miał uprawnienie *Actions: write*; bez niego zmiany pojawią się następnej nocy (błąd jest tylko logowany).
 
 ---

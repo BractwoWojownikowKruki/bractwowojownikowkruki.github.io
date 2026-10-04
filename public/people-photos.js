@@ -113,5 +113,128 @@ window.PeoplePhotoCache = (function () {
     return staticByFolderId.get(folderId) || null;
   }
 
-  return { applyToPeople, applyToProfile, loadStaticPeople, loadAllStaticPeople, findStaticByFolderId };
+  // ---- Avatars in name pills / equipment pills ----
+  // A small round picture replaces the generic person icon (and the equipment image icon) wherever
+  // a pill's trigger button is rendered. Everything is static: persons come from the snapshot's
+  // `avatar` (looked up by the trigger's data-folder-id), equipment from
+  // /people-data/equipment-avatars.json + the photo manifest. Nothing here ever asks Google Drive
+  // or the backend, and anything missing (no folder id, no cached avatar, a failed image load)
+  // simply leaves the original icon in place.
+  //
+  // Pages render their tables with innerHTML at arbitrary moments, and the snapshots load
+  // asynchronously, so instead of touching every page's renderer a MutationObserver upgrades
+  // triggers as they appear (and once more when the data arrives). A trigger that was upgraded is
+  // marked data-avatar so it is never processed twice.
+  const ICON_TRIGGER = '.profile-trigger--icon-inline, .profile-trigger--icon';
+  const AVATAR_TRIGGERS = '[data-profile-trigger][data-folder-id]:not([data-avatar]), [data-equipment-trigger][data-equipment-id]:not([data-avatar])';
+
+  let equipmentAvatarsPromise = null;
+  let equipmentAvatars = null; // equipment id -> url, once loaded
+
+  function loadEquipmentAvatars() {
+    if (!equipmentAvatarsPromise) {
+      equipmentAvatarsPromise = Promise.all([
+        fetch('/people-data/equipment-avatars.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)),
+        loadManifest(),
+      ])
+        .then(([data, manifest]) => {
+          const map = new Map();
+          if (data && data.version === 1 && data.items && manifest) {
+            for (const [equipmentId, photoId] of Object.entries(data.items)) {
+              const file = manifest[photoId] && manifest[photoId].files && manifest[photoId].files['64'];
+              if (file) map.set(equipmentId, '/' + file);
+            }
+          }
+          return map;
+        })
+        .catch(() => new Map())
+        .then((map) => {
+          equipmentAvatars = map;
+          return map;
+        });
+    }
+    return equipmentAvatarsPromise;
+  }
+
+  function personAvatarUrl(folderId) {
+    const person = findStaticByFolderId(folderId);
+    return person && person.avatar && person.avatar.url ? person.avatar.url : null;
+  }
+
+  function makeAvatar(url, modifier) {
+    const img = document.createElement('img');
+    img.className = 'person-avatar' + (modifier ? ' ' + modifier : '');
+    img.src = url;
+    img.alt = '';
+    img.width = 64;
+    img.height = 64;
+    img.decoding = 'async';
+    img.loading = 'lazy';
+    return img;
+  }
+
+  function upgradeTrigger(trigger) {
+    if (trigger.hasAttribute('data-equipment-trigger')) {
+      const url = equipmentAvatars && equipmentAvatars.get(trigger.dataset.equipmentId);
+      const icon = trigger.querySelector('svg.equipment-photo-icon');
+      if (!url || !icon) return;
+      const img = makeAvatar(url, 'person-avatar--equipment');
+      img.addEventListener('error', () => img.replaceWith(icon), { once: true });
+      icon.replaceWith(img);
+      trigger.setAttribute('data-avatar', '');
+      return;
+    }
+    const url = personAvatarUrl(trigger.dataset.folderId);
+    if (!url) return;
+    if (trigger.matches(ICON_TRIGGER)) {
+      const icon = trigger.querySelector('svg');
+      if (!icon) return;
+      const img = makeAvatar(url, 'person-avatar--icon');
+      img.addEventListener('error', () => img.replaceWith(icon), { once: true });
+      icon.replaceWith(img);
+    } else {
+      // A pill with no "show profile" icon next to it (owner cells, Pliki, ...): the avatar leads
+      // the pill instead. When an icon trigger follows, that one carries the avatar.
+      const next = trigger.nextElementSibling;
+      if (next && next.matches(ICON_TRIGGER)) return;
+      const img = makeAvatar(url, 'person-avatar--lead');
+      img.addEventListener('error', () => img.remove(), { once: true });
+      trigger.prepend(img);
+    }
+    trigger.setAttribute('data-avatar', '');
+  }
+
+  function applyAvatars() {
+    if (typeof document === 'undefined') return;
+    const triggers = document.querySelectorAll(AVATAR_TRIGGERS);
+    if (!triggers.length) return;
+    if (!equipmentAvatars && [...triggers].some((t) => t.hasAttribute('data-equipment-trigger'))) {
+      loadEquipmentAvatars().then(applyAvatars);
+    }
+    triggers.forEach(upgradeTrigger);
+  }
+
+  if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
+    let scheduled = false;
+    const schedule = () => {
+      if (scheduled) return;
+      scheduled = true;
+      setTimeout(() => {
+        scheduled = false;
+        applyAvatars();
+      }, 0);
+    };
+    const start = () => {
+      new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+      loadAllStaticPeople().then(() => {
+        // indexStatic (registered earlier on the same promise) has already run.
+        applyAvatars();
+      });
+      schedule();
+    };
+    if (document.body) start();
+    else document.addEventListener('DOMContentLoaded', start, { once: true });
+  }
+
+  return { applyToPeople, applyToProfile, loadStaticPeople, loadAllStaticPeople, findStaticByFolderId, personAvatarUrl, loadEquipmentAvatars, applyAvatars };
 })();

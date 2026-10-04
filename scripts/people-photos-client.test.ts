@@ -45,3 +45,137 @@ test('findStaticByFolderId resolves a person by public folder id once the snapsh
   assert.equal(cache.findStaticByFolderId('nope'), null);
   assert.equal(cache.findStaticByFolderId(''), null);
 });
+
+// ---- Avatars: DOM upgrade of profile / equipment triggers ----
+// A minimal DOM: just enough surface for the upgrade code (querySelectorAll over triggers,
+// replaceWith / prepend / matches / dataset), driven synchronously through applyAvatars.
+class FakeEl {
+  attrs: Record<string, string> = {};
+  children: FakeEl[] = [];
+  parent: FakeEl | null = null;
+  listeners: Record<string, () => void> = {};
+  dataset: Record<string, string>;
+  constructor(public tag: string, public cls: string, attrs: Record<string, string> = {}) {
+    this.attrs = { ...attrs };
+    this.dataset = {};
+    for (const [k, v] of Object.entries(attrs)) if (k.startsWith('data-')) this.dataset[k.slice(5).replace(/-(\w)/g, (_m, c) => c.toUpperCase())] = v;
+  }
+  add(child: FakeEl) { child.parent = this; this.children.push(child); return child; }
+  hasAttribute(n: string) { return n in this.attrs; }
+  setAttribute(n: string, v: string) { this.attrs[n] = v; }
+  matches(sel: string) { return sel.split(',').map(x => x.trim()).some(c => c.startsWith('.') && this.cls.split(' ').includes(c.slice(1))); }
+  get nextElementSibling() { const i = this.parent!.children.indexOf(this); return this.parent!.children[i + 1] ?? null; }
+  querySelector(sel: string): FakeEl | null {
+    const [tag, cls] = sel.split('.');
+    return this.children.find(c => (!tag || c.tag === tag) && (!cls || c.cls.split(' ').includes(cls))) ?? null;
+  }
+  replaceWith(other: FakeEl) { const i = this.parent!.children.indexOf(this); other.parent = this.parent; this.parent!.children[i] = other; }
+  prepend(child: FakeEl) { child.parent = this; this.children.unshift(child); }
+  remove() { this.parent!.children = this.parent!.children.filter(c => c !== this); }
+  addEventListener(name: string, fn: () => void) { this.listeners[name] = fn; }
+  get className() { return this.cls; }
+  set className(v: string) { this.cls = v; }
+  src = ''; alt = ''; width = 0; height = 0; decoding = ''; loading = '';
+}
+
+function loadWithDom(triggers: FakeEl[], routes: Record<string, unknown>) {
+  const window: Record<string, any> = {};
+  const document = {
+    body: {},
+    querySelectorAll: (sel: string) => {
+      const wantEquipment = sel.includes('data-equipment-trigger');
+      return triggers.filter(t => !t.hasAttribute('data-avatar') && (t.hasAttribute('data-equipment-trigger') ? wantEquipment : t.hasAttribute('data-folder-id')));
+    },
+    createElement: (tag: string) => new FakeEl(tag, ''),
+    addEventListener() {},
+  };
+  const fetchImpl = (url: string) => (url in routes ? ok(routes[url]) : Promise.resolve({ ok: false }));
+  vm.runInNewContext(readFileSync(new URL('../public/people-photos.js', import.meta.url), 'utf8'), {
+    window, document, fetch: fetchImpl, Math, Promise, setTimeout, Object, MutationObserver: undefined,
+  });
+  return window.PeoplePhotoCache;
+}
+
+const SNAPSHOT = {
+  version: 1,
+  people: [
+    { folderId: 'F1', name: 'Ania', avatar: { id: 'm1', url: '/people-photos/m1-64-aaaaaaaaaa.jpg' }, mainPhoto: null, photos: [] },
+    { folderId: 'F2', name: 'Bez', avatar: null, mainPhoto: null, photos: [] },
+  ],
+};
+const allSnapshots = Object.fromEntries(['zalozyciele', 'blachowi', 'niewiasty', 'emeryci', 'kandydaci'].map(s => [`/people-data/${s}.json`, s === 'blachowi' ? SNAPSHOT : { version: 1, people: [] }]));
+
+test('personAvatarUrl resolves the cached avatar by folder id; null without avatar / unknown folder', async () => {
+  const cache = loadWithDom([], allSnapshots);
+  await cache.loadAllStaticPeople();
+  await new Promise(r => setImmediate(r));
+  assert.equal(cache.personAvatarUrl('F1'), '/people-photos/m1-64-aaaaaaaaaa.jpg');
+  assert.equal(cache.personAvatarUrl('F2'), null);
+  assert.equal(cache.personAvatarUrl('nope'), null);
+});
+
+test('the icon trigger swaps its svg for the avatar and restores it if the image fails; a missing avatar changes nothing', async () => {
+  const wrap = new FakeEl('td', '');
+  const svg = new FakeEl('svg', '');
+  const iconBtn = wrap.add(new FakeEl('button', 'profile-trigger profile-trigger--icon-inline', { 'data-profile-trigger': '', 'data-folder-id': 'F1' }));
+  iconBtn.add(svg);
+  const noAvatarBtn = wrap.add(new FakeEl('button', 'profile-trigger profile-trigger--icon-inline', { 'data-profile-trigger': '', 'data-folder-id': 'F2' }));
+  const noAvatarSvg = noAvatarBtn.add(new FakeEl('svg', ''));
+  const cache = loadWithDom([iconBtn, noAvatarBtn], allSnapshots);
+  await cache.loadAllStaticPeople();
+  await new Promise(r => setImmediate(r));
+  cache.applyAvatars();
+
+  const img = iconBtn.children[0];
+  assert.equal(img.tag, 'img');
+  assert.equal(img.src, '/people-photos/m1-64-aaaaaaaaaa.jpg');
+  assert.ok(img.cls.includes('person-avatar'));
+  assert.ok(iconBtn.hasAttribute('data-avatar'));
+  assert.equal(noAvatarBtn.children[0], noAvatarSvg, 'no cached avatar -> original icon stays');
+
+  img.listeners.error();
+  assert.equal(iconBtn.children[0], svg, 'a broken image falls back to the original icon');
+});
+
+test('a pill trigger without an icon button gets a leading avatar; with an icon button next to it the icon takes it', async () => {
+  const row = new FakeEl('td', '');
+  const lone = row.add(new FakeEl('button', 'profile-trigger', { 'data-profile-trigger': '', 'data-folder-id': 'F1' }));
+  lone.add(new FakeEl('span', 'category-name-pill'));
+  const row2 = new FakeEl('td', '');
+  const paired = row2.add(new FakeEl('button', 'profile-trigger', { 'data-profile-trigger': '', 'data-folder-id': 'F1' }));
+  paired.add(new FakeEl('span', 'category-name-pill'));
+  const iconBtn = row2.add(new FakeEl('button', 'profile-trigger profile-trigger--icon-inline', { 'data-profile-trigger': '', 'data-folder-id': 'F1' }));
+  iconBtn.add(new FakeEl('svg', ''));
+  const cache = loadWithDom([lone, paired, iconBtn], allSnapshots);
+  await cache.loadAllStaticPeople();
+  await new Promise(r => setImmediate(r));
+  cache.applyAvatars();
+
+  assert.equal(lone.children[0].tag, 'img');
+  assert.ok(lone.children[0].cls.includes('person-avatar--lead'));
+  assert.equal(paired.children[0].tag, 'span', 'pill untouched when the icon carries the avatar');
+  assert.equal(iconBtn.children[0].tag, 'img');
+});
+
+test('an equipment pill swaps its image icon for the cached equipment avatar (photo id -> manifest)', async () => {
+  const btn = new FakeEl('button', 'profile-trigger', { 'data-equipment-trigger': '', 'data-equipment-id': 'e1' });
+  btn.add(new FakeEl('span', 'equipment-pill'));
+  const icon = btn.add(new FakeEl('svg', 'equipment-photo-icon'));
+  const other = new FakeEl('button', 'profile-trigger', { 'data-equipment-trigger': '', 'data-equipment-id': 'e2' });
+  other.add(new FakeEl('svg', 'equipment-photo-icon'));
+  const cache = loadWithDom([btn, other], {
+    ...allSnapshots,
+    '/people-data/equipment-avatars.json': { version: 1, items: { e1: 'p1' } },
+    '/people-photos/manifest.json': { version: 1, photos: { p1: { v: '0', files: { '64': 'people-photos/p1-64-0.webp' } } } },
+  });
+  cache.applyAvatars(); // first pass: kicks off the (async) equipment lookup
+  await cache.loadEquipmentAvatars();
+  await new Promise(r => setImmediate(r));
+  cache.applyAvatars();
+  assert.equal(btn.children[1].tag, 'img');
+  assert.equal(btn.children[1].src, '/people-photos/p1-64-0.webp');
+  assert.ok(btn.children[1].cls.includes('person-avatar--equipment'));
+  assert.equal(other.children[0].tag, 'svg', 'item without a cached avatar keeps its icon');
+  btn.children[1].listeners.error();
+  assert.equal(btn.children[1], icon);
+});

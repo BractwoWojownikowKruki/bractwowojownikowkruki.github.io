@@ -1,8 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  AVATAR_SIZE,
+  buildEquipmentAvatarsSnapshot,
   buildManifest,
   buildSnapshot,
+  collectAvatarPhotos,
+  collectEquipmentAvatarPhotos,
   sortPeopleDeterministically,
   type RemotePersonFull,
   collectWantedPhotos,
@@ -93,7 +97,7 @@ test('buildSnapshot uses cached local paths, drops uncached photos, never stores
   assert.deepEqual(snapshot, {
     version: 1,
     people: [{
-      folderId: 'f-Ania', name: 'Ania', order: 1, description: 'opis Ania', inMemoriam: true,
+      avatar: null, folderId: 'f-Ania', name: 'Ania', order: 1, description: 'opis Ania', inMemoriam: true,
       mainPhoto: { id: 'm1', url: '/people-photos/m1-800-aaaaaaaaaa.jpg' },
       photos: [{ id: 'g1', url: '/people-photos/g1-300-aaaaaaaaaa.jpg' }],
     }],
@@ -113,4 +117,46 @@ test('buildManifest output does not depend on the order photos are listed in', (
   const forward = JSON.stringify(buildManifest(collectWantedPhotos(people), files));
   const reversed = JSON.stringify(buildManifest(collectWantedPhotos([...people].reverse()), files));
   assert.equal(forward, reversed);
+});
+
+test('collectAvatarPhotos asks Drive for a 64px copy of each main photo only', () => {
+  const wanted = collectAvatarPhotos([person(['m1', MD5_A], [['g1', MD5_A]]), person(['m1', MD5_A]), person(null), person(['../evil'])]);
+  assert.deepEqual(wanted, [{ id: 'm1', size: AVATAR_SIZE, version: 'aaaaaaaaaa', sourceUrl: 'https://lh3.example/m1=s64' }]);
+});
+
+test('an avatar is cached beside the 800px copy, and a new main photo replaces the old avatar', () => {
+  const before = [...collectWantedPhotos([person(['m1', MD5_A])]), ...collectAvatarPhotos([person(['m1', MD5_A])])];
+  const files = before.map(w => fileNameFor(w, 'jpg'));
+  assert.deepEqual(files, ['m1-800-aaaaaaaaaa.jpg', 'm1-64-aaaaaaaaaa.jpg']);
+  assert.deepEqual(buildManifest(before, files).photos.m1.files, {
+    '64': 'people-photos/m1-64-aaaaaaaaaa.jpg',
+    '800': 'people-photos/m1-800-aaaaaaaaaa.jpg',
+  });
+  const after = [...collectWantedPhotos([person(['m2', MD5_B])]), ...collectAvatarPhotos([person(['m2', MD5_B])])];
+  const plan = planSync(after, files);
+  assert.deepEqual(plan.toDelete.sort(), ['m1-64-aaaaaaaaaa.jpg', 'm1-800-aaaaaaaaaa.jpg']);
+  assert.deepEqual(plan.toDownload.map(w => `${w.id}-${w.size}`), ['m2-800', 'm2-64']);
+});
+
+test('buildSnapshot carries the cached avatar, or null while it is not cached', () => {
+  const p = full('Ania', 1, person(['m1', MD5_A]));
+  const wanted = [...collectWantedPhotos([p]), ...collectAvatarPhotos([p])];
+  const withAvatar = buildSnapshot([p], buildManifest(wanted, ['m1-800-aaaaaaaaaa.jpg', 'm1-64-aaaaaaaaaa.jpg']));
+  assert.deepEqual(withAvatar.people[0].avatar, { id: 'm1', url: '/people-photos/m1-64-aaaaaaaaaa.jpg' });
+  const withoutAvatar = buildSnapshot([p], buildManifest(wanted, ['m1-800-aaaaaaaaaa.jpg']));
+  assert.equal(withoutAvatar.people[0].avatar, null);
+  assert.equal(buildSnapshot([full('Bez', null, person(null))], buildManifest([], [])).people[0].avatar, null);
+});
+
+test('equipment avatars: resized copies keyed by photo id, snapshot lists only cached ones', () => {
+  const items = [
+    { id: 'e2', photoId: 'p2', url: 'https://storage.example/e2/p2.jpg' },
+    { id: 'e1', photoId: 'p1', url: 'https://storage.example/e1/p1.jpg' },
+    { id: 'bad', photoId: '../x', url: 'https://storage.example/x.jpg' },
+    { id: 'http', photoId: 'p3', url: 'http://insecure.example/x.jpg' },
+  ];
+  const wanted = collectEquipmentAvatarPhotos(items);
+  assert.deepEqual(wanted.map(w => [w.id, w.size, w.version, w.resize]), [['p2', 64, '0', true], ['p1', 64, '0', true]]);
+  const manifest = buildManifest(wanted, ['p1-64-0.webp']); // p2 failed to download
+  assert.deepEqual(buildEquipmentAvatarsSnapshot(items, manifest), { version: 1, items: { e1: 'p1' } });
 });
