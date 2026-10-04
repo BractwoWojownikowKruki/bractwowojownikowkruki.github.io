@@ -285,7 +285,7 @@ function renderChargeBar() {
       `<button type="button" class="lw-summary-chip lw-filter-chip skladki-charge-btn" data-charge-id="${escapeAttr(b.id)}" title="${escapeAttr(b.title)}" aria-pressed="${b.id === selectedChargeId}">${escapeHtml(b.label)}</button>`,
     ).join('')}</div></div>`;
   };
-  document.getElementById('skladki-charge-buttons').innerHTML = groupHtml('Obowiązkowy', 'mandatory') + groupHtml('Dodatkowe', 'extra');
+  document.getElementById('skladki-charge-buttons').innerHTML = groupHtml('Obowiązkowe', 'mandatory') + groupHtml('Dodatkowe', 'extra');
 }
 
 // Click-to-sort wiring (shared/sortable-table.js) for both of this page's tables - they share one
@@ -709,7 +709,7 @@ function renderYearFee(yearFee) {
   if (wpisoweMode || extraMode) return;
   const creatorEl = document.getElementById('skladki-year-creator');
   creatorEl.hidden = !selectedCharge?.createdBy;
-  if (selectedCharge?.createdBy) creatorEl.textContent = `Założone przez: ${personNameFor(selectedCharge.createdBy)}`;
+  if (selectedCharge?.createdBy) creatorEl.innerHTML = `Założone przez: ${creatorHtml(selectedCharge.createdBy)}`;
   const display = document.getElementById('skladki-year-fee-display');
   const editPanel = document.getElementById('skladki-year-fee-edit');
   const historyLink = document.getElementById('skladki-year-fee-history-link');
@@ -788,6 +788,15 @@ document.getElementById('skladki-year-fee-remove').addEventListener('click', rem
 // The roster entry's display name for an e-mail (a charge's creator), falling back to the e-mail
 // itself for someone no longer on the roster.
 let rosterForNames = [];
+// "Założone przez": the standard person pill (avatar + profile drawer) when the creator is on the
+// roster, else the bare e-mail.
+function creatorHtml(email) {
+  const member = rosterForNames.find((m) => m.personId === email);
+  if (!member) return escapeHtml(email);
+  const categoryLabel = member.categoryId ? (categoryLabelById.get(member.categoryId) ?? member.categoryId) : null;
+  return nameCellHtml(member, escapeAttr(member.personId), categoryLabel);
+}
+
 function personNameFor(email) {
   const member = rosterForNames.find((m) => m.personId === email);
   return member ? displayName(member) : email;
@@ -846,6 +855,7 @@ function renderPaymentInfo() {
   document.getElementById('skladki-payment-toggle').setAttribute('aria-expanded', String(paymentOpen));
   const form = document.getElementById('skladki-payment-form');
   if (form.hidden) document.getElementById('skladki-payment-edit-toggle').hidden = !canManageSkladki;
+  document.getElementById('skladki-payment-box').hidden = !paymentOpen && form.hidden;
 }
 
 document.getElementById('skladki-payment-toggle').addEventListener('click', () => {
@@ -856,12 +866,14 @@ document.getElementById('skladki-payment-toggle').addEventListener('click', () =
 function closePaymentForm() {
   document.getElementById('skladki-payment-form').hidden = true;
   document.getElementById('skladki-payment-edit-toggle').hidden = !canManageSkladki;
+  renderPaymentInfo();
 }
 
 document.getElementById('skladki-payment-edit-toggle').addEventListener('click', () => {
   document.getElementById('skladki-payment-input').value = paymentInfo?.text ?? '';
   document.getElementById('skladki-payment-form').hidden = false;
   document.getElementById('skladki-payment-edit-toggle').hidden = true;
+  renderPaymentInfo();
 });
 
 document.getElementById('skladki-payment-cancel').addEventListener('click', closePaymentForm);
@@ -894,7 +906,7 @@ function renderExtraPanel() {
   if (!extraMode) return;
   const charge = selectedCharge;
   document.getElementById('skladki-extra-title').textContent = charge.name;
-  document.getElementById('skladki-extra-creator').textContent = `Założone przez: ${personNameFor(charge.createdBy)}`;
+  document.getElementById('skladki-extra-creator').innerHTML = `Założone przez: ${creatorHtml(charge.createdBy)}`;
   document.getElementById('skladki-extra-details').innerHTML = `
     <p>Kwota: ${charge.amount ? escapeHtml(charge.amount) : 'nie ustalono'}</p>
     ${charge.description ? `<p class="skladki-pre">${escapeHtml(charge.description)}</p>` : ''}

@@ -44,11 +44,15 @@
           <!-- "Jak płacić": one club-wide plain-text block (account number, BLIK, ...) written by an
                accountant/admin and shown to everyone. Rendered with textContent + pre-wrap so line
                breaks are kept exactly as typed. Hidden for non-staff while nothing is written. -->
-          <section id="skladki-payment-panel" hidden>
-            <div class="skladki-payment-head">
-              <button type="button" class="btn-cancel skladki-payment-toggle" id="skladki-payment-toggle" aria-expanded="false" aria-controls="skladki-payment-text">Jak płacić?</button>
+          <div class="skladki-top-row">
+            <span id="skladki-payment-panel" class="skladki-payment-head" hidden>
+              <button type="button" class="btn-cancel skladki-payment-toggle" id="skladki-payment-toggle" aria-expanded="false" aria-controls="skladki-payment-box">Jak płacić?</button>
               <button type="button" id="skladki-payment-edit-toggle" class="lw-edit-toggle" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>Edytuj</span></button>
-            </div>
+            </span>
+            <button type="button" class="skladki-add-btn" id="skladki-add-toggle">+ Dodaj składkę</button>
+          </div>
+          <fieldset id="skladki-payment-box" class="skladki-fieldset" hidden>
+            <legend>Jak płacić</legend>
             <div id="skladki-payment-text" class="skladki-payment-text" hidden></div>
             <form id="skladki-payment-form" class="skladki-payment-form" hidden>
               <div class="field">
@@ -60,16 +64,15 @@
                 <button type="button" class="btn-cancel" id="skladki-payment-cancel">Anuluj</button>
               </div>
             </form>
-          </section>
+          </fieldset>
 
-          <!-- One button per składka, in two groups: "Obowiązkowy" (Wpisowe, then every roczna year) and
+          <!-- One button per składka, in two groups: "Obowiązkowe" (Wpisowe, then every roczna year) and
                "Dodatkowe" (every dodatkowa, alphabetical). Exactly one is pressed and the rest dim - the
                same look as the summary filter pills. -->
           <div class="skladki-charge-bar">
             <div class="lw-summary-filter" data-filter-active="true">
               <div class="skladki-charge-groups" id="skladki-charge-buttons"></div>
             </div>
-            <button type="button" class="skladki-add-btn" id="skladki-add-toggle">+ Dodaj składkę</button>
           </div>
 
           <form id="skladki-add-form" class="skladki-add-form" hidden>
@@ -94,8 +97,8 @@
                 <input type="text" id="skladki-add-amount" maxlength="200" placeholder="np. 50 zł" />
               </div>
               <div class="field">
-                <label for="skladki-add-description">Opis</label>
-                <textarea id="skladki-add-description" rows="3" maxlength="1000"></textarea>
+                <label for="skladki-add-description">Dodatkowe informacje</label>
+                <textarea id="skladki-add-description" rows="3" maxlength="1000" placeholder="Np. numer telefonu do bliskiego."></textarea>
               </div>
               <div class="field">
                 <label for="skladki-add-duedate">Termin płatności</label>
@@ -111,8 +114,8 @@
 
           <!-- Details of a składka dodatkowa (the roczna one uses the panel below): who created it,
                amount, description and deadline; editable by its creator, an accountant or an admin. -->
-          <div id="skladki-extra-panel" class="skladki-extra-panel" hidden>
-            <h2 id="skladki-extra-title"></h2>
+          <fieldset id="skladki-extra-panel" class="skladki-fieldset skladki-extra-panel" hidden>
+            <legend id="skladki-extra-title"></legend>
             <p id="skladki-extra-creator" class="skladki-extra-meta"></p>
             <div class="lw-fee-summary">
               <div id="skladki-extra-details" class="skladki-extra-details"></div>
@@ -128,7 +131,7 @@
                 <input type="text" id="skladki-extra-amount-input" maxlength="200" />
               </div>
               <div class="field">
-                <label for="skladki-extra-description-input">Opis</label>
+                <label for="skladki-extra-description-input">Dodatkowe informacje</label>
                 <textarea id="skladki-extra-description-input" rows="3" maxlength="1000"></textarea>
               </div>
               <div class="field">
@@ -140,13 +143,14 @@
                 <button type="button" id="skladki-extra-delete" class="btn-cancel">Usuń składkę</button>
               </div>
             </div>
-          </div>
+          </fieldset>
 
           <!-- The shared per-year rate note (e.g. "100 zł mężczyźni, 50 zł kobiety"), set once by
                an accountant/admin - same display/edit-panel pattern as wyjazd.js's
                #skladka-fee-panel (display span + always-visible input+Zapisz for canManageSkladki,
                plain text otherwise). Replaces the old per-member "Kwota" text field. -->
-          <div id="skladka-fee-panel">
+          <fieldset id="skladka-fee-panel" class="skladki-fieldset">
+            <legend>Składka roczna</legend>
             <p id="skladki-year-creator" class="skladki-extra-meta" hidden></p>
             <div class="lw-fee-summary">
               <span id="skladki-year-fee-display"></span>
@@ -166,7 +170,7 @@
                 <button type="button" id="skladki-year-fee-remove" class="btn-cancel">Usuń składkę</button>
               </div>
             </div>
-          </div>
+          </fieldset>
 
           <!-- Ile osób jeszcze nie ma opłaconej składki rocznej za wybrany rok, wg sekcji i wg
                typu (KRKG-0047 follow-up) - same #summary-panel/#summary-content ids and CSS as
