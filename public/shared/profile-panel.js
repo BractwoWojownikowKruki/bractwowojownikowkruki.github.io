@@ -548,17 +548,17 @@
     return false;
   }
 
-  function showPreview(content, name) {
-    const found = window.PeoplePhotoCache && window.PeoplePhotoCache.findStaticByName
-      ? window.PeoplePhotoCache.findStaticByName(name)
+  function showPreview(content, name, folderId) {
+    const found = window.PeoplePhotoCache && window.PeoplePhotoCache.findStaticByFolderId
+      ? window.PeoplePhotoCache.findStaticByFolderId(folderId)
       : null;
     content.innerHTML = previewHtml(name, found);
   }
 
-  async function open(email, name = '') {
+  async function open(email, name = '', folderId = '') {
     lastFocused = document.activeElement;
     const { drawer, content, close } = ensureDrawer();
-    showPreview(content, name);
+    showPreview(content, name, folderId);
     drawer.hidden = false;
     close.focus();
     try {
@@ -578,10 +578,10 @@
   // KRKG-0087: an accountless person has no e-mail, so their drawer is keyed by personId and read
   // from the person-keyed endpoint. Same drawer/render path as open() above - the response carries
   // accountless:true and no photos, so the render is naturally the read-only person view.
-  async function openPerson(personId, name = '') {
+  async function openPerson(personId, name = '', folderId = '') {
     lastFocused = document.activeElement;
     const { drawer, content, close } = ensureDrawer();
-    showPreview(content, name);
+    showPreview(content, name, folderId);
     drawer.hidden = false;
     close.focus();
     try {
@@ -809,7 +809,7 @@
     const trigger = e.target.closest('[data-profile-trigger]');
     if (trigger) {
       if (trigger.dataset.personId) openPerson(trigger.dataset.personId, triggerName(trigger));
-      else open(trigger.dataset.email, triggerName(trigger));
+      else open(trigger.dataset.email, triggerName(trigger), trigger.dataset.folderId);
       return;
     }
 

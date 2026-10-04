@@ -2258,6 +2258,7 @@ interface UploadOwner {
   categoryId: string | null;
   categoryLabel: string | null;
   status: MembershipStatus | null;
+  driveFolderId: string | null;
 }
 
 async function enrichUploadEntryWithPublicStatus(
@@ -2282,6 +2283,7 @@ async function enrichUploadEntryWithPublicStatus(
         categoryId: member?.categoryId ?? null,
         categoryLabel: member?.categoryId ? (categoryLabels.get(member.categoryId) ?? member.categoryId) : null,
         status: member?.status ?? null,
+        driveFolderId: member?.driveFolderId ?? null,
       }
     : null;
   // The registration form's free-text description - prefills the admin's "Opis" for a first
@@ -4019,6 +4021,9 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
       accountless: false,
       ownerPersonId: null,
       email,
+      // The member's public About-Us folder id (null if unpublished) - lets the client show the
+      // cached public photo in the profile drawer instantly (no e-mail ever reaches the snapshot).
+      driveFolderId: member?.driveFolderId ?? null,
       lastName: member?.lastName ?? null,
       firstName: member?.firstName ?? null,
       nickname: member?.nickname ?? null,
@@ -4154,6 +4159,7 @@ async function handleMembersDirectory(req: IncomingMessage, res: ServerResponse,
     const member = memberByEmail.get(email);
     return {
       email,
+      driveFolderId: member?.driveFolderId ?? null,
       lastName: member?.lastName ?? null,
       firstName: member?.firstName ?? null,
       nickname: member?.nickname ?? null,

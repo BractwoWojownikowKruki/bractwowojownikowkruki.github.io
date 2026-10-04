@@ -134,7 +134,7 @@ function ownerCellHtml(personId) {
   });
   const triggerAttr = person.accountless
     ? `data-person-id="${escapeAttr(person.personId)}"`
-    : `data-email="${escapeAttr(person.email)}"`;
+    : `data-email="${escapeAttr(person.email)}"${profileFolderAttr(person)}`;
   return `<button type="button" class="profile-trigger" data-profile-trigger ${triggerAttr}>${pill}</button>`;
 }
 

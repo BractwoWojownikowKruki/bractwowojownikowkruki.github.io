@@ -34,3 +34,14 @@ test('loadStaticPeople returns null (=> live API fallback) on 404, bad version, 
   assert.equal(await load(() => Promise.reject(new Error('offline'))).loadStaticPeople('Blachowi'), null);
   assert.equal(await load(() => ok({ version: 1, people: [] })).loadStaticPeople('Inna'), null);
 });
+
+test('findStaticByFolderId resolves a person by public folder id once the snapshots are loaded', async () => {
+  const person = { folderId: 'F1', name: 'Ania', order: 1, description: '', inMemoriam: false, mainPhoto: null, photos: [] };
+  const cache = load(() => ok({ version: 1, people: [person] }));
+  assert.equal(cache.findStaticByFolderId('F1'), null, 'not indexed until the snapshots have loaded');
+  await cache.loadAllStaticPeople();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(cache.findStaticByFolderId('F1')?.name, 'Ania');
+  assert.equal(cache.findStaticByFolderId('nope'), null);
+  assert.equal(cache.findStaticByFolderId(''), null);
+});

@@ -109,7 +109,7 @@ function fileTileHtml(file, slug) {
       ${file.description ? `<p class="pliki-tile-description">${escapeHtml(file.description)}</p>` : ''}
       <div class="pliki-tile-meta">
         <span>${formatDate(file.addedAt)}</span>
-        <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}">
+        <button type="button" class="profile-trigger" data-profile-trigger data-email="${emailAttr}"${profileFolderAttr(member)}>
           ${personPillHtml({ name: displayName(member), categoryId: member.categoryId, categoryLabel: member.categoryLabel, mode: 'person', subline: personSubline(member) })}
         </button>
       </div>

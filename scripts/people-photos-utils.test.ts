@@ -73,7 +73,7 @@ test('parseFileName rejects the manifest and foreign files', () => {
 });
 
 const full = (name: string, order: number | null, p: RemotePerson, extra: Partial<RemotePersonFull> = {}): RemotePersonFull => ({
-  name, order, description: `opis ${name}`, inMemoriam: false, ...p, ...extra,
+  folderId: `f-${name}`, name, order, description: `opis ${name}`, inMemoriam: false, ...p, ...extra,
 });
 
 test('sortPeopleDeterministically: numbered by order then name, unnumbered by name last', () => {
@@ -93,7 +93,7 @@ test('buildSnapshot uses cached local paths, drops uncached photos, never stores
   assert.deepEqual(snapshot, {
     version: 1,
     people: [{
-      name: 'Ania', order: 1, description: 'opis Ania', inMemoriam: true,
+      folderId: 'f-Ania', name: 'Ania', order: 1, description: 'opis Ania', inMemoriam: true,
       mainPhoto: { id: 'm1', url: '/people-photos/m1-800-aaaaaaaaaa.jpg' },
       photos: [{ id: 'g1', url: '/people-photos/g1-300-aaaaaaaaaa.jpg' }],
     }],

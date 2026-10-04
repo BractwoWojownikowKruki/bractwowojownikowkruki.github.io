@@ -751,7 +751,7 @@ function ownerCellHtml(personId) {
   });
   const triggerAttr = person.accountless
     ? `data-person-id="${escapeAttr(person.personId)}"`
-    : `data-email="${escapeAttr(person.email)}"`;
+    : `data-email="${escapeAttr(person.email)}"${profileFolderAttr(person)}`;
   return `<button type="button" class="profile-trigger" data-profile-trigger ${triggerAttr}>${pill}</button>`;
 }
 
@@ -935,10 +935,10 @@ function renderRoster(roster, signups) {
           ? `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}">
           ${namePill}
         </button>`
-          : `<button type="button" class="profile-trigger" data-profile-trigger data-email="${personIdAttr}">
+          : `<button type="button" class="profile-trigger" data-profile-trigger data-email="${personIdAttr}"${profileFolderAttr(member)}>
           ${namePill}
         </button>
-        <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${personIdAttr}" aria-label="Pokaż profil" title="Pokaż profil">
+        <button type="button" class="profile-trigger profile-trigger--icon-inline" data-profile-trigger data-email="${personIdAttr}"${profileFolderAttr(member)} aria-label="Pokaż profil" title="Pokaż profil">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
         </button>`;
       // KRKG-0087: a person without an account cannot own a companion, so the "+" is only ever on

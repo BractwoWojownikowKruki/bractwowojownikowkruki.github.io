@@ -71,6 +71,7 @@ function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Re
     compareDateValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     displayName: (person: { lastName?: string; email?: string }) => person.lastName ?? person.email ?? '',
     personSubline: () => null,
+    profileFolderAttr: () => '',
     personPillHtml: ({ name }: { name: string }) => `<span>${name}</span>`,
     equipmentPillHtml: ({ id, description }: { id: string; description: string | null }, fallback?: string) => `<button data-equipment-trigger data-equipment-id="${id}">${description || fallback}</button>`,
     apiFetch: async (url: string, options: Record<string, unknown>) => {

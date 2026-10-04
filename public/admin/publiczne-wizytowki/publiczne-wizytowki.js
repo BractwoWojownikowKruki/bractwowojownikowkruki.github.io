@@ -318,7 +318,7 @@ function uploadOwnerHtml(owner) {
   return `
     <div class="upload-owner" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin:0.5rem 0;">
       <span style="color:var(--text-muted); font-size:12px;">Przesłał(a):</span>
-      <button type="button" class="profile-trigger" data-profile-trigger data-email="${escapeAttr(owner.email)}">${pill}</button>
+      <button type="button" class="profile-trigger" data-profile-trigger data-email="${escapeAttr(owner.email)}"${profileFolderAttr(owner)}>${pill}</button>
       <span style="color:var(--text-muted); font-size:12px;">${escapeHtml(owner.email)} · ${escapeHtml(status)}</span>
     </div>`;
 }
