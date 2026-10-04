@@ -173,9 +173,10 @@ window.PeoplePhotoCache = (function () {
     return img;
   }
 
-  // Avatar slot flush against a name pill's left edge. It is a background-image box, not an <img>,
-  // so it has no intrinsic height: it stretches to the pill's own height and can never enlarge the
-  // pill. `contain` shows the whole picture. Resolves true once the image has loaded and been placed.
+  // Avatar slot right after a name pill (so every pill starts at the same left edge, with or without
+  // an avatar). A fixed-size round background-image box, not an <img>: it can never enlarge the
+  // pill, and `contain` inside its padding shows the whole picture within the circle. Resolves true
+  // once the image has loaded and been placed.
   function placeLeadAvatar(url, pill) {
     return new Promise((resolve) => {
       const probe = new Image();
@@ -185,7 +186,7 @@ window.PeoplePhotoCache = (function () {
         slot.className = 'person-avatar-slot';
         slot.setAttribute('aria-hidden', 'true');
         slot.style.backgroundImage = 'url("' + url.replace(/"/g, '%22') + '")';
-        pill.before(slot);
+        pill.after(slot);
         resolve(true);
       };
       probe.onerror = () => resolve(false);
@@ -209,7 +210,7 @@ window.PeoplePhotoCache = (function () {
     const url = personAvatarUrl(trigger.dataset.folderId);
     if (!url) return;
     if (trigger.matches(ICON_TRIGGER)) {
-      // Next to a name pill (Lista Wyjazdowa, Spis Ludności): the avatar leads the pill and replaces
+      // Next to a name pill (Lista Wyjazdowa, Spis Ludności): the avatar trails the pill and replaces
       // the redundant "show profile" icon button.
       const pillTrigger = trigger.previousElementSibling;
       const pill = pillTrigger && pillTrigger.matches('[data-profile-trigger]') ? pillTrigger.querySelector('.category-name-pill') : null;
@@ -225,7 +226,7 @@ window.PeoplePhotoCache = (function () {
       img.addEventListener('error', () => img.replaceWith(icon), { once: true });
       icon.replaceWith(img);
     } else {
-      // A pill with no "show profile" icon next to it (owner cells, Pliki, ...): the avatar leads
+      // A pill with no "show profile" icon next to it (owner cells, Pliki, ...): the avatar trails
       // the pill instead. When an icon trigger follows, that one carries the avatar.
       const next = trigger.nextElementSibling;
       if (next && next.matches(ICON_TRIGGER)) return;
