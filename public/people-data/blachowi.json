@@ -289,12 +289,49 @@
   },
   {
    "avatar": {
+    "id": "1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP",
+    "url": "/people-photos/1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP-64-d6bf2911d0.jpg"
+   },
+   "folderId": "1BfpK9T3TOvsDdAt36ecR7xSXWJiZN3dS",
+   "name": "Sum",
+   "order": 16,
+   "description": "Zwany Sumem, ze względu na praktyczną wiedzę na temat struktury aparatu oralnego tego gatunku ryb. W niektórych kręgach cenna wiedza.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP",
+    "url": "/people-photos/1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP-800-d6bf2911d0.jpg"
+   },
+   "photos": []
+  },
+  {
+   "avatar": {
+    "id": "1MLi34c9m0GptYqF75fPR5eCX4EsjP-8E",
+    "url": "/people-photos/1MLi34c9m0GptYqF75fPR5eCX4EsjP-8E-64-dabc712e71.jpg"
+   },
+   "folderId": "1T9jy8qduRpepxEqkBQx9B8ZmzHAxTRs1",
+   "name": "Hipis",
+   "order": 17,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1MLi34c9m0GptYqF75fPR5eCX4EsjP-8E",
+    "url": "/people-photos/1MLi34c9m0GptYqF75fPR5eCX4EsjP-8E-800-dabc712e71.jpg"
+   },
+   "photos": [
+    {
+     "id": "1IWT1I0EYjcd-vXpKin4rF4cfiROuyw2e",
+     "url": "/people-photos/1IWT1I0EYjcd-vXpKin4rF4cfiROuyw2e-300-7494230b9b.jpg"
+    }
+   ]
+  },
+  {
+   "avatar": {
     "id": "1NeyjRoWyqWrOkpCMJcEGEN9Dc5Cvtk1Q",
     "url": "/people-photos/1NeyjRoWyqWrOkpCMJcEGEN9Dc5Cvtk1Q-64-7609120e27.jpg"
    },
    "folderId": "1u2jhV_jEUXT1jyVYKAvVL3d3ArXzPeUl",
    "name": "Gąbka",
-   "order": 16,
+   "order": 18,
    "description": "Ten niewielki włócznik podczas Raciborza 2023 niemal zyskał nowy pseudonim, a to za sprawą cieknącej rany w kształcie błyskawicy na czole. \nNiestety, jako że nasza medyczka udzieliła mu pomocy zszywaczem nie mogliśmy się zdecydować czy Harry, czy jednak Frankenstein... i pozostał Gąbką.",
    "inMemoriam": false,
    "mainPhoto": {
@@ -319,7 +356,7 @@
    },
    "folderId": "1YO7p9nNEeJXdEZ96O2n5PoqbCJ5f8q8b",
    "name": "Włodek",
-   "order": 17,
+   "order": 19,
    "description": "",
    "inMemoriam": false,
    "mainPhoto": {
@@ -330,19 +367,24 @@
   },
   {
    "avatar": {
-    "id": "1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP",
-    "url": "/people-photos/1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP-64-d6bf2911d0.jpg"
+    "id": "1euIEJEdxYFyUR1m1-NH4HqjqewCIbi7O",
+    "url": "/people-photos/1euIEJEdxYFyUR1m1-NH4HqjqewCIbi7O-64-842ca4b341.jpg"
    },
-   "folderId": "1BfpK9T3TOvsDdAt36ecR7xSXWJiZN3dS",
-   "name": "Sum",
-   "order": 18,
-   "description": "Zwany Sumem, ze względu na praktyczną wiedzę na temat struktury aparatu oralnego tego gatunku ryb. W niektórych kręgach cenna wiedza.",
+   "folderId": "1cNDcYeQeE4UrxG9N4A0qAFqe-kxbt6gF",
+   "name": "Przeszczep",
+   "order": 20,
+   "description": "Operator duna i zawodowy tłumacz, który przetłumaczy trudny tekst z angielskiego oraz wytłumaczy stojącemu naprzeciwko czemu dla swojego dobra nie powinien się tam znajdować. Jego tłumaczenia przeciwnikom nie zawsze trafiają do serca, lecz trafiają w inne strefy punktowane, więc nie dzielmy włosa na czworo.\nNie wiemy czemu Przeszczep, ale czasem zdarza mu sie burknąć \"te włosy nie były tanie\". Nadal kombinujemy. ",
    "inMemoriam": false,
    "mainPhoto": {
-    "id": "1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP",
-    "url": "/people-photos/1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP-800-d6bf2911d0.jpg"
+    "id": "1euIEJEdxYFyUR1m1-NH4HqjqewCIbi7O",
+    "url": "/people-photos/1euIEJEdxYFyUR1m1-NH4HqjqewCIbi7O-800-842ca4b341.jpg"
    },
-   "photos": []
+   "photos": [
+    {
+     "id": "1du5HxWJO5lxKL4s2XXiMyzgn91BDSOrf",
+     "url": "/people-photos/1du5HxWJO5lxKL4s2XXiMyzgn91BDSOrf-300-02409ac4e1.jpg"
+    }
+   ]
   },
   {
    "avatar": {
@@ -351,7 +393,7 @@
    },
    "folderId": "1PDuyPPvirXxADNXD6eLtl0pNqMpxK8U1",
    "name": "Hagrid",
-   "order": 19,
+   "order": 21,
    "description": "",
    "inMemoriam": false,
    "mainPhoto": {
@@ -362,33 +404,12 @@
   },
   {
    "avatar": {
-    "id": "1MLi34c9m0GptYqF75fPR5eCX4EsjP-8E",
-    "url": "/people-photos/1MLi34c9m0GptYqF75fPR5eCX4EsjP-8E-64-dabc712e71.jpg"
-   },
-   "folderId": "1T9jy8qduRpepxEqkBQx9B8ZmzHAxTRs1",
-   "name": "Hipis",
-   "order": 20,
-   "description": "",
-   "inMemoriam": false,
-   "mainPhoto": {
-    "id": "1MLi34c9m0GptYqF75fPR5eCX4EsjP-8E",
-    "url": "/people-photos/1MLi34c9m0GptYqF75fPR5eCX4EsjP-8E-800-dabc712e71.jpg"
-   },
-   "photos": [
-    {
-     "id": "1IWT1I0EYjcd-vXpKin4rF4cfiROuyw2e",
-     "url": "/people-photos/1IWT1I0EYjcd-vXpKin4rF4cfiROuyw2e-300-7494230b9b.jpg"
-    }
-   ]
-  },
-  {
-   "avatar": {
     "id": "12Poq8AK4IJQFrBoSC3oXn9pRm8KuWs0I",
     "url": "/people-photos/12Poq8AK4IJQFrBoSC3oXn9pRm8KuWs0I-64-13fe34d3a7.jpg"
    },
    "folderId": "101iJ0rQWlS22jNBr-hVQdYXi5L90Fc3w",
    "name": "Rumcajs",
-   "order": 21,
+   "order": 22,
    "description": "",
    "inMemoriam": false,
    "mainPhoto": {
@@ -404,7 +425,7 @@
    },
    "folderId": "17Nq-1MvSrve1L9XoZrxj84BUzUhzr9zd",
    "name": "Jarek",
-   "order": 22,
+   "order": 23,
    "description": "Ułożony starszy pan lubujący się w wojaczce,  ginie i motocyklach. Zwłaszcza w motocyklach. Przyszedł do nas z doświadczeniami samuraja ale jeździ Harleyem gdy tylko pogoda na to pozwala. Oddał w nasze ręce potomka i kocha swój motór. Na polu walki wjeżdża w przeciwnika jak ktoś jemu w Harleya.",
    "inMemoriam": false,
    "mainPhoto": {
@@ -425,7 +446,7 @@
    },
    "folderId": "1tppC4nf0T66fKznI-LpNNJfgzxhocxTJ",
    "name": "Krab",
-   "order": 23,
+   "order": 24,
    "description": "",
    "inMemoriam": false,
    "mainPhoto": {
@@ -433,27 +454,6 @@
     "url": "/people-photos/1SRRxoUk4Fh-CozA1WWvleoyW9-qHG7qr-800-f83d823d5b.jpg"
    },
    "photos": []
-  },
-  {
-   "avatar": {
-    "id": "1euIEJEdxYFyUR1m1-NH4HqjqewCIbi7O",
-    "url": "/people-photos/1euIEJEdxYFyUR1m1-NH4HqjqewCIbi7O-64-842ca4b341.jpg"
-   },
-   "folderId": "1cNDcYeQeE4UrxG9N4A0qAFqe-kxbt6gF",
-   "name": "Przeszczep",
-   "order": 24,
-   "description": "Operator duna i zawodowy tłumacz, który przetłumaczy trudny tekst z angielskiego oraz wytłumaczy stojącemu naprzeciwko czemu dla swojego dobra nie powinien się tam znajdować. Jego tłumaczenia przeciwnikom nie zawsze trafiają do serca, lecz trafiają w inne strefy punktowane, więc nie dzielmy włosa na czworo.\nNie wiemy czemu Przeszczep, ale czasem zdarza mu sie burknąć \"te włosy nie były tanie\". Nadal kombinujemy. ",
-   "inMemoriam": false,
-   "mainPhoto": {
-    "id": "1euIEJEdxYFyUR1m1-NH4HqjqewCIbi7O",
-    "url": "/people-photos/1euIEJEdxYFyUR1m1-NH4HqjqewCIbi7O-800-842ca4b341.jpg"
-   },
-   "photos": [
-    {
-     "id": "1du5HxWJO5lxKL4s2XXiMyzgn91BDSOrf",
-     "url": "/people-photos/1du5HxWJO5lxKL4s2XXiMyzgn91BDSOrf-300-02409ac4e1.jpg"
-    }
-   ]
   },
   {
    "avatar": {
