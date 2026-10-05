@@ -326,26 +326,22 @@
   },
   {
    "avatar": {
-    "id": "1NeyjRoWyqWrOkpCMJcEGEN9Dc5Cvtk1Q",
-    "url": "/people-photos/1NeyjRoWyqWrOkpCMJcEGEN9Dc5Cvtk1Q-64-7609120e27.jpg"
+    "id": "1JwZlspZ5oIma9swBI0Cg63WSFWrD79_n",
+    "url": "/people-photos/1JwZlspZ5oIma9swBI0Cg63WSFWrD79_n-64-7e7e8d8a46.jpg"
    },
-   "folderId": "1u2jhV_jEUXT1jyVYKAvVL3d3ArXzPeUl",
-   "name": "Gąbka",
+   "folderId": "17Nq-1MvSrve1L9XoZrxj84BUzUhzr9zd",
+   "name": "Jarek",
    "order": 18,
-   "description": "Ten niewielki włócznik podczas Raciborza 2023 niemal zyskał nowy pseudonim, a to za sprawą cieknącej rany w kształcie błyskawicy na czole. \nNiestety, jako że nasza medyczka udzieliła mu pomocy zszywaczem nie mogliśmy się zdecydować czy Harry, czy jednak Frankenstein... i pozostał Gąbką.",
+   "description": "Ułożony starszy pan lubujący się w wojaczce,  ginie i motocyklach. Zwłaszcza w motocyklach. Przyszedł do nas z doświadczeniami samuraja ale jeździ Harleyem gdy tylko pogoda na to pozwala. Oddał w nasze ręce potomka i kocha swój motór. Na polu walki wjeżdża w przeciwnika jak ktoś jemu w Harleya.",
    "inMemoriam": false,
    "mainPhoto": {
-    "id": "1NeyjRoWyqWrOkpCMJcEGEN9Dc5Cvtk1Q",
-    "url": "/people-photos/1NeyjRoWyqWrOkpCMJcEGEN9Dc5Cvtk1Q-800-7609120e27.jpg"
+    "id": "1JwZlspZ5oIma9swBI0Cg63WSFWrD79_n",
+    "url": "/people-photos/1JwZlspZ5oIma9swBI0Cg63WSFWrD79_n-800-7e7e8d8a46.jpg"
    },
    "photos": [
     {
-     "id": "1CXCtVXRAjAjEAYHa1CueV26ATRBfALqM",
-     "url": "/people-photos/1CXCtVXRAjAjEAYHa1CueV26ATRBfALqM-300-cd18ba6997.jpg"
-    },
-    {
-     "id": "1EzOOjj1icCVExvPyKWqjvUgW2thE0m70",
-     "url": "/people-photos/1EzOOjj1icCVExvPyKWqjvUgW2thE0m70-300-1260840ab0.jpg"
+     "id": "1K3dnefTgooL6LRKf6DVUQHkAn7glol6t",
+     "url": "/people-photos/1K3dnefTgooL6LRKf6DVUQHkAn7glol6t-300-aeac065d49.jpg"
     }
    ]
   },
@@ -367,12 +363,60 @@
   },
   {
    "avatar": {
+    "id": "1SRRxoUk4Fh-CozA1WWvleoyW9-qHG7qr",
+    "url": "/people-photos/1SRRxoUk4Fh-CozA1WWvleoyW9-qHG7qr-64-f83d823d5b.jpg"
+   },
+   "folderId": "1tppC4nf0T66fKznI-LpNNJfgzxhocxTJ",
+   "name": "Krab",
+   "order": 20,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1SRRxoUk4Fh-CozA1WWvleoyW9-qHG7qr",
+    "url": "/people-photos/1SRRxoUk4Fh-CozA1WWvleoyW9-qHG7qr-800-f83d823d5b.jpg"
+   },
+   "photos": []
+  },
+  {
+   "avatar": {
+    "id": "12Poq8AK4IJQFrBoSC3oXn9pRm8KuWs0I",
+    "url": "/people-photos/12Poq8AK4IJQFrBoSC3oXn9pRm8KuWs0I-64-13fe34d3a7.jpg"
+   },
+   "folderId": "101iJ0rQWlS22jNBr-hVQdYXi5L90Fc3w",
+   "name": "Rumcajs",
+   "order": 21,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "12Poq8AK4IJQFrBoSC3oXn9pRm8KuWs0I",
+    "url": "/people-photos/12Poq8AK4IJQFrBoSC3oXn9pRm8KuWs0I-800-13fe34d3a7.jpg"
+   },
+   "photos": []
+  },
+  {
+   "avatar": {
+    "id": "16dcARWynYBc04sK9dXJkcNgstsQ_rGJK",
+    "url": "/people-photos/16dcARWynYBc04sK9dXJkcNgstsQ_rGJK-64-dcb17f73bb.jpg"
+   },
+   "folderId": "1PDuyPPvirXxADNXD6eLtl0pNqMpxK8U1",
+   "name": "Hagrid",
+   "order": 22,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "16dcARWynYBc04sK9dXJkcNgstsQ_rGJK",
+    "url": "/people-photos/16dcARWynYBc04sK9dXJkcNgstsQ_rGJK-800-dcb17f73bb.jpg"
+   },
+   "photos": []
+  },
+  {
+   "avatar": {
     "id": "1euIEJEdxYFyUR1m1-NH4HqjqewCIbi7O",
     "url": "/people-photos/1euIEJEdxYFyUR1m1-NH4HqjqewCIbi7O-64-842ca4b341.jpg"
    },
    "folderId": "1cNDcYeQeE4UrxG9N4A0qAFqe-kxbt6gF",
    "name": "Przeszczep",
-   "order": 20,
+   "order": 23,
    "description": "Operator duna i zawodowy tłumacz, który przetłumaczy trudny tekst z angielskiego oraz wytłumaczy stojącemu naprzeciwko czemu dla swojego dobra nie powinien się tam znajdować. Jego tłumaczenia przeciwnikom nie zawsze trafiają do serca, lecz trafiają w inne strefy punktowane, więc nie dzielmy włosa na czworo.\nNie wiemy czemu Przeszczep, ale czasem zdarza mu sie burknąć \"te włosy nie były tanie\". Nadal kombinujemy. ",
    "inMemoriam": false,
    "mainPhoto": {
@@ -388,72 +432,28 @@
   },
   {
    "avatar": {
-    "id": "16dcARWynYBc04sK9dXJkcNgstsQ_rGJK",
-    "url": "/people-photos/16dcARWynYBc04sK9dXJkcNgstsQ_rGJK-64-dcb17f73bb.jpg"
+    "id": "1NeyjRoWyqWrOkpCMJcEGEN9Dc5Cvtk1Q",
+    "url": "/people-photos/1NeyjRoWyqWrOkpCMJcEGEN9Dc5Cvtk1Q-64-7609120e27.jpg"
    },
-   "folderId": "1PDuyPPvirXxADNXD6eLtl0pNqMpxK8U1",
-   "name": "Hagrid",
-   "order": 21,
-   "description": "",
+   "folderId": "1u2jhV_jEUXT1jyVYKAvVL3d3ArXzPeUl",
+   "name": "Gąbka",
+   "order": 24,
+   "description": "Ten niewielki włócznik podczas Raciborza 2023 niemal zyskał nowy pseudonim, a to za sprawą cieknącej rany w kształcie błyskawicy na czole. \nNiestety, jako że nasza medyczka udzieliła mu pomocy zszywaczem nie mogliśmy się zdecydować czy Harry, czy jednak Frankenstein... i pozostał Gąbką.",
    "inMemoriam": false,
    "mainPhoto": {
-    "id": "16dcARWynYBc04sK9dXJkcNgstsQ_rGJK",
-    "url": "/people-photos/16dcARWynYBc04sK9dXJkcNgstsQ_rGJK-800-dcb17f73bb.jpg"
-   },
-   "photos": []
-  },
-  {
-   "avatar": {
-    "id": "12Poq8AK4IJQFrBoSC3oXn9pRm8KuWs0I",
-    "url": "/people-photos/12Poq8AK4IJQFrBoSC3oXn9pRm8KuWs0I-64-13fe34d3a7.jpg"
-   },
-   "folderId": "101iJ0rQWlS22jNBr-hVQdYXi5L90Fc3w",
-   "name": "Rumcajs",
-   "order": 22,
-   "description": "",
-   "inMemoriam": false,
-   "mainPhoto": {
-    "id": "12Poq8AK4IJQFrBoSC3oXn9pRm8KuWs0I",
-    "url": "/people-photos/12Poq8AK4IJQFrBoSC3oXn9pRm8KuWs0I-800-13fe34d3a7.jpg"
-   },
-   "photos": []
-  },
-  {
-   "avatar": {
-    "id": "1JwZlspZ5oIma9swBI0Cg63WSFWrD79_n",
-    "url": "/people-photos/1JwZlspZ5oIma9swBI0Cg63WSFWrD79_n-64-7e7e8d8a46.jpg"
-   },
-   "folderId": "17Nq-1MvSrve1L9XoZrxj84BUzUhzr9zd",
-   "name": "Jarek",
-   "order": 23,
-   "description": "Ułożony starszy pan lubujący się w wojaczce,  ginie i motocyklach. Zwłaszcza w motocyklach. Przyszedł do nas z doświadczeniami samuraja ale jeździ Harleyem gdy tylko pogoda na to pozwala. Oddał w nasze ręce potomka i kocha swój motór. Na polu walki wjeżdża w przeciwnika jak ktoś jemu w Harleya.",
-   "inMemoriam": false,
-   "mainPhoto": {
-    "id": "1JwZlspZ5oIma9swBI0Cg63WSFWrD79_n",
-    "url": "/people-photos/1JwZlspZ5oIma9swBI0Cg63WSFWrD79_n-800-7e7e8d8a46.jpg"
+    "id": "1NeyjRoWyqWrOkpCMJcEGEN9Dc5Cvtk1Q",
+    "url": "/people-photos/1NeyjRoWyqWrOkpCMJcEGEN9Dc5Cvtk1Q-800-7609120e27.jpg"
    },
    "photos": [
     {
-     "id": "1K3dnefTgooL6LRKf6DVUQHkAn7glol6t",
-     "url": "/people-photos/1K3dnefTgooL6LRKf6DVUQHkAn7glol6t-300-aeac065d49.jpg"
+     "id": "1CXCtVXRAjAjEAYHa1CueV26ATRBfALqM",
+     "url": "/people-photos/1CXCtVXRAjAjEAYHa1CueV26ATRBfALqM-300-cd18ba6997.jpg"
+    },
+    {
+     "id": "1EzOOjj1icCVExvPyKWqjvUgW2thE0m70",
+     "url": "/people-photos/1EzOOjj1icCVExvPyKWqjvUgW2thE0m70-300-1260840ab0.jpg"
     }
    ]
-  },
-  {
-   "avatar": {
-    "id": "1SRRxoUk4Fh-CozA1WWvleoyW9-qHG7qr",
-    "url": "/people-photos/1SRRxoUk4Fh-CozA1WWvleoyW9-qHG7qr-64-f83d823d5b.jpg"
-   },
-   "folderId": "1tppC4nf0T66fKznI-LpNNJfgzxhocxTJ",
-   "name": "Krab",
-   "order": 24,
-   "description": "",
-   "inMemoriam": false,
-   "mainPhoto": {
-    "id": "1SRRxoUk4Fh-CozA1WWvleoyW9-qHG7qr",
-    "url": "/people-photos/1SRRxoUk4Fh-CozA1WWvleoyW9-qHG7qr-800-f83d823d5b.jpg"
-   },
-   "photos": []
   },
   {
    "avatar": {
