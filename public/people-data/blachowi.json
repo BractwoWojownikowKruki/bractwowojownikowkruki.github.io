@@ -330,12 +330,28 @@
   },
   {
    "avatar": {
+    "id": "1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP",
+    "url": "/people-photos/1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP-64-d6bf2911d0.jpg"
+   },
+   "folderId": "1BfpK9T3TOvsDdAt36ecR7xSXWJiZN3dS",
+   "name": "Sum",
+   "order": 18,
+   "description": "Zwany Sumem, ze względu na praktyczną wiedzę na temat struktury aparatu oralnego tego gatunku ryb. W niektórych kręgach cenna wiedza.",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP",
+    "url": "/people-photos/1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP-800-d6bf2911d0.jpg"
+   },
+   "photos": []
+  },
+  {
+   "avatar": {
     "id": "16dcARWynYBc04sK9dXJkcNgstsQ_rGJK",
     "url": "/people-photos/16dcARWynYBc04sK9dXJkcNgstsQ_rGJK-64-dcb17f73bb.jpg"
    },
    "folderId": "1PDuyPPvirXxADNXD6eLtl0pNqMpxK8U1",
    "name": "Hagrid",
-   "order": 18,
+   "order": 19,
    "description": "",
    "inMemoriam": false,
    "mainPhoto": {
@@ -351,7 +367,7 @@
    },
    "folderId": "1T9jy8qduRpepxEqkBQx9B8ZmzHAxTRs1",
    "name": "Hipis",
-   "order": 19,
+   "order": 20,
    "description": "",
    "inMemoriam": false,
    "mainPhoto": {
@@ -372,7 +388,7 @@
    },
    "folderId": "101iJ0rQWlS22jNBr-hVQdYXi5L90Fc3w",
    "name": "Rumcajs",
-   "order": 20,
+   "order": 21,
    "description": "",
    "inMemoriam": false,
    "mainPhoto": {
@@ -388,7 +404,7 @@
    },
    "folderId": "17Nq-1MvSrve1L9XoZrxj84BUzUhzr9zd",
    "name": "Jarek",
-   "order": 21,
+   "order": 22,
    "description": "Ułożony starszy pan lubujący się w wojaczce,  ginie i motocyklach. Zwłaszcza w motocyklach. Przyszedł do nas z doświadczeniami samuraja ale jeździ Harleyem gdy tylko pogoda na to pozwala. Oddał w nasze ręce potomka i kocha swój motór. Na polu walki wjeżdża w przeciwnika jak ktoś jemu w Harleya.",
    "inMemoriam": false,
    "mainPhoto": {
@@ -401,22 +417,6 @@
      "url": "/people-photos/1K3dnefTgooL6LRKf6DVUQHkAn7glol6t-300-aeac065d49.jpg"
     }
    ]
-  },
-  {
-   "avatar": {
-    "id": "1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP",
-    "url": "/people-photos/1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP-64-d6bf2911d0.jpg"
-   },
-   "folderId": "1BfpK9T3TOvsDdAt36ecR7xSXWJiZN3dS",
-   "name": "Sum",
-   "order": 22,
-   "description": "Zwany Sumem, ze względu na praktyczną wiedzę na temat struktury aparatu oralnego tego gatunku ryb. W niektórych kręgach cenna wiedza.",
-   "inMemoriam": false,
-   "mainPhoto": {
-    "id": "1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP",
-    "url": "/people-photos/1U3zuI-9Moq1GNTIA12QCyT8UvAIbZuiP-800-d6bf2911d0.jpg"
-   },
-   "photos": []
   },
   {
    "avatar": {
