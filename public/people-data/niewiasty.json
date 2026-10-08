@@ -19,8 +19,8 @@
   },
   {
    "avatar": {
-    "id": "1D8ZPQtkYsKPgfQMt4J6dHEwU7lZQBM_y",
-    "url": "/people-photos/1D8ZPQtkYsKPgfQMt4J6dHEwU7lZQBM_y-64-53013d2e98.jpg"
+    "id": "108fhZvebH7ecKehgAyks1YfAUSs9q53U",
+    "url": "/people-photos/108fhZvebH7ecKehgAyks1YfAUSs9q53U-64-9939700248.jpg"
    },
    "folderId": "1EI6eVp5g5lRzxEztzOb_FnS9FkYgr31F",
    "name": "Pela",
@@ -28,10 +28,15 @@
    "description": "Wytrwała tkaczka krajek, która wyznaje zasadę „ze spokojem do celu”. Wygląda na łagodną, jednak potrafi pokazać siłę żelaznej damy – nie tylko wobec nieułożonego drewna, wobec męża też.",
    "inMemoriam": false,
    "mainPhoto": {
-    "id": "1D8ZPQtkYsKPgfQMt4J6dHEwU7lZQBM_y",
-    "url": "/people-photos/1D8ZPQtkYsKPgfQMt4J6dHEwU7lZQBM_y-800-53013d2e98.jpg"
+    "id": "108fhZvebH7ecKehgAyks1YfAUSs9q53U",
+    "url": "/people-photos/108fhZvebH7ecKehgAyks1YfAUSs9q53U-800-9939700248.jpg"
    },
-   "photos": []
+   "photos": [
+    {
+     "id": "1D8ZPQtkYsKPgfQMt4J6dHEwU7lZQBM_y",
+     "url": "/people-photos/1D8ZPQtkYsKPgfQMt4J6dHEwU7lZQBM_y-300-53013d2e98.jpg"
+    }
+   ]
   },
   {
    "avatar": {
