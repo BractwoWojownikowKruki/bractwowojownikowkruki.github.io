@@ -134,8 +134,8 @@
   },
   {
    "avatar": {
-    "id": "13Dzl501Fq4aGN-kKfjIWhXjtO73jmSLH",
-    "url": "/people-photos/13Dzl501Fq4aGN-kKfjIWhXjtO73jmSLH-64-cb92d15891.jpg"
+    "id": "1jvsVDU8xx9X3dUDp0DtFmOzdK3hsCula",
+    "url": "/people-photos/1jvsVDU8xx9X3dUDp0DtFmOzdK3hsCula-64-acacbc934e.jpg"
    },
    "folderId": "1Bl_DSVEqxBXVYd0UqYCRDwzHIIPSS5Cu",
    "name": "Kaziu",
@@ -143,10 +143,15 @@
    "description": "Stopień w rodzinie – szeregowy. Przynajmniej u nas ma blachę. Realne wcielenie Wróżki – Zębuszki.",
    "inMemoriam": false,
    "mainPhoto": {
-    "id": "13Dzl501Fq4aGN-kKfjIWhXjtO73jmSLH",
-    "url": "/people-photos/13Dzl501Fq4aGN-kKfjIWhXjtO73jmSLH-800-cb92d15891.jpg"
+    "id": "1jvsVDU8xx9X3dUDp0DtFmOzdK3hsCula",
+    "url": "/people-photos/1jvsVDU8xx9X3dUDp0DtFmOzdK3hsCula-800-acacbc934e.jpg"
    },
-   "photos": []
+   "photos": [
+    {
+     "id": "13Dzl501Fq4aGN-kKfjIWhXjtO73jmSLH",
+     "url": "/people-photos/13Dzl501Fq4aGN-kKfjIWhXjtO73jmSLH-300-cb92d15891.jpg"
+    }
+   ]
   },
   {
    "avatar": {
