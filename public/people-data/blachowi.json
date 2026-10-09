@@ -487,8 +487,8 @@
   },
   {
    "avatar": {
-    "id": "1aOTd6KLgx3hq09WfTwFwjyH1XOQml_oc",
-    "url": "/people-photos/1aOTd6KLgx3hq09WfTwFwjyH1XOQml_oc-64-db10766421.jpg"
+    "id": "1cVITsmVWyuarDRAHZ6MurbhD5eRfJxg7",
+    "url": "/people-photos/1cVITsmVWyuarDRAHZ6MurbhD5eRfJxg7-64-a9a0f13268.jpg"
    },
    "folderId": "16bHJ6MO5F8BxTcgkn5HKbdRcD4Ci1BQK",
    "name": "Neo",
@@ -496,10 +496,14 @@
    "description": "Zamówiliśmy na Temu Keanu Reevesa, przyszedł nam Neo. Niczego nie żałujemy. Zawsze pomocny, wesoły okrągły samuraj. Zaplecze z kendo przekłada na walkę i pakowanie przyczepy.",
    "inMemoriam": false,
    "mainPhoto": {
-    "id": "1aOTd6KLgx3hq09WfTwFwjyH1XOQml_oc",
-    "url": "/people-photos/1aOTd6KLgx3hq09WfTwFwjyH1XOQml_oc-800-db10766421.jpg"
+    "id": "1cVITsmVWyuarDRAHZ6MurbhD5eRfJxg7",
+    "url": "/people-photos/1cVITsmVWyuarDRAHZ6MurbhD5eRfJxg7-800-a9a0f13268.jpg"
    },
    "photos": [
+    {
+     "id": "1aOTd6KLgx3hq09WfTwFwjyH1XOQml_oc",
+     "url": "/people-photos/1aOTd6KLgx3hq09WfTwFwjyH1XOQml_oc-300-db10766421.jpg"
+    },
     {
      "id": "1y1UlZk-xeXUkY1xF4ddDge1Vp7anWLVk",
      "url": "/people-photos/1y1UlZk-xeXUkY1xF4ddDge1Vp7anWLVk-300-a4a30ef5c9.jpg"
