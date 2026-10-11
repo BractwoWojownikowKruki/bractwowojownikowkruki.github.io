@@ -18,7 +18,7 @@ import { existsSync } from 'node:fs';
  * The table is parsed from `mutation-inventory.contract-table.md`, a checked-in copy of
  * implementation-contract.md's "## Mutation inventory" section, rather than from the istra tracker
  * document directly: that document lives at an absolute path on the author's machine
- * (`~/repos/istra/2-InProgress/KRKG-0050 - Centralny, czytelny audyt operacji zapisu/
+ * (`~/repos/tools/istra/2-InProgress/KRKG-0050 - Centralny, czytelny audyt operacji zapisu/
  * implementation-contract.md`), which is outside this repo, not checked out in CI, and not at a
  * stable path on another developer's machine. Reading it directly would make this test silently
  * unable to run (or read nothing meaningful) everywhere except the original author's checkout -
@@ -147,7 +147,7 @@ test('every authenticated mutating route in server.ts dispatch is classified in 
  * folder so the guard actually runs.
  */
 const LIVE_CONTRACT_PATH =
-  '/Users/bartosz/repos/istra/4-Done/KRKG-0050 - Centralny, czytelny audyt operacji zapisu/implementation-contract.md';
+  '/Users/bartosz/repos/tools/istra/4-Done/KRKG-0050 - Centralny, czytelny audyt operacji zapisu/implementation-contract.md';
 
 /** Returns the trimmed text of every markdown-table-row line (`| ... |`) in `source`, in order. */
 function extractPipeTableLines(source: string): string {

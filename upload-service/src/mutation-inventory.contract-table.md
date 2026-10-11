@@ -13,7 +13,7 @@ drift test in mutation-inventory.test.ts is expected to fail on a machine that h
 Checked-in copy of the "## Mutation inventory" table from implementation-contract.md.
 
 Source of truth (istra tracker, NOT part of this repo, not available in CI):
-~/repos/istra/4-Done/KRKG-0050 - Centralny, czytelny audyt operacji zapisu/implementation-contract.md
+~/repos/tools/istra/4-Done/KRKG-0050 - Centralny, czytelny audyt operacji zapisu/implementation-contract.md
 
 mutation-inventory.test.ts parses THIS file (not the istra path, which CI and other developers'
 checkouts do not have) and compares it against server.ts's live dispatch chain. That comparison is
