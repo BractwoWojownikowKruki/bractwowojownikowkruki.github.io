@@ -11,6 +11,13 @@ const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-fo
 const lwFriendlyUrlSource = readFileSync(new URL('../public/shared/lw-friendly-url.js', import.meta.url), 'utf8');
 const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.meta.url), 'utf8');
 
+/** Keeps the fixture trip upcoming regardless of when the VM-based page tests run. */
+class FixedDate extends Date {
+  constructor(value?: string | number) {
+    super(value ?? new Date(2026, 9, 9, 12).getTime());
+  }
+}
+
 class Element {
   id: string;
   hidden = false;
@@ -95,7 +102,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     Object,
     Array,
     JSON,
-    Date,
+    Date: FixedDate,
     encodeURIComponent,
     window: {
       location: { search: '?eventId=e1' },
