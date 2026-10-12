@@ -3,7 +3,7 @@ Current mutation inventory for this repository.
 
 mutation-inventory.test.ts compares this table with server.ts dispatch in every
 checkout, including CI. Update this table in the same change when adding,
-removing, or reclassifying a route. Completed Istra story documents describe
+removing, or reclassifying a route. Completed story documents describe
 historical work and do not need to stay synchronized with this contract.
 -->
 

@@ -114,7 +114,7 @@ export const config = {
   // meant to be called by Cloud Scheduler's own OIDC-authenticated HTTP job - both must be set
   // together, or the route fails closed (503, "not configured") rather than either booting with
   // an unauthenticated internal route or refusing to boot at all before Scheduler is
-  // provisioned. See reconciler-runbook.md in the istra story folder for the one-time setup
+  // provisioned. The one-time setup is
   // (enabling Cloud Scheduler, creating the least-privilege service account, granting it
   // roles/run.invoker, and creating the job) that has to happen before these are set.
   auditReconcilerServiceAccountEmail: process.env.AUDIT_RECONCILER_SERVICE_ACCOUNT,

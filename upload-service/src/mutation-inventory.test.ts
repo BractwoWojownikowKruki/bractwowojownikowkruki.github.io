@@ -8,7 +8,7 @@ import { readFile } from 'node:fs/promises';
  * removed routes and duplicate entries must be removed from the inventory.
  *
  * The inventory lives beside this test and evolves with the application. Completed
- * Istra story documents remain historical records and are not test dependencies.
+ * story documents remain historical records and are not test dependencies.
  */
 
 type Classification = 'businessWrite' | 'transientNoBusinessWrite';

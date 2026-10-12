@@ -68,7 +68,7 @@ import { createCanonicalAuditEvent, queryAuditEvents, type AuditViewer, type Can
  * and skips with a clear, actionable message when it isn't set. `npm test`'s default run is
  * unaffected either way: this test is present in the glob but always skips (never errors) when
  * the env var is absent, matching the precedent already set by `mutation-inventory.test.ts`'s
- * live-istra-contract check (`LIVE_CONTRACT_PATH`/`existsSync`) for the same "machine-dependent
+ * live contract check (`LIVE_CONTRACT_PATH`/`existsSync`) for the same "machine-dependent
  * prerequisite, skip visibly rather than silently or by failing" situation.
  */
 
