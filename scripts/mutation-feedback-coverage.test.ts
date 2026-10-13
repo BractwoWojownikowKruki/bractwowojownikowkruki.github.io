@@ -311,6 +311,8 @@ test('KRKG-119 non-public photos stay separately manageable by admins and render
   assert.match(profilePage, /response\?\.nonPublic/);
   assert.match(profilePage, /source=not-public/);
   assert.match(profilePage, /Miniatura zdjęcia będzie dostępna później/);
+  const nonPublicMemberPhotos = profilePage.split('const nonPublicHtml =')[1].split('container.innerHTML')[0];
+  assert.doesNotMatch(nonPublicMemberPhotos, /rejected-stamp|rejected-photo/);
   assert.match(memberProfile, /profile\.nonPublicPhotos/);
   assert.doesNotMatch(memberProfile, /rejected-stamp|rejected-photo/);
 });

@@ -143,10 +143,7 @@ function renderCurrentSubmission(response) {
     ${nonPublicSection.photos
       .map(photo => `
       <div class="lw-photo-thumb">
-        <div class="rejected-photo">
-          <img src="${escapeAttr(photo.url || '')}" alt="${photo.url ? 'Zdjęcie nie na publiczną stronę' : 'Miniatura zdjęcia będzie dostępna później'}" />
-          <span class="rejected-stamp" aria-hidden="true">Nie na publiczną stronę</span>
-        </div>
+        <img src="${escapeAttr(photo.url || '')}" alt="${photo.url ? 'Zdjęcie profilowe' : 'Miniatura zdjęcia będzie dostępna później'}" />
         <button type="button" class="lw-crop-btn lw-delete-non-public-btn" data-file-id="${escapeAttr(photo.id)}">Usuń</button>
       </div>`)
       .join('')}
