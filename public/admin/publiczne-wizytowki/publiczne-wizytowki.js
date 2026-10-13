@@ -280,6 +280,25 @@ function uploadRejectedSectionHtml(rejectedPhotos) {
     </div>`;
 }
 
+function uploadNonPublicPhotoHtml(photo) {
+  return `
+    <div class="upload-non-public-item" data-file-id="${escapeAttr(photo.id)}" style="display:inline-block; width:120px; margin:0 0.5rem 0.5rem 0; vertical-align:top;">
+      <div class="rejected-photo"${photo.url ? ' style="cursor:zoom-in;"' : ''}>
+        <img src="${escapeAttr(photo.url || '')}" alt="${photo.url ? 'Zdjęcie nie na publiczną stronę' : 'Miniatura zdjęcia będzie dostępna później'}" style="width:120px; height:120px; object-fit:cover; border-radius:4px; display:block; border:1px solid var(--border);" />
+        <span class="rejected-stamp" aria-hidden="true">Nie na publiczną stronę</span>
+      </div>
+      <button type="button" class="restore-non-public-photo" data-file-id="${escapeAttr(photo.id)}" style="margin-top:4px;">Przywróć do oczekujących</button>
+    </div>`;
+}
+
+function uploadNonPublicSectionHtml(nonPublicPhotos) {
+  return `
+    <div class="upload-non-public" ${nonPublicPhotos.length ? '' : 'hidden'} style="margin:0.75rem 0;">
+      <p style="margin:0 0 0.5rem; color:var(--text-muted); font-size:12px;">Nie na publiczną stronę (nie wymaga akcji):</p>
+      <div class="upload-non-public-list">${nonPublicPhotos.map(uploadNonPublicPhotoHtml).join('')}</div>
+    </div>`;
+}
+
 function uploadDecisionControlsHtml(p) {
   const isPublished = !!p.publicFolderId;
   const nameDescHtml = isPublished ? uploadReadOnlyFieldsHtml(p.publicName, p.publicDescription) : uploadEditableFieldsHtml(p.applicationDescription);
@@ -291,6 +310,7 @@ function uploadDecisionControlsHtml(p) {
         <textarea class="upload-reject-reason" rows="2" maxlength="1000" placeholder="Np. zdjęcie jest nieostre" style="display:block; width:100%; margin-top:4px;"></textarea>
       </label>
       <button class="reject-batch" data-folder-id="${p.folderId}" style="color:var(--accent);">Odrzuć zaznaczone</button>
+      <button class="mark-non-public-batch" data-folder-id="${p.folderId}" style="margin-left:0.5rem;">Nie na publiczną stronę</button>
     </div>`;
 }
 
@@ -328,6 +348,7 @@ function uploadPersonCardHtml(p) {
     ? `<div class="person-gallery">${p.photos.map(photo => uploadPhotoPickHtml(p.folderId, photo, false)).join('')}</div>`
     : '';
   const rejectedPhotos = p.rejectedPhotos || [];
+  const nonPublicPhotos = p.nonPublicPhotos || [];
   return `
     <div id="${personCardId(p.folderId)}" class="manage-person-card" data-folder-id="${escapeAttr(p.folderId)}" data-public-folder-id="${escapeAttr(p.publicFolderId ?? '')}" style="border:1px solid var(--border); border-radius:6px; padding:1rem;">
       <strong class="person-name">${escapeHtml(p.name)}</strong>
@@ -339,6 +360,7 @@ function uploadPersonCardHtml(p) {
       </div>
       ${hasUploadPhotos(p) ? uploadDecisionControlsHtml(p) : ''}
       ${uploadRejectedSectionHtml(rejectedPhotos)}
+      ${uploadNonPublicSectionHtml(nonPublicPhotos)}
     </div>`;
 }
 
@@ -347,7 +369,7 @@ function uploadPersonCardHtml(p) {
 function settleUploadCard(card) {
   if (card.querySelector('.upload-photo-item')) return;
   const list = document.getElementById('manage-people-list');
-  if (card.querySelector('.upload-rejected-item')) {
+  if (card.querySelector('.upload-rejected-item, .upload-non-public-item')) {
     card.querySelector('.upload-decision')?.remove();
     return;
   }
@@ -370,7 +392,7 @@ function renderManageList(people, transferTargets) {
   if (currentCategory === 'upload') {
     // Rejected-only cards stay visible (read-only), but the banner below still counts only
     // hasUploadPhotos - rejected photos are not pending work.
-    const withPhotos = people.filter(p => hasUploadPhotos(p) || (p.rejectedPhotos || []).length > 0);
+    const withPhotos = people.filter(p => hasUploadPhotos(p) || (p.rejectedPhotos || []).length > 0 || (p.nonPublicPhotos || []).length > 0);
     list.innerHTML = withPhotos.length ? withPhotos.map(uploadPersonCardHtml).join('') : '<p>Brak zgłoszeń ze zdjęciami w tej kategorii.</p>';
     return;
   }
@@ -575,6 +597,49 @@ document.getElementById('manage-people-list').addEventListener('click', async e 
       card.querySelector('.upload-reject-reason').value = '';
       settleUploadCard(card);
     });
+    return;
+  }
+  const markNonPublicBtn = e.target.closest('.mark-non-public-batch');
+  if (markNonPublicBtn) {
+    const folderId = markNonPublicBtn.dataset.folderId;
+    const card = personCard(folderId);
+    const checked = Array.from(card.querySelectorAll('.upload-photo-select:checked'));
+    if (!checked.length) {
+      window.alert('Zaznacz co najmniej jedno zdjęcie.');
+      return;
+    }
+    const fileIds = checked.map(cb => cb.dataset.fileId);
+    const confirmText = fileIds.length === 1
+      ? 'Oznaczyć zdjęcie jako „Nie na publiczną stronę”? Pozostanie widoczne tylko dla członków.'
+      : `Oznaczyć zdjęcia (${fileIds.length}) jako „Nie na publiczną stronę”? Pozostaną widoczne tylko dla członków.`;
+    if (!window.confirm(confirmText)) return;
+    await confirmedPersonWrite(markNonPublicBtn, card, () => apiFetch(
+      '/admin/people/photo/not-public',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileIds, stagingFolderId: folderId }) },
+      showReauth, hideReauth,
+    ), () => {
+      const section = card.querySelector('.upload-non-public');
+      const items = card.querySelector('.upload-non-public-list');
+      for (const fileId of fileIds) {
+        const item = card.querySelector(`.upload-photo-item[data-file-id="${fileId}"]`);
+        if (!item) continue;
+        items.insertAdjacentHTML('beforeend', uploadNonPublicPhotoHtml({ id: fileId, url: item.querySelector('img')?.getAttribute('src') || null }));
+        item.remove();
+      }
+      section.hidden = false;
+      settleUploadCard(card);
+    });
+    return;
+  }
+  const restoreNonPublicBtn = e.target.closest('.restore-non-public-photo');
+  if (restoreNonPublicBtn) {
+    const card = restoreNonPublicBtn.closest('.manage-person-card');
+    const fileId = restoreNonPublicBtn.dataset.fileId;
+    await confirmedPersonWrite(restoreNonPublicBtn, card, () => apiFetch(
+      '/admin/people/photo/restore',
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileIds: [fileId], stagingFolderId: card.dataset.folderId }) },
+      showReauth, hideReauth,
+    ), () => loadManageList());
     return;
   }
   const approveBatchBtn = e.target.closest('.approve-batch');

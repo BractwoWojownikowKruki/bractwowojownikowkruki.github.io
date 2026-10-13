@@ -100,6 +100,7 @@ const profileFields = {
   category: 'roleRestricted',
   order: 'roleRestricted',
   fileId: 'roleRestricted',
+  publicationStatus: 'roleRestricted',
   fileCount: 'roleRestricted',
   // Length only, never the text itself - same reasoning as descriptionLength: an admin's free-text
   // rejection comment is mailed to the member and shown on their profile, not copied into audit.
@@ -237,6 +238,8 @@ export const ACTION_REGISTRY = {
   'profile.photo_submission.photo_added': action('profile', 'adminOrHovding', ['memberSubmission'], profileFields),
   'profile.photo_submission.photo_deleted': action('profile', 'adminOrHovding', ['memberSubmission'], profileFields),
   'profile.photo_submission.photo_rejected': action('profile', 'adminOrHovding', ['memberSubmission'], profileFields),
+  'profile.photo_submission.photo_marked_non_public': action('profile', 'adminOrHovding', ['memberSubmission'], profileFields),
+  'profile.photo_submission.photo_restored_to_pending': action('profile', 'adminOrHovding', ['memberSubmission'], profileFields),
   'profile.notifications.updated': action('profile', 'adminOrHovding', ['member'], profileFields),
   // KRKG-0087: accountless-person record actions. Created/updated/deleted/detached are staff
   // (admin/hovding) visible like the other profile-category actions; the account merge is an

@@ -367,6 +367,31 @@ test('GET /about-us returns people for a valid category, sorted by folder-name o
   });
 });
 
+test('GET /about-us never reads member staging folders or their non-public photos', async () => {
+  resetAboutUsBootstrapForTests();
+  invalidateAboutUsCache();
+  const readFolders: string[] = [];
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `folder-${name}`,
+      listGalleryFolders: async parentId => parentId === 'folder-Blachowi'
+        ? [{ id: 'public-person', name: '1. Jan', modifiedTime: '2026-01-01T00:00:00Z' }]
+        : [],
+      listImageFiles: async folderId => {
+        readFolders.push(folderId);
+        return [{ id: `${folderId}-image`, name: 'photo.jpg', thumbnailLink: `https://example.test/${folderId}=s220` }];
+      },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/about-us?category=Blachowi`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.people.map((person: { folderId: string }) => person.folderId), ['public-person']);
+    assert.deepEqual(readFolders, ['public-person']);
+  });
+});
+
 test('GET /about-us rejects an unknown category', async () => {
   resetAboutUsBootstrapForTests();
   const deps = makeDeps();
@@ -6188,6 +6213,26 @@ test('GET /member-profile includes wpisoweStatus and the current year\'s składk
   });
 });
 
+test('GET /member-profile includes non-public photos in the shared member drawer data', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'staging-drawer' }));
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      findFolderByName: async (parent, name) => parent === 'staging-drawer' && name === 'Nie na publiczną stronę' ? 'non-public-drawer' : null,
+      listImageFiles: async id => id === 'non-public-drawer'
+        ? [{ id: 'private-drawer-photo', name: 'portrait.jpg', thumbnailLink: 'https://example.test/drawer=s220' }]
+        : [],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/member-profile?email=ktos@gmail.com`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.nonPublicPhotos, [{ id: 'private-drawer-photo', url: 'https://example.test/drawer=s300' }]);
+  });
+});
+
 test('GET /member-profile defaults an Emeryt with no dues record for the year to duesStatus not_applicable', async () => {
   resetAboutUsBootstrapForTests();
   const firestore = createInMemoryFirestoreClient();
@@ -10282,6 +10327,103 @@ test('GET /lista-wyjazdowa/profile/photo lists rejected photos with their commen
   });
 });
 
+test('GET /lista-wyjazdowa/profile/photo keeps photos marked Nie na publiczną stronę visible separately from pending and rejected photos', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'staging-folder' }));
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      findFolderByName: async (parent, name) => parent === 'staging-folder' && name === 'Nie na publiczną stronę' ? 'non-public-folder' : null,
+      listImageFiles: async id => id === 'staging-folder'
+        ? [{ id: 'pending-1', name: 'pending.jpg', thumbnailLink: 'https://example.test/pending=s220' }]
+        : id === 'non-public-folder'
+          ? [{ id: 'non-public-1', name: 'portrait.jpg', thumbnailLink: 'https://example.test/portrait=s220' }]
+          : [],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo`)).json();
+    assert.deepEqual(body.pending.photos.map((p: { id: string }) => p.id), ['pending-1']);
+    assert.deepEqual(body.nonPublic.photos, [{ id: 'non-public-1', url: 'https://example.test/portrait=s300' }]);
+  });
+});
+
+test('PUT /admin/people/photo/not-public moves only selected pending photos to the non-public subfolder', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'staging-1' }));
+  const moved: Array<{ fileId: string; parentId: string }> = [];
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      findFolderByName: async (parent, name) => parent === 'staging-1' && name === 'Nie na publiczną stronę' ? null : null,
+      ensureFolder: async (parent, name) => parent === 'staging-1' && name === 'Nie na publiczną stronę' ? 'non-public-folder' : `folder-${name}`,
+      readTextFile: async (id, name) => id === 'staging-1' && name === '.owner-email' ? 'ktos@gmail.com' : null,
+      listImageFiles: async id => id === 'staging-1'
+        ? [{ id: 'photo-1', name: 'one.jpg', thumbnailLink: null }, { id: 'photo-2', name: 'two.jpg', thumbnailLink: null }]
+        : [],
+      moveFile: async (fileId, parentId) => { moved.push({ fileId, parentId }); return {}; },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/not-public`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stagingFolderId: 'staging-1', fileIds: ['photo-2'] }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.deepEqual(moved, [{ fileId: 'photo-2', parentId: 'non-public-folder' }]);
+});
+
+test('PUT /admin/people/photo/restore returns only selected non-public photos to pending review', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'staging-2' }));
+  const moved: Array<{ fileId: string; parentId: string }> = [];
+  const deps = makeDeps({
+    firestore,
+    drive: makeFakeDrive({
+      findFolderByName: async (parent, name) => parent === 'staging-2' && name === 'Nie na publiczną stronę' ? 'non-public-2' : null,
+      readTextFile: async (id, name) => id === 'staging-2' && name === '.owner-email' ? 'ktos@gmail.com' : null,
+      listImageFiles: async id => id === 'non-public-2'
+        ? [{ id: 'private-1', name: 'portrait.jpg', thumbnailLink: null }, { id: 'private-2', name: 'other.jpg', thumbnailLink: null }]
+        : [],
+      moveFile: async (fileId, parentId) => { moved.push({ fileId, parentId }); return {}; },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/people/photo/restore`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stagingFolderId: 'staging-2', fileIds: ['private-1'] }),
+    });
+    assert.equal(res.status, 200);
+  });
+  assert.deepEqual(moved, [{ fileId: 'private-1', parentId: 'staging-2' }]);
+});
+
+test('GET /admin/people?category=upload returns non-public photos separately from pending work', async () => {
+  resetAboutUsBootstrapForTests();
+  const deps = makeDeps({
+    drive: makeFakeDrive({
+      ensureFolder: async (_parent, name) => `cat-${name}`,
+      listGalleryFolders: async id => id === 'cat-upload' ? [{ id: 'staging-3', name: 'Jan - ktos@gmail.com - 2026-09-30', modifiedTime: '2026-09-30T00:00:00Z' }] : [],
+      findFolderByName: async (parent, name) => parent === 'staging-3' && name === 'Nie na publiczną stronę' ? 'non-public-3' : null,
+      readTextFile: async (id, name) => id === 'staging-3' && name === '.owner-email' ? 'ktos@gmail.com' : null,
+      listImageFiles: async id => id === 'non-public-3'
+        ? [{ id: 'private-3', name: 'portrait.jpg', thumbnailLink: 'https://example.test/private=s220' }]
+        : [],
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/admin/people?category=upload`)).json();
+    const [person] = body.people;
+    assert.equal(person.mainPhoto, null);
+    assert.deepEqual(person.photos, []);
+    assert.deepEqual(person.nonPublicPhotos, [{ id: 'private-3', url: 'https://example.test/private=s300' }]);
+  });
+});
+
 test('DELETE /lista-wyjazdowa/profile/photo?source=rejected deletes only from the caller\'s own Odrzucone folder and drops its comment', async () => {
   const firestore = createInMemoryFirestoreClient();
   await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 's1' }));
@@ -10314,6 +10456,26 @@ test('DELETE /lista-wyjazdowa/profile/photo?source=rejected deletes only from th
   assert.deepEqual(Object.keys(JSON.parse(written['rejected-folder/.odrzucone.json'])), ['rej-2']);
   const events = await firestore.listDocs<{ action: string; resource: { key: string } }>('auditEvents');
   assert.ok(events.some(e => e.data.action === 'profile.photo_submission.photo_deleted' && e.data.resource.key === 'member:ktos@gmail.com:submission:s1'));
+});
+
+test('DELETE /lista-wyjazdowa/profile/photo?source=not-public deletes only the caller\'s own non-public photo', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await firestore.setDoc('members', 'ktos@gmail.com', seedMemberDoc({ stagingFolderId: 'staging-delete-private' }));
+  const deleted: string[] = [];
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'sub-1', email: 'ktos@gmail.com' }),
+    drive: makeFakeDrive({
+      findFolderByName: async (parent, name) => parent === 'staging-delete-private' && name === 'Nie na publiczną stronę' ? 'non-public-delete' : null,
+      listImageFiles: async id => id === 'non-public-delete' ? [{ id: 'private-delete-1', name: 'portrait.jpg', thumbnailLink: null }] : [],
+      deleteFolder: async id => { deleted.push(id); },
+    }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/profile/photo?source=not-public&fileId=private-delete-1`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+  });
+  assert.deepEqual(deleted, ['private-delete-1']);
 });
 
 test('GET /admin/people?category=upload attaches rejectedPhotos without counting them as pending photos', async () => {

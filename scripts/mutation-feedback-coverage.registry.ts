@@ -63,6 +63,8 @@ const mutationFeedbackWiredRoutes = new Set([
   'PUT /admin/people/photo/transfer',
   'PUT /admin/people/photo/approve',
   'PUT /admin/people/photo/reject',
+  'PUT /admin/people/photo/not-public',
+  'PUT /admin/people/photo/restore',
   'PUT /admin/people/in-memoriam',
   'POST /membership/apply',
   'POST /membership/photos/start',
