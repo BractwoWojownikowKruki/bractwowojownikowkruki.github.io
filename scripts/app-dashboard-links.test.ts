@@ -53,3 +53,14 @@ test('each "Twoje zapisy" trip name is its own link to that trip', () => {
   assert.match(css, /\.dashboard-mini-item-name\s*\{[^}]*text-decoration:\s*none/);
   assert.match(css, /\.dashboard-mini-item-name:hover/);
 });
+
+test('the new-galleries widget combines static and member-created galleries', () => {
+  const widgetSource = appSource.match(/async function renderNewGalleriesWidget\(\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(widgetSource, /Promise\.allSettled\(/);
+  assert.match(widgetSource, /fetch\('\/galerie\/data\/albums\.generated\.json'\)/);
+  assert.match(widgetSource, /apiFetch\('\/galleries'/);
+  assert.match(widgetSource, /title: gallery\.name/);
+  assert.match(widgetSource, /date: gallery\.date\?\.slice\(0, 10\)/);
+  assert.match(widgetSource, /cover: gallery\.coverThumbnailLink/);
+  assert.match(widgetSource, /albums\.sort\(\(a, b\) => b\.date\.localeCompare\(a\.date\)\)\.slice\(0, 3\)/);
+});
