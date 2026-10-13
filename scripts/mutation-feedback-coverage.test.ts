@@ -310,6 +310,7 @@ test('KRKG-119 non-public photos have member labels and separate admin actions',
   assert.match(peopleCards, /\/admin\/people\/photo\/restore/);
   assert.match(profilePage, /response\?\.nonPublic/);
   assert.match(profilePage, /source=not-public/);
+  assert.match(profilePage, /Miniatura zdjęcia będzie dostępna później/);
   assert.match(memberProfile, /profile\.nonPublicPhotos/);
   assert.match(memberProfile, /Nie na publiczną stronę/);
 });

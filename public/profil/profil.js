@@ -144,7 +144,7 @@ function renderCurrentSubmission(response) {
       .map(photo => `
       <div class="lw-photo-thumb">
         <div class="rejected-photo">
-          <img src="${escapeAttr(photo.url || '')}" alt="Zdjęcie nie na publiczną stronę" />
+          <img src="${escapeAttr(photo.url || '')}" alt="${photo.url ? 'Zdjęcie nie na publiczną stronę' : 'Miniatura zdjęcia będzie dostępna później'}" />
           <span class="rejected-stamp" aria-hidden="true">Nie na publiczną stronę</span>
         </div>
         <button type="button" class="lw-crop-btn lw-delete-non-public-btn" data-file-id="${escapeAttr(photo.id)}">Usuń</button>

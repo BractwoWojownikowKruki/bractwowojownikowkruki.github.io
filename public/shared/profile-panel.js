@@ -388,8 +388,8 @@
     // Follow-up to KRKG-0070: a member with no approved public photo yet but at least one
     // pending (unaccepted) upload shows that pending photo in the main-photo slot instead of the
     // bare initials placeholder - it's always index 0 in currentPhotos above (mainPhoto is null in
-    // this branch, so currentPhotos is exactly [...pendingPhotos]), so data-photo-index stays "0"
-    // either way. Shown identically to an approved main photo, by explicit product decision - no
+    // this branch, so pendingPhotos lead even when non-public photos follow), so data-photo-index
+    // stays "0" either way. Shown identically to an approved main photo, by explicit product decision - no
     // "pending" label - and still also listed again below in the "Oczekujące" section.
     const effectiveMainPhoto = profile.mainPhoto || pendingPhotos[0] || null;
     // KRKG-0076 UI feedback: this drawer used to header/avatar itself on the raw fullName,
