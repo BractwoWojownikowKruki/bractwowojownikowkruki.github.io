@@ -295,6 +295,25 @@ test('newly approved and deleted pending photos confirm after their local view a
   assert.match(deletePendingPhoto, /refreshFragment:/);
 });
 
+test('KRKG-119 non-public photos have member labels and separate admin actions', async () => {
+  const [registry, peopleCards, profilePage, memberProfile] = await Promise.all([
+    readContractTable().then(source => deriveMutationFeedbackCoverageRegistry(parseMutationInventoryRoutes(source))),
+    readFile(new URL('../public/admin/publiczne-wizytowki/publiczne-wizytowki.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/profil/profil.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/shared/profile-panel.js', import.meta.url), 'utf8'),
+  ]);
+  for (const route of ['PUT /admin/people/photo/not-public', 'PUT /admin/people/photo/restore']) {
+    assert.equal(registry.find(entry => entry.route === route)?.wiring, 'wired', `${route} must be wired`);
+  }
+  assert.match(peopleCards, /uploadNonPublicSectionHtml/);
+  assert.match(peopleCards, /\/admin\/people\/photo\/not-public/);
+  assert.match(peopleCards, /\/admin\/people\/photo\/restore/);
+  assert.match(profilePage, /response\?\.nonPublic/);
+  assert.match(profilePage, /source=not-public/);
+  assert.match(memberProfile, /profile\.nonPublicPhotos/);
+  assert.match(memberProfile, /Nie na publiczną stronę/);
+});
+
 test('batch four forms and gallery uploads confirm only their completed mutation flows', async () => {
   const files = await Promise.all([
     'public/zgloszenie/zgloszenie.js', 'public/profil/profil.js',

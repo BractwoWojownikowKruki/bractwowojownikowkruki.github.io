@@ -66,10 +66,12 @@ function renderCurrentSubmission(response) {
   const publicSection = response?.public;
   const pendingSection = response?.pending;
   const rejectedSection = response?.rejected;
+  const nonPublicSection = response?.nonPublic;
   const hasPublic = !!publicSection && (publicSection.mainPhoto || publicSection.photos.length > 0);
   const hasPending = !!pendingSection && pendingSection.photos.length > 0;
   const hasRejected = !!rejectedSection && rejectedSection.photos.length > 0;
-  if (!hasPublic && !hasPending && !hasRejected) {
+  const hasNonPublic = !!nonPublicSection && nonPublicSection.photos.length > 0;
+  if (!hasPublic && !hasPending && !hasRejected && !hasNonPublic) {
     container.hidden = true;
     container.innerHTML = '';
     return;
@@ -135,7 +137,38 @@ function renderCurrentSubmission(response) {
   `
     : '';
 
-  container.innerHTML = publicHtml + pendingHtml + rejectedHtml;
+  const nonPublicHtml = hasNonPublic
+    ? `
+    <p class="lw-hint">Nie na publiczną stronę - zdjęcia widoczne tylko dla zalogowanych członków. Administrator może później przywrócić je do oczekujących.</p>
+    ${nonPublicSection.photos
+      .map(photo => `
+      <div class="lw-photo-thumb">
+        <div class="rejected-photo">
+          <img src="${escapeAttr(photo.url || '')}" alt="Zdjęcie nie na publiczną stronę" />
+          <span class="rejected-stamp" aria-hidden="true">Nie na publiczną stronę</span>
+        </div>
+        <button type="button" class="lw-crop-btn lw-delete-non-public-btn" data-file-id="${escapeAttr(photo.id)}">Usuń</button>
+      </div>`)
+      .join('')}
+  `
+    : '';
+  container.innerHTML = publicHtml + pendingHtml + rejectedHtml + nonPublicHtml;
+}
+
+async function deleteNonPublicPhoto(control) {
+  await window.MutationFeedback.confirmed({
+    control,
+    fallbackAnchor: 'toast',
+    viewRoot: document.getElementById('profile-form'),
+    refreshFragment: async () => renderCurrentSubmission(await loadCurrentSubmission()),
+    execute: () => apiFetch(
+      `/lista-wyjazdowa/profile/photo?source=not-public&fileId=${encodeURIComponent(control.dataset.fileId)}`,
+      { method: 'DELETE' },
+      showReauth,
+      hideReauth,
+    ),
+    apply: async () => renderCurrentSubmission(await loadCurrentSubmission()),
+  });
 }
 
 // Removes one of the caller's own rejected photos (the Odrzucone subfolder of their staging
@@ -220,16 +253,17 @@ async function setMainPhoto(control) {
 }
 
 document.getElementById('lw-current-submission').addEventListener('click', (e) => {
-  const deleteBtn = e.target.closest('.lw-delete-pending-btn, .lw-delete-public-btn, .lw-delete-rejected-btn');
+  const deleteBtn = e.target.closest('.lw-delete-pending-btn, .lw-delete-public-btn, .lw-delete-rejected-btn, .lw-delete-non-public-btn');
   if (deleteBtn) {
     // Confirm (public delete only) BEFORE disabling the button, not inside the async action -
     // cancelling resolves rather than rejects, so a confirm gate placed after disabling would
     // never reach the .catch below that re-enables it, leaving the button stuck disabled forever.
     const isPublic = deleteBtn.classList.contains('lw-delete-public-btn');
     const isRejected = deleteBtn.classList.contains('lw-delete-rejected-btn');
+    const isNonPublic = deleteBtn.classList.contains('lw-delete-non-public-btn');
     if (isPublic && !window.confirm('Usunąć to zdjęcie? Zniknie z publicznej strony „Wojownicy”.')) return;
     deleteBtn.disabled = true;
-    const action = isPublic ? deletePublicPhoto : isRejected ? deleteRejectedPhoto : deletePendingPhoto;
+    const action = isPublic ? deletePublicPhoto : isRejected ? deleteRejectedPhoto : isNonPublic ? deleteNonPublicPhoto : deletePendingPhoto;
     action(deleteBtn).catch((err) => {
       deleteBtn.disabled = false;
       window.alert(`Nie udało się usunąć zdjęcia: ${err.message}`);

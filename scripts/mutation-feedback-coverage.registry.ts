@@ -63,6 +63,8 @@ const mutationFeedbackWiredRoutes = new Set([
   'PUT /admin/people/photo/transfer',
   'PUT /admin/people/photo/approve',
   'PUT /admin/people/photo/reject',
+  'PUT /admin/people/photo/not-public',
+  'PUT /admin/people/photo/restore',
   'PUT /admin/people/in-memoriam',
   'POST /membership/apply',
   'POST /membership/photos/start',
@@ -132,11 +134,7 @@ const mutationFeedbackWiredRoutes = new Set([
  * gate stay exact while a later story's frontend catches up. The gate fails for any planned route
  * not named here.
  */
-export const mutationFeedbackPendingRoutes = new Set([
-  // KRKG-119 batch 1 added these service endpoints; their UI handlers land in batch 2.
-  'PUT /admin/people/photo/not-public',
-  'PUT /admin/people/photo/restore',
-]);
+export const mutationFeedbackPendingRoutes = new Set<string>();
 
 /** Parses and expands method-and-route rows from the checked-in canonical Mutation inventory table. */
 export function parseMutationInventoryRoutes(source: string): string[] {

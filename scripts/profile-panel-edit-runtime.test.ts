@@ -198,6 +198,16 @@ test('identity-capable profile drawer submits the edited member identity through
   assert.equal(harness.apiCalls.filter((call) => call.url.startsWith('/member-profile?')).length, 2, 'a successful PUT refreshes the open drawer');
 });
 
+test('shared member drawer labels non-public photos and includes them in its photo viewer', async () => {
+  const harness = createHarness({ profile: {
+    nonPublicPhotos: [{ id: 'private-photo', url: 'https://photos.example/private.jpg' }],
+  } });
+  await harness.window.ProfilePanel.open('jan@example.test');
+  const content = harness.drawer?.querySelector('.profile-drawer-content');
+  assert.match(content?.innerHTML ?? '', /Nie na publiczną stronę/);
+  assert.match(content?.innerHTML ?? '', /data-photo-index="0"/);
+});
+
 test('capability-gated weapons and dues controls use their distinct PUT bodies and refresh the drawer', async () => {
   const harness = createHarness();
   await harness.window.ProfilePanel.open('jan@example.test');
