@@ -179,7 +179,7 @@ test('a member-only photo becomes the avatar for a name pill using the authorize
     ...allSnapshots,
     '/wojownicy-upload/whoami': { email: 'member@example.com' },
     '/member-profile?email=new%40example.com&skipPublic=1': {
-      nonPublicPhotos: [{ id: 'private-1', url: 'https://drive.example/private-1=s64' }],
+      nonPublicPhotos: [{ id: 'private-1', url: 'https://drive.example/private-1=s300' }],
     },
   });
 

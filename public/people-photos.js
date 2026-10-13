@@ -148,12 +148,16 @@ window.PeoplePhotoCache = (function () {
         if (!isMember) return null;
         return fetch(`/member-profile?email=${encodeURIComponent(email)}&skipPublic=1`, { cache: 'no-cache' })
           .then((res) => (res.ok ? res.json() : null))
-          .then((profile) => profile && profile.nonPublicPhotos && profile.nonPublicPhotos[0] && profile.nonPublicPhotos[0].url || null)
+          .then((profile) => profile && profile.nonPublicPhotos && profile.nonPublicPhotos[0] && avatarThumbnailUrl(profile.nonPublicPhotos[0].url) || null)
           .catch(() => null);
       });
       memberAvatarPromises.set(email, request);
     }
     return memberAvatarPromises.get(email);
+  }
+
+  function avatarThumbnailUrl(url) {
+    return typeof url === 'string' ? url.replace(/=s\d+$/, '=s64') : url;
   }
 
   function loadEquipmentAvatars() {
