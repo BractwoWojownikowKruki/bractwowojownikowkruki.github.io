@@ -295,7 +295,7 @@ test('newly approved and deleted pending photos confirm after their local view a
   assert.match(deletePendingPhoto, /refreshFragment:/);
 });
 
-test('KRKG-119 non-public photos have member labels and separate admin actions', async () => {
+test('KRKG-119 non-public photos stay separately manageable by admins and render normally for members', async () => {
   const [registry, peopleCards, profilePage, memberProfile] = await Promise.all([
     readContractTable().then(source => deriveMutationFeedbackCoverageRegistry(parseMutationInventoryRoutes(source))),
     readFile(new URL('../public/admin/publiczne-wizytowki/publiczne-wizytowki.js', import.meta.url), 'utf8'),
@@ -312,7 +312,7 @@ test('KRKG-119 non-public photos have member labels and separate admin actions',
   assert.match(profilePage, /source=not-public/);
   assert.match(profilePage, /Miniatura zdjęcia będzie dostępna później/);
   assert.match(memberProfile, /profile\.nonPublicPhotos/);
-  assert.match(memberProfile, /Nie na publiczną stronę/);
+  assert.doesNotMatch(memberProfile, /rejected-stamp|rejected-photo/);
 });
 
 test('batch four forms and gallery uploads confirm only their completed mutation flows', async () => {

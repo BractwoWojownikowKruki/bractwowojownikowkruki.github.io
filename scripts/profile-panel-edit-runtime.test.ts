@@ -198,14 +198,26 @@ test('identity-capable profile drawer submits the edited member identity through
   assert.equal(harness.apiCalls.filter((call) => call.url.startsWith('/member-profile?')).length, 2, 'a successful PUT refreshes the open drawer');
 });
 
-test('shared member drawer labels non-public photos and includes them in its photo viewer', async () => {
+test('shared member drawer uses the first non-public photo as the ordinary main photo and keeps photo indexes aligned', async () => {
   const harness = createHarness({ profile: {
-    nonPublicPhotos: [{ id: 'private-photo', url: 'https://photos.example/private.jpg' }],
+    mainPhoto: { id: 'public-main', url: 'https://photos.example/public-main.jpg' },
+    photos: [{ id: 'public-extra', url: 'https://photos.example/public-extra.jpg' }],
+    pendingPhotos: [{ id: 'pending', url: 'https://photos.example/pending.jpg' }],
+    nonPublicPhotos: [
+      { id: 'private-main', url: 'https://photos.example/private-main.jpg' },
+      { id: 'private-extra', url: 'https://photos.example/private-extra.jpg' },
+    ],
   } });
   await harness.window.ProfilePanel.open('jan@example.test');
   const content = harness.drawer?.querySelector('.profile-drawer-content');
-  assert.match(content?.innerHTML ?? '', /Nie na publiczną stronę/);
-  assert.match(content?.innerHTML ?? '', /data-photo-index="0"/);
+  const html = content?.innerHTML ?? '';
+  assert.match(html, /<div class="person-main-photo" data-photo-index="0">\s*<img src="https:\/\/photos\.example\/private-main\.jpg"/);
+  assert.doesNotMatch(html, /Nie na publiczną stronę|rejected-stamp|rejected-photo/);
+  assert.equal((html.match(/private-main\.jpg/g) ?? []).length, 1, 'the chosen main photo is not repeated in the gallery');
+  assert.match(html, /public-main\.jpg[^]*data-photo-index="1"/);
+  assert.match(html, /public-extra\.jpg[^]*data-photo-index="2"/);
+  assert.match(html, /private-extra\.jpg[^]*data-photo-index="3"/);
+  assert.match(html, /pending\.jpg[^]*data-photo-index="4"/);
 });
 
 test('capability-gated weapons and dues controls use their distinct PUT bodies and refresh the drawer', async () => {
