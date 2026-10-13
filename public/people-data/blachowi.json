@@ -567,6 +567,27 @@
      "url": "/people-photos/1q0iHuBFrJyfL9fHxE21lO5qs4B9cdQ71-300-502eb0e016.jpg"
     }
    ]
+  },
+  {
+   "avatar": {
+    "id": "19jU1ACQnvMJrnTOIaL7d9PC_IvfZSl0C",
+    "url": "/people-photos/19jU1ACQnvMJrnTOIaL7d9PC_IvfZSl0C-64-0a8870f2dc.jpg"
+   },
+   "folderId": "1y2YLo6Ax3R6U8yeKfGyttFGVUhAcScnJ",
+   "name": "Zelmer",
+   "order": 29,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "19jU1ACQnvMJrnTOIaL7d9PC_IvfZSl0C",
+    "url": "/people-photos/19jU1ACQnvMJrnTOIaL7d9PC_IvfZSl0C-800-0a8870f2dc.jpg"
+   },
+   "photos": [
+    {
+     "id": "14OKG55bKWalpoadEtAWgP9lheeyaG8Pn",
+     "url": "/people-photos/14OKG55bKWalpoadEtAWgP9lheeyaG8Pn-300-1a6088bc93.png"
+    }
+   ]
   }
  ]
 }
