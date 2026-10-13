@@ -205,8 +205,28 @@ async function renderNewGalleriesWidget() {
   widget.className = 'dashboard-widget';
   widget.innerHTML = `<h3>Nowe galerie</h3><div class="dashboard-gallery-thumbs"></div>`;
   try {
-    const albums = await fetch('/galerie/data/albums.generated.json').then((r) => r.json());
-    const recent = [...albums].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
+    const [generatedResult, discoveredResult] = await Promise.allSettled([
+      fetch('/galerie/data/albums.generated.json').then((r) => r.json()),
+      apiFetch('/galleries', { method: 'GET' }, showReauth, hideReauth),
+    ]);
+    if (generatedResult.status === 'rejected' && discoveredResult.status === 'rejected') {
+      throw generatedResult.reason;
+    }
+    const generated = generatedResult.status === 'fulfilled' ? generatedResult.value : [];
+    const discovered = discoveredResult.status === 'fulfilled' ? discoveredResult.value.galleries : [];
+    const albums = [
+      ...generated.map((album) => ({
+        title: album.title,
+        date: album.date,
+        cover: `/galerie/${album.cover}`,
+      })),
+      ...discovered.map((gallery) => ({
+        title: gallery.name,
+        date: gallery.date?.slice(0, 10) ?? '',
+        cover: gallery.coverThumbnailLink,
+      })),
+    ];
+    const recent = albums.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
     const thumbsEl = widget.querySelector('.dashboard-gallery-thumbs');
     if (recent.length === 0) {
       thumbsEl.outerHTML = '<p class="dashboard-widget-empty">Brak galerii.</p>';
@@ -222,7 +242,7 @@ async function renderNewGalleriesWidget() {
     recent.forEach((album, i) => {
       // alt="" - the caption below is the visible label now; a non-empty alt would make screen
       // readers announce the same title twice for this link.
-      itemEls[i].querySelector('.dashboard-gallery-thumb img').src = `/galerie/${album.cover}`;
+      if (album.cover) itemEls[i].querySelector('.dashboard-gallery-thumb img').src = album.cover;
       itemEls[i].querySelector('.dashboard-gallery-thumb-caption').textContent = album.title;
     });
   } catch (err) {
