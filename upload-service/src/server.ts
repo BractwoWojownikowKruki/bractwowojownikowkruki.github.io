@@ -13,6 +13,7 @@ import { mimeTypesEquivalent, sniffImageMimeType, SNIFF_BYTES } from './imageSni
 import { fetchInstagramPosts, fetchFacebookPosts, fetchYouTubeVideos, clearSocialMediaCache } from './social-media.ts';
 import { getFacebookSettings, setFacebookSettings } from './settings.ts';
 import { getClientIp, isRateLimited } from './rate-limit.ts';
+import { ensureNonPublicPhotosFolder, findNonPublicPhotosFolder, listNonPublicPhotos, type NonPublicPhoto } from './non-public-photos.ts';
 import {
   bootstrapAboutUsStructure,
   buildPersonFolderName,
@@ -2286,10 +2287,11 @@ async function enrichUploadEntryWithPublicStatus(
   deps: ServerDeps,
   person: Person,
   categoryLabels: ReadonlyMap<string, string>,
-): Promise<Person & { rejectedPhotos: RejectedPhoto[]; owner: UploadOwner | null; publicFolderId: string | null; publicName: string | null; publicDescription: string | null; applicationDescription: string | null }> {
+): Promise<Person & { rejectedPhotos: RejectedPhoto[]; nonPublicPhotos: NonPublicPhoto[]; owner: UploadOwner | null; publicFolderId: string | null; publicName: string | null; publicDescription: string | null; applicationDescription: string | null }> {
   // Shown greyed-out with a stamp in the admin Upload view; never counted as pending work (they
   // are not in person.mainPhoto/photos, which is all the pending counts look at).
   const rejectedPhotos = await listRejectedPhotos(deps.drive, person.folderId);
+  const nonPublicPhotos = await listNonPublicPhotos(deps.drive, person.folderId);
   const ownerEmailRaw = await deps.drive.readTextFile(person.folderId, '.owner-email');
   const ownerEmail = ownerEmailRaw?.trim().toLowerCase();
   const member = ownerEmail ? await getMember(deps.firestore, ownerEmail) : null;
@@ -2310,7 +2312,7 @@ async function enrichUploadEntryWithPublicStatus(
   // The registration form's free-text description - prefills the admin's "Opis" for a first
   // publication.
   const applicationDescription = member?.description ?? null;
-  const nullResult = { ...person, rejectedPhotos, owner, publicFolderId: null, publicName: null, publicDescription: null, applicationDescription };
+  const nullResult = { ...person, rejectedPhotos, nonPublicPhotos, owner, publicFolderId: null, publicName: null, publicDescription: null, applicationDescription };
   if (!member?.driveFolderId) return nullResult;
   const [folderName, description] = await Promise.all([
     deps.drive.getFolderName(member.driveFolderId),
@@ -2320,6 +2322,7 @@ async function enrichUploadEntryWithPublicStatus(
   return {
     ...person,
     rejectedPhotos,
+    nonPublicPhotos,
     owner,
     publicFolderId: member.driveFolderId,
     publicName: parsePersonFolderName(folderName).name,
@@ -2755,6 +2758,71 @@ async function loadStagingSubmission(deps: ServerDeps, stagingFolderId: string, 
     if (!stagingImageById.has(fileId)) throw new AuthError('Ten plik nie należy do tego folderu.', 404);
   }
   return { ownerEmail, member, stagingImageById };
+}
+
+async function loadNonPublicSubmission(deps: ServerDeps, stagingFolderId: string, fileIds: readonly string[]) {
+  const ownerEmailRaw = await deps.drive.readTextFile(stagingFolderId, '.owner-email');
+  const ownerEmail = ownerEmailRaw?.trim().toLowerCase();
+  if (!ownerEmail) throw new AuthError('Nie znaleziono właściciela tego zgłoszenia.', 404);
+  const member = await getMember(deps.firestore, ownerEmail);
+  if (!member) throw new AuthError('Nie znaleziono właściciela tego zgłoszenia.', 404);
+  if (member.stagingFolderId !== stagingFolderId) throw new AuthError('To nie jest aktualny folder zgłoszeniowy tej osoby.', 404);
+  const nonPublicFolderId = await findNonPublicPhotosFolder(deps.drive, stagingFolderId);
+  if (!nonPublicFolderId) throw new AuthError('Nie znaleziono folderu zdjęć niepublicznych.', 404);
+  const nonPublicImageById = new Map((await deps.drive.listImageFiles(nonPublicFolderId)).map(image => [image.id, image]));
+  for (const fileId of fileIds) {
+    if (!nonPublicImageById.has(fileId)) throw new AuthError('To zdjęcie nie ma statusu „Nie na publiczną stronę”.', 404);
+  }
+  return { ownerEmail, member, nonPublicFolderId, nonPublicImageById };
+}
+
+async function handleAdminMarkPhotoNotPublic(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  const { fileIds, stagingFolderId } = await readJsonBody<{ fileIds?: string[]; stagingFolderId?: string }>(req, deps.maxJsonBodyBytes);
+  if (!stagingFolderId || !Array.isArray(fileIds) || fileIds.length === 0) throw new AuthError('Brak fileIds lub stagingFolderId.', 400);
+  requireDriveId(stagingFolderId, 'Brak fileIds lub stagingFolderId.');
+  for (const fileId of fileIds) requireDriveId(fileId, 'Brak fileIds lub stagingFolderId.');
+
+  const { ownerEmail } = await loadStagingSubmission(deps, stagingFolderId, fileIds);
+  const nonPublicFolderId = await ensureNonPublicPhotosFolder(deps.drive, stagingFolderId);
+  const resourceKey = `member:${ownerEmail}:submission:${stagingFolderId}`;
+  for (const fileId of fileIds) {
+    await executeAuditedExternalMutation(
+      deps.firestore,
+      {
+        action: 'profile.photo_submission.photo_marked_non_public',
+        actor: { email: identity.email },
+        resource: { kind: 'memberSubmission', key: resourceKey, display: stagingFolderId },
+        changes: [{ field: 'fileId', after: fileId }, { field: 'publicationStatus', before: 'pending', after: 'not_public' }],
+      },
+      async () => deps.drive.moveFile(fileId, nonPublicFolderId),
+    );
+  }
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleAdminRestorePhotoToPending(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateAdminWithStepUp(req, res);
+  const { fileIds, stagingFolderId } = await readJsonBody<{ fileIds?: string[]; stagingFolderId?: string }>(req, deps.maxJsonBodyBytes);
+  if (!stagingFolderId || !Array.isArray(fileIds) || fileIds.length === 0) throw new AuthError('Brak fileIds lub stagingFolderId.', 400);
+  requireDriveId(stagingFolderId, 'Brak fileIds lub stagingFolderId.');
+  for (const fileId of fileIds) requireDriveId(fileId, 'Brak fileIds lub stagingFolderId.');
+
+  const { ownerEmail, nonPublicFolderId } = await loadNonPublicSubmission(deps, stagingFolderId, fileIds);
+  const resourceKey = `member:${ownerEmail}:submission:${stagingFolderId}`;
+  for (const fileId of fileIds) {
+    await executeAuditedExternalMutation(
+      deps.firestore,
+      {
+        action: 'profile.photo_submission.photo_restored_to_pending',
+        actor: { email: identity.email },
+        resource: { kind: 'memberSubmission', key: resourceKey, display: stagingFolderId },
+        changes: [{ field: 'fileId', after: fileId }, { field: 'publicationStatus', before: 'not_public', after: 'pending' }],
+      },
+      async () => deps.drive.moveFile(fileId, stagingFolderId),
+    );
+  }
+  sendJson(res, 200, { ok: true });
 }
 
 // Moves the selected pending photos into the staging folder's "Odrzucone" subfolder (see
@@ -3437,6 +3505,7 @@ async function handleListaWyjazdowaGetProfilePhoto(req: IncomingMessage, res: Se
 
   let pendingSection: { photos: PersonPhoto[] } | null = null;
   let rejectedSection: { photos: RejectedPhoto[] } | null = null;
+  let nonPublicSection: { photos: NonPublicPhoto[] } | null = null;
   if (member?.stagingFolderId) {
     const exists = await deps.drive.folderExists(member.stagingFolderId);
     if (exists) {
@@ -3447,10 +3516,12 @@ async function handleListaWyjazdowaGetProfilePhoto(req: IncomingMessage, res: Se
       const { mainPhoto, photos } = mapDriveImagesToPhotos(images);
       pendingSection = { photos: mainPhoto ? [mainPhoto, ...photos] : photos };
       if (rejectedPhotos.length > 0) rejectedSection = { photos: rejectedPhotos };
+      const nonPublicPhotos = await listNonPublicPhotos(deps.drive, member.stagingFolderId);
+      if (nonPublicPhotos.length > 0) nonPublicSection = { photos: nonPublicPhotos };
     }
   }
 
-  sendJson(res, 200, { public: publicSection, pending: pendingSection, rejected: rejectedSection });
+  sendJson(res, 200, { public: publicSection, pending: pendingSection, rejected: rejectedSection, nonPublic: nonPublicSection });
 }
 
 // KRKG-0070: lets a member delete a photo from their own pending staging folder before an admin
@@ -3465,18 +3536,20 @@ async function handleListaWyjazdowaDeleteProfilePhoto(req: IncomingMessage, res:
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const fileId = requireDriveId(url.searchParams.get('fileId'), 'Brak fileId.');
   const rawSource = url.searchParams.get('source') ?? 'staging';
-  if (rawSource !== 'staging' && rawSource !== 'public' && rawSource !== 'rejected') throw new AuthError('Nieprawidłowa wartość source.', 400);
-  const source = rawSource as 'staging' | 'public' | 'rejected';
+  if (rawSource !== 'staging' && rawSource !== 'public' && rawSource !== 'rejected' && rawSource !== 'not-public') throw new AuthError('Nieprawidłowa wartość source.', 400);
+  const source = rawSource as 'staging' | 'public' | 'rejected' | 'not-public';
 
   const member = await getMember(deps.firestore, identity.email);
   const stagingFolderId = member?.stagingFolderId ?? null;
-  // source=rejected: the caller's own staging folder's Odrzucone subfolder (photo-rejections.ts) -
-  // still resolved from the member doc, never from a client-supplied id.
+  // Both non-public sources are resolved beneath the caller's own staging folder, never from a
+  // client-supplied id.
   const folderId = source === 'public'
     ? member?.driveFolderId ?? null
     : source === 'rejected'
       ? stagingFolderId && await findRejectedFolder(deps.drive, stagingFolderId)
-      : stagingFolderId;
+      : source === 'not-public'
+        ? stagingFolderId && await findNonPublicPhotosFolder(deps.drive, stagingFolderId)
+        : stagingFolderId;
   if (!folderId) {
     sendJson(res, 404, { error: source === 'public' ? 'Nie znaleziono publicznego folderu.' : 'Nie znaleziono folderu zgłoszeniowego.' });
     return;
@@ -3623,6 +3696,7 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
   let mainPhoto: PersonPhoto | null = null;
   let photos: PersonPhoto[] = [];
   let pendingPhotos: PersonPhoto[] = [];
+  let nonPublicPhotos: NonPublicPhoto[] = [];
   let description: string | null = null;
   let published = false;
 
@@ -3651,6 +3725,7 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
       const images = await deps.drive.listImageFiles(member.stagingFolderId);
       const pendingMapped = mapDriveImagesToPhotos(images);
       pendingPhotos = pendingMapped.mainPhoto ? [pendingMapped.mainPhoto, ...pendingMapped.photos] : pendingMapped.photos;
+      nonPublicPhotos = await listNonPublicPhotos(deps.drive, member.stagingFolderId);
     }
   }
 
@@ -3676,6 +3751,7 @@ async function handleMemberProfile(req: IncomingMessage, res: ServerResponse, ur
     mainPhoto,
     photos,
     pendingPhotos,
+    nonPublicPhotos,
     description,
     published,
     ...(publicSkipped ? { publicSkipped: true } : {}),
@@ -6115,6 +6191,10 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminApprovePhoto(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/photo/reject') {
         await handleAdminRejectPhoto(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/people/photo/not-public') {
+        await handleAdminMarkPhotoNotPublic(req, res, deps);
+      } else if (req.method === 'PUT' && url.pathname === '/admin/people/photo/restore') {
+        await handleAdminRestorePhotoToPending(req, res, deps);
       } else if (req.method === 'PUT' && url.pathname === '/admin/people/in-memoriam') {
         await handleAdminSetInMemoriam(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/wojownicy-upload/whoami') {
