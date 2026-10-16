@@ -134,7 +134,7 @@ window.PeoplePhotoCache = (function () {
 
   function loadMemberSession() {
     if (!memberSessionPromise) {
-      memberSessionPromise = fetch('/wojownicy-upload/whoami', { cache: 'no-cache' })
+      memberSessionPromise = fetch(`${UPLOAD_SERVICE_URL}/wojownicy-upload/whoami`, { cache: 'no-cache', credentials: 'include' })
         .then((res) => res.ok)
         .catch(() => false);
     }
@@ -146,7 +146,7 @@ window.PeoplePhotoCache = (function () {
     if (!memberAvatarPromises.has(email)) {
       const request = loadMemberSession().then((isMember) => {
         if (!isMember) return null;
-        return fetch(`/member-profile?email=${encodeURIComponent(email)}&skipPublic=1`, { cache: 'no-cache' })
+        return fetch(`${UPLOAD_SERVICE_URL}/member-profile?email=${encodeURIComponent(email)}&skipPublic=1`, { cache: 'no-cache', credentials: 'include' })
           .then((res) => (res.ok ? res.json() : null))
           .then((profile) => profile && profile.nonPublicPhotos && profile.nonPublicPhotos[0] && avatarThumbnailUrl(profile.nonPublicPhotos[0].url) || null)
           .catch(() => null);
