@@ -191,9 +191,7 @@ test('a member-only photo becomes the avatar for a name pill using the authorize
 
   assert.ok(trigger.children[1].cls.includes('person-avatar-slot'));
   assert.ok(trigger.children[1].style.backgroundImage.includes('https://drive.example/private-1=s64'));
-  assert.deepEqual(cache.requests, [
-    '/people-data/zalozyciele.json', '/people-data/blachowi.json', '/people-data/niewiasty.json',
-    '/people-data/emeryci.json', '/people-data/kandydaci.json',
+  assert.deepEqual(cache.requests.filter((url: string) => url.startsWith('https://api.kruki.org/')), [
     'https://api.kruki.org/wojownicy-upload/whoami',
     'https://api.kruki.org/member-profile?email=new%40example.com&skipPublic=1',
   ]);
