@@ -261,6 +261,27 @@
      "url": "/people-photos/1uvs1eH2COl0Gdz22o0MH6esiNlDLXism-300-19b940f63b.jpg"
     }
    ]
+  },
+  {
+   "avatar": {
+    "id": "1V8lziNoP7v9xrJ1rBmWWdBJCndnUd-F1",
+    "url": "/people-photos/1V8lziNoP7v9xrJ1rBmWWdBJCndnUd-F1-64-454eadd9ff.jpg"
+   },
+   "folderId": "1mPS0W54tH5cOIvQq9Q6S40MhoCLAZbQC",
+   "name": "Dawid",
+   "order": 14,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1V8lziNoP7v9xrJ1rBmWWdBJCndnUd-F1",
+    "url": "/people-photos/1V8lziNoP7v9xrJ1rBmWWdBJCndnUd-F1-800-454eadd9ff.jpg"
+   },
+   "photos": [
+    {
+     "id": "1sIetABUXIaetPM4jARngAqM8s46iDlCz",
+     "url": "/people-photos/1sIetABUXIaetPM4jARngAqM8s46iDlCz-300-b6b0d62d00.jpg"
+    }
+   ]
   }
  ]
 }
