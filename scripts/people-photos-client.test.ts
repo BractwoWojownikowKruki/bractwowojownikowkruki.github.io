@@ -63,6 +63,7 @@ class FakeEl {
   add(child: FakeEl) { child.parent = this; this.children.push(child); return child; }
   hasAttribute(n: string) { return n in this.attrs; }
   setAttribute(n: string, v: string) { this.attrs[n] = v; }
+  removeAttribute(n: string) { delete this.attrs[n]; }
   matches(sel: string) { return sel.split(',').map(x => x.trim()).some(c => (c.startsWith('.') && this.cls.split(' ').includes(c.slice(1))) || (c.startsWith('[') && c.endsWith(']') && c.slice(1, -1) in this.attrs)); }
   get previousElementSibling() { const i = this.parent!.children.indexOf(this); return i > 0 ? this.parent!.children[i - 1] : null; }
   get isConnected() { return this.parent !== null; }
@@ -85,20 +86,22 @@ class FakeEl {
 
 function loadWithDom(triggers: FakeEl[], routes: Record<string, unknown>) {
   const window: Record<string, any> = {};
+  const requests: string[] = [];
   const document = {
     body: {},
     querySelectorAll: (sel: string) => {
       const wantEquipment = sel.includes('data-equipment-trigger');
-      return triggers.filter(t => !t.hasAttribute('data-avatar') && (t.hasAttribute('data-equipment-trigger') ? wantEquipment : t.hasAttribute('data-folder-id')));
+      return triggers.filter(t => !t.hasAttribute('data-avatar') && (t.hasAttribute('data-equipment-trigger') ? wantEquipment : (t.hasAttribute('data-folder-id') || t.hasAttribute('data-email'))));
     },
     createElement: (tag: string) => new FakeEl(tag, ''),
     addEventListener() {},
   };
-  const fetchImpl = (url: string) => (url in routes ? ok(routes[url]) : Promise.resolve({ ok: false }));
+  const fetchImpl = (url: string) => { requests.push(url); return url in routes ? ok(routes[url]) : Promise.resolve({ ok: false }); };
   vm.runInNewContext(readFileSync(new URL('../public/people-photos.js', import.meta.url), 'utf8'), {
     window, document, fetch: fetchImpl, Math, Promise, setTimeout, Object, MutationObserver: undefined,
     Image: class { onload: () => void = () => {}; onerror: () => void = () => {}; set src(_v: string) { setImmediate(() => this.onload()); } },
   });
+  window.PeoplePhotoCache.requests = requests;
   return window.PeoplePhotoCache;
 }
 
@@ -166,6 +169,41 @@ test('a pill trigger without an icon button gets a trailing avatar; with an icon
   assert.ok(lone.children[1].style.backgroundImage.includes('/people-photos/m1-64-aaaaaaaaaa.jpg'));
   assert.ok(paired.children[1].cls.includes('person-avatar-slot'), 'with an icon button next to it, the avatar still trails the pill');
   assert.ok(!row2.children.includes(iconBtn), 'the redundant icon button is removed once the avatar is placed');
+});
+
+test('a member-only photo becomes the avatar for a name pill using the authorized member profile endpoint', async () => {
+  const row = new FakeEl('td', '');
+  const trigger = row.add(new FakeEl('button', 'profile-trigger', { 'data-profile-trigger': '', 'data-email': 'new@example.com' }));
+  trigger.add(new FakeEl('span', 'category-name-pill'));
+  const cache = loadWithDom([trigger], {
+    ...allSnapshots,
+    '/wojownicy-upload/whoami': { email: 'member@example.com' },
+    '/member-profile?email=new%40example.com&skipPublic=1': {
+      nonPublicPhotos: [{ id: 'private-1', url: 'https://drive.example/private-1=s300' }],
+    },
+  });
+
+  cache.applyAvatars();
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+
+  assert.ok(trigger.children[1].cls.includes('person-avatar-slot'));
+  assert.ok(trigger.children[1].style.backgroundImage.includes('https://drive.example/private-1=s64'));
+});
+
+test('an unauthenticated visitor never requests a member-only avatar and keeps the public avatar', async () => {
+  const row = new FakeEl('td', '');
+  const trigger = row.add(new FakeEl('button', 'profile-trigger', { 'data-profile-trigger': '', 'data-email': 'member@example.com', 'data-folder-id': 'F1' }));
+  trigger.add(new FakeEl('span', 'category-name-pill'));
+  const cache = loadWithDom([trigger], allSnapshots);
+
+  cache.applyAvatars();
+  await new Promise(r => setTimeout(r, 10));
+
+  assert.ok(cache.requests.includes('/wojownicy-upload/whoami'));
+  assert.ok(!cache.requests.some((url: string) => url.startsWith('/member-profile?')));
+  assert.equal(cache.personAvatarUrl('F1'), '/people-photos/m1-64-aaaaaaaaaa.jpg');
+  assert.ok(trigger.children[1].style.backgroundImage.includes('/people-photos/m1-64-aaaaaaaaaa.jpg'));
 });
 
 test('an equipment pill swaps its image icon for the cached equipment avatar (photo id -> manifest)', async () => {

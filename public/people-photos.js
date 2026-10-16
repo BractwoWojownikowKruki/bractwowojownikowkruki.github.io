@@ -115,21 +115,50 @@ window.PeoplePhotoCache = (function () {
 
   // ---- Avatars in name pills / equipment pills ----
   // A small round picture replaces the generic person icon (and the equipment image icon) wherever
-  // a pill's trigger button is rendered. Everything is static: persons come from the snapshot's
-  // `avatar` (looked up by the trigger's data-folder-id), equipment from
-  // /people-data/equipment-avatars.json + the photo manifest. Nothing here ever asks Google Drive
-  // or the backend, and anything missing (no folder id, no cached avatar, a failed image load)
-  // simply leaves the original icon in place.
+  // a pill's trigger button is rendered. Public avatars come from the static snapshot; a signed-in
+  // member can get a non-public photo through the authorized member-profile endpoint. Equipment
+  // avatars come from /people-data/equipment-avatars.json + the photo manifest. A missing avatar
+  // or failed image load simply leaves the original icon in place.
   //
   // Pages render their tables with innerHTML at arbitrary moments, and the snapshots load
   // asynchronously, so instead of touching every page's renderer a MutationObserver upgrades
   // triggers as they appear (and once more when the data arrives). A trigger that was upgraded is
   // marked data-avatar so it is never processed twice.
   const ICON_TRIGGER = '.profile-trigger--icon-inline, .profile-trigger--icon';
-  const AVATAR_TRIGGERS = '[data-profile-trigger][data-folder-id]:not([data-avatar]), [data-equipment-trigger][data-equipment-id]:not([data-avatar])';
+  const AVATAR_TRIGGERS = '[data-profile-trigger][data-folder-id]:not([data-avatar]):not([data-avatar-pending]), [data-profile-trigger][data-email]:not([data-avatar]):not([data-avatar-pending]), [data-equipment-trigger][data-equipment-id]:not([data-avatar])';
 
   let equipmentAvatarsPromise = null;
   let equipmentAvatars = null; // equipment id -> url, once loaded
+  let memberSessionPromise = null;
+  const memberAvatarPromises = new Map();
+
+  function loadMemberSession() {
+    if (!memberSessionPromise) {
+      memberSessionPromise = fetch('/wojownicy-upload/whoami', { cache: 'no-cache' })
+        .then((res) => res.ok)
+        .catch(() => false);
+    }
+    return memberSessionPromise;
+  }
+
+  function memberOnlyAvatar(email) {
+    if (!email) return Promise.resolve(null);
+    if (!memberAvatarPromises.has(email)) {
+      const request = loadMemberSession().then((isMember) => {
+        if (!isMember) return null;
+        return fetch(`/member-profile?email=${encodeURIComponent(email)}&skipPublic=1`, { cache: 'no-cache' })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((profile) => profile && profile.nonPublicPhotos && profile.nonPublicPhotos[0] && avatarThumbnailUrl(profile.nonPublicPhotos[0].url) || null)
+          .catch(() => null);
+      });
+      memberAvatarPromises.set(email, request);
+    }
+    return memberAvatarPromises.get(email);
+  }
+
+  function avatarThumbnailUrl(url) {
+    return typeof url === 'string' ? url.replace(/=s\d+$/, '=s64') : url;
+  }
 
   function loadEquipmentAvatars() {
     if (!equipmentAvatarsPromise) {
@@ -194,24 +223,11 @@ window.PeoplePhotoCache = (function () {
     });
   }
 
-  function upgradeTrigger(trigger) {
-    if (trigger.hasAttribute('data-equipment-trigger')) {
-      const url = equipmentAvatars && equipmentAvatars.get(trigger.dataset.equipmentId);
-      const icon = trigger.querySelector('svg.equipment-photo-icon');
-      if (!url || !icon) return;
-      // Same place as a person's avatar: flush against the pill's left edge, replacing the icon.
-      const img = makeAvatar(url, 'person-avatar--equipment');
-      img.addEventListener('error', () => img.remove(), { once: true });
-      trigger.prepend(img);
-      icon.remove();
-      trigger.setAttribute('data-avatar', '');
-      return;
-    }
-    const url = personAvatarUrl(trigger.dataset.folderId);
+  function upgradePersonTrigger(trigger, url) {
     if (!url) return;
     if (trigger.matches(ICON_TRIGGER)) {
-      // Next to a name pill (Lista Wyjazdowa, Spis Ludności): the avatar trails the pill and replaces
-      // the redundant "show profile" icon button.
+      // Next to a name pill (Lista Wyjazdowa, Spis Ludności): this avatar replaces the redundant
+      // "show profile" icon button.
       const pillTrigger = trigger.previousElementSibling;
       const pill = pillTrigger && pillTrigger.matches('[data-profile-trigger]') ? pillTrigger.querySelector('.category-name-pill') : null;
       if (pill) {
@@ -241,6 +257,34 @@ window.PeoplePhotoCache = (function () {
       trigger.prepend(img);
     }
     trigger.setAttribute('data-avatar', '');
+  }
+
+  function upgradeTrigger(trigger) {
+    if (trigger.hasAttribute('data-equipment-trigger')) {
+      const url = equipmentAvatars && equipmentAvatars.get(trigger.dataset.equipmentId);
+      const icon = trigger.querySelector('svg.equipment-photo-icon');
+      if (!url || !icon) return;
+      // Same place as a person's avatar: flush against the pill's left edge, replacing the icon.
+      const img = makeAvatar(url, 'person-avatar--equipment');
+      img.addEventListener('error', () => img.remove(), { once: true });
+      trigger.prepend(img);
+      icon.remove();
+      trigger.setAttribute('data-avatar', '');
+      return;
+    }
+    const publicUrl = personAvatarUrl(trigger.dataset.folderId);
+    if (!trigger.dataset.email) {
+      upgradePersonTrigger(trigger, publicUrl);
+      return;
+    }
+    trigger.setAttribute('data-avatar-pending', '');
+    memberOnlyAvatar(trigger.dataset.email).then(async (privateUrl) => {
+      await loadAllStaticPeople();
+      if (!trigger.isConnected) return;
+      trigger.removeAttribute('data-avatar-pending');
+      trigger.setAttribute('data-avatar', '');
+      upgradePersonTrigger(trigger, privateUrl || personAvatarUrl(trigger.dataset.folderId) || publicUrl);
+    });
   }
 
   function applyAvatars() {

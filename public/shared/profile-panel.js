@@ -380,18 +380,20 @@
   function renderProfile(profile) {
     const pendingPhotos = profile.pendingPhotos || [];
     const nonPublicPhotos = profile.nonPublicPhotos || [];
-    // KRKG-0070: pendingPhotos are a member's own still-unapproved staging-folder uploads,
-    // folded into the same currentPhotos/lightbox index space as mainPhoto+photos (the lightbox
-    // has no notion of "sections" - it just steps through one flat list by index) but rendered
-    // under their own heading below so a viewer can tell what's live from what's awaiting review.
-    currentPhotos = profile.mainPhoto ? [profile.mainPhoto, ...profile.photos, ...pendingPhotos, ...nonPublicPhotos] : [...pendingPhotos, ...nonPublicPhotos];
-    // Follow-up to KRKG-0070: a member with no approved public photo yet but at least one
-    // pending (unaccepted) upload shows that pending photo in the main-photo slot instead of the
-    // bare initials placeholder - it's always index 0 in currentPhotos above (mainPhoto is null in
-    // this branch, so pendingPhotos lead even when non-public photos follow), so data-photo-index
-    // stays "0" either way. Shown identically to an approved main photo, by explicit product decision - no
-    // "pending" label - and still also listed again below in the "Oczekujące" section.
-    const effectiveMainPhoto = profile.mainPhoto || pendingPhotos[0] || null;
+    const effectiveMainPhoto = nonPublicPhotos[0] || profile.mainPhoto || pendingPhotos[0] || null;
+    const galleryPhotos = [
+      ...(profile.mainPhoto && profile.mainPhoto.id !== effectiveMainPhoto?.id ? [profile.mainPhoto] : []),
+      ...(profile.photos || []),
+      ...nonPublicPhotos.filter(photo => photo.id !== effectiveMainPhoto?.id),
+    ];
+    // The lightbox uses one flat photo list. Keep the chosen main image at index zero and place
+    // each other photo exactly once, regardless of whether it comes from the public or staging
+    // folder. Pending photos keep their separate heading below but share these same indexes.
+    currentPhotos = [
+      ...(effectiveMainPhoto ? [effectiveMainPhoto] : []),
+      ...galleryPhotos,
+      ...pendingPhotos.filter(photo => photo.id !== effectiveMainPhoto?.id),
+    ];
     // KRKG-0076 UI feedback: this drawer used to header/avatar itself on the raw fullName,
     // inconsistent with every trigger that opens it (skladki.js/wyjazd.js/czlonkowie.js/pliki.js
     // all label their .profile-trigger with displayName()'s nickname-priority name) - a member
@@ -409,23 +411,15 @@
     const descriptionHtml = profile.published && profile.description
       ? `<div class="profile-description">${escapeHtml(profile.description)}</div>`
       : '';
-    const galleryHtml = profile.photos.length
-      ? `<div class="person-gallery">${profile.photos
-          .map((p, i) => `<img src="${escapeHtml(p.url)}" alt="" data-photo-index="${i + 1}" />`)
+    const galleryHtml = galleryPhotos.length
+      ? `<div class="person-gallery">${galleryPhotos
+          .map(p => `<img src="${escapeHtml(p.url)}" alt="" data-photo-index="${currentPhotos.findIndex(photo => photo.id === p.id)}" />`)
           .join('')}</div>`
       : '';
-    const pendingOffset = profile.mainPhoto ? 1 + profile.photos.length : profile.photos.length;
     const pendingHtml = pendingPhotos.length
       ? `<h4 class="profile-pending-heading">Zdjęcia oczekujące na publikację na publicznej części strony</h4>
          <div class="person-gallery">${pendingPhotos
-           .map((p, i) => `<img src="${escapeHtml(p.url)}" alt="" data-photo-index="${pendingOffset + i}" />`)
-           .join('')}</div>`
-      : '';
-    const nonPublicOffset = currentPhotos.length - nonPublicPhotos.length;
-    const nonPublicHtml = nonPublicPhotos.length
-      ? `<h4 class="profile-pending-heading">Nie na publiczną stronę</h4>
-         <div class="person-gallery">${nonPublicPhotos
-           .map((p, i) => `<div class="rejected-photo"><img src="${escapeHtml(p.url || '')}" alt="Zdjęcie nie na publiczną stronę" data-photo-index="${nonPublicOffset + i}" /><span class="rejected-stamp" aria-hidden="true">Nie na publiczną stronę</span></div>`)
+           .map(p => `<img src="${escapeHtml(p.url)}" alt="" data-photo-index="${currentPhotos.findIndex(photo => photo.id === p.id)}" />`)
            .join('')}</div>`
       : '';
     // Same visibility as the Lista Wyjazdowa Składki page itself (read-only for every signed-in
@@ -463,7 +457,6 @@
       ${revealable(fieldsHtml)}
       ${descriptionHtml}
       ${pendingHtml}
-      ${nonPublicHtml}
       ${profileEditorHtml(profile)}
     `;
   }
