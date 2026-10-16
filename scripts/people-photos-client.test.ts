@@ -87,6 +87,7 @@ class FakeEl {
 function loadWithDom(triggers: FakeEl[], routes: Record<string, unknown>) {
   const window: Record<string, any> = {};
   const requests: string[] = [];
+  const requestOptions: Record<string, unknown> = {};
   const document = {
     body: {},
     querySelectorAll: (sel: string) => {
@@ -96,12 +97,13 @@ function loadWithDom(triggers: FakeEl[], routes: Record<string, unknown>) {
     createElement: (tag: string) => new FakeEl(tag, ''),
     addEventListener() {},
   };
-  const fetchImpl = (url: string) => { requests.push(url); return url in routes ? ok(routes[url]) : Promise.resolve({ ok: false }); };
+  const fetchImpl = (url: string, options: unknown) => { requests.push(url); requestOptions[url] = options; return url in routes ? ok(routes[url]) : Promise.resolve({ ok: false }); };
   vm.runInNewContext(readFileSync(new URL('../public/people-photos.js', import.meta.url), 'utf8'), {
-    window, document, fetch: fetchImpl, Math, Promise, setTimeout, Object, MutationObserver: undefined,
+    window, document, fetch: fetchImpl, UPLOAD_SERVICE_URL: 'https://api.kruki.org', Math, Promise, setTimeout, Object, MutationObserver: undefined,
     Image: class { onload: () => void = () => {}; onerror: () => void = () => {}; set src(_v: string) { setImmediate(() => this.onload()); } },
   });
   window.PeoplePhotoCache.requests = requests;
+  window.PeoplePhotoCache.requestOptions = requestOptions;
   return window.PeoplePhotoCache;
 }
 
@@ -177,8 +179,8 @@ test('a member-only photo becomes the avatar for a name pill using the authorize
   trigger.add(new FakeEl('span', 'category-name-pill'));
   const cache = loadWithDom([trigger], {
     ...allSnapshots,
-    '/wojownicy-upload/whoami': { email: 'member@example.com' },
-    '/member-profile?email=new%40example.com&skipPublic=1': {
+    'https://api.kruki.org/wojownicy-upload/whoami': { email: 'member@example.com' },
+    'https://api.kruki.org/member-profile?email=new%40example.com&skipPublic=1': {
       nonPublicPhotos: [{ id: 'private-1', url: 'https://drive.example/private-1=s300' }],
     },
   });
@@ -189,6 +191,12 @@ test('a member-only photo becomes the avatar for a name pill using the authorize
 
   assert.ok(trigger.children[1].cls.includes('person-avatar-slot'));
   assert.ok(trigger.children[1].style.backgroundImage.includes('https://drive.example/private-1=s64'));
+  assert.deepEqual(cache.requests.filter((url: string) => url.startsWith('https://api.kruki.org/')), [
+    'https://api.kruki.org/wojownicy-upload/whoami',
+    'https://api.kruki.org/member-profile?email=new%40example.com&skipPublic=1',
+  ]);
+  assert.equal((cache.requestOptions['https://api.kruki.org/wojownicy-upload/whoami'] as any).credentials, 'include');
+  assert.equal((cache.requestOptions['https://api.kruki.org/member-profile?email=new%40example.com&skipPublic=1'] as any).credentials, 'include');
 });
 
 test('an unauthenticated visitor never requests a member-only avatar and keeps the public avatar', async () => {
@@ -200,8 +208,8 @@ test('an unauthenticated visitor never requests a member-only avatar and keeps t
   cache.applyAvatars();
   await new Promise(r => setTimeout(r, 10));
 
-  assert.ok(cache.requests.includes('/wojownicy-upload/whoami'));
-  assert.ok(!cache.requests.some((url: string) => url.startsWith('/member-profile?')));
+  assert.ok(cache.requests.includes('https://api.kruki.org/wojownicy-upload/whoami'));
+  assert.ok(!cache.requests.some((url: string) => url.startsWith('https://api.kruki.org/member-profile?')));
   assert.equal(cache.personAvatarUrl('F1'), '/people-photos/m1-64-aaaaaaaaaa.jpg');
   assert.ok(trigger.children[1].style.backgroundImage.includes('/people-photos/m1-64-aaaaaaaaaa.jpg'));
 });
