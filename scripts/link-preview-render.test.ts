@@ -178,3 +178,28 @@ test('renderEventDescription falls back gracefully when LinkPreview is absent', 
   assert.equal(descEl.hidden, false);
   assert.equal(panelEl.hidden, false);
 });
+
+test('renderEventDescription renders Facebook event URL with JSON query parameters as a clean smart chip', () => {
+  const { elements, renderEventDescription } = setupHarness();
+  const rawFbUrl =
+    'https://www.facebook.com/events/2306691303503399/?post_id=2317678229071373&acontext=%7B"source"%3A"29"%2C"ref_notif_type"%3A"admin_plan_mall_activity"%2C"action_history"%3A"null"%7D';
+
+  renderEventDescription({ description: rawFbUrl });
+
+  const descEl = elements.get('event-description')!;
+  assert.equal(descEl.hidden, false);
+  assert.equal(descEl.children.length, 1);
+
+  const chip = descEl.children[0];
+  assert.equal(chip.nodeName, 'A');
+  assert.equal(chip.className, 'lw-link-chip lw-link-chip--facebook');
+  assert.ok(chip.href?.includes('2306691303503399'));
+  assert.equal(chip.target, '_blank');
+  assert.equal(chip.rel, 'noopener noreferrer');
+
+  const body = chip.children.find(c => c.className === 'lw-link-chip-body');
+  assert.ok(body);
+  const urlSpan = body.children.find(c => c.className === 'lw-link-chip-url');
+  assert.ok(urlSpan);
+  assert.equal(urlSpan.textContent, 'facebook.com/events/2306691303503399');
+});

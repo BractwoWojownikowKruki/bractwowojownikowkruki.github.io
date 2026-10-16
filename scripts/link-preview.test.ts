@@ -240,3 +240,65 @@ test('renderInto prevents XSS by keeping raw HTML tags as text nodes', () => {
   assert.equal(el.children.some(c => c.nodeName === 'SCRIPT'), false);
   assert.equal(el.children.some(c => c.nodeName === 'IMG'), false);
 });
+
+test('renderInto handles real Facebook event URL with JSON query params as a clean chip', () => {
+  const { renderInto, classifyUrl } = loadHelper();
+  const rawFbUrl =
+    'https://www.facebook.com/events/2306691303503399/?post_id=2317678229071373&acontext=%7B"source"%3A"29"%2C"ref_notif_type"%3A"admin_plan_mall_activity"%2C"action_history"%3A"null"%7D';
+
+  const info = classifyUrl(rawFbUrl);
+  assert.ok(info);
+  assert.equal(info.service, 'facebook');
+  assert.equal(info.label, 'Facebook');
+  assert.equal(info.displayUrl, 'facebook.com/events/2306691303503399');
+  assert.ok(info.href.startsWith('https://www.facebook.com/events/2306691303503399/?post_id=2317678229071373&acontext=%7B'));
+
+  const el = createMockElement('p');
+  renderInto(el, rawFbUrl);
+
+  assert.equal(el.children.length, 1);
+  const chip = el.children[0];
+  assert.equal(chip.nodeName, 'A');
+  assert.equal(chip.className, 'lw-link-chip lw-link-chip--facebook');
+  assert.ok(chip.href?.includes('2306691303503399'));
+});
+
+test('renderInto recognizes standalone URLs wrapped in quotes, angle brackets, or trailing dots', () => {
+  const { renderInto } = loadHelper();
+
+  const el1 = createMockElement('p');
+  renderInto(el1, '"https://maps.app.goo.gl/uX3b4c"');
+  assert.equal(el1.children.length, 1);
+  assert.equal(el1.children[0].className, 'lw-link-chip lw-link-chip--maps');
+
+  const el2 = createMockElement('p');
+  renderInto(el2, '<https://maps.app.goo.gl/uX3b4c>');
+  assert.equal(el2.children.length, 1);
+  assert.equal(el2.children[0].className, 'lw-link-chip lw-link-chip--maps');
+
+  const el3 = createMockElement('p');
+  renderInto(el3, 'https://maps.app.goo.gl/uX3b4c.');
+  assert.equal(el3.children.length, 1);
+  assert.equal(el3.children[0].className, 'lw-link-chip lw-link-chip--maps');
+});
+
+test('classifyUrl strips tracking parameters (utm, fbclid, gclid) from displayUrl', () => {
+  const { classifyUrl } = loadHelper();
+  const info = classifyUrl('https://wolin.pl/festiwal?utm_source=fb&utm_medium=cpc&fbclid=IwAR123');
+  assert.ok(info);
+  assert.equal(info.displayUrl, 'wolin.pl/festiwal');
+});
+
+test('renderInto renders Facebook URL inline without breaking subsequent sentence text', () => {
+  const { renderInto } = loadHelper();
+  const rawFbUrl =
+    'https://www.facebook.com/events/2306691303503399/?post_id=2317678229071373&acontext=%7B"source"%3A"29"%2C"ref_notif_type"%3A"admin_plan_mall_act';
+  const el = createMockElement('p');
+  renderInto(el, `Więcej szczegółów: ${rawFbUrl} - zapraszamy!`);
+
+  assert.equal(el.children.length, 3);
+  assert.equal(el.children[0].textContent, 'Więcej szczegółów: ');
+  assert.equal(el.children[1].nodeName, 'A');
+  assert.equal(el.children[1].className, 'lw-link-inline lw-link-inline--facebook');
+  assert.equal(el.children[2].textContent, ' - zapraszamy!');
+});

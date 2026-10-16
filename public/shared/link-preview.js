@@ -22,6 +22,50 @@
     arrow: '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 17L17 7M17 7H7M17 7V17"/></svg>',
   };
 
+  const TRACKING_PARAM_PREFIXES = ['utm_', 'ref_'];
+  const TRACKING_PARAM_EXACT = new Set([
+    'fbclid',
+    'gclid',
+    'igshid',
+    'msclkid',
+    'twclid',
+    'acontext',
+    'action_history',
+    'ref',
+    'source',
+    '_ga',
+    '_gl',
+    'si',
+  ]);
+
+  function cleanSearchParamsForDisplay(parsed) {
+    if (!parsed.search) return '';
+    try {
+      const sp = new URLSearchParams(parsed.search);
+      const toDelete = [];
+      for (const key of sp.keys()) {
+        const lower = key.toLowerCase();
+        if (
+          TRACKING_PARAM_EXACT.has(lower) ||
+          TRACKING_PARAM_PREFIXES.some(prefix => lower.startsWith(prefix))
+        ) {
+          toDelete.push(key);
+        }
+      }
+      const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+      if (host.includes('facebook.com') && parsed.pathname.includes('/events/')) {
+        toDelete.push('post_id');
+      }
+      for (const k of toDelete) {
+        sp.delete(k);
+      }
+      const remaining = sp.toString();
+      return remaining ? '?' + remaining : '';
+    } catch {
+      return '';
+    }
+  }
+
   function truncateString(str, maxLength) {
     if (!str || str.length <= maxLength) return str;
     return str.slice(0, maxLength - 1) + '…';
@@ -29,9 +73,16 @@
 
   function formatDisplayUrl(parsed) {
     const host = parsed.host.replace(/^www\./, '');
-    const path = parsed.pathname === '/' ? '' : parsed.pathname;
-    const search = parsed.search ? parsed.search.slice(0, 15) : '';
-    const full = host + path + search;
+    let path = parsed.pathname;
+    if (path === '/') {
+      path = '';
+    } else if (path.length > 1 && path.endsWith('/')) {
+      path = path.slice(0, -1);
+    }
+    const cleanSearch = cleanSearchParamsForDisplay(parsed);
+    const search = cleanSearch ? cleanSearch.slice(0, 20) : '';
+    const separator = (!path && search) ? '/' : '';
+    const full = host + separator + path + search;
     return truncateString(full, 42);
   }
 
@@ -180,6 +231,68 @@
   }
 
   /**
+   * Extracts URL candidates and handles trailing sentence punctuation and closing wrappers.
+   */
+  function extractUrlsFromText(text) {
+    const candidateRegex = /https?:\/\/[^\s<>]+/gi;
+    const results = [];
+    let match;
+
+    while ((match = candidateRegex.exec(text)) !== null) {
+      let rawUrl = match[0];
+      let trailing = '';
+      const matchIndex = match.index;
+
+      while (rawUrl.length > 0) {
+        const last = rawUrl[rawUrl.length - 1];
+        if (/[.,:;!?\"']/.test(last)) {
+          trailing = last + trailing;
+          rawUrl = rawUrl.slice(0, -1);
+        } else if (
+          last === ')' &&
+          (rawUrl.match(/\(/g) || []).length < (rawUrl.match(/\)/g) || []).length
+        ) {
+          trailing = last + trailing;
+          rawUrl = rawUrl.slice(0, -1);
+        } else if (
+          last === ']' &&
+          (rawUrl.match(/\[/g) || []).length < (rawUrl.match(/\]/g) || []).length
+        ) {
+          trailing = last + trailing;
+          rawUrl = rawUrl.slice(0, -1);
+        } else if (
+          last === '}' &&
+          (rawUrl.match(/\{/g) || []).length < (rawUrl.match(/\}/g) || []).length
+        ) {
+          trailing = last + trailing;
+          rawUrl = rawUrl.slice(0, -1);
+        } else {
+          break;
+        }
+      }
+
+      if (rawUrl) {
+        results.push({
+          url: rawUrl,
+          trailing,
+          startIndex: matchIndex,
+          endIndex: matchIndex + rawUrl.length,
+        });
+      }
+    }
+    return results;
+  }
+
+  function isStandaloneLine(trimmed, urls) {
+    if (urls.length !== 1) return false;
+    const u = urls[0];
+    const prefix = trimmed.slice(0, u.startIndex);
+    const suffix = trimmed.slice(u.endIndex);
+    const isWrapperOrPunct = s => /^[\s"'<>()\[\].,:;!?]*$/.test(s);
+    return isWrapperOrPunct(prefix) && isWrapperOrPunct(suffix);
+  }
+
+  /**
    * Builds an inline link element (.lw-link-inline) for a URL embedded within a sentence.
    */
   function createInlineLinkElement(info, rawMatch) {
@@ -198,7 +311,7 @@
 
     const textSpan = document.createElement('span');
     textSpan.className = 'lw-link-inline-text';
-    textSpan.textContent = rawMatch;
+    textSpan.textContent = info.displayUrl || rawMatch;
     a.appendChild(textSpan);
 
     const arrowSpan = document.createElement('span');
@@ -232,52 +345,62 @@
 
       const line = lines[i];
       const trimmed = line.trim();
-
-      // Check if the trimmed line is exactly a single URL
-      const lineMatches = [...trimmed.matchAll(new RegExp(URL_REGEX))];
-      const isStandalone = lineMatches.length === 1 && lineMatches[0][0] === trimmed;
-      const standaloneInfo = isStandalone ? classifyUrl(trimmed) : null;
-
-      if (standaloneInfo) {
-        // Line-leading indentation preservation if any
-        const leadingWhitespace = line.match(/^\s*/)[0];
-        if (leadingWhitespace) {
-          targetElement.appendChild(document.createTextNode(leadingWhitespace));
+      if (!trimmed) {
+        if (line) {
+          targetElement.appendChild(document.createTextNode(line));
         }
+        continue;
+      }
 
-        targetElement.appendChild(createChipElement(standaloneInfo));
+      const lineUrls = extractUrlsFromText(trimmed);
+      const isStandalone = isStandaloneLine(trimmed, lineUrls);
 
-        const trailingWhitespace = line.match(/\s*$/)[0];
-        if (trailingWhitespace) {
-          targetElement.appendChild(document.createTextNode(trailingWhitespace));
-        }
-      } else {
-        // Line contains mixed text and/or inline URLs
-        let lastIndex = 0;
-        let match;
-        const regex = new RegExp(URL_REGEX);
-
-        while ((match = regex.exec(line)) !== null) {
-          const matchStart = match.index;
-          const matchText = match[0];
-
-          if (matchStart > lastIndex) {
-            targetElement.appendChild(document.createTextNode(line.slice(lastIndex, matchStart)));
+      if (isStandalone) {
+        const u = lineUrls[0];
+        const standaloneInfo = classifyUrl(u.url);
+        if (standaloneInfo) {
+          // Line-leading indentation preservation if any
+          const leadingWhitespace = line.match(/^\s*/)[0];
+          if (leadingWhitespace) {
+            targetElement.appendChild(document.createTextNode(leadingWhitespace));
           }
 
-          const info = classifyUrl(matchText);
-          if (info) {
-            targetElement.appendChild(createInlineLinkElement(info, matchText));
-          } else {
-            targetElement.appendChild(document.createTextNode(matchText));
+          targetElement.appendChild(createChipElement(standaloneInfo));
+
+          const trailingWhitespace = line.match(/\s*$/)[0];
+          if (trailingWhitespace) {
+            targetElement.appendChild(document.createTextNode(trailingWhitespace));
           }
+          continue;
+        }
+      }
 
-          lastIndex = matchStart + matchText.length;
+      // Line contains mixed text and/or inline URLs
+      const lineUrlsInFullLine = extractUrlsFromText(line);
+      let lastIndex = 0;
+
+      for (const item of lineUrlsInFullLine) {
+        const matchStart = item.startIndex;
+        const matchEnd = item.endIndex;
+
+        if (matchStart > lastIndex) {
+          targetElement.appendChild(
+            document.createTextNode(line.slice(lastIndex, matchStart))
+          );
         }
 
-        if (lastIndex < line.length) {
-          targetElement.appendChild(document.createTextNode(line.slice(lastIndex)));
+        const info = classifyUrl(item.url);
+        if (info) {
+          targetElement.appendChild(createInlineLinkElement(info, item.url));
+        } else {
+          targetElement.appendChild(document.createTextNode(item.url));
         }
+
+        lastIndex = matchEnd;
+      }
+
+      if (lastIndex < line.length) {
+        targetElement.appendChild(document.createTextNode(line.slice(lastIndex)));
       }
     }
   }
@@ -287,6 +410,7 @@
     createChipElement,
     createInlineLinkElement,
     renderInto,
+    extractUrlsFromText,
     ICONS,
   };
 
