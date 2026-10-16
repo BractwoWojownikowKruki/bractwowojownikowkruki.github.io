@@ -1171,10 +1171,15 @@ document.getElementById('event-equipment-content').addEventListener('click', (e)
 
 // Read-only rendering of the event's free-text description (the Opis field the edit panel below
 // also edits) - hidden entirely when the event has none, rather than showing an empty paragraph.
+// URLs are recognized and rendered as clickable links or compact smart chips (KRKG-124).
 function renderEventDescription(event) {
   const el = document.getElementById('event-description');
   const description = event.description ?? '';
-  el.textContent = description;
+  if (window.LinkPreview && typeof window.LinkPreview.renderInto === 'function') {
+    window.LinkPreview.renderInto(el, description);
+  } else {
+    el.textContent = description;
+  }
   el.hidden = !description;
   document.getElementById('event-description-panel').hidden = !description;
 }
