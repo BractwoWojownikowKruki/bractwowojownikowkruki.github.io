@@ -394,10 +394,16 @@ function renderPhotoPreview() {
       if (!entry) return '';
       const url = URL.createObjectURL(entrySourceBlob(entry));
       const label = index === 0 ? 'Główne zdjęcie' : `Dodatkowe zdjęcie ${index}`;
+      // Only the main photo becomes the member's avatar (collectAvatarPhotos), so only it gets the
+      // round preview. Same circle + cover crop as the real avatar, just larger to judge framing.
+      const avatarPreview = index === 0
+        ? `<div class="lw-avatar-preview"><img src="${url}" alt="Podgląd awatara" /><p>Tak zobaczą Cię na stronie</p></div>`
+        : '';
       return `
         <div class="lw-photo-thumb">
           <img src="${url}" alt="${label}" />
           <p>${label}</p>
+          ${avatarPreview}
           <button type="button" class="lw-crop-btn" data-photo-index="${index}">Kadruj</button>
         </div>
       `;
@@ -463,7 +469,9 @@ function openCropModal(photoIndex) {
     saveBtn.hidden = true;
     img.hidden = true;
   };
-  img.src = URL.createObjectURL(entrySourceBlob(entry));
+  // Always crop from the original file, not from the previous crop: otherwise a re-crop could only
+  // shrink the photo further and the member could never return to the uncropped framing.
+  img.src = URL.createObjectURL(entry.file);
 }
 
 document.getElementById('crop-cancel').addEventListener('click', closeCropModal);
