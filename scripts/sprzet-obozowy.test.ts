@@ -218,8 +218,10 @@ test('signing in loads both endpoints and splits equipment into the team and pri
   // The <tr> itself must carry data-section (not just the abbreviation text) - member-area.css's
   // [data-section="..."] rules color .czl-section-cell via inherited custom properties, same
   // convention as every other member-zone table (czlonkowie.js, skladki.js, wyjazd.js).
-  assert.match(teamBody.innerHTML, /<tr data-equipment-id="eq-team-1" data-section="krakow">/, 'the team row carries data-section for CSS coloring');
-  assert.match(privateBody.innerHTML, /<tr data-equipment-id="eq-private-1" data-section="warszawa">/, 'the private row carries data-section for CSS coloring');
+  assert.match(teamBody.innerHTML, /<tr data-equipment-id="eq-team-1" data-section="krakow" data-equipment-category="[^"]+">/, 'the team row carries data-section for CSS coloring');
+  assert.match(privateBody.innerHTML, /<tr data-equipment-id="eq-private-1" data-section="warszawa" data-equipment-category="[^"]+">/, 'the private row carries data-section for CSS coloring');
+  // data-equipment-category drives the per-category equipment pill colour (member-area.css), scoped to #equipment-tables.
+  assert.match(teamBody.innerHTML, /data-equipment-category="namiot"/, 'the team row carries its category for the pill colour');
 });
 
 test('the private table renders the owner as a person pill wired to the shared profile panel, marking an accountless owner', async () => {

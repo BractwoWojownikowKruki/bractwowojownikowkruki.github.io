@@ -161,7 +161,7 @@ function equipmentRowHtml(item, { includeOwner }) {
   const groupLabel = categoryGroupById.get(item.categoryId) ?? '';
   const ownerCell = includeOwner ? `<td>${ownerCellHtml(item.belongsToPersonId)}</td>` : '';
   return `
-    <tr data-equipment-id="${escapeAttr(item.id)}" data-section="${escapeAttr(item.sectionId ?? '')}">
+    <tr data-equipment-id="${escapeAttr(item.id)}" data-section="${escapeAttr(item.sectionId ?? '')}" data-equipment-category="${escapeAttr(item.categoryId ?? '')}">
       <td class="czl-section-cell" title="${escapeAttr(sectionLabel ?? '')}">${item.sectionId ? escapeHtml(sectionAbbr(item.sectionId)) : ''}</td>
       <td class="equipment-meta-cell">${groupLabel ? escapeHtml(groupLabel) : '<span class="czl-empty">—</span>'}</td>
       <td class="equipment-meta-cell">${escapeHtml(categoryLabel)}</td>
