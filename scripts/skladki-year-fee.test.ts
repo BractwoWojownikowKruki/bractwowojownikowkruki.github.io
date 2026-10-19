@@ -36,6 +36,9 @@ class Element {
   async clickWith(target: unknown) {
     await Promise.all((this.listeners.get('click') ?? []).map((listener) => listener({ target })));
   }
+  async changeWith(target: unknown) {
+    await Promise.all((this.listeners.get('change') ?? []).map((listener) => listener({ target })));
+  }
   async change(value: string) {
     this.value = value;
     await Promise.all((this.listeners.get('change') ?? []).map((listener) => listener({ target: this })));
@@ -67,7 +70,7 @@ const elementIds = [
   'skladki-extra-creator', 'skladki-extra-details', 'skladki-extra-history-link', 'skladki-extra-edit',
   'skladki-extra-name-input', 'skladki-extra-amount-input', 'skladki-extra-description-input',
   'skladki-extra-duedate-input', 'skladki-extra-save', 'skladki-extra-delete',
-  'summary-content', 'summary-panel', 'skladki-content', 'skladki-table', 'skladki-emeryci',
+  'summary-content', 'summary-panel', 'skladki-content', 'skladki-status-filter', 'skladki-table', 'skladki-emeryci',
   'skladki-emeryci-table', 'skladki-emeryci-heading', 'skladki-wpisowe-panel', 'skladki-year-deadline', 'skladki-extra-deadline',
 ];
 
@@ -290,6 +293,56 @@ test('wpisowe view: unpaid in the main table, not_applicable in a "Nie dotyczy" 
   assert.equal(control.textContent, '✓');
 });
 
+
+test('status checkboxes: none checked shows everyone, checked statuses narrow the fee table, the selection survives a fee switch, Wpisowe hides them', async () => {
+  const year = new Date().getFullYear();
+  const harness = createHarness(null, {
+    roster: [
+      { personId: 'alfa@example.com', email: 'alfa@example.com', accountless: false, lastName: 'Alfa', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
+      { personId: 'beta@example.com', email: 'beta@example.com', accountless: false, lastName: 'Beta', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'unpaid' },
+      { personId: 'gamma@example.com', email: 'gamma@example.com', accountless: false, lastName: 'Gamma', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'not_applicable', wpisoweStatus: 'paid' },
+    ],
+    dues: [
+      { email: 'alfa@example.com', personId: 'alfa@example.com', status: 'paid' },
+      { email: 'beta@example.com', personId: 'beta@example.com', status: 'unpaid' },
+      { email: 'gamma@example.com', personId: 'gamma@example.com', status: 'not_applicable' },
+    ],
+  });
+  await harness.signIn();
+
+  const body = () => harness.elements.get('skladki-table')!.querySelector('tbody')!.innerHTML;
+  const filter = harness.elements.get('skladki-status-filter')!;
+  assert.match(body(), /Alfa/);
+  assert.match(body(), /Beta/);
+  assert.match(body(), /Gamma/);
+
+  await filter.changeWith({ dataset: { statusKey: 'unpaid' }, checked: true });
+  assert.doesNotMatch(body(), /Alfa/);
+  assert.match(body(), /Beta/);
+  assert.doesNotMatch(body(), /Gamma/);
+
+  await filter.changeWith({ dataset: { statusKey: 'paid' }, checked: true });
+  assert.match(body(), /Alfa/);
+  assert.match(body(), /Beta/);
+  assert.doesNotMatch(body(), /Gamma/);
+
+  await filter.changeWith({ dataset: { statusKey: 'unpaid' }, checked: false });
+  assert.match(body(), /Alfa/);
+  assert.doesNotMatch(body(), /Beta/);
+  assert.equal(filter.hidden, false);
+
+  await harness.elements.get('skladki-charge-buttons')!.clickWith({
+    closest: (selector: string) => selector === '[data-charge-id]' ? { dataset: { chargeId: 'wpisowe' } } : null,
+  });
+  assert.equal(filter.hidden, true);
+
+  await harness.elements.get('skladki-charge-buttons')!.clickWith({
+    closest: (selector: string) => selector === '[data-charge-id]' ? { dataset: { chargeId: `annual-${year}` } } : null,
+  });
+  assert.equal(filter.hidden, false);
+  assert.match(body(), /Alfa/);
+  assert.doesNotMatch(body(), /Beta/);
+});
 
 test('charge buttons: Obowiązkowy (Wpisowe, roczne) then Dodatkowe, one pressed, defaulting to the current year', async () => {
   const year = new Date().getFullYear();
