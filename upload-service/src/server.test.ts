@@ -7752,6 +7752,65 @@ test('DELETE /lista-wyjazdowa/persons/permanent is staff-only and 404s an unknow
   });
 });
 
+// KRKG-97: private equipment must never keep pointing at a person that no longer resolves.
+function seedPrivateAndTeamEquipment(firestore: ReturnType<typeof makeListaWyjazdowaFirestore>): void {
+  const base = { categoryId: 'namiot', description: '', createdAt: 'x', createdBy: 'x' };
+  firestore.seed('equipment', 'eq-private', { ...base, id: 'eq-private', sectionId: null, belongsToPersonId: 'p1' });
+  firestore.seed('equipment', 'eq-other', { ...base, id: 'eq-other', sectionId: null, belongsToPersonId: 'inny@gmail.com' });
+  firestore.seed('equipment', 'eq-team', { ...base, id: 'eq-team', sectionId: 'krakow', belongsToPersonId: null });
+}
+
+test('DELETE /lista-wyjazdowa/persons clears the owner of the deactivated person\'s private equipment and gives it their section', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  seedPrivateAndTeamEquipment(firestore);
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons', { personId: 'p1' })).status, 200);
+  });
+  const priv = await firestore.getDoc<{ belongsToPersonId: string | null; sectionId: string | null }>('equipment', 'eq-private');
+  assert.equal(priv?.belongsToPersonId, null, 'the item becomes team equipment');
+  assert.equal(priv?.sectionId, 'krakow', 'team equipment needs its own section - the person\'s current one');
+  assert.equal((await firestore.getDoc<{ belongsToPersonId: string }>('equipment', 'eq-other'))?.belongsToPersonId, 'inny@gmail.com', 'another owner\'s item is untouched');
+  assert.equal((await firestore.getDoc<{ sectionId: string }>('equipment', 'eq-team'))?.sectionId, 'krakow', 'team equipment is untouched');
+});
+
+test('DELETE /lista-wyjazdowa/persons/permanent turns the purged person\'s private equipment into team equipment', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'p1', null);
+  seedPrivateAndTeamEquipment(firestore);
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons/permanent', { personId: 'p1' })).status, 200);
+  });
+  const priv = await firestore.getDoc<{ belongsToPersonId: string | null; sectionId: string | null }>('equipment', 'eq-private');
+  assert.equal(priv?.belongsToPersonId, null, 'the item becomes team equipment');
+  assert.equal(priv?.sectionId, 'krakow', 'team equipment needs its own section - the person\'s current one');
+  assert.equal((await firestore.getDoc<{ belongsToPersonId: string }>('equipment', 'eq-other'))?.belongsToPersonId, 'inny@gmail.com');
+});
+
+test('PUT /lista-wyjazdowa/persons/account re-points the merged person\'s private equipment to the account', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  seedMember(firestore, 'nowak@gmail.com');
+  seedPrivateAndTeamEquipment(firestore);
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/account', { personId: 'p1', accountEmail: 'nowak@gmail.com' })).status, 200);
+  });
+  const priv = await firestore.getDoc<{ belongsToPersonId: string | null; sectionId: string | null }>('equipment', 'eq-private');
+  assert.equal(priv?.belongsToPersonId, 'nowak@gmail.com', 'the item follows the person to the account e-mail');
+  assert.equal(priv?.sectionId, null, 'a private item keeps no section of its own');
+  assert.equal((await firestore.getDoc<{ belongsToPersonId: string }>('equipment', 'eq-other'))?.belongsToPersonId, 'inny@gmail.com');
+  assert.equal((await firestore.getDoc<{ belongsToPersonId: string | null }>('equipment', 'eq-team'))?.belongsToPersonId, null);
+  const merged = (await firestore.listDocs<{ action?: string; changes?: Array<{ field: string; after?: unknown }> }>('auditEvents'))
+    .find((d) => d.data.action === 'person.merged');
+  assert.equal(merged?.data.changes?.find((c) => c.field === 'repointedEquipment')?.after, 1, 'the audit records the re-pointed item');
+});
+
 test('PUT /lista-wyjazdowa/persons/owner detaches and requires ownerPersonId null', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedPerson(firestore, 'p1', 'wojownik@gmail.com');

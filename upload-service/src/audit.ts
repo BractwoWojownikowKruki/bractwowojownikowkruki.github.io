@@ -138,6 +138,9 @@ const personFields = {
   droppedSignups: 'roleRestricted',
   droppedDues: 'roleRestricted',
   profileMerged: 'roleRestricted',
+  // KRKG-97: private equipment re-pointed to the account on a merge, or released to team on purge/deactivation.
+  repointedEquipment: 'roleRestricted',
+  releasedEquipment: 'roleRestricted',
   deleted: 'roleRestricted',
 } as const;
 const sessionFields = { status: 'roleRestricted' } as const;

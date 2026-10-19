@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { AuthError } from './auth.ts';
 import type { FirestoreDoc, FirestoreLikeClient, FirestoreTransaction } from './firestore.ts';
 import { getMember, type MemberDoc } from './members.ts';
+import { listEquipmentIdsOwnedBy, repointEquipmentOwnerInTransaction } from './equipment.ts';
 
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
 
@@ -316,6 +317,8 @@ export interface PersonMergePlan {
    * retry or a concurrent account edit can never let the person overwrite a newer account value.
    */
   moves: PersonMergeDocMove[];
+  /** Private equipment ids to re-point to the account (KRKG-97), found by the same collection scan. */
+  equipmentIds: string[];
 }
 
 export type PersonMergeReason = 'person_not_found' | 'person_already_merged' | 'person_deleted' | 'account_not_found';
@@ -335,6 +338,8 @@ export interface PersonMergeOutcome {
   /** Document ids deleted because the account already had its own (the account wins). */
   droppedSignups: string[];
   droppedDues: string[];
+  /** Equipment ids whose private owner was re-pointed to the account (KRKG-97). */
+  repointedEquipment: string[];
   profileWritten: boolean;
   /** Names of the member identity fields the person filled in. */
   memberFilled: string[];
@@ -372,9 +377,10 @@ export async function planPersonMerge(
   if (!member) return { ok: false, reason: 'account_not_found' };
 
   const personKey = person.personId.toLowerCase();
-  const [signups, dues] = await Promise.all([
+  const [signups, dues, equipmentIds] = await Promise.all([
     client.listDocs<Record<string, unknown>>(SIGNUPS_COLLECTION),
     client.listDocs<Record<string, unknown>>(DUES_COLLECTION),
+    listEquipmentIdsOwnedBy(client, personKey),
   ]);
 
   const moves: PersonMergeDocMove[] = [];
@@ -389,7 +395,7 @@ export async function planPersonMerge(
     moves.push({ collection: DUES_COLLECTION, fromId: doc.id, toId: `${email}_${year}`, keyField: 'email', data: doc.data });
   }
 
-  return { ok: true, plan: { personId: person.personId, accountEmail: email, moves } };
+  return { ok: true, plan: { personId: person.personId, accountEmail: email, moves, equipmentIds } };
 }
 
 /**
@@ -423,6 +429,7 @@ export async function applyPersonMerge(
     movedDues: [],
     droppedSignups: [],
     droppedDues: [],
+    repointedEquipment: [],
     profileWritten: false,
     memberFilled: [],
   };
@@ -438,6 +445,9 @@ export async function applyPersonMerge(
     await tx.deleteDoc(move.collection, move.fromId);
     (move.collection === SIGNUPS_COLLECTION ? outcome.movedSignups : outcome.movedDues).push(move.toId);
   }
+
+  // KRKG-97: private equipment follows the person to the account, like signups and dues above.
+  outcome.repointedEquipment = await repointEquipmentOwnerInTransaction(tx, plan.equipmentIds, plan.personId, plan.accountEmail, mergedBy);
 
   // Identity and profile decisions are recomputed here, inside the transaction, from the documents
   // as they are right now - never from the pre-transaction plan. A retry (Firestore may re-run the
