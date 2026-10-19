@@ -3640,3 +3640,22 @@ a.audyt-history-btn svg {
 }
 
 .reauth-modal-busy { margin: 0; color: var(--text-muted); }
+
+/* "Włącz powiadomienia" pop-up (shared/notification-prompt.js) - rides on the reauth overlay and
+   dialog above; only its copy and the stacked action row are its own. */
+.notification-prompt-text { margin: 0 0 1rem; color: var(--text-muted); }
+
+.notification-prompt-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.notification-prompt-action {
+  display: block;
+  box-sizing: border-box;
+  text-align: center;
+  text-decoration: none;
+}
+
+.notification-prompt-dismiss { width: 100%; }
