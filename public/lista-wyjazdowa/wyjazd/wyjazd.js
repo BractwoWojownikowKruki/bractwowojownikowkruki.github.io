@@ -1049,10 +1049,25 @@ async function quickAddNew(ownerPersonId, ksywka, lastName, firstName, categoryI
 // The filter is purely local: both boxes are read straight from the DOM on every change, so the
 // render always reflects exactly what the member sees ticked. No apiFetch, so a change can never
 // fail or produce a network error banner.
+// The choice is global (KRKG-116): saved to localStorage on every change and restored below on load.
+const ROSTER_FILTER_PREFERENCE_FIELDS = ['niezgloszeni', 'zgloszeni'];
+
 function applyRosterFilter() {
   showNotSignedUp = document.getElementById('roster-filter-niezgloszeni').checked;
   showSignedUpAndMe = document.getElementById('roster-filter-zgloszeni').checked;
+  writeBooleanPreference(LIST_PREFERENCE_KEYS.wyjazdRosterFilter, { niezgloszeni: showNotSignedUp, zgloszeni: showSignedUpAndMe });
   renderRoster(cachedRoster, cachedSignups);
+}
+
+// Restore the saved roster view into the checkboxes and the state variables. The roster itself is
+// rendered later, when the trip data loads, so nothing is rendered here. Unsaved or invalid storage
+// keeps the checkboxes' markup defaults.
+const savedRosterFilter = readBooleanPreference(LIST_PREFERENCE_KEYS.wyjazdRosterFilter, ROSTER_FILTER_PREFERENCE_FIELDS);
+if (savedRosterFilter) {
+  document.getElementById('roster-filter-niezgloszeni').checked = savedRosterFilter.niezgloszeni;
+  document.getElementById('roster-filter-zgloszeni').checked = savedRosterFilter.zgloszeni;
+  showNotSignedUp = savedRosterFilter.niezgloszeni;
+  showSignedUpAndMe = savedRosterFilter.zgloszeni;
 }
 
 // Same two checkboxes for the equipment table: Zgłoszone (going) and Niezgłoszone (not going).
