@@ -195,6 +195,25 @@
           <p class="add-album-error" id="skladki-error" hidden></p>
 
           <div id="skladki-content">
+            <!-- KRKG-111: status checkboxes for the składka roczna and składka dodatkowa tables. One
+                 checkbox per per-person status; none checked shows everyone, and any combination
+                 narrows both tables. Same look as the trip list's "Pokaż" controls. Hidden by
+                 skladki.js in the Wpisowe view, which keeps its own "who still owes" list. -->
+            <div class="lw-roster-controls" id="skladki-status-filter">
+              <span class="lw-roster-filter-heading">Pokaż:</span>
+              <label class="lw-filter-check">
+                <input type="checkbox" data-status-key="paid" />
+                <span>Opłacona</span>
+              </label>
+              <label class="lw-filter-check">
+                <input type="checkbox" data-status-key="unpaid" />
+                <span>Nieopłacona</span>
+              </label>
+              <label class="lw-filter-check">
+                <input type="checkbox" data-status-key="notApplicable" />
+                <span>Nie dotyczy</span>
+              </label>
+            </div>
             <div class="czl-table-wrap">
               <table class="czl-table" id="skladki-table">
                 <thead></thead>

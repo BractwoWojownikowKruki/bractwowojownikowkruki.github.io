@@ -322,6 +322,26 @@ function skladkiFilterMatches(member) {
   return summaryFilterMatches(skladkiFilter, { section: member.sectionId, category: member.categoryId });
 }
 
+// The status checkboxes (KRKG-111) narrow the składka roczna and składka dodatkowa tables
+// (renderTable) to the chosen per-person statuses. The state is one object for the whole page and
+// is shared by every fee, so one selection applies to whichever fee is displayed. It is kept in
+// memory only; a later story (KRKG-116) will persist this object, which needs no change here.
+// Nothing checked means everyone. The Wpisowe view ignores it on purpose.
+const skladkiStatusFilter = { paid: false, unpaid: false, notApplicable: false };
+const SKLADKI_STATUS_FILTER_KEY = { paid: 'paid', unpaid: 'unpaid', not_applicable: 'notApplicable' };
+
+function skladkiStatusMatches(status) {
+  if (!Object.values(skladkiStatusFilter).includes(true)) return true;
+  return skladkiStatusFilter[SKLADKI_STATUS_FILTER_KEY[status]] === true;
+}
+
+document.getElementById('skladki-status-filter').addEventListener('change', (e) => {
+  const key = e.target.dataset.statusKey;
+  if (!key) return;
+  skladkiStatusFilter[key] = e.target.checked;
+  renderCurrentView();
+});
+
 function renderCurrentView() {
   if (wpisoweMode) {
     renderWpisoweList(cachedRoster);
@@ -514,10 +534,12 @@ function renderTable(roster, duesByPersonId) {
   cachedRoster = roster;
   cachedDuesByPersonId = duesByPersonId;
 
+  document.getElementById('skladki-status-filter').hidden = false;
   const mainRoster = [];
   const emeryciRoster = [];
   for (const member of roster) {
     if (!skladkiFilterMatches(member)) continue;
+    if (!skladkiStatusMatches(memberDuesStatus(member, duesByPersonId))) continue;
     if (!extraMode && member.categoryId === EMERYT_CATEGORY_ID) emeryciRoster.push(member);
     else mainRoster.push(member);
   }
@@ -609,6 +631,7 @@ function renderTable(roster, duesByPersonId) {
 // row would only cost the Nazwa column width without telling the reader anything new.
 function renderWpisoweList(roster) {
   cachedRoster = roster;
+  document.getElementById('skladki-status-filter').hidden = true;
 
   // Rows are picked by the status at render time. Clicking a badge cycles it in place (same as the
   // roczna coin) without moving the row, so a misclick is undone with the next click; the row
