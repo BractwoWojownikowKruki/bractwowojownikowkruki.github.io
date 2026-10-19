@@ -18,6 +18,8 @@ const LIST_PREFERENCE_KEYS = {
   spisSummaryFilter: 'kruki_pref_spis_summary_filter',
   wyjazdSummaryFilter: 'kruki_pref_wyjazd_summary_filter',
   skladkiSummaryFilter: 'kruki_pref_skladki_summary_filter',
+  sprzetSectionFilter: 'kruki_pref_sprzet_section_filter',
+  adminSummaryFilter: 'kruki_pref_admin_summary_filter',
 };
 
 // Returns the stored value when it passes isValid, otherwise null. isValid receives the parsed value.

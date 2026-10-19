@@ -8,6 +8,7 @@ const indexHtml = readFileSync(new URL('../public/sprzet-obozowy/index.html', im
 const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 const sortableTableSource = readFileSync(new URL('../public/shared/sortable-table.js', import.meta.url), 'utf8');
 const displayNameSource = readFileSync(new URL('../public/shared/display-name.js', import.meta.url), 'utf8');
+const listPreferencesSource = readFileSync(new URL('../public/shared/list-preferences.js', import.meta.url), 'utf8');
 
 // Same minimal DOM stub shape as scripts/lista-wyjazdowa-roster.test.ts's harness - the page's
 // delegated click handlers only read closest(...)/dataset off the event target and getElementById
@@ -148,6 +149,7 @@ function createHarness() {
   vm.runInNewContext(sortableTableSource, context, { filename: 'sortable-table.js' });
   vm.runInNewContext(displayNameSource, context, { filename: 'display-name.js' });
   vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
+  vm.runInNewContext(listPreferencesSource, context, { filename: 'list-preferences.js' });
   vm.runInNewContext(source, context, { filename: 'sprzet-obozowy.js' });
   return {
     context,

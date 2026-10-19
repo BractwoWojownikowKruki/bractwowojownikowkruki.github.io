@@ -333,7 +333,7 @@ function personFilterValues(person) {
   return { section: person.sectionId || null, category: person.categoryId || null };
 }
 
-const membershipFilter = createSummaryFilter(['section', 'category']);
+const membershipFilter = createSummaryFilter(['section', 'category'], { key: LIST_PREFERENCE_KEYS.adminSummaryFilter, slot: 'membership' });
 wireSummaryFilter(document.getElementById('membership-summary-filter'), membershipFilter, () => rerenderMembershipMembers());
 
 function renderMembershipSummary() {
@@ -908,7 +908,7 @@ function accountlessDisplayName(person) {
 
 // KRKG-0091: the list is GET /lista-wyjazdowa/persons (staff), which - unlike the roster's current
 // read - also returns deactivated (tombstoned) people, so they can be permanently removed.
-const accountlessFilter = createSummaryFilter(['section', 'category']);
+const accountlessFilter = createSummaryFilter(['section', 'category'], { key: LIST_PREFERENCE_KEYS.adminSummaryFilter, slot: 'accountless' });
 wireSummaryFilter(document.getElementById('accountless-summary-filter'), accountlessFilter, () => renderAccountless(accountlessCache.persons));
 
 function renderAccountless(persons) {
@@ -943,7 +943,7 @@ function renderAccountless(persons) {
       <td>${person.ownerPersonId ? escapeHtml(person.ownerName ?? person.ownerPersonId) : '—'}</td>
       <td>${person.deleted ? 'deaktywowana' : 'bez konta'}</td>
       <td>
-        ${person.deleted ? '' : '<button type="button" class="member-action accountless-edit">Edytuj</button>'}
+        ${person.deleted ? '' : '<button type="button" class="member-action accountless-edit edit-compact">Edytuj</button>'}
         ${!person.deleted && person.ownerPersonId ? '<button type="button" class="member-action accountless-detach">Odepnij</button>' : ''}
         ${person.deleted ? '' : '<button type="button" class="member-action accountless-deactivate">Deaktywuj</button>'}
         <button type="button" class="member-action accountless-purge">Usuń trwale</button>
