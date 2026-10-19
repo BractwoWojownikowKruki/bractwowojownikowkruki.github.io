@@ -123,6 +123,7 @@
     "cover": "covers/0cfd7c11.jpg",
     "photoCount": 27,
     "thumbs": [
+      "thumbs/0cfd7c11-85e2227e.jpg",
       "thumbs/0cfd7c11-7e4a43ac.jpg",
       "thumbs/0cfd7c11-f4c8a4a1.jpg",
       "thumbs/0cfd7c11-436e8116.jpg",
@@ -137,7 +138,6 @@
       "thumbs/0cfd7c11-665fa4fd.jpg",
       "thumbs/0cfd7c11-935bc9c2.jpg",
       "thumbs/0cfd7c11-0762beec.jpg",
-      "thumbs/0cfd7c11-85e2227e.jpg",
       "thumbs/0cfd7c11-e3a5f949.jpg",
       "thumbs/0cfd7c11-56d87758.jpg",
       "thumbs/0cfd7c11-87095037.jpg",
@@ -149,7 +149,7 @@
       "thumbs/0cfd7c11-9ecd7e32.jpg"
     ],
     "searchText": "2026.06.12-14 noc kupały szczecin",
-    "lastSyncedAt": "2026-10-19T14:09:43.300Z",
+    "lastSyncedAt": "2026-10-19T14:36:03.160Z",
     "syncStatus": "ok",
     "coverSource": "https://lh3.googleusercontent.com/pw/AP1GczMBJiiMw2oiHiL0Cnizkf_D_7Eyw2o1HX8Sbu3H79yWBUzf5ANqipBCNpst7dySLR9InD53NmtY9gcnvB4AvML2S43ZYfkATZHntplezsNTC940g9lk=w600-h315-p-k"
   },
@@ -604,8 +604,8 @@
     "cover": "covers/72d3113c.jpg",
     "photoCount": 64,
     "thumbs": [
-      "thumbs/72d3113c-bb2605ec.jpg",
       "thumbs/72d3113c-e4d717fc.jpg",
+      "thumbs/72d3113c-bb2605ec.jpg",
       "thumbs/72d3113c-56801b81.jpg",
       "thumbs/72d3113c-82f0b974.jpg",
       "thumbs/72d3113c-eaecebac.jpg",
@@ -630,7 +630,7 @@
       "thumbs/72d3113c-14e50cf6.jpg"
     ],
     "searchText": "2013.06 wolin kupała",
-    "lastSyncedAt": "2026-10-08T19:44:50.084Z",
+    "lastSyncedAt": "2026-10-19T14:36:14.331Z",
     "syncStatus": "ok",
     "coverSource": "https://lh3.googleusercontent.com/pw/AP1GczOwbrKodKKPOK7lMKoVvb6vx2p_Vk1x4rprGs0GwyYY64CWWdi3izsp79kS36rcLxNmcHj-aYfRXcbYmegqRiYOu3b_YSToGHTwsYL549Q9kN2QfmA=w531-h315-p-k"
   },
