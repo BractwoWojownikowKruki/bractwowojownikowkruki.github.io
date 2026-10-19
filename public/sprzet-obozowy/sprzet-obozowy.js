@@ -100,8 +100,15 @@ function filterEquipmentBySections(items, selectedSectionIds, sectionOf) {
 }
 
 let equipment = [];
-// Sekcja ids picked in the "Filtry" row. Not persisted - every visit starts unfiltered.
-let selectedSectionIds = new Set();
+// Sekcja ids picked in the "Filtry" row, remembered on this device across visits (KRKG-116).
+let selectedSectionIds = restoreSectionFilterPreference();
+
+// The saved Sekcja picks, or an empty set when none are saved or the stored value is not a list of ids.
+function restoreSectionFilterPreference() {
+  const ids = readListPreferenceValue(LIST_PREFERENCE_KEYS.sprzetSectionFilter,
+    (value) => Array.isArray(value) && value.every(id => typeof id === 'string'));
+  return new Set(ids ?? []);
+}
 let equipmentCategories = [];
 let sections = [];
 let categoryLabelById = new Map();
@@ -140,7 +147,7 @@ function ownerCellHtml(personId) {
 
 function equipmentActionsHtml(item) {
   const editButton = item.canEdit
-    ? `<button type="button" class="member-action" data-edit-id="${escapeAttr(item.id)}">Edytuj</button>`
+    ? `<button type="button" class="member-action edit-compact" data-edit-id="${escapeAttr(item.id)}">Edytuj</button>`
     : '';
   const deleteButton = item.canDelete
     ? `<button type="button" class="member-action" data-delete-id="${escapeAttr(item.id)}">Usuń</button>`
@@ -269,6 +276,7 @@ function wireSectionFilter() {
     if (isClear) selectedSectionIds.clear();
     else if (selectedSectionIds.has(id)) selectedSectionIds.delete(id);
     else selectedSectionIds.add(id);
+    writeListPreferenceValue(LIST_PREFERENCE_KEYS.sprzetSectionFilter, [...selectedSectionIds]);
     renderBothTables();
     // renderBothTables rebuilds the buttons - put keyboard focus back on the one just pressed.
     [...container.querySelectorAll('button')]

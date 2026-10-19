@@ -312,7 +312,8 @@ let cachedDuesByPersonId = new Map();
 // The summary pills as filters (shared/summary-filter.js) - narrow both tables (main + Emeryci /
 // Nie dotyczy) in both modes. renderSummary needs the year's dues, so a pill click re-renders it
 // from the same cached roster/dues as the tables.
-const skladkiFilter = createSummaryFilter(['section', 'category']);
+// Pressed pills are saved per page type (KRKG-116), separate from the status checkboxes above.
+const skladkiFilter = createSummaryFilter(['section', 'category'], { key: LIST_PREFERENCE_KEYS.skladkiSummaryFilter, slot: 'summary' });
 wireSummaryFilter(document.getElementById('summary-panel'), skladkiFilter, () => {
   renderSummary(cachedRoster, cachedDuesByPersonId);
   renderCurrentView();
@@ -324,9 +325,9 @@ function skladkiFilterMatches(member) {
 
 // The status checkboxes (KRKG-111) narrow the składka roczna and składka dodatkowa tables
 // (renderTable) to the chosen per-person statuses. The state is one object for the whole page and
-// is shared by every fee, so one selection applies to whichever fee is displayed. It is kept in
-// memory only; a later story (KRKG-116) will persist this object, which needs no change here.
-// Nothing checked means everyone. The Wpisowe view ignores it on purpose.
+// is shared by every fee, so one selection applies to whichever fee is displayed. It is saved to
+// localStorage on every change and restored on load (KRKG-116, shared/list-preferences.js), so the
+// choice is global, not per fee. Nothing checked means everyone. The Wpisowe view ignores it on purpose.
 const skladkiStatusFilter = { paid: false, unpaid: false, notApplicable: false };
 const SKLADKI_STATUS_FILTER_KEY = { paid: 'paid', unpaid: 'unpaid', not_applicable: 'notApplicable' };
 
@@ -339,8 +340,19 @@ document.getElementById('skladki-status-filter').addEventListener('change', (e) 
   const key = e.target.dataset.statusKey;
   if (!key) return;
   skladkiStatusFilter[key] = e.target.checked;
+  writeBooleanPreference(LIST_PREFERENCE_KEYS.skladkiStatusFilter, skladkiStatusFilter);
   renderCurrentView();
 });
+
+// Restore the saved status filter (KRKG-116) into both the state and the checkboxes. Unsaved, unreadable
+// or invalid storage leaves the defaults above (nothing checked) untouched.
+const savedSkladkiStatusFilter = readBooleanPreference(LIST_PREFERENCE_KEYS.skladkiStatusFilter, Object.keys(skladkiStatusFilter));
+if (savedSkladkiStatusFilter) {
+  for (const key of Object.keys(skladkiStatusFilter)) {
+    skladkiStatusFilter[key] = savedSkladkiStatusFilter[key];
+    document.querySelector(`#skladki-status-filter [data-status-key="${key}"]`).checked = savedSkladkiStatusFilter[key];
+  }
+}
 
 function renderCurrentView() {
   if (wpisoweMode) {

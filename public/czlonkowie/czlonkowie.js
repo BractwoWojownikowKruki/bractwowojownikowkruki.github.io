@@ -65,7 +65,8 @@ let filterText = '';
 
 // Sekcja/Status pills above the table, counting every person on the page and doubling as filters
 // (shared/summary-filter.js) - combined with the "Szukaj…" text filter.
-const directoryFilter = createSummaryFilter(['section', 'category']);
+// Pressed pills are saved for the Spis Ludności page type (KRKG-116).
+const directoryFilter = createSummaryFilter(['section', 'category'], { key: LIST_PREFERENCE_KEYS.spisSummaryFilter, slot: 'directory' });
 wireSummaryFilter(document.getElementById('czl-summary-filter'), directoryFilter, renderTable);
 
 function renderSummaryFilter() {

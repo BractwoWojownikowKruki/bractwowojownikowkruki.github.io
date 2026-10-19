@@ -560,10 +560,11 @@ let cachedEventEquipment = [];
 // top of the two checkboxes above; only sekcja applies to the equipment table (owner's section for
 // private equipment, see equipmentSectionId). Weapon values are weaponGroupKey()s - the same full
 // weapon set the "Filtruj wg broni" pills count by.
-const rosterFilter = createSummaryFilter(['section', 'weapon', 'category']);
+// Pressed pills are saved per page type, not per event (KRKG-116): one key for every trip page.
+const rosterFilter = createSummaryFilter(['section', 'weapon', 'category'], { key: LIST_PREFERENCE_KEYS.wyjazdSummaryFilter, slot: 'roster' });
 // The per-category pills above the equipment table filter that table on their own, separate from
 // the roster/section pills in Podsumowanie.
-const equipmentFilter = createSummaryFilter(['equipmentCategory']);
+const equipmentFilter = createSummaryFilter(['equipmentCategory'], { key: LIST_PREFERENCE_KEYS.wyjazdSummaryFilter, slot: 'equipment' });
 wireSummaryFilter(document.getElementById('event-equipment-summary'), equipmentFilter, () => {
   renderEquipmentSummary(cachedEventEquipment);
   renderEventEquipment(cachedEventEquipment);
@@ -1049,10 +1050,25 @@ async function quickAddNew(ownerPersonId, ksywka, lastName, firstName, categoryI
 // The filter is purely local: both boxes are read straight from the DOM on every change, so the
 // render always reflects exactly what the member sees ticked. No apiFetch, so a change can never
 // fail or produce a network error banner.
+// The choice is global (KRKG-116): saved to localStorage on every change and restored below on load.
+const ROSTER_FILTER_PREFERENCE_FIELDS = ['niezgloszeni', 'zgloszeni'];
+
 function applyRosterFilter() {
   showNotSignedUp = document.getElementById('roster-filter-niezgloszeni').checked;
   showSignedUpAndMe = document.getElementById('roster-filter-zgloszeni').checked;
+  writeBooleanPreference(LIST_PREFERENCE_KEYS.wyjazdRosterFilter, { niezgloszeni: showNotSignedUp, zgloszeni: showSignedUpAndMe });
   renderRoster(cachedRoster, cachedSignups);
+}
+
+// Restore the saved roster view into the checkboxes and the state variables. The roster itself is
+// rendered later, when the trip data loads, so nothing is rendered here. Unsaved or invalid storage
+// keeps the checkboxes' markup defaults.
+const savedRosterFilter = readBooleanPreference(LIST_PREFERENCE_KEYS.wyjazdRosterFilter, ROSTER_FILTER_PREFERENCE_FIELDS);
+if (savedRosterFilter) {
+  document.getElementById('roster-filter-niezgloszeni').checked = savedRosterFilter.niezgloszeni;
+  document.getElementById('roster-filter-zgloszeni').checked = savedRosterFilter.zgloszeni;
+  showNotSignedUp = savedRosterFilter.niezgloszeni;
+  showSignedUpAndMe = savedRosterFilter.zgloszeni;
 }
 
 // Same two checkboxes for the equipment table: Zgłoszone (going) and Niezgłoszone (not going).

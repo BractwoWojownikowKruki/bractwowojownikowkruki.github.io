@@ -25,12 +25,12 @@ test('Zarządzanie ludźmi has an Osoby bez konta section with add form, table a
 test('Osoby bez konta rows render from the staff persons list with edit / detach / deactivate / purge actions', () => {
   assert.match(script, /'\/lista-wyjazdowa\/persons'/);
   assert.match(script, /function renderAccountless\(persons\)/);
-  assert.match(script, /class="member-action accountless-edit">Edytuj</);
+  assert.match(script, /class="member-action accountless-edit edit-compact">Edytuj</);
   assert.match(script, /class="member-action accountless-detach">Odepnij</);
   assert.match(script, /class="member-action accountless-deactivate">Deaktywuj</);
   assert.match(script, /class="member-action accountless-purge">Usuń trwale</);
   // A deactivated person is read-only: no edit/detach/deactivate, only permanent removal.
-  assert.match(script, /person\.deleted \? '' : '<button type="button" class="member-action accountless-edit">/);
+  assert.match(script, /person\.deleted \? '' : '<button type="button" class="member-action accountless-edit edit-compact">/);
   assert.match(script, /person\.deleted \? '' : '<button type="button" class="member-action accountless-deactivate">/);
 });
 
