@@ -5,7 +5,13 @@
 // result (OR), pills pressed in different groups narrow it (AND - Poznań + Niewiasta shows only
 // Poznań's niewiasty), a pressed pill gets a checkmark and a ring, the others dim, and one
 // "Wyczyść filtr" clears every group at once. Counts on the pills never change with the filter.
-// Not persisted - every visit starts unfiltered.
+// Persisted only when a page opts in: createSummaryFilter(groupKeys, preference) with a preference
+// { key, slot } from LIST_PREFERENCE_KEYS (shared/list-preferences.js). One key per page type, so the
+// pressed pills are global across that page type's pages and events, not per event or page instance;
+// several filters of one page type share the key and each keeps its own slot. The pressed pills are
+// saved on the user's click and restored when the filter is created. Pages without a preference (e.g.
+// Zarządzanie ludźmi) stay unfiltered on every visit. Storage is this browser's only, may disappear, and
+// is never sent to the server.
 //
 // The page owns its rendering: it builds each pill with summaryFilterChipHtml, wraps the groups with
 // summaryFilterBlockHtml, calls wireSummaryFilter once on a container that outlives re-renders, and
@@ -20,10 +26,33 @@ function summaryFilterKey(value) {
   return value ?? '';
 }
 
-function createSummaryFilter(groupKeys) {
+// preference is optional: { key, slot } restores the saved pressed pills for this filter's slot of the
+// page-type key. Saved values that aren't a plain object, or groups that aren't string arrays, are
+// ignored, so the filter starts empty. Only groups named in groupKeys are restored.
+function createSummaryFilter(groupKeys, preference = null) {
   const selected = {};
   for (const key of groupKeys) selected[key] = new Set();
-  return { selected };
+  if (preference) {
+    const page = readListPreferenceValue(preference.key, isPlainObjectPreference);
+    const slot = page?.[preference.slot];
+    if (isPlainObjectPreference(slot)) {
+      for (const key of groupKeys) {
+        const values = slot[key];
+        if (Array.isArray(values) && values.every((value) => typeof value === 'string')) selected[key] = new Set(values);
+      }
+    }
+  }
+  return { selected, preference };
+}
+
+// Writes this filter's pressed pills into its slot, keeping the other slots of the same page-type key.
+function persistSummaryFilter(filter) {
+  if (!filter.preference) return;
+  const stored = readListPreferenceValue(filter.preference.key, isPlainObjectPreference) ?? {};
+  stored[filter.preference.slot] = Object.fromEntries(
+    Object.entries(filter.selected).map(([group, set]) => [group, [...set]]),
+  );
+  writeListPreferenceValue(filter.preference.key, stored);
 }
 
 function summaryFilterActive(filter) {
@@ -88,6 +117,7 @@ function wireSummaryFilter(container, filter, onChange) {
     } else {
       filter.selected[group]?.add(key);
     }
+    persistSummaryFilter(filter);
     onChange();
     const buttons = [...container.querySelectorAll('[data-filter-clear], [data-filter-group]')];
     const again = isClear

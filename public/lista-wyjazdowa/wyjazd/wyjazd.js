@@ -560,10 +560,11 @@ let cachedEventEquipment = [];
 // top of the two checkboxes above; only sekcja applies to the equipment table (owner's section for
 // private equipment, see equipmentSectionId). Weapon values are weaponGroupKey()s - the same full
 // weapon set the "Filtruj wg broni" pills count by.
-const rosterFilter = createSummaryFilter(['section', 'weapon', 'category']);
+// Pressed pills are saved per page type, not per event (KRKG-116): one key for every trip page.
+const rosterFilter = createSummaryFilter(['section', 'weapon', 'category'], { key: LIST_PREFERENCE_KEYS.wyjazdSummaryFilter, slot: 'roster' });
 // The per-category pills above the equipment table filter that table on their own, separate from
 // the roster/section pills in Podsumowanie.
-const equipmentFilter = createSummaryFilter(['equipmentCategory']);
+const equipmentFilter = createSummaryFilter(['equipmentCategory'], { key: LIST_PREFERENCE_KEYS.wyjazdSummaryFilter, slot: 'equipment' });
 wireSummaryFilter(document.getElementById('event-equipment-summary'), equipmentFilter, () => {
   renderEquipmentSummary(cachedEventEquipment);
   renderEventEquipment(cachedEventEquipment);

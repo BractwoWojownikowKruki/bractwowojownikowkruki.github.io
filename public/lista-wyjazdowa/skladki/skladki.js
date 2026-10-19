@@ -312,7 +312,8 @@ let cachedDuesByPersonId = new Map();
 // The summary pills as filters (shared/summary-filter.js) - narrow both tables (main + Emeryci /
 // Nie dotyczy) in both modes. renderSummary needs the year's dues, so a pill click re-renders it
 // from the same cached roster/dues as the tables.
-const skladkiFilter = createSummaryFilter(['section', 'category']);
+// Pressed pills are saved per page type (KRKG-116), separate from the status checkboxes above.
+const skladkiFilter = createSummaryFilter(['section', 'category'], { key: LIST_PREFERENCE_KEYS.skladkiSummaryFilter, slot: 'summary' });
 wireSummaryFilter(document.getElementById('summary-panel'), skladkiFilter, () => {
   renderSummary(cachedRoster, cachedDuesByPersonId);
   renderCurrentView();
