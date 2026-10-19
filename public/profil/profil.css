@@ -341,6 +341,33 @@
   margin: 0;
 }
 
+/* Avatar preview under the main photo (profil.js renderPhotoPreview). Same round, cover-cropped
+   look as the name-pill avatar (shared/profile-panel.css .person-avatar-slot), enlarged to 96px
+   so the head and framing can be judged before saving. */
+.lw-photo-thumb .lw-avatar-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.lw-photo-thumb .lw-avatar-preview img {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  display: block;
+}
+
+.lw-photo-thumb .lw-avatar-preview p {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+  text-align: center;
+}
+
 /* Same box for the "Główne" badge and every button under a thumbnail, so the rows line up. */
 .lw-photo-groups .lw-photo-thumb .lw-main-badge,
 .lw-photo-groups .lw-photo-thumb .lw-crop-btn {
