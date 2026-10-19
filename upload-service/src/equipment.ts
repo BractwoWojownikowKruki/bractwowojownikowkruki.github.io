@@ -105,6 +105,60 @@ export async function getEquipmentInTransaction(tx: FirestoreTransaction, id: st
   return tx.getDoc<EquipmentDoc>(COLLECTION, id);
 }
 
+/** Ids of every equipment item privately owned by `ownerPersonId` (case-insensitive, like the other
+ * person-key comparisons). Read outside a transaction, which cannot scan a collection; the callers
+ * re-read each id inside their transaction before writing (see the reassign helpers below). */
+export async function listEquipmentIdsOwnedBy(client: FirestoreLikeClient, ownerPersonId: string): Promise<string[]> {
+  const owner = ownerPersonId.toLowerCase();
+  const all = await client.listDocs<EquipmentDoc>(COLLECTION);
+  return all.filter((d) => d.data.belongsToPersonId?.toLowerCase() === owner).map((d) => d.id);
+}
+
+/** Shared core of the two reassign helpers below: re-reads each id inside the transaction and writes
+ * only the items still owned by `fromPersonId` - an item whose owner changed since the scan is left alone. */
+async function reassignOwnedEquipmentInTransaction(
+  tx: FirestoreTransaction,
+  ids: string[],
+  fromPersonId: string,
+  changes: Pick<EquipmentDoc, 'belongsToPersonId' | 'sectionId'>,
+  updatedByEmail: string,
+): Promise<string[]> {
+  const from = fromPersonId.toLowerCase();
+  const changed: string[] = [];
+  for (const id of ids) {
+    const existing = await tx.getDoc<EquipmentDoc>(COLLECTION, id);
+    if (!existing || existing.belongsToPersonId?.toLowerCase() !== from) continue;
+    await tx.setDoc(COLLECTION, id, { ...changes, updatedAt: new Date().toISOString(), updatedBy: updatedByEmail.toLowerCase() });
+    changed.push(id);
+  }
+  return changed;
+}
+
+/** Merge (KRKG-97): a person's private equipment follows them to the account they were merged into,
+ * exactly like their signups and dues. Returns the ids that were re-pointed. */
+export async function repointEquipmentOwnerInTransaction(
+  tx: FirestoreTransaction,
+  ids: string[],
+  fromPersonId: string,
+  accountEmail: string,
+  updatedByEmail: string,
+): Promise<string[]> {
+  return reassignOwnedEquipmentInTransaction(tx, ids, fromPersonId, { belongsToPersonId: accountEmail.toLowerCase(), sectionId: null }, updatedByEmail);
+}
+
+/** Purge and deactivation (KRKG-97): the person no longer resolves, so their private equipment becomes
+ * team equipment. A team item must carry its own section (validateEquipmentFields), so it takes the
+ * person's current section - the same section the item was following while it was private. */
+export async function releaseEquipmentToTeamInTransaction(
+  tx: FirestoreTransaction,
+  ids: string[],
+  fromPersonId: string,
+  sectionId: string,
+  updatedByEmail: string,
+): Promise<string[]> {
+  return reassignOwnedEquipmentInTransaction(tx, ids, fromPersonId, { belongsToPersonId: null, sectionId }, updatedByEmail);
+}
+
 export async function listEquipment(client: FirestoreLikeClient, limit: number = MAX_LISTED_EQUIPMENT): Promise<EquipmentDoc[]> {
   const all = await client.listDocs<EquipmentDoc>(COLLECTION);
   return all.map((d) => d.data).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);

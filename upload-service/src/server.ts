@@ -136,6 +136,8 @@ import {
   deleteEquipmentInTransaction,
   getEquipmentInTransaction,
   listEquipment,
+  listEquipmentIdsOwnedBy,
+  releaseEquipmentToTeamInTransaction,
   equipmentPhotos,
   withPhotoAdded,
   withMainPhoto,
@@ -4874,6 +4876,9 @@ async function handleListaWyjazdowaDeletePerson(req: IncomingMessage, res: Serve
   const existing = await getPerson(deps.firestore, personId);
   if (!existing) throw new AuthError('Nie znaleziono takiej osoby.', 404);
   requireOwnedOrStaff(identity, existing, await isPersonStaff(req, res, deps, identity.email));
+  // KRKG-97: the person stops resolving, so their private equipment becomes team equipment (see the
+  // release helper). Ids are scanned here; the transaction re-reads each item before writing it.
+  const equipmentIds = await listEquipmentIdsOwnedBy(deps.firestore, existing.personId);
   const { result: person } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.personDelete,
@@ -4881,11 +4886,15 @@ async function handleListaWyjazdowaDeletePerson(req: IncomingMessage, res: Serve
     {
       actor: { email: identity.email },
       resource: { kind: 'person', key: `person:${existing.personId}`, display: existing.ksywka || existing.personId },
-      changes: [{ field: 'deleted', before: false, after: true }],
+      changes: [
+        { field: 'deleted', before: false, after: true },
+        { field: 'releasedEquipment', after: equipmentIds.length },
+      ],
     },
     async tx => {
       const deleted = await softDeletePerson(tx, existing.personId, identity.email);
       if (!deleted) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+      await releaseEquipmentToTeamInTransaction(tx, equipmentIds, existing.personId, deleted.sectionId, identity.email);
       return deleted;
     },
   );
@@ -4944,6 +4953,8 @@ async function handleListaWyjazdowaDeletePersonPermanent(req: IncomingMessage, r
   ]);
   const signupIds = signups.filter(({ data }) => data.memberEmail === existing.personId).map(({ id }) => id);
   const duesIds = dues.filter(({ data }) => data.email === existing.personId).map(({ id }) => id);
+  // KRKG-97: private equipment outlives the person as team equipment, in their current section.
+  const equipmentIds = await listEquipmentIdsOwnedBy(deps.firestore, existing.personId);
   await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.personPurge,
@@ -4955,11 +4966,13 @@ async function handleListaWyjazdowaDeletePersonPermanent(req: IncomingMessage, r
         { field: 'deleted', before: false, after: true },
         { field: 'droppedSignups', after: signupIds.length },
         { field: 'droppedDues', after: duesIds.length },
+        { field: 'releasedEquipment', after: equipmentIds.length },
       ],
     },
     async tx => {
       for (const id of signupIds) await tx.deleteDoc('signups', id);
       for (const id of duesIds) await tx.deleteDoc('duesAnnual', id);
+      await releaseEquipmentToTeamInTransaction(tx, equipmentIds, existing.personId, existing.sectionId, identity.email);
       await tx.deleteDoc('listaWyjazdowaProfile', existing.personId);
       await tx.deleteDoc('persons', existing.personId);
       return { personId: existing.personId };
@@ -5021,6 +5034,7 @@ async function handleListaWyjazdowaPutPersonAccount(req: IncomingMessage, res: S
           { field: 'movedDues', after: merged.outcome.movedDues.length },
           { field: 'droppedSignups', after: merged.outcome.droppedSignups.length },
           { field: 'droppedDues', after: merged.outcome.droppedDues.length },
+          { field: 'repointedEquipment', after: merged.outcome.repointedEquipment.length },
           { field: 'profileMerged', after: merged.outcome.profileWritten },
         ],
       }),
