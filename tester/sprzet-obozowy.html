@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tester — Sprzęt obozowy (KRKG-113)</title>
+  <link rel="stylesheet" href="../public/style.css">
+  <link rel="stylesheet" href="../public/member-area.css">
+  <style>
+    /* Preview only - nothing here is wired into production. Equipment pills get their own
+       colour variables (--eq-c / --eq-fg) set from the palette panel below. */
+    body { background: var(--bg); }
+    .eq-intro { max-width: 760px; font-size: 13px; line-height: 1.6; color: var(--text-muted); }
+    .eq-intro code { color: var(--gold); }
+    .eq-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1rem; margin-top: 1rem; align-items: start; }
+    @media (max-width: 860px) { .eq-layout { grid-template-columns: 1fr; } }
+    .eq-panel { padding: 0.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    .eq-panel h2 { font-size: 14px; margin: 0 0 0.6rem; color: var(--gold); }
+    .eq-group { margin-top: 0.9rem; }
+    .eq-group:first-of-type { margin-top: 0; }
+    .eq-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 0.4rem; }
+    .eq-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    .eq-row + .eq-row { margin-top: 0.5rem; }
+    .eq-note { font-size: 12px; color: var(--text-faint); margin: 0.4rem 0 0; }
+
+    /* Proposed equipment pill: between the square category pill (radius 0) and the fully
+       rounded section pill (radius 999px). Colours come from --eq-c / --eq-fg. */
+    .eq-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.2rem 0.7rem;
+      border-radius: 0.35rem;
+      border: 1px solid color-mix(in srgb, var(--eq-c) 70%, #000);
+      background: var(--eq-c);
+      color: var(--eq-fg);
+      font-size: 0.9em;
+      font-weight: 600;
+      white-space: nowrap;
+      line-height: 1.3;
+    }
+    .eq-pill-meta { font-size: 11px; color: var(--text-faint); margin-left: 0.35rem; }
+
+    .eq-palette-row { display: grid; grid-template-columns: 1fr 34px; gap: 0.5rem; align-items: center; padding: 0.35rem 0; border-bottom: 1px solid var(--border); }
+    .eq-palette-row:last-child { border-bottom: none; }
+    .eq-palette-label { font-size: 13px; }
+    .eq-palette-label small { display: block; color: var(--text-faint); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .eq-palette-row input[type="color"] { width: 34px; height: 26px; padding: 0; border: 1px solid var(--border); background: none; cursor: pointer; }
+    .eq-buttons { display: flex; gap: 0.5rem; margin-top: 0.8rem; flex-wrap: wrap; }
+    .eq-btn {
+      font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+      padding: 0.35rem 0.8rem; border-radius: 4px;
+      border: 1px solid var(--gold); background: var(--gold); color: #241d05;
+    }
+    .eq-btn.secondary { background: none; color: var(--gold); }
+    .eq-output {
+      width: 100%; margin-top: 0.7rem; height: 190px; resize: vertical;
+      font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--text); background: var(--surface-deep); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.4rem 0.5rem; box-sizing: border-box;
+    }
+    .eq-status { font-size: 12px; color: var(--text-muted); min-height: 1em; margin-top: 0.3rem; }
+  </style>
+</head>
+<body>
+  <main class="main-content">
+    <div class="content-left">
+      <section class="content-section">
+        <h1>Sprzęt obozowy — paleta kategorii</h1>
+        <p class="eq-intro">
+          Podgląd (tylko tester, produkcja bez zmian). Sprzęt dostaje własną paletę kategorii, tak żeby nie
+          mylił się z kolorami Sekcji (<code>--section-color-*</code>) ani Typów członków
+          (<code>--category-color-*</code>). Nowy styl plakietki sprzętu (<code>.eq-pill</code>) stoi pomiędzy
+          kwadratową plakietką Typu (<code>.category-name-pill</code>) a pełnym zaokrągleniem Sekcji
+          (<code>.section-pill</code>). Zmieniaj kolory w panelu po prawej — plakietki aktualizują się na żywo.
+        </p>
+
+        <div class="eq-layout">
+          <div>
+            <div class="eq-panel">
+              <h2>Sprzęt — proponowany styl</h2>
+              <div class="eq-group">
+                <div class="eq-group-title">Budowle</div>
+                <div class="eq-row" id="eq-group-budowle"></div>
+              </div>
+              <div class="eq-group">
+                <div class="eq-group-title">Meble</div>
+                <div class="eq-row" id="eq-group-meble"></div>
+              </div>
+              <div class="eq-group">
+                <div class="eq-group-title">Kuchnia</div>
+                <div class="eq-row" id="eq-group-kuchnia"></div>
+              </div>
+            </div>
+
+            <div class="eq-panel" style="margin-top: 1rem;">
+              <h2>Dla porównania — obecne kolory Sekcji i Typów</h2>
+              <div class="eq-group">
+                <div class="eq-group-title">Sekcje (<code>.section-pill</code>, zaokrąglone)</div>
+                <div class="eq-row">
+                  <span class="section-pill" data-section="bydgoszcz">Bydgoszcz</span>
+                  <span class="section-pill" data-section="czukcze">Czukcze</span>
+                  <span class="section-pill" data-section="krakow">Kraków</span>
+                  <span class="section-pill" data-section="poznan">Poznań</span>
+                  <span class="section-pill" data-section="warszawa">Warszawa</span>
+                  <span class="section-pill" data-section="wroclaw">Wrocław</span>
+                </div>
+              </div>
+              <div class="eq-group">
+                <div class="eq-group-title">Typy członków (<code>.category-name-pill</code>, kwadratowe)</div>
+                <div class="eq-row">
+                  <span class="category-name-pill" data-category="brokul">Brokuł</span>
+                  <span class="category-name-pill" data-category="kandydat">Kandydat</span>
+                  <span class="category-name-pill" data-category="niewiasta">Niewiasta</span>
+                  <span class="category-name-pill" data-category="blacha">Blacha</span>
+                  <span class="category-name-pill" data-category="thing">Thing</span>
+                  <span class="category-name-pill" data-category="bobo">Bobo</span>
+                  <span class="category-name-pill" data-category="emeryt">Emeryt</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="eq-panel">
+            <h2>Paleta sprzętu</h2>
+            <div id="eq-palette"></div>
+            <div class="eq-buttons">
+              <button type="button" class="eq-btn" id="eq-copy">Kopiuj</button>
+              <button type="button" class="eq-btn secondary" id="eq-reset">Przywróć domyślną</button>
+            </div>
+            <div class="eq-status" id="eq-status" role="status"></div>
+            <textarea class="eq-output" id="eq-output" readonly spellcheck="false" aria-label="Aktualna paleta jako zmienne CSS"></textarea>
+          </aside>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    // Categories and groups are the real seed values from upload-service/scripts/seed-lookup-lists.ts.
+    const GROUPS = [
+      { id: 'budowle', label: 'Budowle' },
+      { id: 'meble', label: 'Meble' },
+      { id: 'kuchnia', label: 'Kuchnia' },
+    ];
+    const CATEGORIES = [
+      { id: 'namiot', label: 'Namiot', groupId: 'budowle', sample: 'Namiot 4-osobowy' },
+      { id: 'wiata', label: 'Wiata', groupId: 'budowle', sample: 'Wiata 3x4 m' },
+      { id: 'stol', label: 'Stół', groupId: 'meble', sample: 'Stół składany' },
+      { id: 'lawka', label: 'Ławka', groupId: 'meble', sample: 'Ławka drewniana' },
+      { id: 'garnek', label: 'Garnek', groupId: 'kuchnia', sample: 'Garnek 10 l' },
+      { id: 'ruszt', label: 'Ruszt', groupId: 'kuchnia', sample: 'Ruszt żeliwny' },
+      { id: 'trojnog', label: 'Trójnóg', groupId: 'kuchnia', sample: 'Trójnóg z łańcuchem' },
+      { id: 'misa-ogniowa', label: 'Misa ogniowa', groupId: 'kuchnia', sample: 'Misa ogniowa stalowa' },
+    ];
+
+    // Proposed DEFAULT palette (hypothesis, to be chosen by the user). Chosen to stay away from
+    // the city/people hues (blue #0056e0/#427bff, red #ef4444, green #16a34a/#639f09, yellow
+    // #eab308/#ffcc00, purple #a855f7, pink #d93fa8/#f06bb0, grey #8a8578/#94a3b8).
+    const DEFAULT_PALETTE = {
+      namiot: '#f97316',       // orange
+      wiata: '#e7d7b0',        // sand
+      stol: '#22d3ee',         // cyan
+      lawka: '#b8733a',        // ochre brown
+      garnek: '#fdba74',       // peach
+      ruszt: '#5b4636',        // dark brown
+      trojnog: '#e2e8f0',      // near-white
+      'misa-ogniowa': '#155e75', // deep cyan
+    };
+
+    const palette = { ...DEFAULT_PALETTE };
+
+    // Dark text on light fills, light text on dark fills (plain luminance test, no colour mixing).
+    function textOn(hex) {
+      const n = parseInt(hex.slice(1), 16);
+      const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+      const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return lum > 0.6 ? '#1a1410' : '#fff8ec';
+    }
+
+    function pillHtml(cat, label) {
+      return `<span class="eq-pill" data-eq="${cat.id}">${label}</span>`;
+    }
+
+    // Each group gets its real sample labels as pills.
+    for (const group of GROUPS) {
+      const host = document.getElementById('eq-group-' + group.id);
+      host.innerHTML = CATEGORIES.filter((c) => c.groupId === group.id)
+        .map((c) => pillHtml(c, c.sample))
+        .join('');
+    }
+
+    function applyColour(id, hex) {
+      palette[id] = hex;
+      const fg = textOn(hex);
+      document.querySelectorAll(`.eq-pill[data-eq="${id}"]`).forEach((el) => {
+        el.style.setProperty('--eq-c', hex);
+        el.style.setProperty('--eq-fg', fg);
+      });
+    }
+
+    // Palette panel: one colour input per category.
+    const paletteHost = document.getElementById('eq-palette');
+    paletteHost.innerHTML = CATEGORIES.map((c) => `
+      <label class="eq-palette-row">
+        <span class="eq-palette-label">${c.label}<small>--eq-${c.id}</small></span>
+        <input type="color" data-eq-input="${c.id}" aria-label="Kolor: ${c.label}">
+      </label>`).join('');
+
+    function syncInputs() {
+      for (const c of CATEGORIES) {
+        paletteHost.querySelector(`[data-eq-input="${c.id}"]`).value = palette[c.id];
+      }
+    }
+
+    function renderOutput() {
+      const lines = CATEGORIES.map((c) => `  --eq-${c.id}: ${palette[c.id]};`);
+      document.getElementById('eq-output').value = `/* Sprzęt obozowy - paleta kategorii (KRKG-113) */\n:root {\n${lines.join('\n')}\n}`;
+    }
+
+    function setAll(source) {
+      for (const c of CATEGORIES) applyColour(c.id, source[c.id]);
+      syncInputs();
+      renderOutput();
+    }
+
+    paletteHost.addEventListener('input', (event) => {
+      const id = event.target.dataset.eqInput;
+      if (!id) return;
+      applyColour(id, event.target.value);
+      renderOutput();
+    });
+
+    document.getElementById('eq-reset').addEventListener('click', () => {
+      setAll(DEFAULT_PALETTE);
+      document.getElementById('eq-status').textContent = 'Przywrócono domyślną paletę.';
+    });
+
+    document.getElementById('eq-copy').addEventListener('click', async () => {
+      const status = document.getElementById('eq-status');
+      const text = document.getElementById('eq-output').value;
+      try {
+        await navigator.clipboard.writeText(text);
+        status.textContent = 'Skopiowano do schowka.';
+      } catch (err) {
+        // Clipboard API can be blocked (non-secure context / permissions) - fall back to selecting the text.
+        const out = document.getElementById('eq-output');
+        out.focus();
+        out.select();
+        status.textContent = 'Schowek niedostępny - zaznaczono tekst, skopiuj ręcznie (Cmd/Ctrl+C).';
+      }
+    });
+
+    setAll(DEFAULT_PALETTE);
+  </script>
+</body>
+</html>

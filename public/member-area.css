@@ -1220,6 +1220,51 @@ button.lw-skladka-icon:disabled {
   vertical-align: -0.02em;
 }
 
+/* KRKG-113: camp equipment has its own colour per Kategoria, kept apart from the Sekcja colours
+   above and the Typ colours (--category-color-*) so a blue tent never reads like a blue city. Only
+   the equipment page's own tables (#equipment-tables) use these - .equipment-pill is also rendered by
+   Wyjazd and Mój profil, which keep their uncoloured pill. Each row carries data-equipment-category
+   (sprzet-obozowy.js equipmentRowHtml); the row's custom properties feed the pill inside it.
+   Unknown/new categories fall back to --equipment-color-default. Between square (Typ) and fully
+   rounded (Sekcja) on purpose: 0.35rem radius. */
+:root {
+  --equipment-color-namiot:       #f97316;
+  --equipment-color-wiata:        #e7d7b0;
+  --equipment-color-stol:         #22d3ee;
+  --equipment-color-lawka:        #b8733a;
+  --equipment-color-garnek:       #fdba74;
+  --equipment-color-ruszt:        #5b4636;
+  --equipment-color-trojnog:      #e2e8f0;
+  --equipment-color-misa-ogniowa: #155e75;
+  --equipment-color-default:      #6b5340;
+
+  --equipment-fg-namiot:          #fff8ec;
+  --equipment-fg-wiata:           #1a1410;
+  --equipment-fg-stol:            #1a1410;
+  --equipment-fg-lawka:           #fff8ec;
+  --equipment-fg-garnek:          #1a1410;
+  --equipment-fg-ruszt:           #fff8ec;
+  --equipment-fg-trojnog:         #1a1410;
+  --equipment-fg-misa-ogniowa:    #fff8ec;
+  --equipment-fg-default:         #f5e6c8;
+}
+
+#equipment-tables [data-equipment-category="namiot"]       { --equipment-c: var(--equipment-color-namiot);       --equipment-fg: var(--equipment-fg-namiot); }
+#equipment-tables [data-equipment-category="wiata"]        { --equipment-c: var(--equipment-color-wiata);        --equipment-fg: var(--equipment-fg-wiata); }
+#equipment-tables [data-equipment-category="stol"]         { --equipment-c: var(--equipment-color-stol);         --equipment-fg: var(--equipment-fg-stol); }
+#equipment-tables [data-equipment-category="lawka"]        { --equipment-c: var(--equipment-color-lawka);        --equipment-fg: var(--equipment-fg-lawka); }
+#equipment-tables [data-equipment-category="garnek"]       { --equipment-c: var(--equipment-color-garnek);       --equipment-fg: var(--equipment-fg-garnek); }
+#equipment-tables [data-equipment-category="ruszt"]        { --equipment-c: var(--equipment-color-ruszt);        --equipment-fg: var(--equipment-fg-ruszt); }
+#equipment-tables [data-equipment-category="trojnog"]      { --equipment-c: var(--equipment-color-trojnog);      --equipment-fg: var(--equipment-fg-trojnog); }
+#equipment-tables [data-equipment-category="misa-ogniowa"] { --equipment-c: var(--equipment-color-misa-ogniowa); --equipment-fg: var(--equipment-fg-misa-ogniowa); }
+
+#equipment-tables .equipment-pill {
+  border-radius: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--equipment-c, var(--equipment-color-default)) 70%, #000);
+  background: var(--equipment-c, var(--equipment-color-default));
+  color: var(--equipment-fg, var(--equipment-fg-default));
+}
+
 /* Equipment pill (person-pill.js's equipmentPillHtml): a small, muted flat image icon beside the
    Opis pill, so it reads as "tap to see the photos" without drawing the eye. */
 .equipment-photo-icon {
