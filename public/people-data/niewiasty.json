@@ -93,7 +93,7 @@
    },
    "folderId": "1ItGR2Saa9_UytHbL26GY2OiNzp8bm-g1",
    "name": "Marika",
-   "order": null,
+   "order": 9,
    "description": "",
    "inMemoriam": false,
    "mainPhoto": {
@@ -106,6 +106,22 @@
      "url": "/people-photos/1wllUHTqxVsnV65j676SZnOKZts8Demh4-300-b1d9fc14b5.jpg"
     }
    ]
+  },
+  {
+   "avatar": {
+    "id": "1PNubzX0MDuFrjfgtJehYSua5yzMOi5h6",
+    "url": "/people-photos/1PNubzX0MDuFrjfgtJehYSua5yzMOi5h6-64-bd386f3ff0.jpg"
+   },
+   "folderId": "1F9UV-F3VcfsrfcbZhC74ZxCbhwEfccA5",
+   "name": "Werka",
+   "order": 10,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1PNubzX0MDuFrjfgtJehYSua5yzMOi5h6",
+    "url": "/people-photos/1PNubzX0MDuFrjfgtJehYSua5yzMOi5h6-800-bd386f3ff0.jpg"
+   },
+   "photos": []
   }
  ]
 }
