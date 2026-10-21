@@ -52,6 +52,8 @@ const eventFields = {
   status: 'memberVisible',
   description: 'memberVisible',
   noCampEquipment: 'memberVisible',
+  mapUrl: 'memberVisible',
+  discordUrl: 'memberVisible',
 } as const;
 const signupFields = {
   memberEmail: 'memberVisible',

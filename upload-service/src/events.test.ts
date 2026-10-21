@@ -111,3 +111,14 @@ test('createEvent defaults noCampEquipment to false and updateEvent can toggle i
   const created = await createEvent(client, { name: 'B', startDate: '2027-01-02', noCampEquipment: true }, 'a@example.test');
   assert.equal(created.noCampEquipment, true);
 });
+
+test('createEvent defaults the link fields to null and updateEvent can set and clear them', async () => {
+  const client = createInMemoryFirestoreClient();
+  const event = await createEvent(client, { name: 'A', startDate: '2027-01-01' }, 'a@example.test');
+  assert.equal(event.mapUrl, null);
+  assert.equal(event.discordUrl, null);
+  const updated = await updateEvent(client, event.id, { mapUrl: 'https://maps.app.goo.gl/x', discordUrl: 'https://discord.com/channels/1/2' });
+  assert.equal(updated?.mapUrl, 'https://maps.app.goo.gl/x');
+  assert.equal((await getEvent(client, event.id))?.discordUrl, 'https://discord.com/channels/1/2');
+  assert.equal((await updateEvent(client, event.id, { mapUrl: null }))?.mapUrl, null);
+});

@@ -14,6 +14,34 @@
     }[ch]));
   }
 
+  // Deliberately loose (KRKG: only guards against a stray word landing in the field): an http(s)
+  // URL with a dotted host. The backend repeats the same check.
+  function isHttpUrl(value) {
+    try {
+      const url = new URL(String(value ?? '').trim());
+      return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname.includes('.');
+    } catch {
+      return false;
+    }
+  }
+
+  const MAP_URL_ERROR = 'Pinezka Google Maps musi być adresem URL (https://…).';
+  const DISCORD_URL_ERROR = 'Wątek na Discordzie musi być adresem URL (https://…).';
+
+  /**
+   * First validation problem in the form's optional link fields, or null. Empty is fine (the link is
+   * optional, and clears it); a non-empty value that is not a URL rejects the whole save.
+   *
+   * @param {{mapUrl?: string, discordUrl?: string}} formValues
+   */
+  function validateForm(formValues) {
+    const mapUrl = (formValues.mapUrl ?? '').trim();
+    if (mapUrl && !isHttpUrl(mapUrl)) return MAP_URL_ERROR;
+    const discordUrl = (formValues.discordUrl ?? '').trim();
+    if (discordUrl && !isHttpUrl(discordUrl)) return DISCORD_URL_ERROR;
+    return null;
+  }
+
   const PENCIL_ICON = '<svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 
   /**
@@ -30,7 +58,7 @@
   }
 
   /**
-   * The edit panel itself: Nazwa/Data/Opis fields, Zapisz/Anuluj, and a single Odwołaj/Przywróć
+   * The edit panel itself: Nazwa/Data/links/Opis fields, Zapisz/Anuluj, and a single Odwołaj/Przywróć
    * wyjazd button whose label and target status follow the event's current status. `idPrefix` keeps
    * multiple instances (one per list row, plus the detail page's own) from colliding on element ids.
    *
@@ -40,6 +68,8 @@
   function panelHtml(event, { idPrefix }) {
     const isCancelled = event.status === 'cancelled';
     const description = event.description ?? '';
+    const mapUrl = event.mapUrl ?? '';
+    const discordUrl = event.discordUrl ?? '';
     return `
     <div class="lw-event-edit-form" data-event-id="${escapeHtml(event.id)}">
       <div class="field">
@@ -51,6 +81,14 @@
         <input type="date" id="${idPrefix}-date" value="${escapeHtml(event.startDate)}">
       </div>
       <p class="lw-event-edit-url-warning" id="${idPrefix}-url-warning" hidden>⚠️ Zmiana nazwy lub daty zmieni link do wyjazdu — stare linki (np. już udostępnione) przestaną działać.</p>
+      <div class="field">
+        <label for="${idPrefix}-map-url">Pinezka Google Maps z dojazdem</label>
+        <input type="url" id="${idPrefix}-map-url" inputmode="url" placeholder="https://maps.app.goo.gl/…" value="${escapeHtml(mapUrl)}">
+      </div>
+      <div class="field">
+        <label for="${idPrefix}-discord-url">Wątek na Discordzie</label>
+        <input type="url" id="${idPrefix}-discord-url" inputmode="url" placeholder="https://discord.com/channels/…" value="${escapeHtml(discordUrl)}">
+      </div>
       <div class="field">
         <label for="${idPrefix}-description">Opis</label>
         <textarea id="${idPrefix}-description" rows="4" placeholder="Informacje o wyjeździe: miejsce, linki, co zabrać...">${escapeHtml(description)}</textarea>
@@ -78,6 +116,8 @@
       name: document.getElementById(`${idPrefix}-name`).value,
       startDate: document.getElementById(`${idPrefix}-date`).value,
       description: document.getElementById(`${idPrefix}-description`).value,
+      mapUrl: document.getElementById(`${idPrefix}-map-url`).value,
+      discordUrl: document.getElementById(`${idPrefix}-discord-url`).value,
       noCampEquipment: document.getElementById(`${idPrefix}-no-camp-equipment`).checked,
     };
   }
@@ -119,9 +159,13 @@
     const description = formValues.description.trim();
     const currentDescription = event.description ?? '';
     if (description !== currentDescription) body.description = description || null;
+    const mapUrl = (formValues.mapUrl ?? '').trim();
+    if (mapUrl !== (event.mapUrl ?? '')) body.mapUrl = mapUrl || null;
+    const discordUrl = (formValues.discordUrl ?? '').trim();
+    if (discordUrl !== (event.discordUrl ?? '')) body.discordUrl = discordUrl || null;
     if (formValues.noCampEquipment !== Boolean(event.noCampEquipment)) body.noCampEquipment = formValues.noCampEquipment;
     return body;
   }
 
-  window.EventEditForm = { toggleButtonHtml, panelHtml, readForm, buildUpdateBody, wireUrlWarning };
+  window.EventEditForm = { toggleButtonHtml, panelHtml, readForm, buildUpdateBody, wireUrlWarning, validateForm, isHttpUrl };
 }());

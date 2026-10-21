@@ -49,6 +49,8 @@ class FormElement extends Element {
   name = { value: '' };
   startDate = { value: '' };
   description = { value: '' };
+  mapUrl = { value: '' };
+  discordUrl = { value: '' };
   noCampEquipment = { checked: false };
   reset() { this.name.value = ''; this.startDate.value = ''; this.description.value = ''; }
   querySelector(selector: string) { return selector === 'button[type="submit"]' ? new Element('submit-btn') : null; }

@@ -13,6 +13,8 @@ export interface EventDoc {
   skladkaFee: string | null; // free-text fee description, accountant/admin-set — see server.ts's role check
   dueDate: string | null; // YYYY-MM-DD, accountant/admin-set payment deadline for skladkaFee (KRKG-0080)
   noCampEquipment?: boolean; // trip needs no camp equipment, so the roster page hides the equipment table (absent = false)
+  mapUrl?: string | null; // Google Maps pin with directions; the detail page's "Wskazówki dojazdu" button (absent = none)
+  discordUrl?: string | null; // Discord thread for the trip; the detail page's "Temat na Discordzie" button (absent = none)
 }
 
 export interface EventWithId extends EventDoc {
@@ -27,6 +29,8 @@ export interface EventWritableFields {
   skladkaFee?: string | null;
   dueDate?: string | null;
   noCampEquipment?: boolean;
+  mapUrl?: string | null;
+  discordUrl?: string | null;
 }
 
 const COLLECTION = 'events';
@@ -43,7 +47,7 @@ export async function getEvent(client: FirestoreLikeClient, eventId: string): Pr
 
 export async function createEvent(
   client: FirestoreWriteContext,
-  fields: { name: string; startDate: string; description?: string | null; noCampEquipment?: boolean },
+  fields: { name: string; startDate: string; description?: string | null; noCampEquipment?: boolean; mapUrl?: string | null; discordUrl?: string | null },
   createdBy: string,
   id = randomUUID(),
 ): Promise<EventWithId> {
@@ -57,6 +61,8 @@ export async function createEvent(
     skladkaFee: null,
     dueDate: null,
     noCampEquipment: fields.noCampEquipment ?? false,
+    mapUrl: fields.mapUrl ?? null,
+    discordUrl: fields.discordUrl ?? null,
   };
   await client.setDoc(COLLECTION, id, doc);
   return { id, ...doc };

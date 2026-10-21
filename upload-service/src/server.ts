@@ -3224,6 +3224,7 @@ const LW_MAX_DESCRIPTION_LENGTH = 500;
 // Event descriptions hold logistics prose (meeting point, links, what to bring) rather than the
 // one-line captions LW_MAX_DESCRIPTION_LENGTH bounds elsewhere, so they get their own, larger cap.
 const LW_MAX_EVENT_DESCRIPTION_LENGTH = 2000;
+const LW_MAX_EVENT_URL_LENGTH = 500;
 // The registration form's "Napisz, kim jesteś, skąd się wziąłeś." - a few paragraphs, still well
 // inside maxJsonBodyBytes even in multi-byte Polish.
 const APPLICATION_MAX_DESCRIPTION_LENGTH = 2000;
@@ -3816,6 +3817,24 @@ function optionalBoolean(value: unknown, message: string): boolean | undefined {
   return value;
 }
 
+// Only a sanity check that the field holds a web link (the client form does the same), so a stray
+// word or a javascript: URL never reaches the detail page's buttons. null/'' clears the field.
+function optionalHttpUrl(value: unknown, message: string): string | null {
+  const trimmed = optionalTrimmedString(value, LW_MAX_EVENT_URL_LENGTH, message);
+  if (trimmed === null) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new AuthError(message, 400);
+  }
+  if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || !parsed.hostname.includes('.')) throw new AuthError(message, 400);
+  return trimmed;
+}
+
+const LW_MAP_URL_MESSAGE = 'Link do Google Maps musi być adresem URL (https://…).';
+const LW_DISCORD_URL_MESSAGE = 'Link do wątku na Discordzie musi być adresem URL (https://…).';
+
 function requireDateString(value: unknown, message: string): string {
   const trimmed = requireTrimmedString(value, 10, message);
   if (!DATE_PATTERN.test(trimmed)) throw new AuthError(message, 400);
@@ -3854,6 +3873,8 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
   const startDate = requireDateString(body.startDate, 'Data rozpoczęcia jest wymagana (RRRR-MM-DD).');
   const description = optionalTrimmedString(body.description, LW_MAX_EVENT_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 2000 znaków.');
   const noCampEquipment = optionalBoolean(body.noCampEquipment, 'Pole „bez sprzętu obozowego” musi być wartością logiczną.') ?? false;
+  const mapUrl = optionalHttpUrl(body.mapUrl, LW_MAP_URL_MESSAGE);
+  const discordUrl = optionalHttpUrl(body.discordUrl, LW_DISCORD_URL_MESSAGE);
   const eventId = randomUUID();
   const { result: event } = await executeDeclaredAuditedMutation(
     deps,
@@ -3868,9 +3889,11 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
         { field: 'status', after: 'active' },
         ...(description !== null ? [{ field: 'description', after: description }] : []),
         ...(noCampEquipment ? [{ field: 'noCampEquipment', after: true }] : []),
+        ...(mapUrl !== null ? [{ field: 'mapUrl', after: mapUrl }] : []),
+        ...(discordUrl !== null ? [{ field: 'discordUrl', after: discordUrl }] : []),
       ],
     },
-    tx => createEvent(tx, { name, startDate, description, noCampEquipment }, identity.email, eventId),
+    tx => createEvent(tx, { name, startDate, description, noCampEquipment, mapUrl, discordUrl }, identity.email, eventId),
   );
   sendJson(res, 200, { event });
 }
@@ -3889,6 +3912,8 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
   if (body.noCampEquipment !== undefined) {
     fields.noCampEquipment = optionalBoolean(body.noCampEquipment, 'Pole „bez sprzętu obozowego” musi być wartością logiczną.') ?? false;
   }
+  if (body.mapUrl !== undefined) fields.mapUrl = optionalHttpUrl(body.mapUrl, LW_MAP_URL_MESSAGE);
+  if (body.discordUrl !== undefined) fields.discordUrl = optionalHttpUrl(body.discordUrl, LW_DISCORD_URL_MESSAGE);
   if (body.status !== undefined) {
     if (body.status !== 'active' && body.status !== 'cancelled') throw new AuthError('Nieprawidłowy status wyjazdu.', 400);
     fields.status = body.status;
@@ -3901,7 +3926,7 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
     await requireSkladkiAccess(req, res, deps, identity.email);
     fields.dueDate = body.dueDate === null ? null : requireDateString(body.dueDate, 'Nieprawidłowy termin płatności (RRRR-MM-DD).');
   }
-  const eventFieldCount = Number(fields.name !== undefined) + Number(fields.startDate !== undefined) + Number(fields.status !== undefined) + Number(fields.description !== undefined) + Number(fields.noCampEquipment !== undefined);
+  const eventFieldCount = Number(fields.name !== undefined) + Number(fields.startDate !== undefined) + Number(fields.status !== undefined) + Number(fields.description !== undefined) + Number(fields.noCampEquipment !== undefined) + Number(fields.mapUrl !== undefined) + Number(fields.discordUrl !== undefined);
   const feeFieldCount = Number(fields.skladkaFee !== undefined) + Number(fields.dueDate !== undefined);
   if (eventFieldCount === 0 && feeFieldCount === 0) {
     throw new AuthError('Podaj co najmniej jedno pole wyjazdu do zmiany.', 400);
@@ -3928,6 +3953,8 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
           ...(fields.status !== undefined ? [{ field: 'status', before: existing.status, after: fields.status }] : []),
           ...(fields.description !== undefined ? [{ field: 'description', before: existing.description ?? null, after: fields.description }] : []),
           ...(fields.noCampEquipment !== undefined ? [{ field: 'noCampEquipment', before: existing.noCampEquipment ?? false, after: fields.noCampEquipment }] : []),
+          ...(fields.mapUrl !== undefined ? [{ field: 'mapUrl', before: existing.mapUrl ?? null, after: fields.mapUrl }] : []),
+          ...(fields.discordUrl !== undefined ? [{ field: 'discordUrl', before: existing.discordUrl ?? null, after: fields.discordUrl }] : []),
         ],
       };
       if (feeFieldCount === 0) return metadataInput;

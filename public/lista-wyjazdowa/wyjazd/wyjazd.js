@@ -1200,6 +1200,31 @@ function renderEventDescription(event) {
   document.getElementById('event-description-panel').hidden = !description;
 }
 
+// Always-visible "Temat na Discordzie" / "Wskazówki dojazdu" buttons above Dodatkowe informacje.
+// Without a saved link a button stays greyed out (aria-disabled, not `disabled`, so it still takes
+// the click and can explain what is missing); with one it opens the link in a new tab.
+const EVENT_LINK_MISSING_MESSAGES = {
+  discordUrl: 'Nie podlinkowano tematu Discorda.',
+  mapUrl: 'Nie podano PINezki do Google Maps.',
+};
+
+function renderEventLinks(event) {
+  document.querySelectorAll('#event-links [data-link-field]').forEach((el) => {
+    const url = event[el.dataset.linkField];
+    const usable = Boolean(url) && window.EventEditForm.isHttpUrl(url);
+    el.setAttribute('aria-disabled', String(!usable));
+    if (usable) el.setAttribute('href', url);
+    else el.removeAttribute('href');
+  });
+}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('#event-links [data-link-field]');
+  if (!el || el.getAttribute('aria-disabled') !== 'true') return;
+  e.preventDefault();
+  window.alert(EVENT_LINK_MISSING_MESSAGES[el.dataset.linkField]);
+});
+
 async function loadAll() {
   const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue, canManagePeople: peopleValue }, lookupLists, { items: eventEquipmentItems }] = await Promise.all([
     apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
@@ -1231,6 +1256,7 @@ async function loadAll() {
   document.getElementById('event-title').textContent = event.name;
   renderEventDateAndStatus(event);
   renderEventDescription(event);
+  renderEventLinks(event);
   renderEventEditPanel();
   // Historia deep links (KRKG-0050 batch 5/6, event-wide in KRKG-0086). The top clock opens the
   // whole trip history via the `eventId` selector - event metadata, the event fee, every member's
@@ -1287,6 +1313,11 @@ async function saveEventDetails(control) {
   clearError();
   try {
     const formValues = window.EventEditForm.readForm('event-edit');
+    const invalid = window.EventEditForm.validateForm(formValues);
+    if (invalid) {
+      showError(invalid);
+      return;
+    }
     const body = window.EventEditForm.buildUpdateBody(cachedEvent, formValues);
     if (Object.keys(body).length === 0) {
       eventEditOpen = false;
@@ -1303,6 +1334,7 @@ async function saveEventDetails(control) {
       document.getElementById('event-title').textContent = cachedEvent.name;
       renderEventDateAndStatus(cachedEvent);
       renderEventDescription(cachedEvent);
+      renderEventLinks(cachedEvent);
       renderEventEquipment(cachedEventEquipment);
       renderSummary(cachedRoster, cachedSignups);
       eventEditOpen = false;

@@ -1610,6 +1610,65 @@ button.lw-filter-chip {
   margin-bottom: 1.25rem;
 }
 
+/* Discord / Google Maps buttons above Dodatkowe informacje: small, and always one row even on a
+   phone (nowrap + shrinking labels). Without a saved link they stay greyed out (aria-disabled). */
+.lw-event-links {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  margin-bottom: 1.25rem;
+}
+
+.lw-event-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.lw-event-link svg {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+}
+
+.lw-event-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 400px) {
+  .lw-event-link {
+    gap: 0.25rem;
+    padding: 0.3rem 0.4rem;
+    font-size: 11px;
+  }
+}
+
+.lw-event-link--discord svg {
+  color: #5865f2;
+}
+
+.lw-event-link[aria-disabled="true"] {
+  opacity: 0.45;
+  filter: grayscale(1);
+  cursor: not-allowed;
+}
+
+.lw-event-link:not([aria-disabled="true"]):hover {
+  border-color: var(--gold);
+}
+
 /* Składka and Dodatkowe informacje body text share one style, so the two read as the same kind of
    content. */
 #skladka-fee-display,

@@ -264,6 +264,12 @@ async function saveEventEdit(eventId, idPrefix, control) {
   const event = cachedEvents.find((item) => item.id === eventId);
   if (!event) return;
   const formValues = window.EventEditForm.readForm(idPrefix);
+  const invalid = window.EventEditForm.validateForm(formValues);
+  if (invalid) {
+    errorEl.textContent = invalid;
+    errorEl.hidden = false;
+    return;
+  }
   const body = window.EventEditForm.buildUpdateBody(event, formValues);
   if (Object.keys(body).length === 0) {
     openEditPanelEventId = null;
@@ -566,6 +572,12 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
   const errorEl = document.getElementById('add-event-error');
   const submitBtn = form.querySelector('button[type="submit"]');
   errorEl.hidden = true;
+  const invalid = window.EventEditForm.validateForm({ mapUrl: form.mapUrl.value, discordUrl: form.discordUrl.value });
+  if (invalid) {
+    errorEl.textContent = invalid;
+    errorEl.hidden = false;
+    return;
+  }
   try {
     await window.MutationFeedback.confirmed({
       control: submitBtn,
@@ -575,7 +587,7 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name.value, startDate: form.startDate.value, description: form.description.value.trim() || undefined, noCampEquipment: form.noCampEquipment.checked }),
+        body: JSON.stringify({ name: form.name.value, startDate: form.startDate.value, description: form.description.value.trim() || undefined, mapUrl: form.mapUrl.value.trim() || undefined, discordUrl: form.discordUrl.value.trim() || undefined, noCampEquipment: form.noCampEquipment.checked }),
       },
       showReauth,
       hideReauth,

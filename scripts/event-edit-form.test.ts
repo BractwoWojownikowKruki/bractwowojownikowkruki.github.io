@@ -28,6 +28,7 @@ function loadHarness(idPrefix: string, event: { name: string; startDate: string 
   const context: Record<string, unknown> = {
     window: {},
     String,
+    URL,
     document: { getElementById },
   };
   vm.runInNewContext(source, context, { filename: 'event-edit-form.js' });
@@ -104,4 +105,34 @@ test('buildUpdateBody sends noCampEquipment only when it changed', () => {
   const form = { name: 'Wolin', startDate: '2027-01-01', description: '', noCampEquipment: false };
   assert.deepEqual({ ...EventEditForm.buildUpdateBody(event, form) }, {});
   assert.deepEqual({ ...EventEditForm.buildUpdateBody(event, { ...form, noCampEquipment: true }) }, { noCampEquipment: true });
+});
+
+test('panelHtml renders the Maps and Discord link fields between the URL warning and Opis, pre-filled', () => {
+  const { EventEditForm } = loadHarness('event-edit', { name: 'Wolin', startDate: '2027-01-01' });
+  const html = EventEditForm.panelHtml(
+    { id: 'e1', name: 'Wolin', startDate: '2027-01-01', description: null, status: 'active', mapUrl: 'https://maps.app.goo.gl/abc', discordUrl: null },
+    { idPrefix: 'event-edit' },
+  );
+  assert.match(html, /id="event-edit-map-url"[^>]*value="https:\/\/maps\.app\.goo\.gl\/abc"/);
+  assert.match(html, /id="event-edit-discord-url"[^>]*value=""/);
+  assert.ok(html.indexOf('event-edit-map-url') < html.indexOf('event-edit-discord-url'));
+  assert.ok(html.indexOf('event-edit-discord-url') < html.indexOf('event-edit-description'));
+});
+
+test('validateForm accepts empty and http(s) URLs and rejects anything else', () => {
+  const { EventEditForm } = loadHarness('event-edit', { name: 'Wolin', startDate: '2027-01-01' });
+  assert.equal(EventEditForm.validateForm({ mapUrl: '', discordUrl: '  ' }), null);
+  assert.equal(EventEditForm.validateForm({ mapUrl: 'https://maps.app.goo.gl/abc', discordUrl: 'https://discord.com/channels/1/2' }), null);
+  assert.match(EventEditForm.validateForm({ mapUrl: 'jakieś miejsce', discordUrl: '' }), /Pinezka Google Maps/);
+  assert.match(EventEditForm.validateForm({ mapUrl: '', discordUrl: 'javascript:alert(1)' }), /Discordzie/);
+  assert.match(EventEditForm.validateForm({ mapUrl: '', discordUrl: 'https://localhost' }), /Discordzie/);
+});
+
+test('buildUpdateBody sends mapUrl/discordUrl only when changed, and null when cleared', () => {
+  const { EventEditForm } = loadHarness('event-edit', { name: 'Wolin', startDate: '2027-01-01' });
+  const event = { name: 'Wolin', startDate: '2027-01-01', description: null, mapUrl: 'https://maps.app.goo.gl/abc' };
+  const form = { name: 'Wolin', startDate: '2027-01-01', description: '', mapUrl: 'https://maps.app.goo.gl/abc', discordUrl: '', noCampEquipment: false };
+  assert.deepEqual({ ...EventEditForm.buildUpdateBody(event, form) }, {});
+  assert.deepEqual({ ...EventEditForm.buildUpdateBody(event, { ...form, mapUrl: '' }) }, { mapUrl: null });
+  assert.deepEqual({ ...EventEditForm.buildUpdateBody(event, { ...form, discordUrl: ' https://discord.com/channels/1/2 ' }) }, { discordUrl: 'https://discord.com/channels/1/2' });
 });
