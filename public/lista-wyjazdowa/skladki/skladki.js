@@ -323,11 +323,11 @@ function skladkiFilterMatches(member) {
   return summaryFilterMatches(skladkiFilter, { section: member.sectionId, category: member.categoryId });
 }
 
-// The status checkboxes (KRKG-111) narrow the składka roczna and składka dodatkowa tables
-// (renderTable) to the chosen per-person statuses. The state is one object for the whole page and
+// The status checkboxes (KRKG-111) narrow the składka roczna, składka dodatkowa and Wpisowe tables
+// (renderTable, renderWpisoweList) to the chosen per-person statuses. The state is one object for the whole page and
 // is shared by every fee, so one selection applies to whichever fee is displayed. It is saved to
 // localStorage on every change and restored on load (KRKG-116, shared/list-preferences.js), so the
-// choice is global, not per fee. Nothing checked means everyone. The Wpisowe view ignores it on purpose.
+// choice is global, not per fee. Nothing checked means everyone. The Wpisowe view uses it too (see renderWpisoweList).
 const skladkiStatusFilter = { paid: false, unpaid: false, notApplicable: false };
 const SKLADKI_STATUS_FILTER_KEY = { paid: 'paid', unpaid: 'unpaid', not_applicable: 'notApplicable' };
 
@@ -643,22 +643,28 @@ function renderTable(roster, duesByPersonId) {
 // row would only cost the Nazwa column width without telling the reader anything new.
 function renderWpisoweList(roster) {
   cachedRoster = roster;
-  document.getElementById('skladki-status-filter').hidden = true;
+  document.getElementById('skladki-status-filter').hidden = false;
 
   // Rows are picked by the status at render time. Clicking a badge cycles it in place (same as the
   // roczna coin) without moving the row, so a misclick is undone with the next click; the row
   // lands in its new table on the next reload or view switch.
-  const unpaidRoster = [];
+  // With no status checkbox ticked the view keeps its default: who still owes in the main table,
+  // "nie dotyczy" below, and paid members hidden. Ticking checkboxes shows exactly those statuses
+  // (paid ones join the main table), so a paid wpisowe can be found and its history opened.
+  const statusFilterActive = Object.values(skladkiStatusFilter).includes(true);
+  const mainRoster = [];
   const notApplicableRoster = [];
   for (const member of roster) {
     if (!skladkiFilterMatches(member)) continue;
     const status = memberWpisoweStatus(member);
-    if (status === 'unpaid') unpaidRoster.push(member);
-    else if (status === 'not_applicable') notApplicableRoster.push(member);
+    if (statusFilterActive ? !skladkiStatusMatches(status) : status === 'paid') continue;
+    if (status === 'not_applicable') notApplicableRoster.push(member);
+    else mainRoster.push(member);
   }
 
-  // Every main-table row is unpaid by definition, so unlike the year table above there is no
-  // meaningful "sort by paid status" column - the icon column carries no data-sort-key.
+  // Without a status filter every main-table row is unpaid, and with one the sort is still by
+  // section, name or join date only - so unlike the year table above the icon column carries no
+  // data-sort-key.
   const sortedBy = (list, sortState) => {
     const sortValue = (member) => {
       switch (sortState.key) {
@@ -705,9 +711,9 @@ function renderWpisoweList(roster) {
   `;
 
   const colCount = canManageSkladki ? 5 : 4;
-  const rows = unpaidRoster.length === 0
-    ? `<tr><td colspan="${colCount}" class="czl-empty">${summaryFilterActive(skladkiFilter) ? 'Brak osób z nieopłaconym wpisowym dla wybranych filtrów.' : 'Wszyscy członkowie mają opłacone wpisowe.'}</td></tr>`
-    : sortedBy(unpaidRoster, skladkiSortState).map(rowHtml).join('');
+  const rows = mainRoster.length === 0
+    ? `<tr><td colspan="${colCount}" class="czl-empty">${summaryFilterActive(skladkiFilter) || statusFilterActive ? 'Brak osób dla wybranych filtrów.' : 'Wszyscy członkowie mają opłacone wpisowe.'}</td></tr>`
+    : sortedBy(mainRoster, skladkiSortState).map(rowHtml).join('');
 
   const table = document.getElementById('skladki-table');
   table.querySelector('thead').innerHTML = theadHtml;

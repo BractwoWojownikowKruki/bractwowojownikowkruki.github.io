@@ -296,7 +296,36 @@ test('wpisowe view: unpaid in the main table, not_applicable in a "Nie dotyczy" 
 });
 
 
-test('status checkboxes: none checked shows everyone, checked statuses narrow the fee table, the selection survives a fee switch, Wpisowe hides them', async () => {
+test('wpisowe view status filter (KRKG-125): "Nie dotyczy" alone shows only the second table, "Opłacona" alone shows paid with a Historia link', async () => {
+  const harness = createHarness(null, {
+    roster: [
+      { personId: 'a@example.com', email: 'a@example.com', accountless: false, lastName: 'Nieoplacony', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'unpaid' },
+      { personId: 'b@example.com', email: 'b@example.com', accountless: false, lastName: 'Oplacony', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
+      { personId: 'c@example.com', email: 'c@example.com', accountless: false, lastName: 'Dziecko', sectionId: null, categoryId: 'bobo', weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'not_applicable' },
+    ],
+  });
+  await harness.signIn();
+  await harness.elements.get('skladki-charge-buttons')!.clickWith({
+    closest: (selector: string) => selector === '[data-charge-id]' ? { dataset: { chargeId: 'wpisowe' } } : null,
+  });
+  const filter = harness.elements.get('skladki-status-filter')!;
+  const main = () => harness.elements.get('skladki-table')!.querySelector('tbody')!.innerHTML;
+  const second = () => harness.elements.get('skladki-emeryci-table')!.querySelector('tbody')!.innerHTML;
+
+  await filter.changeWith({ dataset: { statusKey: 'notApplicable' }, checked: true });
+  assert.doesNotMatch(main(), /Nieoplacony|Oplacony/);
+  assert.match(second(), /Dziecko/);
+  assert.equal(harness.elements.get('skladki-emeryci')!.hidden, false);
+  await filter.changeWith({ dataset: { statusKey: 'notApplicable' }, checked: false });
+
+  await filter.changeWith({ dataset: { statusKey: 'paid' }, checked: true });
+  assert.match(main(), /Oplacony/);
+  assert.match(main(), /audyt-history-btn/);
+  assert.doesNotMatch(main(), /Nieoplacony|Dziecko/);
+  assert.equal(harness.elements.get('skladki-emeryci')!.hidden, true);
+});
+
+test('status checkboxes: none checked shows everyone, checked statuses narrow the fee table, the selection survives a fee switch and also narrows the Wpisowe view (KRKG-125)', async () => {
   const year = new Date().getFullYear();
   const harness = createHarness(null, {
     roster: [
@@ -336,7 +365,19 @@ test('status checkboxes: none checked shows everyone, checked statuses narrow th
   await harness.elements.get('skladki-charge-buttons')!.clickWith({
     closest: (selector: string) => selector === '[data-charge-id]' ? { dataset: { chargeId: 'wpisowe' } } : null,
   });
-  assert.equal(filter.hidden, true);
+  // KRKG-125: Wpisowe keeps the checkboxes; "Opłacona" ticked lists the paid ones in the main table.
+  assert.equal(filter.hidden, false);
+  assert.match(body(), /Alfa/);
+  assert.doesNotMatch(body(), /Beta/);
+  assert.match(body(), /Gamma/);
+  assert.match(body(), /audyt-history-btn/);
+
+  // Nothing ticked: the default "who still owes" list, paid ones hidden.
+  await filter.changeWith({ dataset: { statusKey: 'paid' }, checked: false });
+  assert.doesNotMatch(body(), /Alfa/);
+  assert.match(body(), /Beta/);
+  assert.doesNotMatch(body(), /Gamma/);
+  await filter.changeWith({ dataset: { statusKey: 'paid' }, checked: true });
 
   await harness.elements.get('skladki-charge-buttons')!.clickWith({
     closest: (selector: string) => selector === '[data-charge-id]' ? { dataset: { chargeId: `annual-${year}` } } : null,
