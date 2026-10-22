@@ -652,18 +652,19 @@ function renderWpisoweList(roster) {
   // "nie dotyczy" below, and paid members hidden. Ticking checkboxes shows exactly those statuses
   // (paid ones join the main table), so a paid wpisowe can be found and its history opened.
   const statusFilterActive = Object.values(skladkiStatusFilter).includes(true);
-  const unpaidRoster = [];
+  const mainRoster = [];
   const notApplicableRoster = [];
   for (const member of roster) {
     if (!skladkiFilterMatches(member)) continue;
     const status = memberWpisoweStatus(member);
     if (statusFilterActive ? !skladkiStatusMatches(status) : status === 'paid') continue;
     if (status === 'not_applicable') notApplicableRoster.push(member);
-    else unpaidRoster.push(member);
+    else mainRoster.push(member);
   }
 
-  // Every main-table row is unpaid by definition, so unlike the year table above there is no
-  // meaningful "sort by paid status" column - the icon column carries no data-sort-key.
+  // Without a status filter every main-table row is unpaid, and with one the sort is still by
+  // section, name or join date only - so unlike the year table above the icon column carries no
+  // data-sort-key.
   const sortedBy = (list, sortState) => {
     const sortValue = (member) => {
       switch (sortState.key) {
@@ -710,9 +711,9 @@ function renderWpisoweList(roster) {
   `;
 
   const colCount = canManageSkladki ? 5 : 4;
-  const rows = unpaidRoster.length === 0
+  const rows = mainRoster.length === 0
     ? `<tr><td colspan="${colCount}" class="czl-empty">${summaryFilterActive(skladkiFilter) || statusFilterActive ? 'Brak osób dla wybranych filtrów.' : 'Wszyscy członkowie mają opłacone wpisowe.'}</td></tr>`
-    : sortedBy(unpaidRoster, skladkiSortState).map(rowHtml).join('');
+    : sortedBy(mainRoster, skladkiSortState).map(rowHtml).join('');
 
   const table = document.getElementById('skladki-table');
   table.querySelector('thead').innerHTML = theadHtml;
