@@ -1205,7 +1205,7 @@ function renderEventDescription(event) {
 // the click and can explain what is missing); with one it opens the link in a new tab.
 const EVENT_LINK_MISSING_MESSAGES = {
   discordUrl: 'Nie podlinkowano tematu Discorda.',
-  mapUrl: 'Nie podano PINezki do Google Maps.',
+  mapUrl: 'Nie podano pinezki do Google Maps.',
 };
 
 function renderEventLinks(event) {
