@@ -510,8 +510,8 @@ function renderSummary(roster, duesByPersonId) {
     <p>${totalLine}</p>
     ${notApplicableLine}
     ${summaryFilterBlockHtml(skladkiFilter, [
-      { heading: 'Filtruj wg sekcji', chipsHtml: sectionChips },
-      { heading: 'Filtruj wg statusu', chipsHtml: categoryChips },
+      { heading: 'Nieopłacone — filtruj według sekcji', chipsHtml: sectionChips },
+      { heading: 'Nieopłacone — filtruj według statusu', chipsHtml: categoryChips },
     ])}
   `;
 }
@@ -634,9 +634,9 @@ function renderTable(roster, duesByPersonId) {
   document.getElementById('skladki-emeryci').hidden = emeryciRoster.length === 0;
 }
 
-// The "Wpisowe" button (see WPISOWE_ID) - a flat list of everyone who
-// still owes wpisowe (plus, in the second table below, everyone it doesn't apply to), sorted by join date (members.ts's approvedAt, the closest thing this
-// codebase has to one) so the accountant chases the longest-standing debt first. A member with no
+// The "Wpisowe" button (see WPISOWE_ID) - a flat list of everyone matching the status checkboxes
+// (all members when none is ticked; those it doesn't apply to go in the second table below), sorted by join date (members.ts's approvedAt, the closest thing this
+// codebase has to one) so the longest-standing members come first. A member with no
 // approvedAt yet (no members/{email} document, or one predating KRKG-0046) sorts to the end rather
 // than crashing a string compare against null. No "Wpisowe" caption anywhere in this table (column
 // header included) - the page itself is already scoped to wpisowe, so repeating the word on every
@@ -648,23 +648,22 @@ function renderWpisoweList(roster) {
   // Rows are picked by the status at render time. Clicking a badge cycles it in place (same as the
   // roczna coin) without moving the row, so a misclick is undone with the next click; the row
   // lands in its new table on the next reload or view switch.
-  // With no status checkbox ticked the view keeps its default: who still owes in the main table,
-  // "nie dotyczy" below, and paid members hidden. Ticking checkboxes shows exactly those statuses
-  // (paid ones join the main table), so a paid wpisowe can be found and its history opened.
+  // Same rule as the year table: no status checkbox ticked shows everyone, ticked ones narrow the
+  // list to exactly those statuses (skladkiStatusMatches). Members with "nie dotyczy" always go to
+  // the second table, everyone else to the main one.
   const statusFilterActive = Object.values(skladkiStatusFilter).includes(true);
   const mainRoster = [];
   const notApplicableRoster = [];
   for (const member of roster) {
     if (!skladkiFilterMatches(member)) continue;
     const status = memberWpisoweStatus(member);
-    if (statusFilterActive ? !skladkiStatusMatches(status) : status === 'paid') continue;
+    if (!skladkiStatusMatches(status)) continue;
     if (status === 'not_applicable') notApplicableRoster.push(member);
     else mainRoster.push(member);
   }
 
-  // Without a status filter every main-table row is unpaid, and with one the sort is still by
-  // section, name or join date only - so unlike the year table above the icon column carries no
-  // data-sort-key.
+  // The sort is by section, name or join date only - unlike the year table above the icon column
+  // carries no data-sort-key.
   const sortedBy = (list, sortState) => {
     const sortValue = (member) => {
       switch (sortState.key) {
@@ -712,7 +711,7 @@ function renderWpisoweList(roster) {
 
   const colCount = canManageSkladki ? 5 : 4;
   const rows = mainRoster.length === 0
-    ? `<tr><td colspan="${colCount}" class="czl-empty">${summaryFilterActive(skladkiFilter) || statusFilterActive ? 'Brak osób dla wybranych filtrów.' : 'Wszyscy członkowie mają opłacone wpisowe.'}</td></tr>`
+    ? `<tr><td colspan="${colCount}" class="czl-empty">${summaryFilterActive(skladkiFilter) || statusFilterActive ? 'Brak osób dla wybranych filtrów.' : 'Brak osób do wyświetlenia.'}</td></tr>`
     : sortedBy(mainRoster, skladkiSortState).map(rowHtml).join('');
 
   const table = document.getElementById('skladki-table');
