@@ -255,7 +255,7 @@ test('an accountless person renders with the marker, no e-mail trigger, and its 
   assert.match(String(put?.url), /personId=person-uuid-1/);
 });
 
-test('wpisowe view: unpaid in the main table, not_applicable in a "Nie dotyczy" table, summary skips not_applicable, badge cycles to the next status', async () => {
+test('wpisowe view: everyone but not_applicable in the main table, not_applicable in a "Nie dotyczy" table, summary skips not_applicable, badge cycles to the next status', async () => {
   const harness = createHarness(null, {
     roster: [
       { personId: 'a@example.com', email: 'a@example.com', accountless: false, lastName: 'Nieoplacony', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'unpaid' },
@@ -270,7 +270,7 @@ test('wpisowe view: unpaid in the main table, not_applicable in a "Nie dotyczy" 
 
   const main = harness.elements.get('skladki-table')!.querySelector('tbody')!.innerHTML;
   assert.match(main, /Nieoplacony/);
-  assert.doesNotMatch(main, /Oplacony/);
+  assert.match(main, /Oplacony/);
   assert.doesNotMatch(main, /Dziecko/);
   assert.match(main, /data-kind="wpisowe"[^>]*data-status="unpaid"/);
 
@@ -282,6 +282,8 @@ test('wpisowe view: unpaid in the main table, not_applicable in a "Nie dotyczy" 
 
   const summary = harness.elements.get('summary-content')!.innerHTML;
   assert.match(summary, /Nieopłacone wpisowe: <strong>1<\/strong> z 2 osób/);
+  assert.match(summary, /Nieopłacone — filtruj według sekcji/);
+  assert.match(summary, /Nieopłacone — filtruj według statusu/);
   assert.match(summary, /Nie dotyczy: <strong>1<\/strong> z 3 osób/);
 
   const control = { dataset: { kind: 'wpisowe', personId: 'a@example.com', status: 'unpaid' }, title: '', textContent: '✕', setAttribute() {} };
@@ -372,11 +374,11 @@ test('status checkboxes: none checked shows everyone, checked statuses narrow th
   assert.match(body(), /Gamma/);
   assert.match(body(), /audyt-history-btn/);
 
-  // Nothing ticked: the default "who still owes" list, paid ones hidden.
+  // Nothing ticked: everyone, as in the year view.
   await filter.changeWith({ dataset: { statusKey: 'paid' }, checked: false });
-  assert.doesNotMatch(body(), /Alfa/);
+  assert.match(body(), /Alfa/);
   assert.match(body(), /Beta/);
-  assert.doesNotMatch(body(), /Gamma/);
+  assert.match(body(), /Gamma/);
   await filter.changeWith({ dataset: { statusKey: 'paid' }, checked: true });
 
   await harness.elements.get('skladki-charge-buttons')!.clickWith({
