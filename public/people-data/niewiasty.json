@@ -122,6 +122,22 @@
     "url": "/people-photos/1PNubzX0MDuFrjfgtJehYSua5yzMOi5h6-800-bd386f3ff0.jpg"
    },
    "photos": []
+  },
+  {
+   "avatar": {
+    "id": "1dlPRNbLVFjLFY93L2DyF8tGIdsUxfyD9",
+    "url": "/people-photos/1dlPRNbLVFjLFY93L2DyF8tGIdsUxfyD9-64-b9cec2bbc7.jpg"
+   },
+   "folderId": "1Y3sh0pQ16N4BW309KjbY7AOCHyFT7_R4",
+   "name": "Wiola",
+   "order": 11,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1dlPRNbLVFjLFY93L2DyF8tGIdsUxfyD9",
+    "url": "/people-photos/1dlPRNbLVFjLFY93L2DyF8tGIdsUxfyD9-800-b9cec2bbc7.jpg"
+   },
+   "photos": []
   }
  ]
 }
