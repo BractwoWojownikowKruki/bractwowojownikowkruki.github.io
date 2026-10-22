@@ -1203,9 +1203,9 @@ function renderEventDescription(event) {
 // Always-visible "Temat na Discordzie" / "Wskazówki dojazdu" buttons above Dodatkowe informacje.
 // Without a saved link a button stays greyed out (aria-disabled, not `disabled`, so it still takes
 // the click and can explain what is missing); with one it opens the link in a new tab.
-const EVENT_LINK_MISSING_MESSAGES = {
-  discordUrl: 'Nie podlinkowano tematu Discorda.',
-  mapUrl: 'Nie podano pinezki do Google Maps.',
+const EVENT_LINK_MISSING = {
+  discordUrl: { message: 'Nie podlinkowano tematu Discorda.', label: 'Wątek na Discordzie', placeholder: 'https://discord.com/channels/…' },
+  mapUrl: { message: 'Nie podano pinezki do Google Maps.', label: 'Pinezka Google Maps z dojazdem', placeholder: 'https://maps.app.goo.gl/…' },
 };
 
 function renderEventLinks(event) {
@@ -1218,11 +1218,74 @@ function renderEventLinks(event) {
   });
 }
 
+// Pop-up for a click on a greyed-out button: says the link is missing and lets the viewer add it
+// right away. Saves through the same audited PUT as the Edytuj panel (only that one field).
+function openEventLinkModal(field) {
+  if (!cachedEvent || document.getElementById('event-link-modal')) return;
+  const info = EVENT_LINK_MISSING[field];
+  const root = document.createElement('div');
+  root.id = 'event-link-modal';
+  root.className = 'reauth-modal';
+  root.innerHTML = `
+    <div class="reauth-modal-dialog event-link-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="event-link-modal-title">
+      <h2 class="reauth-modal-title" id="event-link-modal-title"></h2>
+      <p class="notification-prompt-text">Możesz od razu wkleić link poniżej.</p>
+      <div class="field">
+        <label for="event-link-modal-input"></label>
+        <input type="url" id="event-link-modal-input" inputmode="url" autocomplete="off">
+      </div>
+      <p class="add-album-error" id="event-link-modal-error" hidden></p>
+      <div class="notification-prompt-actions">
+        <button type="button" class="add-album-submit" id="event-link-modal-save">Zapisz link</button>
+        <button type="button" class="btn-cancel" id="event-link-modal-cancel">Anuluj</button>
+      </div>
+    </div>`;
+  root.querySelector('#event-link-modal-title').textContent = info.message;
+  root.querySelector('label').textContent = info.label;
+  const input = root.querySelector('#event-link-modal-input');
+  input.placeholder = info.placeholder;
+  const errorEl = root.querySelector('#event-link-modal-error');
+  const onKeydown = (e) => { if (e.key === 'Escape') close(); };
+  const close = () => {
+    document.removeEventListener('keydown', onKeydown);
+    root.remove();
+  };
+  root.querySelector('#event-link-modal-cancel').addEventListener('click', close);
+  document.addEventListener('keydown', onKeydown);
+  root.querySelector('#event-link-modal-save').addEventListener('click', async () => {
+    const value = input.value.trim();
+    if (!window.EventEditForm.isHttpUrl(value)) {
+      errorEl.textContent = 'Wpisz poprawny adres URL (https://…).';
+      errorEl.hidden = false;
+      return;
+    }
+    errorEl.hidden = true;
+    try {
+      await confirmedEventMutation(null, () => apiFetch(
+        `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) },
+        showReauth,
+        hideReauth,
+      ), (result) => {
+        cachedEvent = result.event;
+        close();
+        renderEventLinks(cachedEvent);
+        renderEventEditPanel();
+      }, document.getElementById('event-links'));
+    } catch (err) {
+      errorEl.textContent = `Nie udało się zapisać linku: ${err.message}`;
+      errorEl.hidden = false;
+    }
+  });
+  document.body.append(root);
+  input.focus();
+}
+
 document.addEventListener('click', (e) => {
   const el = e.target.closest('#event-links [data-link-field]');
   if (!el || el.getAttribute('aria-disabled') !== 'true') return;
   e.preventDefault();
-  window.alert(EVENT_LINK_MISSING_MESSAGES[el.dataset.linkField]);
+  openEventLinkModal(el.dataset.linkField);
 });
 
 async function loadAll() {

@@ -7129,6 +7129,30 @@ test('PUT /lista-wyjazdowa/events?eventId= can set and clear description, open t
   });
 });
 
+test('PUT /lista-wyjazdowa/events?eventId= saves mapUrl/discordUrl, audits them and rejects non-URLs', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const url = `/lista-wyjazdowa/events?eventId=${created.event.id}`;
+    const bad = await putListaWyjazdowa(baseUrl, url, { mapUrl: 'jakieś miejsce' });
+    assert.equal(bad.status, 400);
+    const bad2 = await putListaWyjazdowa(baseUrl, url, { discordUrl: 'javascript:alert(1)' });
+    assert.equal(bad2.status, 400);
+    const ok = await putListaWyjazdowa(baseUrl, url, { mapUrl: 'https://maps.app.goo.gl/x', discordUrl: 'https://discord.com/channels/1/2' });
+    assert.equal(ok.status, 200);
+    const event = (await ok.json()).event;
+    assert.equal(event.mapUrl, 'https://maps.app.goo.gl/x');
+    assert.equal(event.discordUrl, 'https://discord.com/channels/1/2');
+    const audits = await firestore.listDocs<{ action: string; changes: Array<{ field: string; before?: unknown; after?: unknown }> }>('auditEvents');
+    const update = audits.map(a => a.data).find(a => a.action === 'event.updated' && a.changes.some(c => c.field === 'mapUrl'));
+    assert.ok(update, 'the link change is audited');
+    assert.deepEqual(update.changes.find(c => c.field === 'discordUrl'), { field: 'discordUrl', before: null, after: 'https://discord.com/channels/1/2', visibility: 'memberVisible' });
+    const cleared = await putListaWyjazdowa(baseUrl, url, { mapUrl: null });
+    assert.equal((await cleared.json()).event.mapUrl, null);
+  });
+});
+
 test('GET /lista-wyjazdowa/events includes attendingCount and the caller\'s own viewerAttending', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'wojownik@gmail.com');
