@@ -1611,7 +1611,8 @@ button.lw-filter-chip {
 }
 
 /* Discord / Google Maps buttons above Dodatkowe informacje: small, and always one row even on a
-   phone (nowrap + shrinking labels). Without a saved link they stay greyed out (aria-disabled). */
+   phone (nowrap + shrinking labels). The .content-section a prefix is needed to out-specificity
+   style.css's generic `.content-section a` (red colour + red underline). Without a saved link they stay greyed out (aria-disabled). */
 .lw-event-links {
   display: flex;
   flex-wrap: nowrap;
@@ -1619,12 +1620,12 @@ button.lw-filter-chip {
   margin-bottom: 1.25rem;
 }
 
-.lw-event-link,
-.lw-event-link:link,
-.lw-event-link:visited,
-.lw-event-link:hover,
-.lw-event-link:active,
-.lw-event-link:focus {
+.content-section a.lw-event-link,
+.content-section a.lw-event-link:link,
+.content-section a.lw-event-link:visited,
+.content-section a.lw-event-link:hover,
+.content-section a.lw-event-link:active,
+.content-section a.lw-event-link:focus {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -1642,43 +1643,43 @@ button.lw-filter-chip {
   -webkit-tap-highlight-color: transparent;
 }
 
-.lw-event-link svg {
+.content-section a.lw-event-link svg {
   flex: none;
   width: 1rem;
   height: 1rem;
 }
 
-.lw-event-link span {
+.content-section a.lw-event-link span {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 /* Greyed out without a saved link, but still readable: muted (not faded) text and a visible
    border instead of a low-opacity overlay. A click opens the "add the link" pop-up. */
-.lw-event-link[aria-disabled="true"],
-.lw-event-link[aria-disabled="true"]:active,
-.lw-event-link[aria-disabled="true"]:focus {
+.content-section a.lw-event-link[aria-disabled="true"],
+.content-section a.lw-event-link[aria-disabled="true"]:active,
+.content-section a.lw-event-link[aria-disabled="true"]:focus {
   background: var(--surface-deep);
   border-style: dashed;
   color: var(--text-muted);
 }
 
-.lw-event-link[aria-disabled="true"] svg {
+.content-section a.lw-event-link[aria-disabled="true"] svg {
   opacity: 0.8;
   filter: grayscale(0.7);
 }
 
-.lw-event-link:not([aria-disabled="true"]):hover {
+.content-section a.lw-event-link:not([aria-disabled="true"]):hover {
   border-color: var(--gold);
 }
 
 @media (max-width: 400px) {
-  .lw-event-link,
-  .lw-event-link:link,
-  .lw-event-link:visited,
-  .lw-event-link:hover,
-  .lw-event-link:active,
-  .lw-event-link:focus {
+  .content-section a.lw-event-link,
+  .content-section a.lw-event-link:link,
+  .content-section a.lw-event-link:visited,
+  .content-section a.lw-event-link:hover,
+  .content-section a.lw-event-link:active,
+  .content-section a.lw-event-link:focus {
     gap: 0.25rem;
     padding: 0.3rem 0.4rem;
     font-size: 11px;
