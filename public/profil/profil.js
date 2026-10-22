@@ -549,6 +549,16 @@ function resetPhotoSelection() {
 // loaded/saved member, since photos no longer upload as part of "Zapisz profil".
 let savedMemberName = '';
 
+// A rejected fetch() (connection dropped mid-upload, stale page after a deploy, ...) surfaces as a
+// bare TypeError with the browser's English "Failed to fetch" and no HTTP status. That says nothing
+// useful to a member, so show a Polish hint; errors carrying a server message keep their text.
+function photoUploadErrorMessage(err) {
+  if (err instanceof TypeError && err.status === undefined) {
+    return 'Nie udało się przesłać. Odśwież się i spróbuj ponownie.';
+  }
+  return `Błąd: ${err.message}`;
+}
+
 // "Prześlij zdjęcia" in the photo box: the same submit -> per-photo upload -> finish sequence the
 // profile submit used to run, now on its own button.
 async function uploadSelectedPhotos() {
@@ -597,7 +607,7 @@ async function uploadSelectedPhotos() {
       refreshFragment: async () => renderCurrentSubmission(await loadCurrentSubmission()),
     });
   } catch (err) {
-    errorEl.textContent = `Błąd: ${err.message}`;
+    errorEl.textContent = photoUploadErrorMessage(err);
     errorEl.hidden = false;
     progressEl.hidden = true;
     submitBtn.disabled = !photoEntries.some(Boolean);
