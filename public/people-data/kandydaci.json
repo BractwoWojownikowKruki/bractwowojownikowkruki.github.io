@@ -282,6 +282,22 @@
      "url": "/people-photos/1sIetABUXIaetPM4jARngAqM8s46iDlCz-300-b6b0d62d00.jpg"
     }
    ]
+  },
+  {
+   "avatar": {
+    "id": "1orXM8GqCQyhsdMxuFnKGrzv110jFqTTH",
+    "url": "/people-photos/1orXM8GqCQyhsdMxuFnKGrzv110jFqTTH-64-730df0c8a9.jpg"
+   },
+   "folderId": "1cIyvYVzrqgd6-9IUk55J25cCNVFcOGcj",
+   "name": "Lina",
+   "order": 15,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1orXM8GqCQyhsdMxuFnKGrzv110jFqTTH",
+    "url": "/people-photos/1orXM8GqCQyhsdMxuFnKGrzv110jFqTTH-800-730df0c8a9.jpg"
+   },
+   "photos": []
   }
  ]
 }
