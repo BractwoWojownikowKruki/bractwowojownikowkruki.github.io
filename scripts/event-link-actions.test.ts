@@ -121,18 +121,19 @@ test('card link saves use mutation feedback and merge the saved event returned b
 });
 
 test('missing event links share the muted dashed treatment on cards and the detail page', () => {
-  const sharedMissingLinkRule = memberAreaCss.match(/\.lw-event-card-link\[data-link-missing="true"\],\s*\.content-section a\.lw-event-link\[aria-disabled="true"\][\s\S]*?\{([^}]+)\}/)?.[1] ?? '';
-  const detailMissingLinkRule = memberAreaCss.match(/\.content-section a\.lw-event-link\[aria-disabled="true"\],\s*\.content-section a\.lw-event-link\[aria-disabled="true"\]:active[\s\S]*?\{([^}]+)\}/)?.[1] ?? '';
-  const cardMissingIconRule = memberAreaCss.match(/\.lw-event-card-link\[data-link-missing="true"\] svg,\s*\.content-section a\.lw-event-link\[aria-disabled="true"\] svg\s*\{([^}]+)\}/)?.[1] ?? '';
-  const detailMissingIconRule = memberAreaCss.match(/\.content-section a\.lw-event-link\[aria-disabled="true"\] svg\s*\{([^}]+)\}/)?.[1] ?? '';
+  const missingLinkRule = memberAreaCss.match(/(\.lw-event-card-link\[data-link-missing="true"\],\s*\.content-section a\.lw-event-link\[aria-disabled="true"\][\s\S]*?)\{([^}]+)\}/);
+  const missingIconRule = memberAreaCss.match(/(\.lw-event-card-link\[data-link-missing="true"\] svg,\s*\.content-section a\.lw-event-link\[aria-disabled="true"\] svg)\s*\{([^}]+)\}/);
 
-  for (const rule of [sharedMissingLinkRule, detailMissingLinkRule]) {
-    assert.match(rule, /background:\s*var\(--surface-deep\)/);
-    assert.match(rule, /border-style:\s*dashed/);
-    assert.match(rule, /color:\s*var\(--text-muted\)/);
-  }
-  for (const rule of [cardMissingIconRule, detailMissingIconRule]) {
-    assert.match(rule, /opacity:\s*0\.8/);
-    assert.match(rule, /filter:\s*grayscale\(0\.7\)/);
-  }
+  assert.ok(missingLinkRule, 'both card and detail selectors share one missing-link rule');
+  assert.match(missingLinkRule[1], /\.lw-event-card-link\[data-link-missing="true"\]/);
+  assert.match(missingLinkRule[1], /\.content-section a\.lw-event-link\[aria-disabled="true"\]/);
+  assert.match(missingLinkRule[2], /background:\s*var\(--surface-deep\)/);
+  assert.match(missingLinkRule[2], /border-style:\s*dashed/);
+  assert.match(missingLinkRule[2], /color:\s*var\(--text-muted\)/);
+
+  assert.ok(missingIconRule, 'both card and detail icon selectors share one missing-icon rule');
+  assert.match(missingIconRule[1], /\.lw-event-card-link\[data-link-missing="true"\] svg/);
+  assert.match(missingIconRule[1], /\.content-section a\.lw-event-link\[aria-disabled="true"\] svg/);
+  assert.match(missingIconRule[2], /opacity:\s*0\.8/);
+  assert.match(missingIconRule[2], /filter:\s*grayscale\(0\.7\)/);
 });
