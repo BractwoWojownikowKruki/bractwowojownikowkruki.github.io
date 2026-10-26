@@ -976,8 +976,6 @@
 .lw-event-card-link svg { width: 1rem; height: 1rem; }
 .lw-event-card-link--discord svg { color: #5865f2; }
 .lw-event-card-link--map svg { color: #4ade80; }
-.lw-event-card-link[data-link-missing="true"] { border-style: dashed; color: var(--text-muted); }
-.lw-event-card-link[data-link-missing="true"] svg { opacity: 0.8; filter: grayscale(0.7); }
 .lw-event-card-link:not([data-link-missing="true"]):hover,
 .lw-event-card-link[data-link-missing="true"]:hover { border-color: var(--gold); }
 .lw-event-card-link:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
@@ -1694,8 +1692,9 @@ button.lw-filter-chip {
   text-overflow: ellipsis;
 }
 
-/* Greyed out without a saved link, but still readable: muted (not faded) text and a visible
-   border instead of a low-opacity overlay. A click opens the "add the link" pop-up. */
+/* Missing event links stay clickable to explain or add the link, but share the same visible
+   muted treatment on detail pages and compact event cards. */
+.lw-event-card-link[data-link-missing="true"],
 .content-section a.lw-event-link[aria-disabled="true"],
 .content-section a.lw-event-link[aria-disabled="true"]:active,
 .content-section a.lw-event-link[aria-disabled="true"]:focus {
@@ -1704,6 +1703,7 @@ button.lw-filter-chip {
   color: var(--text-muted);
 }
 
+.lw-event-card-link[data-link-missing="true"] svg,
 .content-section a.lw-event-link[aria-disabled="true"] svg {
   opacity: 0.8;
   filter: grayscale(0.7);

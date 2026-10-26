@@ -9,6 +9,7 @@ const detailSource = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyja
 const detailPage = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/index.html', import.meta.url), 'utf8');
 const listSource = readFileSync(new URL('../public/lista-wyjazdowa/lista-wyjazdowa.js', import.meta.url), 'utf8');
 const dashboardSource = readFileSync(new URL('../public/app/app.js', import.meta.url), 'utf8');
+const memberAreaCss = readFileSync(new URL('../public/member-area.css', import.meta.url), 'utf8');
 
 function loadActions() {
   const context: Record<string, any> = {
@@ -116,5 +117,22 @@ test('card link saves use mutation feedback and merge the saved event returned b
     assert.match(linkAction, /MutationFeedback\.confirmed\(/);
     assert.match(linkAction, /Object\.assign\(current, result\.event\)/);
     assert.match(linkAction, /closeModal\(\)/);
+  }
+});
+
+test('missing event links share the muted dashed treatment on cards and the detail page', () => {
+  const sharedMissingLinkRule = memberAreaCss.match(/\.lw-event-card-link\[data-link-missing="true"\],\s*\.content-section a\.lw-event-link\[aria-disabled="true"\][\s\S]*?\{([^}]+)\}/)?.[1] ?? '';
+  const detailMissingLinkRule = memberAreaCss.match(/\.content-section a\.lw-event-link\[aria-disabled="true"\],\s*\.content-section a\.lw-event-link\[aria-disabled="true"\]:active[\s\S]*?\{([^}]+)\}/)?.[1] ?? '';
+  const cardMissingIconRule = memberAreaCss.match(/\.lw-event-card-link\[data-link-missing="true"\] svg,\s*\.content-section a\.lw-event-link\[aria-disabled="true"\] svg\s*\{([^}]+)\}/)?.[1] ?? '';
+  const detailMissingIconRule = memberAreaCss.match(/\.content-section a\.lw-event-link\[aria-disabled="true"\] svg\s*\{([^}]+)\}/)?.[1] ?? '';
+
+  for (const rule of [sharedMissingLinkRule, detailMissingLinkRule]) {
+    assert.match(rule, /background:\s*var\(--surface-deep\)/);
+    assert.match(rule, /border-style:\s*dashed/);
+    assert.match(rule, /color:\s*var\(--text-muted\)/);
+  }
+  for (const rule of [cardMissingIconRule, detailMissingIconRule]) {
+    assert.match(rule, /opacity:\s*0\.8/);
+    assert.match(rule, /filter:\s*grayscale\(0\.7\)/);
   }
 });
