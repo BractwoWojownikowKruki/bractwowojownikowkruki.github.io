@@ -162,11 +162,12 @@ function renderEvents() {
         ? window.EventEditForm.panelHtml(e, { idPrefix: `lw-event-edit-${e.id}` })
         : '';
       return `
-        <div class="lw-event-row">
+        <div class="lw-event-row" data-event-id="${escapeAttr(e.id)}">
           <a href="${escapeAttr(window.LwFriendlyUrl.eventUrl(e))}" class="lw-event-name">${escapeHtml(e.name)}${statusLabel}</a>
           <span class="lw-event-meta">
             ${window.LwCalendar.datePillHtml(e, `list-${e.id}`, 'start')}
             <span class="attendee-badge" title="Zgłoszone osoby: ${e.attendingCount ?? 0}" aria-label="Zgłoszone osoby: ${e.attendingCount ?? 0}"><img class="attendee-badge-icon" src="/icons/attendees-badge.png" alt="" aria-hidden="true"> <span class="attendee-badge-count">${e.attendingCount ?? 0}</span></span>
+            ${window.EventLinkActions.html(e)}
           </span>
           <div class="lw-event-actions">
             <button type="button" class="lw-attend-toggle" data-event-id="${e.id}" data-attending="${e.viewerAttending}" aria-pressed="${e.viewerAttending}">
@@ -183,6 +184,28 @@ function renderEvents() {
       `;
     })
     .join('');
+  window.EventLinkActions.wire(container, (_field, link) => {
+    const row = link.closest('.lw-event-row');
+    return cachedEvents.find((event) => event.id === row?.dataset.eventId) ?? null;
+  }, async (event, field, value, closeModal) => {
+    await window.MutationFeedback.confirmed({
+      fallbackAnchor: eventRowAnchor(event.id),
+      execute: () => apiFetch(
+        `/lista-wyjazdowa/events?eventId=${encodeURIComponent(event.id)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: (result) => {
+        const current = cachedEvents.find((item) => item.id === event.id);
+        if (current) Object.assign(current, result.event);
+        closeModal();
+        renderEvents();
+      },
+      viewRoot: document.getElementById('events-panel'),
+      refreshFragment: loadEvents,
+    });
+  });
   calendarDropdowns?.refresh();
   if (openEditPanelEventId) {
     const openEvent = events.find((e) => e.id === openEditPanelEventId);

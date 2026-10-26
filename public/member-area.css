@@ -942,6 +942,44 @@
 /* Date + headcount badge share one line, also in the stacked mobile card. */
 .lw-event-meta { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: nowrap; }
 
+.lw-event-card-links {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.lw-event-card-link,
+.lw-event-card-link:link,
+.lw-event-card-link:visited,
+.lw-event-card-link:hover,
+.lw-event-card-link:active,
+.lw-event-card-link:focus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  padding: 0.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border-hover);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  appearance: none;
+}
+
+.lw-event-card-link svg { width: 1rem; height: 1rem; }
+.lw-event-card-link--discord svg { color: #5865f2; }
+.lw-event-card-link--map svg { color: #4ade80; }
+.lw-event-card-link:not([data-link-missing="true"]):hover,
+.lw-event-card-link[data-link-missing="true"]:hover { border-color: var(--gold); }
+.lw-event-card-link:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
 /* KRKG-0101: the "Jadę/Nie jadę" toggle and the "+ osoba towarzysząca" control share one inline
    strip. On desktop this is invisible (the row is already a single line), but on mobile the row
    turns into a column - this wrapper is what keeps the two controls on the same line there. */
@@ -1654,8 +1692,9 @@ button.lw-filter-chip {
   text-overflow: ellipsis;
 }
 
-/* Greyed out without a saved link, but still readable: muted (not faded) text and a visible
-   border instead of a low-opacity overlay. A click opens the "add the link" pop-up. */
+/* Missing event links stay clickable to explain or add the link, but share the same visible
+   muted treatment on detail pages and compact event cards. */
+.lw-event-card-link[data-link-missing="true"],
 .content-section a.lw-event-link[aria-disabled="true"],
 .content-section a.lw-event-link[aria-disabled="true"]:active,
 .content-section a.lw-event-link[aria-disabled="true"]:focus {
@@ -1664,6 +1703,7 @@ button.lw-filter-chip {
   color: var(--text-muted);
 }
 
+.lw-event-card-link[data-link-missing="true"] svg,
 .content-section a.lw-event-link[aria-disabled="true"] svg {
   opacity: 0.8;
   filter: grayscale(0.7);

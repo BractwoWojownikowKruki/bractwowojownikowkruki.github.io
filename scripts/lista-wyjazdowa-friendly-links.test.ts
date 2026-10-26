@@ -10,6 +10,7 @@ const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-fo
 const lwFriendlyUrlSource = readFileSync(new URL('../public/shared/lw-friendly-url.js', import.meta.url), 'utf8');
 const lwCalendarSource = readFileSync(new URL('../public/shared/lw-calendar.js', import.meta.url), 'utf8');
 const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.meta.url), 'utf8');
+const eventLinkActionsSource = readFileSync(new URL('../public/shared/event-link-actions.js', import.meta.url), 'utf8');
 
 class Element {
   id: string;
@@ -92,6 +93,7 @@ function createHarness() {
   vm.runInNewContext(lwFriendlyUrlSource, context, { filename: 'lw-friendly-url.js' });
   vm.runInNewContext(lwCalendarSource, context, { filename: 'lw-calendar.js' });
   vm.runInNewContext(lwNavSource, context, { filename: 'lw-nav.js' });
+  vm.runInNewContext(eventLinkActionsSource, context, { filename: 'event-link-actions.js' });
   vm.runInNewContext(source, context, { filename: 'lista-wyjazdowa.js' });
 
   return {
@@ -122,6 +124,15 @@ test('each row has its own "Udostępnij" share button wired to shareEvent()', as
   await harness.signIn();
   const listHtml = harness.elements.get('events-list')!.innerHTML;
   assert.match(listHtml, /class="lw-edit-toggle lw-edit-toggle--icon lw-event-share-button" data-event-id="e1"/);
+});
+
+test('each event row shows map and Discord icon actions after its attendee count', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const listHtml = harness.elements.get('events-list')!.innerHTML;
+  assert.match(listHtml, /attendee-badge-count">0<\/span><\/span>\s*<span class="lw-event-card-links">/);
+  assert.match(listHtml, /aria-label="Dodaj pinezkę Google Maps"/);
+  assert.match(listHtml, /aria-label="Dodaj wątek na Discordzie"/);
 });
 
 test('clicking the share button shares the correct event via the Web Share API', async () => {
