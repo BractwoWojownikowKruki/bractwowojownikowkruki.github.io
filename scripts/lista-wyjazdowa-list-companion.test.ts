@@ -10,6 +10,7 @@ const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-fo
 const lwFriendlyUrlSource = readFileSync(new URL('../public/shared/lw-friendly-url.js', import.meta.url), 'utf8');
 const lwCalendarSource = readFileSync(new URL('../public/shared/lw-calendar.js', import.meta.url), 'utf8');
 const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.meta.url), 'utf8');
+const eventLinkActionsSource = readFileSync(new URL('../public/shared/event-link-actions.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../public/lista-wyjazdowa/index.html', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/member-area.css', import.meta.url), 'utf8');
 
@@ -148,6 +149,7 @@ function createHarness(options: HarnessOptions = {}) {
   vm.runInNewContext(lwFriendlyUrlSource, context, { filename: 'lw-friendly-url.js' });
   vm.runInNewContext(lwCalendarSource, context, { filename: 'lw-calendar.js' });
   vm.runInNewContext(lwNavSource, context, { filename: 'lw-nav.js' });
+  vm.runInNewContext(eventLinkActionsSource, context, { filename: 'event-link-actions.js' });
   vm.runInNewContext(source, context, { filename: 'lista-wyjazdowa.js' });
 
   return {

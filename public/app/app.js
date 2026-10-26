@@ -149,6 +149,18 @@ function renderNearestEventWidget(events) {
   const days = daysUntil(event.startDate);
   widget.querySelector('.dashboard-event-countdown').textContent = `za ${days} ${days === 1 ? 'dzień' : 'dni'}`;
   widget.querySelector('.dashboard-event-date').append(attendeeBadge(event.attendingCount));
+  widget.querySelector('.dashboard-event-date').insertAdjacentHTML('beforeend', window.EventLinkActions.html(event));
+  window.EventLinkActions.wire(widget, () => event, async (currentEvent, field, value) => {
+    await apiFetch(
+      `/lista-wyjazdowa/events?eventId=${encodeURIComponent(currentEvent.id)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) },
+      showReauth,
+      hideReauth,
+    );
+    const current = dash.events.find((item) => item.id === currentEvent.id);
+    if (current) current[field] = value;
+    renderDashboardWidgets();
+  });
   if (canAddCompanion && dash.openPanelEventId === event.id) {
     const viewerMember = dash.roster.find((m) => m.personId === dash.viewerPersonId);
     if (viewerMember) {
