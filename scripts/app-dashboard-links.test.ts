@@ -6,6 +6,7 @@ import vm from 'node:vm';
 const appSource = readFileSync(new URL('../public/app/app.js', import.meta.url), 'utf8');
 const lwFriendlyUrlSource = readFileSync(new URL('../public/shared/lw-friendly-url.js', import.meta.url), 'utf8');
 const eventLinkActionsSource = readFileSync(new URL('../public/shared/event-link-actions.js', import.meta.url), 'utf8');
+const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-form.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/member-area.css', import.meta.url), 'utf8');
 
 // Only the four page-gating panels and sessionStorage are touched at load time; the two
@@ -27,6 +28,7 @@ function loadApp(): Record<string, unknown> {
     initGoogleSignIn: () => {},
   };
   vm.runInNewContext(lwFriendlyUrlSource, context, { filename: 'lw-friendly-url.js' });
+  vm.runInNewContext(eventEditFormSource, context, { filename: 'event-edit-form.js' });
   vm.runInNewContext(eventLinkActionsSource, context, { filename: 'event-link-actions.js' });
   vm.runInNewContext(appSource, context, { filename: 'app.js' });
   return context;

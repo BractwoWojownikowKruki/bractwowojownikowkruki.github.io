@@ -187,16 +187,24 @@ function renderEvents() {
   window.EventLinkActions.wire(container, (_field, link) => {
     const row = link.closest('.lw-event-row');
     return cachedEvents.find((event) => event.id === row?.dataset.eventId) ?? null;
-  }, async (event, field, value) => {
-    await apiFetch(
-      `/lista-wyjazdowa/events?eventId=${encodeURIComponent(event.id)}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) },
-      showReauth,
-      hideReauth,
-    );
-    const current = cachedEvents.find((item) => item.id === event.id);
-    if (current) current[field] = value;
-    renderEvents();
+  }, async (event, field, value, closeModal) => {
+    await window.MutationFeedback.confirmed({
+      fallbackAnchor: eventRowAnchor(event.id),
+      execute: () => apiFetch(
+        `/lista-wyjazdowa/events?eventId=${encodeURIComponent(event.id)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: (result) => {
+        const current = cachedEvents.find((item) => item.id === event.id);
+        if (current) Object.assign(current, result.event);
+        closeModal();
+        renderEvents();
+      },
+      viewRoot: document.getElementById('events-panel'),
+      refreshFragment: loadEvents,
+    });
   });
   calendarDropdowns?.refresh();
   if (openEditPanelEventId) {

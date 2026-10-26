@@ -23,13 +23,7 @@
   }
 
   function isUsableUrl(value) {
-    if (!value) return false;
-    try {
-      const url = new URL(String(value).trim());
-      return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname.includes('.');
-    } catch {
-      return false;
-    }
+    return window.EventEditForm.isHttpUrl(value);
   }
 
   function html(event) {
@@ -74,7 +68,10 @@
     input.placeholder = info.placeholder;
     const errorEl = root.querySelector('#event-link-modal-error');
     const onKeydown = (e) => { if (e.key === 'Escape') close(); };
+    let closed = false;
     const close = () => {
+      if (closed) return;
+      closed = true;
       document.removeEventListener('keydown', onKeydown);
       root.remove();
     };
@@ -89,7 +86,7 @@
       }
       errorEl.hidden = true;
       try {
-        await saveLink(event, field, value);
+        await saveLink(event, field, value, close);
         close();
       } catch (err) {
         errorEl.textContent = `Nie udało się zapisać linku: ${err.message}`;
@@ -112,5 +109,5 @@
     });
   }
 
-  window.EventLinkActions = { html, wire, openMissingLinkModal };
+  window.EventLinkActions = { html, wire, isUsableUrl, openMissingLinkModal };
 })();

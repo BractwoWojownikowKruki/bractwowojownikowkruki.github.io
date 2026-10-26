@@ -1206,7 +1206,7 @@ function renderEventDescription(event) {
 function renderEventLinks(event) {
   document.querySelectorAll('#event-links [data-link-field]').forEach((el) => {
     const url = event[el.dataset.linkField];
-    const usable = Boolean(url) && window.EventEditForm.isHttpUrl(url);
+    const usable = window.EventLinkActions.isUsableUrl(url);
     el.setAttribute('aria-disabled', String(!usable));
     if (usable) el.setAttribute('href', url);
     else el.removeAttribute('href');
@@ -1217,7 +1217,7 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('#event-links [data-link-field]');
   if (!el || el.getAttribute('aria-disabled') !== 'true') return;
   e.preventDefault();
-  window.EventLinkActions.openMissingLinkModal(el.dataset.linkField, cachedEvent, async (event, field, value) => {
+  window.EventLinkActions.openMissingLinkModal(el.dataset.linkField, cachedEvent, async (event, field, value, closeModal) => {
     await confirmedEventMutation(null, () => apiFetch(
       `/lista-wyjazdowa/events?eventId=${encodeURIComponent(event.id)}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) },
@@ -1225,6 +1225,7 @@ document.addEventListener('click', (e) => {
       hideReauth,
     ), (result) => {
       cachedEvent = result.event;
+      closeModal();
       renderEventLinks(cachedEvent);
       renderEventEditPanel();
     }, document.getElementById('event-links'));

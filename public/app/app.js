@@ -150,16 +150,24 @@ function renderNearestEventWidget(events) {
   widget.querySelector('.dashboard-event-countdown').textContent = `za ${days} ${days === 1 ? 'dzień' : 'dni'}`;
   widget.querySelector('.dashboard-event-date').append(attendeeBadge(event.attendingCount));
   widget.querySelector('.dashboard-event-date').insertAdjacentHTML('beforeend', window.EventLinkActions.html(event));
-  window.EventLinkActions.wire(widget, () => event, async (currentEvent, field, value) => {
-    await apiFetch(
-      `/lista-wyjazdowa/events?eventId=${encodeURIComponent(currentEvent.id)}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) },
-      showReauth,
-      hideReauth,
-    );
-    const current = dash.events.find((item) => item.id === currentEvent.id);
-    if (current) current[field] = value;
-    renderDashboardWidgets();
+  window.EventLinkActions.wire(widget, () => event, async (currentEvent, field, value, closeModal) => {
+    await window.MutationFeedback.confirmed({
+      fallbackAnchor: dashEventAnchor(currentEvent.id),
+      execute: () => apiFetch(
+        `/lista-wyjazdowa/events?eventId=${encodeURIComponent(currentEvent.id)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) },
+        showReauth,
+        hideReauth,
+      ),
+      apply: (result) => {
+        const current = dash.events.find((item) => item.id === currentEvent.id);
+        if (current) Object.assign(current, result.event);
+        closeModal();
+        renderDashboardWidgets();
+      },
+      viewRoot: panels.panel,
+      refreshFragment: reloadDashboardEvents,
+    });
   });
   if (canAddCompanion && dash.openPanelEventId === event.id) {
     const viewerMember = dash.roster.find((m) => m.personId === dash.viewerPersonId);
