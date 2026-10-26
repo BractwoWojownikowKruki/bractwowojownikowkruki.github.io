@@ -127,6 +127,8 @@ test('missing event links share the muted dashed treatment on cards and the deta
   assert.ok(missingLinkRule, 'both card and detail selectors share one missing-link rule');
   assert.match(missingLinkRule[1], /\.lw-event-card-link\[data-link-missing="true"\]/);
   assert.match(missingLinkRule[1], /\.content-section a\.lw-event-link\[aria-disabled="true"\]/);
+  assert.match(missingLinkRule[1], /\.content-section a\.lw-event-link\[aria-disabled="true"\]:active/);
+  assert.match(missingLinkRule[1], /\.content-section a\.lw-event-link\[aria-disabled="true"\]:focus/);
   assert.match(missingLinkRule[2], /background:\s*var\(--surface-deep\)/);
   assert.match(missingLinkRule[2], /border-style:\s*dashed/);
   assert.match(missingLinkRule[2], /color:\s*var\(--text-muted\)/);
