@@ -123,6 +123,7 @@
     "cover": "covers/0cfd7c11.jpg",
     "photoCount": 27,
     "thumbs": [
+      "thumbs/0cfd7c11-85e2227e.jpg",
       "thumbs/0cfd7c11-7e4a43ac.jpg",
       "thumbs/0cfd7c11-f4c8a4a1.jpg",
       "thumbs/0cfd7c11-436e8116.jpg",
@@ -137,7 +138,6 @@
       "thumbs/0cfd7c11-665fa4fd.jpg",
       "thumbs/0cfd7c11-935bc9c2.jpg",
       "thumbs/0cfd7c11-0762beec.jpg",
-      "thumbs/0cfd7c11-85e2227e.jpg",
       "thumbs/0cfd7c11-e3a5f949.jpg",
       "thumbs/0cfd7c11-56d87758.jpg",
       "thumbs/0cfd7c11-87095037.jpg",
@@ -149,7 +149,7 @@
       "thumbs/0cfd7c11-9ecd7e32.jpg"
     ],
     "searchText": "2026.06.12-14 noc kupały szczecin",
-    "lastSyncedAt": "2026-10-26T08:25:30.544Z",
+    "lastSyncedAt": "2026-10-28T21:28:31.870Z",
     "syncStatus": "ok",
     "coverSource": "https://lh3.googleusercontent.com/pw/AP1GczMBJiiMw2oiHiL0Cnizkf_D_7Eyw2o1HX8Sbu3H79yWBUzf5ANqipBCNpst7dySLR9InD53NmtY9gcnvB4AvML2S43ZYfkATZHntplezsNTC940g9lk=w600-h315-p-k"
   },
@@ -1602,11 +1602,11 @@
     "cover": "covers/3fd48786.jpg",
     "photoCount": 57,
     "thumbs": [
-      "thumbs/3fd48786-58f8b0d7.jpg",
       "thumbs/3fd48786-d0aa2977.jpg",
       "thumbs/3fd48786-bd3a223d.jpg",
       "thumbs/3fd48786-96d88cec.jpg",
       "thumbs/3fd48786-395a624e.jpg",
+      "thumbs/3fd48786-58f8b0d7.jpg",
       "thumbs/3fd48786-7afaa6d3.jpg",
       "thumbs/3fd48786-2da75194.jpg",
       "thumbs/3fd48786-949823c2.jpg",
@@ -1628,7 +1628,7 @@
       "thumbs/3fd48786-d981540a.jpg"
     ],
     "searchText": "2019.04.06 kruczy zbiorczy w bydgoszczy",
-    "lastSyncedAt": "2026-10-19T14:34:06.391Z",
+    "lastSyncedAt": "2026-10-28T21:28:54.410Z",
     "syncStatus": "ok",
     "coverSource": "https://lh3.googleusercontent.com/pw/AP1GczO9vk2bXyjJsSs2C_J_Z9ahCUZHI3tKXR3Q58QqtG0QP_PeBmksCoX1wh-PtrJvkfdDYkIPYqNYFnYNXVgH-VJJsimR8sRO5EPej0AK4kxvGN3LSkw=w600-h315-p-k"
   },
