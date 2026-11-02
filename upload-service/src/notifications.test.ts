@@ -93,11 +93,23 @@ test('new event push uses the friendly share link without exposing the event ID'
   );
 });
 
+test('new event friendly links trim and collapse separators in the event name', () => {
+  assert.equal(
+    eventAddedPush({ name: '  --Zjazd / Łódź!! ', startDate: '2027-05-01' }).url,
+    '/lista-wyjazdowa/wyjazd/?do=2027-05-01-zjazd-lodz',
+  );
+});
+
 test('new event e-mail omits optional form details when they were not supplied', () => {
   const message = eventAddedMessage('member@example.com', {
     name: 'Zjazd', startDate: '2027-05-01', description: null, mapUrl: null, discordUrl: null, noCampEquipment: false,
   }, 'https://example.test');
   assert.doesNotMatch(message.text, /Dodatkowe informacje|Temat na Discordzie|Google Maps|Bez sprzętu obozowego/);
+
+  const emptyMessage = eventAddedMessage('member@example.com', {
+    name: 'Zjazd', startDate: '2027-05-01', description: '', mapUrl: '', discordUrl: undefined, noCampEquipment: undefined,
+  }, 'https://example.test');
+  assert.doesNotMatch(emptyMessage.text, /Dodatkowe informacje|Temat na Discordzie|Google Maps|Bez sprzętu obozowego/);
 });
 
 test('normalizeRejectionReason trims, treats blank as no comment, and rejects non-strings and over-long text', () => {
