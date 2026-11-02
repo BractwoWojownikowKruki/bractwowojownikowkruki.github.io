@@ -10240,16 +10240,27 @@ test('GET/PUT /profile/notifications: e-mail opt-out is stored per person and au
   assert.deepEqual(event?.data.changes.map(c => [c.field, c.before, c.after]), [['emailNotifications', true, false]]);
 });
 
-test('GET /profile/notifications reports push unavailable (no key) and not eligible outside the push roles', async () => {
+test('GET /profile/notifications allows active members to enroll for push without a configured role', async () => {
   const client = createInMemoryFirestoreClient();
-  const deps = makeDeps({ firestore: client, listAdminAllowlistEmails: async () => ['alice@gmail.com'] });
+  client.seed('members', 'alice@gmail.com', seedMemberDoc({ email: 'alice@gmail.com', status: 'active' }));
+  const deps = makeDeps({ firestore: client, listAdminAllowlistEmails: async () => [] });
   await withServer(deps, async baseUrl => {
     const body = await (await fetch(`${baseUrl}/profile/notifications`)).json();
     assert.deepEqual(body.push, { publicKey: null, eligible: false, endpoints: [] });
   });
   client.seed('notificationSettings', 'default', { registrationRecipientRoles: ['admin'], pushRecipientRoles: ['hovding'] });
   const { pusher } = makeRecordingPusher();
-  await withServer(makeDeps({ firestore: client, pusher, listAdminAllowlistEmails: async () => ['alice@gmail.com'] }), async baseUrl => {
+  await withServer(makeDeps({ firestore: client, pusher, listAdminAllowlistEmails: async () => [] }), async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/profile/notifications`)).json();
+    assert.equal(body.push.eligible, true);
+  });
+  client.seed('members', 'inactive@example.com', seedMemberDoc({ email: 'inactive@example.com', status: 'suspended' }));
+  await withServer(makeDeps({
+    firestore: client,
+    pusher,
+    listAdminAllowlistEmails: async () => [],
+    authenticate: async () => fakeSessionClaims({ email: 'inactive@example.com' }),
+  }), async baseUrl => {
     const body = await (await fetch(`${baseUrl}/profile/notifications`)).json();
     assert.equal(body.push.eligible, false);
   });

@@ -1882,23 +1882,24 @@ async function handleAdminUpdateNotificationSettings(req: IncomingMessage, res: 
 }
 
 // A person's own notification choices (/profil/): e-mail on/off for every notification e-mail,
-// and the push-enabled devices. `push.eligible` says whether this person is currently one of the
-// configured push recipients - the profile only offers the push switch when it would do anything.
+// and the push-enabled devices. Every active member can register devices to receive member alerts;
+// existing configured push recipients keep access to their admin-facing alerts as well.
 async function handleGetProfileNotifications(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
   const email = identity.email.toLowerCase();
-  const [preferences, settings] = await Promise.all([
+  const [preferences, settings, activeMemberEmails] = await Promise.all([
     getNotificationPreferences(deps.firestore, email),
     getNotificationSettings(deps.firestore),
+    deps.pusher.publicKey ? listActiveMemberEmails(deps.firestore) : Promise.resolve([]),
   ]);
-  const pushRecipients = deps.pusher.publicKey
+  const configuredPushRecipients = deps.pusher.publicKey
     ? await resolveRegistrationRecipients({ firestore: deps.firestore, listAdminAllowlistEmails: deps.listAdminAllowlistEmails }, settings.pushRecipientRoles)
     : [];
   sendJson(res, 200, {
     emailEnabled: preferences.emailEnabled,
     push: {
       publicKey: deps.pusher.publicKey,
-      eligible: pushRecipients.includes(email),
+      eligible: activeMemberEmails.some(memberEmail => memberEmail.toLowerCase() === email) || configuredPushRecipients.includes(email),
       // Lets the page tell whether THIS browser's subscription is the one already registered.
       endpoints: preferences.pushSubscriptions.map(subscription => subscription.endpoint),
     },
