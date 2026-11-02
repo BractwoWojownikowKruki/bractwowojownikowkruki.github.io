@@ -332,40 +332,48 @@ export async function enqueueEmailNotifications(
   enqueue: (payload: EmailTaskPayload) => Promise<{ status: 'created' | 'already_exists'; taskName?: string }>,
 ): Promise<void> {
   await Promise.all(messages.map(async message => {
-    const optedOut = await getNotificationPreferences(firestore, message.to).then(prefs => !prefs.emailEnabled, err => {
-      console.error('Nie udało się odczytać preferencji powiadomień:', err);
-      return false;
-    });
-    if (optedOut) return;
-
     const deliveryId = createEmailDeliveryId(eventId, message.to);
     const payload: EmailTaskPayload = { deliveryId };
-    let delivery = await firestore.getDoc<{ status?: string }>('emailNotificationDeliveries', deliveryId);
-    if (!delivery) {
-      try {
-        await firestore.createDoc('emailNotificationDeliveries', deliveryId, {
-          deliveryId, eventId, recipient: message.to, message, status: 'queued', createdAt: new Date().toISOString(),
-        });
-      } catch (error) {
-        // Another request may have created the deterministic record concurrently.
-        delivery = await firestore.getDoc<{ status?: string }>('emailNotificationDeliveries', deliveryId);
-        if (!delivery) throw error;
-      }
-    }
-    if (delivery?.status === 'sent' || delivery?.status === 'failed') return;
-
     try {
-      await firestore.setDoc('emailNotificationDeliveries', deliveryId, {
-        deliveryId, eventId, recipient: message.to, status: 'queued', updatedAt: new Date().toISOString(),
+      const optedOut = await getNotificationPreferences(firestore, message.to).then(prefs => !prefs.emailEnabled, err => {
+        console.error(JSON.stringify({ severity: 'WARNING', message: 'event_email_preference_read_failed', eventId, recipient: message.to, error: err instanceof Error ? err.message : String(err) }));
+        return false;
       });
+      if (optedOut) return;
+
+      let delivery = await firestore.getDoc<{ status?: string }>('emailNotificationDeliveries', deliveryId);
+      if (!delivery) {
+        try {
+          await firestore.createDoc('emailNotificationDeliveries', deliveryId, {
+            deliveryId, eventId, recipient: message.to, message, status: 'queued', createdAt: new Date().toISOString(),
+          });
+        } catch (error) {
+          // Another request may have created the deterministic record concurrently.
+          delivery = await firestore.getDoc<{ status?: string }>('emailNotificationDeliveries', deliveryId);
+          if (!delivery) throw error;
+        }
+      }
+      if (['sent', 'failed', 'sending', 'retrying'].includes(delivery?.status ?? '')) return;
+
       const result = await enqueue(payload);
-      console.info(JSON.stringify({ severity: 'INFO', message: 'event_email_enqueued', deliveryId, taskName: result.taskName ?? deliveryId, eventId, recipient: message.to, taskStatus: result.status }));
+      const taskName = result.taskName ?? deliveryId;
+      console.info(JSON.stringify({ severity: 'INFO', message: 'event_email_enqueued', deliveryId, taskName, eventId, recipient: message.to, taskStatus: result.status }));
+      try {
+        await firestore.setDoc('emailNotificationDeliveries', deliveryId, { taskName, updatedAt: new Date().toISOString() });
+      } catch (error) {
+        // The task is already queued; keep that outcome and rely on its callback's short task ID.
+        console.error(JSON.stringify({ severity: 'ERROR', message: 'event_email_task_name_persist_failed', deliveryId, taskName, eventId, recipient: message.to, error: error instanceof Error ? error.message : String(error) }));
+      }
     } catch (error) {
-      await firestore.setDoc('emailNotificationDeliveries', deliveryId, {
-        deliveryId, eventId, recipient: message.to, status: 'enqueue_failed',
-        error: error instanceof Error ? error.message : String(error), updatedAt: new Date().toISOString(),
-      });
-      console.error(JSON.stringify({ severity: 'ERROR', message: 'event_email_enqueue_failed', deliveryId, eventId, recipient: message.to, error: error instanceof Error ? error.message : String(error) }));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(JSON.stringify({ severity: 'ERROR', message: 'event_email_enqueue_failed', deliveryId, eventId, recipient: message.to, error: errorMessage }));
+      try {
+        await firestore.setDoc('emailNotificationDeliveries', deliveryId, {
+          deliveryId, eventId, recipient: message.to, status: 'enqueue_failed', error: errorMessage, updatedAt: new Date().toISOString(),
+        });
+      } catch (persistError) {
+        console.error(JSON.stringify({ severity: 'CRITICAL', message: 'event_email_enqueue_failure_persist_failed', deliveryId, eventId, recipient: message.to, error: persistError instanceof Error ? persistError.message : String(persistError) }));
+      }
     }
   }));
 }

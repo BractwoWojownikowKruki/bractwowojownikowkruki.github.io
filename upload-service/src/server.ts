@@ -6144,8 +6144,8 @@ async function handleInternalEventEmail(req: IncomingMessage, res: ServerRespons
   const taskRetryCountRaw = req.headers['x-cloudtasks-taskretrycount'];
   const taskRetryCount = typeof taskRetryCountRaw === 'string' && /^\d+$/.test(taskRetryCountRaw) ? Number(taskRetryCountRaw) : 0;
   const taskNameHeader = req.headers['x-cloudtasks-taskname'];
-  const taskName = typeof taskNameHeader === 'string' ? taskNameHeader : deliveryId;
-  const existing = await deps.firestore.getDoc<{ status?: string; eventId?: string; recipient?: string; message?: MailMessage }>('emailNotificationDeliveries', deliveryId);
+  const existing = await deps.firestore.getDoc<{ status?: string; eventId?: string; recipient?: string; message?: MailMessage; taskName?: string }>('emailNotificationDeliveries', deliveryId);
+  const taskName = existing?.taskName ?? (typeof taskNameHeader === 'string' ? taskNameHeader : deliveryId);
   if (existing?.status === 'sent' || existing?.status === 'failed') {
     res.writeHead(204).end();
     return;
@@ -6223,13 +6223,17 @@ export function createRequestListener(deps: ServerDeps) {
     }
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     try {
-      // Enforced once, centrally, for every state-changing request rather than per-handler -
+      // Enforced once, centrally, for every browser-originated state-changing request rather than per-handler -
       // see design-v2.md "CSRF - one mandatory rule": a route added later inherits this
       // automatically instead of silently shipping without it. GET/OPTIONS are exempt (no side
       // effects to protect, and OPTIONS never reaches this point anyway). Safe to enforce today,
       // ahead of the Phase 1 cutover: every legitimate call already crosses the www.kruki.org ->
       // api.kruki.org origin boundary since Phase 0, and cross-origin fetches always send Origin.
-      if (req.method !== 'GET') {
+      // The two internal callbacks use bearer OIDC authentication instead of browser cookies and
+      // are called by Cloud Tasks / Cloud Scheduler, which do not send an Origin header.
+      const isInternalOidcCallback = req.method === 'POST' &&
+        (url.pathname === '/internal/audit/reconcile' || url.pathname === '/internal/notifications/email');
+      if (req.method !== 'GET' && !isInternalOidcCallback) {
         requireAllowedOrigin(req, deps.allowedOrigin);
       }
       if (req.method === 'GET' && url.pathname === '/whoami') {

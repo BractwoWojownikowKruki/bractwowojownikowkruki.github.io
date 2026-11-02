@@ -9476,7 +9476,7 @@ test('GET /admin/audyt/diagnostics is administrator-only and filters by correlat
 test('POST /internal/audit/reconcile fails closed (503) when the reconciler secrets are not configured, and 401s a request with no bearer token once they are', async () => {
   const notConfigured = makeDeps();
   await withServer(notConfigured, async baseUrl => {
-    const res = await fetch(`${baseUrl}/internal/audit/reconcile`, { method: 'POST' });
+    const res = await rawFetch(`${baseUrl}/internal/audit/reconcile`, { method: 'POST' });
     assert.equal(res.status, 503);
   });
 
@@ -9485,7 +9485,7 @@ test('POST /internal/audit/reconcile fails closed (503) when the reconciler secr
     auditReconcileAudience: 'https://upload-service-xyz.run.app',
   });
   await withServer(configured, async baseUrl => {
-    const res = await fetch(`${baseUrl}/internal/audit/reconcile`, { method: 'POST' });
+    const res = await rawFetch(`${baseUrl}/internal/audit/reconcile`, { method: 'POST' });
     assert.equal(res.status, 401);
   });
 });
@@ -11278,15 +11278,15 @@ test('POST /internal/notifications/email requires OIDC and records successful Gm
     },
   });
   await withServer(deps, async baseUrl => {
-    const unauthorized = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', body: JSON.stringify(payload) });
+    const unauthorized = await rawFetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', body: JSON.stringify(payload) });
     assert.equal(unauthorized.status, 401);
-    const wrongToken = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer wrong' }, body: JSON.stringify(payload) });
+    const wrongToken = await rawFetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer wrong' }, body: JSON.stringify(payload) });
     assert.equal(wrongToken.status, 401);
-    const response = await fetch(`${baseUrl}/internal/notifications/email`, {
+    const response = await rawFetch(`${baseUrl}/internal/notifications/email`, {
       method: 'POST', headers: { authorization: 'Bearer valid', 'x-cloudtasks-taskname': 'projects/test/queues/q/tasks/event-1-abcd' }, body: JSON.stringify(payload),
     });
     assert.equal(response.status, 204);
-    const duplicate = await fetch(`${baseUrl}/internal/notifications/email`, {
+    const duplicate = await rawFetch(`${baseUrl}/internal/notifications/email`, {
       method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify(payload),
     });
     assert.equal(duplicate.status, 204);
@@ -11304,7 +11304,7 @@ test('POST /internal/notifications/email requires OIDC and records successful Gm
 
 test('POST /internal/notifications/email fails closed with 503 when the worker OIDC identity is not configured', async () => {
   await withServer(makeDeps({ auditReconcileAudience: 'https://upload.example.test' }), async baseUrl => {
-    const response = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ deliveryId: 'event-1' }) });
+    const response = await rawFetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ deliveryId: 'event-1' }) });
     assert.equal(response.status, 503);
   });
 });
@@ -11325,7 +11325,7 @@ test('POST /internal/notifications/email acknowledges invalid or mismatched deli
   });
   await withServer(deps, async baseUrl => {
     for (const deliveryId of ['event-invalid-status', 'event-invalid-recipient']) {
-      const response = await fetch(`${baseUrl}/internal/notifications/email`, {
+      const response = await rawFetch(`${baseUrl}/internal/notifications/email`, {
         method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ deliveryId }),
       });
       assert.equal(response.status, 204);
@@ -11350,19 +11350,19 @@ test('POST /internal/notifications/email returns retry status for transient Gmai
   });
   const payload = { deliveryId: 'event-2-abcd' };
   await withServer(deps, async baseUrl => {
-    const retry = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify(payload) });
+    const retry = await rawFetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify(payload) });
     assert.equal(retry.status, 503);
     assert.equal((await firestore.getDoc<{ status: string }>('emailNotificationDeliveries', payload.deliveryId))?.status, 'retrying');
     result = { status: 'failed', httpStatus: 403, reason: 'userRateLimitExceeded', retryable: true };
-    const rateLimited403 = await fetch(`${baseUrl}/internal/notifications/email`, {
+    const rateLimited403 = await rawFetch(`${baseUrl}/internal/notifications/email`, {
       method: 'POST', headers: { authorization: 'Bearer valid', 'x-cloudtasks-taskretrycount': '1' }, body: JSON.stringify(payload),
     });
     assert.equal(rateLimited403.status, 503);
     result = { status: 'failed', httpStatus: 403, reason: 'domainPolicy', retryable: false };
-    const permanent = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ deliveryId: 'event-2-permanent' }) });
+    const permanent = await rawFetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ deliveryId: 'event-2-permanent' }) });
     assert.equal(permanent.status, 204);
     assert.equal((await firestore.getDoc<{ status: string }>('emailNotificationDeliveries', 'event-2-permanent'))?.status, 'failed');
-    const final = await fetch(`${baseUrl}/internal/notifications/email`, {
+    const final = await rawFetch(`${baseUrl}/internal/notifications/email`, {
       method: 'POST', headers: { authorization: 'Bearer valid', 'x-cloudtasks-taskretrycount': '7' }, body: JSON.stringify({ deliveryId: 'event-2-final' }),
     });
     assert.equal(final.status, 204);
@@ -11391,7 +11391,7 @@ test('POST /internal/notifications/email acknowledges Gmail acceptance if delive
     mailer: { send: async () => 'sent', sendDetailed: async () => { sends++; return { status: 'sent', messageId: 'gmail-id-3', httpStatus: 200 }; } },
   });
   await withServer(deps, async baseUrl => {
-    const first = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ deliveryId }) });
+    const first = await rawFetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ deliveryId }) });
     assert.equal(first.status, 204);
   });
   assert.equal(sends, 1);
