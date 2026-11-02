@@ -7187,7 +7187,14 @@ test('POST /lista-wyjazdowa/events notifies active members through their enabled
   const { sent, mailer } = makeRecordingMailer();
   const { pushed, pusher } = makeRecordingPusher();
   await withServer(makeDeps({ firestore, mailer, pusher }), async baseUrl => {
-    const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
+    const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', {
+      name: 'Zjazd Łódź 2027!',
+      startDate: '2027-05-01',
+      description: 'Szczegóły spotkania.',
+      discordUrl: 'https://discord.com/channels/123/456',
+      mapUrl: 'https://maps.app.goo.gl/example',
+      noCampEquipment: true,
+    });
     assert.equal(response.status, 200);
     const body = await response.json();
     const eventId = body.event.id as string;
@@ -7198,8 +7205,14 @@ test('POST /lista-wyjazdowa/events notifies active members through their enabled
       'https://fcm.googleapis.com/fcm/send/push-only',
       'https://fcm.googleapis.com/fcm/send/shared',
     ]);
-    assert.ok(sent.every(message => message.text.includes(`eventId=${encodeURIComponent(eventId)}`)));
-    assert.ok(pushed.every(message => message.message.url === `/lista-wyjazdowa/wyjazd/?eventId=${encodeURIComponent(eventId)}`));
+    const friendlyUrl = '/lista-wyjazdowa/wyjazd/?do=2027-05-01-zjazd-lodz-2027';
+    assert.ok(sent.every(message => message.text.includes(`https://example.test${friendlyUrl}`)));
+    assert.ok(sent.every(message => message.text.includes('Szczegóły spotkania.')));
+    assert.ok(sent.every(message => message.text.includes('https://discord.com/channels/123/456')));
+    assert.ok(sent.every(message => message.text.includes('https://maps.app.goo.gl/example')));
+    assert.ok(sent.every(message => message.text.includes('Bez sprzętu obozowego: tak')));
+    assert.ok(sent.every(message => !message.text.includes(eventId)));
+    assert.ok(pushed.every(message => message.message.url === friendlyUrl));
   });
 });
 
