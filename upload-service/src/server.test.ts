@@ -7093,6 +7093,8 @@ test('POST /lista-wyjazdowa/events creates an active event', async () => {
 test('POST /lista-wyjazdowa/events notifies active members through their enabled channels and devices only', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   firestore.seed('members', 'both@example.com', seedMemberDoc({ email: 'both@example.com', status: 'active' }));
+  firestore.seed('members', 'shared-a', seedMemberDoc({ email: 'shared@example.com', status: 'active' }));
+  firestore.seed('members', 'shared-b', seedMemberDoc({ email: 'SHARED@example.com', status: 'active' }));
   firestore.seed('members', 'push-only@example.com', seedMemberDoc({ email: 'push-only@example.com', status: 'active' }));
   firestore.seed('members', 'email-only@example.com', seedMemberDoc({ email: 'email-only@example.com', status: 'active' }));
   firestore.seed('members', 'pending@example.com', seedMemberDoc({ email: 'pending@example.com', status: 'pending' }));
@@ -7111,6 +7113,10 @@ test('POST /lista-wyjazdowa/events notifies active members through their enabled
     emailEnabled: true,
     pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/pending', createdAt: '2026-09-30T00:00:00.000Z' }],
   });
+  firestore.seed('notificationPreferences', 'shared@example.com', {
+    emailEnabled: true,
+    pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/shared', createdAt: '2026-09-30T00:00:00.000Z' }],
+  });
   const { sent, mailer } = makeRecordingMailer();
   const { pushed, pusher } = makeRecordingPusher();
   await withServer(makeDeps({ firestore, mailer, pusher }), async baseUrl => {
@@ -7118,11 +7124,12 @@ test('POST /lista-wyjazdowa/events notifies active members through their enabled
     assert.equal(response.status, 200);
     const body = await response.json();
     const eventId = body.event.id as string;
-    assert.deepEqual(sent.map(message => message.to).sort(), ['both@example.com', 'email-only@example.com']);
+    assert.deepEqual(sent.map(message => message.to).sort(), ['both@example.com', 'email-only@example.com', 'shared@example.com']);
     assert.deepEqual(pushed.map(message => message.endpoint).sort(), [
       'https://fcm.googleapis.com/fcm/send/both-1',
       'https://fcm.googleapis.com/fcm/send/both-2',
       'https://fcm.googleapis.com/fcm/send/push-only',
+      'https://fcm.googleapis.com/fcm/send/shared',
     ]);
     assert.ok(sent.every(message => message.text.includes(`eventId=${encodeURIComponent(eventId)}`)));
     assert.ok(pushed.every(message => message.message.url === `/lista-wyjazdowa/wyjazd/?eventId=${encodeURIComponent(eventId)}`));
@@ -7137,10 +7144,14 @@ test('POST /lista-wyjazdowa/events succeeds and still sends push when event e-ma
     pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, createdAt: '2026-09-30T00:00:00.000Z' }],
   });
   const { pushed, pusher } = makeRecordingPusher();
-  await withServer(makeDeps({ firestore, pusher, mailer: { send: async () => { throw new Error('mail unavailable'); } } }), async baseUrl => {
+  let mailAttempts = 0;
+  await withServer(makeDeps({ firestore, pusher, mailer: { send: async () => { mailAttempts += 1; throw new Error('mail unavailable'); } } }), async baseUrl => {
     const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
     assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.ok(await firestore.getDoc('events', body.event.id));
   });
+  assert.equal(mailAttempts, 1);
   assert.equal(pushed.length, 1);
 });
 
@@ -7152,11 +7163,15 @@ test('POST /lista-wyjazdowa/events succeeds and still sends event e-mail when pu
     pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, createdAt: '2026-09-30T00:00:00.000Z' }],
   });
   const { sent, mailer } = makeRecordingMailer();
-  const pusher = { publicKey: 'test-public-key', send: async () => { throw new Error('push unavailable'); } };
+  let pushAttempts = 0;
+  const pusher = { publicKey: 'test-public-key', send: async () => { pushAttempts += 1; throw new Error('push unavailable'); } };
   await withServer(makeDeps({ firestore, mailer, pusher }), async baseUrl => {
     const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
     assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.ok(await firestore.getDoc('events', body.event.id));
   });
+  assert.equal(pushAttempts, 1);
   assert.deepEqual(sent.map(message => message.to), ['active@example.com']);
 });
 
