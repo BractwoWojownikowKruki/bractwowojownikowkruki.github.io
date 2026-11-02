@@ -112,6 +112,55 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEPLOY_SA }}
 
+      # KRKG-130 sends one task per opted-in active member. Queue management happens after
+      # workload identity authentication, and the worker uses a dedicated identity that can only
+      # invoke this Cloud Run service; task contents are loaded from the queued Firestore record.
+      - name: Provision event email Cloud Tasks queue and worker identity
+        env:
+          CLOUD_RUN_RUNTIME_SA: ${{ secrets.CLOUD_RUN_RUNTIME_SA }}
+        run: |
+          PROJECT_ID=krucze-galery-upload
+          EMAIL_TASKS_SERVICE_ACCOUNT="event-email-worker@$PROJECT_ID.iam.gserviceaccount.com"
+          gcloud services enable cloudtasks.googleapis.com --project="$PROJECT_ID"
+          if ! gcloud iam service-accounts describe "$EMAIL_TASKS_SERVICE_ACCOUNT" --project="$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud iam service-accounts create event-email-worker --project="$PROJECT_ID" --display-name="Krucze Galery event email worker"
+          fi
+          if gcloud tasks queues describe event-email-notifications --location=europe-west1 --project="$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud tasks queues update event-email-notifications \
+              --location=europe-west1 --project="$PROJECT_ID" \
+              --log-sampling-ratio=1.0 \
+              --max-dispatches-per-second=1 --max-concurrent-dispatches=1 \
+              --max-attempts=8 --max-retry-duration=86400s \
+              --min-backoff=1s --max-backoff=300s --max-doublings=5
+          else
+            gcloud tasks queues create event-email-notifications \
+              --location=europe-west1 --project="$PROJECT_ID" \
+              --log-sampling-ratio=1.0 \
+              --max-dispatches-per-second=1 --max-concurrent-dispatches=1 \
+              --max-attempts=8 --max-retry-duration=86400s \
+              --min-backoff=1s --max-backoff=300s --max-doublings=5
+          fi
+          gcloud tasks queues add-iam-policy-binding event-email-notifications \
+            --location=europe-west1 --project="$PROJECT_ID" \
+            --member="serviceAccount:$CLOUD_RUN_RUNTIME_SA" --role=roles/cloudtasks.enqueuer
+          gcloud iam service-accounts add-iam-policy-binding "$EMAIL_TASKS_SERVICE_ACCOUNT" \
+            --project="$PROJECT_ID" \
+            --member="serviceAccount:$CLOUD_RUN_RUNTIME_SA" --role=roles/iam.serviceAccountUser
+
+      - name: Verify event email queue and runtime permissions
+        working-directory: upload-service
+        env:
+          CLOUD_RUN_RUNTIME_SA: ${{ secrets.CLOUD_RUN_RUNTIME_SA }}
+        run: |
+          PROJECT_ID=krucze-galery-upload
+          EMAIL_TASKS_SERVICE_ACCOUNT="event-email-worker@$PROJECT_ID.iam.gserviceaccount.com"
+          gcloud tasks queues describe event-email-notifications --location=europe-west1 --project="$PROJECT_ID" --format=json \
+            | npx tsx scripts/deploy-validation.ts verify-email-task-queue
+          gcloud tasks queues get-iam-policy event-email-notifications --location=europe-west1 --project="$PROJECT_ID" --format=json \
+            | npx tsx scripts/deploy-validation.ts verify-queue-enqueuer-binding "$CLOUD_RUN_RUNTIME_SA"
+          gcloud iam service-accounts get-iam-policy "$EMAIL_TASKS_SERVICE_ACCOUNT" --project="$PROJECT_ID" --format=json \
+            | npx tsx scripts/deploy-validation.ts verify-worker-impersonation-binding "$CLOUD_RUN_RUNTIME_SA"
+
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
@@ -124,6 +173,7 @@ jobs:
             GOOGLE_OAUTH_CLIENT_ID=${{ secrets.UPLOAD_OAUTH_CLIENT_ID }}
             DRIVE_PARENT_FOLDER_ID=${{ secrets.UPLOAD_DRIVE_PARENT_FOLDER_ID }}
             GITHUB_REPO=BractwoWojownikowKruki/bractwowojownikowkruki.github.io
+            EMAIL_TASKS_PROJECT_ID=krucze-galery-upload
             EQUIPMENT_PHOTOS_BUCKET=krucze-galery-upload-sprzet
             AUDIT_RECONCILER_SERVICE_ACCOUNT=${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}
           secrets: |
@@ -185,6 +235,13 @@ jobs:
             --member="serviceAccount:${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}" \
             --role="roles/run.invoker"
 
+      - name: Grant event email worker invoker access
+        run: |
+          gcloud run services add-iam-policy-binding krucze-galery-upload \
+            --region=europe-west1 --project=krucze-galery-upload \
+            --member="serviceAccount:event-email-worker@krucze-galery-upload.iam.gserviceaccount.com" \
+            --role="roles/run.invoker"
+
       # A successful add-iam-policy-binding call is not itself proof the binding is live (e.g. an
       # IAM propagation delay, or a policy that silently rejected an unexpected member format) -
       # read the policy back and check for the exact binding, same principle as the Scheduler
@@ -195,6 +252,13 @@ jobs:
           gcloud run services get-iam-policy krucze-galery-upload \
             --region=europe-west1 --project=krucze-galery-upload --format=json \
             | npx tsx scripts/deploy-validation.ts verify-invoker-binding "${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}"
+
+      - name: Verify event email worker invoker binding
+        working-directory: upload-service
+        run: |
+          gcloud run services get-iam-policy krucze-galery-upload \
+            --region=europe-west1 --project=krucze-galery-upload --format=json \
+            | npx tsx scripts/deploy-validation.ts verify-invoker-binding "event-email-worker@krucze-galery-upload.iam.gserviceaccount.com"
 
       # Create-or-update: the job may not exist yet on a repo's first KRKG-0050 deploy, and must
       # be kept in sync with the current service URL/reconciler service account on every deploy

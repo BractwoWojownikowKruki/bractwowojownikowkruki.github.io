@@ -29,6 +29,58 @@ export interface IamPolicy {
   bindings?: IamPolicyBinding[];
 }
 
+export interface EmailTaskQueueDescribe {
+  rateLimits?: { maxDispatchesPerSecond?: number; maxConcurrentDispatches?: number };
+  retryConfig?: { maxAttempts?: number; maxRetryDuration?: string; minBackoff?: string; maxBackoff?: string; maxDoublings?: number };
+  stackdriverLoggingConfig?: { samplingRatio?: number };
+}
+
+export const EXPECTED_EMAIL_TASK_QUEUE = {
+  maxDispatchesPerSecond: 1,
+  maxConcurrentDispatches: 1,
+  maxAttempts: 8,
+  maxRetryDuration: '86400s',
+  minBackoff: '1s',
+  maxBackoff: '300s',
+  maxDoublings: 5,
+  logSamplingRatio: 1,
+} as const;
+
+/** Verifies the production queue's configured send pace, retry ceiling, and Cloud Tasks log rate. */
+export function validateEmailTaskQueue(queue: EmailTaskQueueDescribe): ValidationResult {
+  const errors: string[] = [];
+  for (const key of ['maxDispatchesPerSecond', 'maxConcurrentDispatches'] as const) {
+    if (queue.rateLimits?.[key] !== EXPECTED_EMAIL_TASK_QUEUE[key]) {
+      errors.push(`event-email-notifications ${key} is '${queue.rateLimits?.[key]}', expected '${EXPECTED_EMAIL_TASK_QUEUE[key]}'.`);
+    }
+  }
+  for (const key of ['maxAttempts', 'maxRetryDuration', 'minBackoff', 'maxBackoff', 'maxDoublings'] as const) {
+    if (queue.retryConfig?.[key] !== EXPECTED_EMAIL_TASK_QUEUE[key]) {
+      errors.push(`event-email-notifications ${key} is '${queue.retryConfig?.[key]}', expected '${EXPECTED_EMAIL_TASK_QUEUE[key]}'.`);
+    }
+  }
+  if (queue.stackdriverLoggingConfig?.samplingRatio !== EXPECTED_EMAIL_TASK_QUEUE.logSamplingRatio) {
+    errors.push(`event-email-notifications stackdriverLoggingConfig.samplingRatio is '${queue.stackdriverLoggingConfig?.samplingRatio}', expected '${EXPECTED_EMAIL_TASK_QUEUE.logSamplingRatio}'.`);
+  }
+  return errors.length > 0 ? { ok: false, errors } : { ok: true };
+}
+
+function validatePolicyBinding(policy: IamPolicy, role: string, expectedServiceAccountEmail: string, label: string): ValidationResult {
+  const expectedMember = `serviceAccount:${expectedServiceAccountEmail}`;
+  const found = (policy.bindings ?? []).some(binding => binding.role === role && (binding.members ?? []).includes(expectedMember));
+  return found ? { ok: true } : { ok: false, errors: [`${label} is missing ${role} for ${expectedServiceAccountEmail}.`] };
+}
+
+/** Requires the runtime identity to enqueue only on the configured email queue. */
+export function validateQueueEnqueuerBinding(policy: IamPolicy, runtimeServiceAccountEmail: string): ValidationResult {
+  return validatePolicyBinding(policy, 'roles/cloudtasks.enqueuer', runtimeServiceAccountEmail, 'event-email-notifications queue IAM policy');
+}
+
+/** Requires the runtime identity to mint OIDC tokens as the dedicated task worker account. */
+export function validateServiceAccountUserBinding(policy: IamPolicy, runtimeServiceAccountEmail: string): ValidationResult {
+  return validatePolicyBinding(policy, 'roles/iam.serviceAccountUser', runtimeServiceAccountEmail, 'event-email-worker service account IAM policy');
+}
+
 /** Case 3: missing invoker binding - the reconciler service account must hold `roles/run.invoker`
  * on the Cloud Run service, or `POST /internal/audit/reconcile` is unreachable by Cloud Scheduler
  * even though the route itself is correctly configured. */
@@ -118,8 +170,31 @@ async function main(): Promise<void> {
       console.log(`audit-reconcile Scheduler job verified: 15-minute OIDC job targeting ${expectedServiceUrl}.`);
       return;
     }
+    case 'verify-email-task-queue': {
+      const queue = JSON.parse(await readStdin()) as EmailTaskQueueDescribe;
+      const result = validateEmailTaskQueue(queue);
+      if (!result.ok) fail(result.errors);
+      console.log('event-email-notifications queue rate, retry policy, and logging verified.');
+      return;
+    }
+    case 'verify-queue-enqueuer-binding': {
+      const [runtimeServiceAccountEmail] = args;
+      const policy = JSON.parse(await readStdin()) as IamPolicy;
+      const result = validateQueueEnqueuerBinding(policy, runtimeServiceAccountEmail);
+      if (!result.ok) fail(result.errors);
+      console.log(`Cloud Tasks enqueuer binding for ${runtimeServiceAccountEmail} verified.`);
+      return;
+    }
+    case 'verify-worker-impersonation-binding': {
+      const [runtimeServiceAccountEmail] = args;
+      const policy = JSON.parse(await readStdin()) as IamPolicy;
+      const result = validateServiceAccountUserBinding(policy, runtimeServiceAccountEmail);
+      if (!result.ok) fail(result.errors);
+      console.log(`event-email-worker impersonation binding for ${runtimeServiceAccountEmail} verified.`);
+      return;
+    }
     default:
-      console.error(`Unknown command: ${command}. Expected require-secret | verify-invoker-binding | verify-scheduler-job.`);
+      console.error(`Unknown command: ${command}. Expected require-secret | verify-invoker-binding | verify-scheduler-job | verify-email-task-queue | verify-queue-enqueuer-binding | verify-worker-impersonation-binding.`);
       process.exit(1);
   }
 }

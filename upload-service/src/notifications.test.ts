@@ -7,6 +7,7 @@ import {
   addPushSubscriptionInTransaction,
   eventAddedMessage,
   eventAddedPush,
+  enqueueEmailNotifications,
   getNotificationPreferences,
   getNotificationSettings,
   MAX_PUSH_SUBSCRIPTIONS_PER_PERSON,
@@ -154,6 +155,83 @@ test('sendNotifications skips recipients who opted out of e-mail, and sends when
   sent.length = 0;
   await sendNotifications(mailer, { getDoc: async () => { throw new Error('firestore down'); } }, messages);
   assert.deepEqual(sent.sort(), ['OUT@example.com', 'in@example.com']);
+});
+
+test('enqueueEmailNotifications respects email preferences and records deterministic per-recipient deliveries', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.runTransaction(tx => setEmailEnabledInTransaction(tx, 'out@example.com', false));
+  const enqueued: Array<{ deliveryId: string }> = [];
+  const enqueue = async (payload: { deliveryId: string }) => {
+    enqueued.push(payload);
+    return { status: 'created' as const, taskName: `projects/test/queues/q/tasks/${payload.deliveryId}` };
+  };
+  const messages = ['in@example.com', 'out@example.com'].map(to => ({ to, subject: 's', text: 'event snapshot' }));
+  await enqueueEmailNotifications(client, messages, 'event-1', enqueue);
+  assert.equal(enqueued.length, 1);
+  const records = await client.listDocs<{ status: string; recipient: string; message: MailMessage; taskName: string }>('emailNotificationDeliveries');
+  assert.equal(records.length, 1);
+  assert.equal(records[0].data.status, 'queued');
+  assert.equal(records[0].data.recipient, 'in@example.com');
+  assert.deepEqual(records[0].data.message, { to: 'in@example.com', subject: 's', text: 'event snapshot' });
+  assert.equal(records[0].data.taskName, `projects/test/queues/q/tasks/${enqueued[0].deliveryId}`);
+  assert.equal(enqueued[0].deliveryId, records[0].id);
+});
+
+test('enqueueEmailNotifications does not re-enqueue deliveries already sent or permanently failed', async () => {
+  const client = createInMemoryFirestoreClient();
+  const { createEmailDeliveryId } = await import('./email-tasks.ts');
+  const deliveryId = createEmailDeliveryId('event-2', 'a@example.com');
+  client.seed('emailNotificationDeliveries', deliveryId, { deliveryId, status: 'sent' });
+  let calls = 0;
+  await enqueueEmailNotifications(client, [{ to: 'a@example.com', subject: 's', text: 't' }], 'event-2', async () => { calls++; return { status: 'created' }; });
+  assert.equal(calls, 0);
+});
+
+test('enqueueEmailNotifications skips deliveries already being sent or retried', async () => {
+  const client = createInMemoryFirestoreClient();
+  const { createEmailDeliveryId } = await import('./email-tasks.ts');
+  for (const status of ['sending', 'retrying']) {
+    const deliveryId = createEmailDeliveryId('event-3', `${status}@example.com`);
+    client.seed('emailNotificationDeliveries', deliveryId, { deliveryId, status });
+  }
+  let calls = 0;
+  await enqueueEmailNotifications(client, ['sending@example.com', 'retrying@example.com'].map(to => ({ to, subject: 's', text: 't' })), 'event-3', async () => {
+    calls++;
+    return { status: 'created' };
+  });
+  assert.equal(calls, 0);
+});
+
+test('enqueueEmailNotifications logs failures even when delivery-record persistence fails and continues other recipients', async () => {
+  const client = createInMemoryFirestoreClient();
+  const { createEmailDeliveryId } = await import('./email-tasks.ts');
+  const failedId = createEmailDeliveryId('event-4', 'first@example.com');
+  const errors: string[] = [];
+  const originalConsoleError = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+  const firestore = {
+    ...client,
+    getDoc: async <T>(collection: string, id: string): Promise<T | null> => {
+      if (collection === 'emailNotificationDeliveries' && id === failedId) throw new Error('Firestore read unavailable');
+      return client.getDoc<T>(collection, id);
+    },
+    setDoc: async <T extends object>(collection: string, id: string, data: T): Promise<void> => {
+      if (collection === 'emailNotificationDeliveries' && id === failedId) throw new Error('Firestore write unavailable');
+      return client.setDoc(collection, id, data);
+    },
+  };
+  const enqueued: string[] = [];
+  try {
+    await enqueueEmailNotifications(firestore, ['first@example.com', 'second@example.com'].map(to => ({ to, subject: 's', text: 't' })), 'event-4', async ({ deliveryId }) => {
+      enqueued.push(deliveryId);
+      return { status: 'created' };
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+  assert.deepEqual(enqueued, [createEmailDeliveryId('event-4', 'second@example.com')]);
+  assert.ok(errors.some(line => line.includes('event_email_enqueue_failed')));
+  assert.ok(errors.some(line => line.includes('event_email_enqueue_failure_persist_failed')));
 });
 
 test('sendPushNotifications sends to every device of every recipient and does nothing when push is disabled', async () => {

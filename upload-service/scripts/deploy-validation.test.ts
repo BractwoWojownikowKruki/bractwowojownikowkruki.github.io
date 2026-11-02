@@ -8,7 +8,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EXPECTED_RECONCILE_SCHEDULE,
+  EXPECTED_EMAIL_TASK_QUEUE,
   validateInvokerBinding,
+  validateEmailTaskQueue,
+  validateQueueEnqueuerBinding,
+  validateServiceAccountUserBinding,
   validateRequiredSecret,
   validateSchedulerJob,
   type SchedulerJobDescribe,
@@ -136,4 +140,25 @@ test('validateSchedulerJob rejects a completely missing httpTarget (job describe
   const result = validateSchedulerJob({ schedule: EXPECTED_RECONCILE_SCHEDULE }, SERVICE_URL, RECONCILER_SA);
   assert.equal(result.ok, false);
   assert.equal((result as { errors: string[] }).errors.length, 3); // uri, oidc SA, oidc audience all unresolvable
+});
+
+test('validateEmailTaskQueue verifies dispatch pacing, retry settings, and queue log sampling', () => {
+  assert.deepEqual(validateEmailTaskQueue({
+    rateLimits: { maxDispatchesPerSecond: 1, maxConcurrentDispatches: 1 },
+    retryConfig: { maxAttempts: 8, maxRetryDuration: '86400s', minBackoff: '1s', maxBackoff: '300s', maxDoublings: 5 },
+    stackdriverLoggingConfig: { samplingRatio: 1 },
+  }), { ok: true });
+  assert.equal(validateEmailTaskQueue({ rateLimits: { maxDispatchesPerSecond: 50 }, retryConfig: { maxAttempts: 2 }, stackdriverLoggingConfig: { samplingRatio: 0 } }).ok, false);
+  assert.deepEqual(EXPECTED_EMAIL_TASK_QUEUE, {
+    maxDispatchesPerSecond: 1, maxConcurrentDispatches: 1, maxAttempts: 8, maxRetryDuration: '86400s',
+    minBackoff: '1s', maxBackoff: '300s', maxDoublings: 5, logSamplingRatio: 1,
+  });
+});
+
+test('validateQueueEnqueuerBinding and validateServiceAccountUserBinding require the runtime identity', () => {
+  const runtimeEmail = 'upload-runtime@krucze-galery-upload.iam.gserviceaccount.com';
+  assert.deepEqual(validateQueueEnqueuerBinding({ bindings: [{ role: 'roles/cloudtasks.enqueuer', members: [`serviceAccount:${runtimeEmail}`] }] }, runtimeEmail), { ok: true });
+  assert.equal(validateQueueEnqueuerBinding({ bindings: [] }, runtimeEmail).ok, false);
+  assert.deepEqual(validateServiceAccountUserBinding({ bindings: [{ role: 'roles/iam.serviceAccountUser', members: [`serviceAccount:${runtimeEmail}`] }] }, runtimeEmail), { ok: true });
+  assert.equal(validateServiceAccountUserBinding({}, runtimeEmail).ok, false);
 });
