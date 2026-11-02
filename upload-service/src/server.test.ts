@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { createServer, request as httpRequest } from 'node:http';
+import { unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createHash, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { AuthError } from './auth.ts';
 import {
@@ -33,6 +35,8 @@ import { getFile } from './files.ts';
 
 const nodeFetch = globalThis.fetch;
 const ALLOWED_ORIGIN_FOR_TESTS = 'https://example.test'; // matches makeDeps()'s allowedOrigin
+const localServerSockets = new Map<string, string>();
+let nextServerSocketId = 0;
 
 // Response statuses that the Fetch spec forbids from carrying a body - constructing a Response
 // with a non-null body at one of these statuses throws, even if the body is zero-length.
@@ -54,7 +58,7 @@ async function drainResponse(res: Response): Promise<Response> {
 // guard itself (missing Origin) - still drains the body like `fetch` below, just without
 // defaulting the Origin header.
 async function rawFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  return drainResponse(await nodeFetch(url, options));
+  return localOrExternalFetch(url, options);
 }
 
 // Every real caller has sent Origin on every state-changing request since Phase 0 made
@@ -69,7 +73,57 @@ async function fetch(url: string, options: RequestInit = {}): Promise<Response> 
   if (!headers.has('Origin')) {
     headers.set('Origin', ALLOWED_ORIGIN_FOR_TESTS);
   }
-  return drainResponse(await nodeFetch(url, { ...options, headers }));
+  return localOrExternalFetch(url, { ...options, headers });
+}
+
+async function localOrExternalFetch(url: string, options: RequestInit): Promise<Response> {
+  const target = new URL(url);
+  const socketPath = localServerSockets.get(target.hostname);
+  if (!socketPath) {
+    return drainResponse(await nodeFetch(url, options));
+  }
+
+  const request = new Request(url, options);
+  const body = request.body === null ? undefined : Buffer.from(await request.arrayBuffer());
+  const headers = Object.fromEntries(request.headers);
+  if (body !== undefined && !('content-length' in headers)) {
+    headers['content-length'] = String(body.byteLength);
+  }
+  const response = await new Promise<{ status: number; statusText: string; headers: Headers; body: Buffer }>((resolve, reject) => {
+    const outgoing = httpRequest({
+      socketPath,
+      method: request.method,
+      path: `${target.pathname}${target.search}`,
+      headers,
+    }, incoming => {
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(incoming.headers)) {
+        if (Array.isArray(value)) {
+          for (const item of value) headers.append(name, item);
+        } else if (value !== undefined) {
+          headers.set(name, value);
+        }
+      }
+      const chunks: Buffer[] = [];
+      incoming.on('data', chunk => chunks.push(Buffer.from(chunk)));
+      incoming.on('end', () => resolve({
+        status: incoming.statusCode ?? 500,
+        statusText: incoming.statusMessage ?? '',
+        headers,
+        body: Buffer.concat(chunks),
+      }));
+      incoming.on('error', reject);
+    });
+    outgoing.on('error', reject);
+    if (body) outgoing.write(body);
+    outgoing.end();
+  });
+
+  return new Response(NULL_BODY_STATUSES.has(response.status) ? null : response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 const VALID_JPEG_BYTES = Buffer.concat([
@@ -210,12 +264,25 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
 
 async function withServer<T>(deps: ServerDeps, run: (baseUrl: string) => Promise<T>): Promise<T> {
   const server = createServer(createRequestListener(deps));
-  await new Promise<void>(resolve => server.listen(0, resolve));
-  const { port } = server.address() as AddressInfo;
+  nextServerSocketId += 1;
+  const host = `krkg-test-${process.pid}-${nextServerSocketId}.local`;
+  const socketPath = join(tmpdir(), `krkg-test-${process.pid}-${nextServerSocketId}.sock`);
+  await unlink(socketPath).catch(error => {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(socketPath, resolve);
+  });
+  localServerSockets.set(host, socketPath);
   try {
-    return await run(`http://127.0.0.1:${port}`);
+    return await run(`http://${host}`);
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
+    localServerSockets.delete(host);
+    await unlink(socketPath).catch(error => {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    });
   }
 }
 
@@ -7090,6 +7157,91 @@ test('POST /lista-wyjazdowa/events creates an active event', async () => {
   });
 });
 
+test('POST /lista-wyjazdowa/events notifies active members through their enabled channels and devices only', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'both@example.com', seedMemberDoc({ email: 'both@example.com', status: 'active' }));
+  firestore.seed('members', 'shared-a', seedMemberDoc({ email: 'shared@example.com', status: 'active' }));
+  firestore.seed('members', 'shared-b', seedMemberDoc({ email: 'SHARED@example.com', status: 'active' }));
+  firestore.seed('members', 'push-only@example.com', seedMemberDoc({ email: 'push-only@example.com', status: 'active' }));
+  firestore.seed('members', 'email-only@example.com', seedMemberDoc({ email: 'email-only@example.com', status: 'active' }));
+  firestore.seed('members', 'pending@example.com', seedMemberDoc({ email: 'pending@example.com', status: 'pending' }));
+  firestore.seed('notificationPreferences', 'both@example.com', {
+    emailEnabled: true,
+    pushSubscriptions: [
+      { ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/both-1', createdAt: '2026-09-30T00:00:00.000Z' },
+      { ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/both-2', createdAt: '2026-09-30T00:00:00.000Z' },
+    ],
+  });
+  firestore.seed('notificationPreferences', 'push-only@example.com', {
+    emailEnabled: false,
+    pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/push-only', createdAt: '2026-09-30T00:00:00.000Z' }],
+  });
+  firestore.seed('notificationPreferences', 'pending@example.com', {
+    emailEnabled: true,
+    pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/pending', createdAt: '2026-09-30T00:00:00.000Z' }],
+  });
+  firestore.seed('notificationPreferences', 'shared@example.com', {
+    emailEnabled: true,
+    pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/shared', createdAt: '2026-09-30T00:00:00.000Z' }],
+  });
+  const { sent, mailer } = makeRecordingMailer();
+  const { pushed, pusher } = makeRecordingPusher();
+  await withServer(makeDeps({ firestore, mailer, pusher }), async baseUrl => {
+    const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    const eventId = body.event.id as string;
+    assert.deepEqual(sent.map(message => message.to).sort(), ['both@example.com', 'email-only@example.com', 'shared@example.com']);
+    assert.deepEqual(pushed.map(message => message.endpoint).sort(), [
+      'https://fcm.googleapis.com/fcm/send/both-1',
+      'https://fcm.googleapis.com/fcm/send/both-2',
+      'https://fcm.googleapis.com/fcm/send/push-only',
+      'https://fcm.googleapis.com/fcm/send/shared',
+    ]);
+    assert.ok(sent.every(message => message.text.includes(`eventId=${encodeURIComponent(eventId)}`)));
+    assert.ok(pushed.every(message => message.message.url === `/lista-wyjazdowa/wyjazd/?eventId=${encodeURIComponent(eventId)}`));
+  });
+});
+
+test('POST /lista-wyjazdowa/events succeeds and still sends push when event e-mail delivery fails', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'active@example.com', seedMemberDoc({ email: 'active@example.com', status: 'active' }));
+  firestore.seed('notificationPreferences', 'active@example.com', {
+    emailEnabled: true,
+    pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, createdAt: '2026-09-30T00:00:00.000Z' }],
+  });
+  const { pushed, pusher } = makeRecordingPusher();
+  let mailAttempts = 0;
+  await withServer(makeDeps({ firestore, pusher, mailer: { send: async () => { mailAttempts += 1; throw new Error('mail unavailable'); } } }), async baseUrl => {
+    const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.ok(await firestore.getDoc('events', body.event.id));
+  });
+  assert.equal(mailAttempts, 1);
+  assert.equal(pushed.length, 1);
+});
+
+test('POST /lista-wyjazdowa/events succeeds and still sends event e-mail when push delivery fails', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'active@example.com', seedMemberDoc({ email: 'active@example.com', status: 'active' }));
+  firestore.seed('notificationPreferences', 'active@example.com', {
+    emailEnabled: true,
+    pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, createdAt: '2026-09-30T00:00:00.000Z' }],
+  });
+  const { sent, mailer } = makeRecordingMailer();
+  let pushAttempts = 0;
+  const pusher = { publicKey: 'test-public-key', send: async () => { pushAttempts += 1; throw new Error('push unavailable'); } };
+  await withServer(makeDeps({ firestore, mailer, pusher }), async baseUrl => {
+    const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.ok(await firestore.getDoc('events', body.event.id));
+  });
+  assert.equal(pushAttempts, 1);
+  assert.deepEqual(sent.map(message => message.to), ['active@example.com']);
+});
+
 test('POST /lista-wyjazdowa/events rejects a malformed startDate with 400', async () => {
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
   await withServer(deps, async baseUrl => {
@@ -10155,16 +10307,27 @@ test('GET/PUT /profile/notifications: e-mail opt-out is stored per person and au
   assert.deepEqual(event?.data.changes.map(c => [c.field, c.before, c.after]), [['emailNotifications', true, false]]);
 });
 
-test('GET /profile/notifications reports push unavailable (no key) and not eligible outside the push roles', async () => {
+test('GET /profile/notifications allows active members to enroll for push without a configured role', async () => {
   const client = createInMemoryFirestoreClient();
-  const deps = makeDeps({ firestore: client, listAdminAllowlistEmails: async () => ['alice@gmail.com'] });
+  client.seed('members', 'alice@gmail.com', seedMemberDoc({ email: 'alice@gmail.com', status: 'active' }));
+  const deps = makeDeps({ firestore: client, listAdminAllowlistEmails: async () => [] });
   await withServer(deps, async baseUrl => {
     const body = await (await fetch(`${baseUrl}/profile/notifications`)).json();
     assert.deepEqual(body.push, { publicKey: null, eligible: false, endpoints: [] });
   });
   client.seed('notificationSettings', 'default', { registrationRecipientRoles: ['admin'], pushRecipientRoles: ['hovding'] });
   const { pusher } = makeRecordingPusher();
-  await withServer(makeDeps({ firestore: client, pusher, listAdminAllowlistEmails: async () => ['alice@gmail.com'] }), async baseUrl => {
+  await withServer(makeDeps({ firestore: client, pusher, listAdminAllowlistEmails: async () => [] }), async baseUrl => {
+    const body = await (await fetch(`${baseUrl}/profile/notifications`)).json();
+    assert.equal(body.push.eligible, true);
+  });
+  client.seed('members', 'inactive@example.com', seedMemberDoc({ email: 'inactive@example.com', status: 'suspended' }));
+  await withServer(makeDeps({
+    firestore: client,
+    pusher,
+    listAdminAllowlistEmails: async () => [],
+    authenticate: async () => fakeSessionClaims({ email: 'inactive@example.com' }),
+  }), async baseUrl => {
     const body = await (await fetch(`${baseUrl}/profile/notifications`)).json();
     assert.equal(body.push.eligible, false);
   });

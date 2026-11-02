@@ -66,6 +66,8 @@ import { createDisabledPusher, createWebPusher, parsePushSubscription, MAX_PUSH_
 import { ensureRejectedFolder, findRejectedFolder, forgetRejection, listRejectedPhotos, recordRejections, type RejectedPhoto } from './photo-rejections.ts';
 import {
   addPushSubscriptionInTransaction,
+  eventAddedMessage,
+  eventAddedPush,
   getNotificationPreferences,
   getNotificationSettings,
   membershipDecisionMessage,
@@ -115,7 +117,7 @@ import {
   uniqueLookupId,
   type LookupItem,
 } from './lookup-lists.ts';
-import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWritableFields } from './events.ts';
+import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWithId, type EventWritableFields } from './events.ts';
 import {
   listAllSignups,
   listSignupsForEvent,
@@ -1558,6 +1560,23 @@ async function notifyRegistrationSubmitted(
   );
 }
 
+/** Sends the new-event alert to every active member using their saved e-mail and push settings. */
+async function notifyActiveMembersOfNewEvent(deps: ServerDeps, event: EventWithId): Promise<void> {
+  const recipients = [...new Set((await listActiveMemberEmails(deps.firestore)).map(email => email.toLowerCase()))];
+  if (recipients.length === 0) return;
+
+  const messages = recipients.map(email => eventAddedMessage(email, event, deps.allowedOrigin));
+  const push = eventAddedPush(event);
+  await Promise.all([
+    sendNotifications(deps.mailer, deps.firestore, messages).catch(err => {
+      console.error('Nie udało się wysłać powiadomień e-mail o nowym wyjeździe:', err);
+    }),
+    sendPushNotifications(deps.pusher, deps.firestore, recipients, push).catch(err => {
+      console.error('Nie udało się wysłać powiadomień push o nowym wyjeździe:', err);
+    }),
+  ]);
+}
+
 // E-mail to the configured e-mail roles, push to the configured push roles - two independent,
 // best-effort channels, so a push outage never costs the e-mail and vice versa.
 async function notifyAdminRecipients(
@@ -1863,23 +1882,31 @@ async function handleAdminUpdateNotificationSettings(req: IncomingMessage, res: 
 }
 
 // A person's own notification choices (/profil/): e-mail on/off for every notification e-mail,
-// and the push-enabled devices. `push.eligible` says whether this person is currently one of the
-// configured push recipients - the profile only offers the push switch when it would do anything.
+// and the push-enabled devices. Every active member can register devices to receive member alerts;
+// existing configured push recipients keep access to their admin-facing alerts as well.
 async function handleGetProfileNotifications(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
   const email = identity.email.toLowerCase();
-  const [preferences, settings] = await Promise.all([
+  const [preferences, member] = await Promise.all([
     getNotificationPreferences(deps.firestore, email),
-    getNotificationSettings(deps.firestore),
+    deps.pusher.publicKey
+      ? getMember(deps.firestore, email).catch(err => {
+          console.error('Nie udało się sprawdzić aktywnego członkostwa dla zapisu powiadomień push:', err);
+          return null;
+        })
+      : Promise.resolve(null),
   ]);
-  const pushRecipients = deps.pusher.publicKey
-    ? await resolveRegistrationRecipients({ firestore: deps.firestore, listAdminAllowlistEmails: deps.listAdminAllowlistEmails }, settings.pushRecipientRoles)
-    : [];
+  const configuredPushEligible = deps.pusher.publicKey && member?.status !== 'active'
+    ? (await resolveRegistrationRecipients(
+        { firestore: deps.firestore, listAdminAllowlistEmails: deps.listAdminAllowlistEmails },
+        (await getNotificationSettings(deps.firestore)).pushRecipientRoles,
+      )).includes(email)
+    : false;
   sendJson(res, 200, {
     emailEnabled: preferences.emailEnabled,
     push: {
       publicKey: deps.pusher.publicKey,
-      eligible: pushRecipients.includes(email),
+      eligible: member?.status === 'active' || configuredPushEligible === true,
       // Lets the page tell whether THIS browser's subscription is the one already registered.
       endpoints: preferences.pushSubscriptions.map(subscription => subscription.endpoint),
     },
@@ -3895,6 +3922,7 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
     },
     tx => createEvent(tx, { name, startDate, description, noCampEquipment, mapUrl, discordUrl }, identity.email, eventId),
   );
+  await notifyActiveMembersOfNewEvent(deps, event);
   sendJson(res, 200, { event });
 }
 
