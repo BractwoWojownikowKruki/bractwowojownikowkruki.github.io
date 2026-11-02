@@ -7090,6 +7090,76 @@ test('POST /lista-wyjazdowa/events creates an active event', async () => {
   });
 });
 
+test('POST /lista-wyjazdowa/events notifies active members through their enabled channels and devices only', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'both@example.com', seedMemberDoc({ email: 'both@example.com', status: 'active' }));
+  firestore.seed('members', 'push-only@example.com', seedMemberDoc({ email: 'push-only@example.com', status: 'active' }));
+  firestore.seed('members', 'email-only@example.com', seedMemberDoc({ email: 'email-only@example.com', status: 'active' }));
+  firestore.seed('members', 'pending@example.com', seedMemberDoc({ email: 'pending@example.com', status: 'pending' }));
+  firestore.seed('notificationPreferences', 'both@example.com', {
+    emailEnabled: true,
+    pushSubscriptions: [
+      { ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/both-1', createdAt: '2026-09-30T00:00:00.000Z' },
+      { ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/both-2', createdAt: '2026-09-30T00:00:00.000Z' },
+    ],
+  });
+  firestore.seed('notificationPreferences', 'push-only@example.com', {
+    emailEnabled: false,
+    pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/push-only', createdAt: '2026-09-30T00:00:00.000Z' }],
+  });
+  firestore.seed('notificationPreferences', 'pending@example.com', {
+    emailEnabled: true,
+    pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/pending', createdAt: '2026-09-30T00:00:00.000Z' }],
+  });
+  const { sent, mailer } = makeRecordingMailer();
+  const { pushed, pusher } = makeRecordingPusher();
+  await withServer(makeDeps({ firestore, mailer, pusher }), async baseUrl => {
+    const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    const eventId = body.event.id as string;
+    assert.deepEqual(sent.map(message => message.to).sort(), ['both@example.com', 'email-only@example.com']);
+    assert.deepEqual(pushed.map(message => message.endpoint).sort(), [
+      'https://fcm.googleapis.com/fcm/send/both-1',
+      'https://fcm.googleapis.com/fcm/send/both-2',
+      'https://fcm.googleapis.com/fcm/send/push-only',
+    ]);
+    assert.ok(sent.every(message => message.text.includes(`eventId=${encodeURIComponent(eventId)}`)));
+    assert.ok(pushed.every(message => message.message.url === `/lista-wyjazdowa/wyjazd/?eventId=${encodeURIComponent(eventId)}`));
+  });
+});
+
+test('POST /lista-wyjazdowa/events succeeds and still sends push when event e-mail delivery fails', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'active@example.com', seedMemberDoc({ email: 'active@example.com', status: 'active' }));
+  firestore.seed('notificationPreferences', 'active@example.com', {
+    emailEnabled: true,
+    pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, createdAt: '2026-09-30T00:00:00.000Z' }],
+  });
+  const { pushed, pusher } = makeRecordingPusher();
+  await withServer(makeDeps({ firestore, pusher, mailer: { send: async () => { throw new Error('mail unavailable'); } } }), async baseUrl => {
+    const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
+    assert.equal(response.status, 200);
+  });
+  assert.equal(pushed.length, 1);
+});
+
+test('POST /lista-wyjazdowa/events succeeds and still sends event e-mail when push delivery fails', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'active@example.com', seedMemberDoc({ email: 'active@example.com', status: 'active' }));
+  firestore.seed('notificationPreferences', 'active@example.com', {
+    emailEnabled: true,
+    pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, createdAt: '2026-09-30T00:00:00.000Z' }],
+  });
+  const { sent, mailer } = makeRecordingMailer();
+  const pusher = { publicKey: 'test-public-key', send: async () => { throw new Error('push unavailable'); } };
+  await withServer(makeDeps({ firestore, mailer, pusher }), async baseUrl => {
+    const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
+    assert.equal(response.status, 200);
+  });
+  assert.deepEqual(sent.map(message => message.to), ['active@example.com']);
+});
+
 test('POST /lista-wyjazdowa/events rejects a malformed startDate with 400', async () => {
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
   await withServer(deps, async baseUrl => {
