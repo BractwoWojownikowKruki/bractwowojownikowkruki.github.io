@@ -66,6 +66,8 @@ import { createDisabledPusher, createWebPusher, parsePushSubscription, MAX_PUSH_
 import { ensureRejectedFolder, findRejectedFolder, forgetRejection, listRejectedPhotos, recordRejections, type RejectedPhoto } from './photo-rejections.ts';
 import {
   addPushSubscriptionInTransaction,
+  eventAddedMessage,
+  eventAddedPush,
   getNotificationPreferences,
   getNotificationSettings,
   membershipDecisionMessage,
@@ -115,7 +117,7 @@ import {
   uniqueLookupId,
   type LookupItem,
 } from './lookup-lists.ts';
-import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWritableFields } from './events.ts';
+import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWithId, type EventWritableFields } from './events.ts';
 import {
   listAllSignups,
   listSignupsForEvent,
@@ -1556,6 +1558,23 @@ async function notifyRegistrationSubmitted(
     registrationSubmittedPush(applicant),
     'Nie udało się wysłać powiadomień o nowym zgłoszeniu członkowskim:',
   );
+}
+
+/** Sends the new-event alert to every active member using their saved e-mail and push settings. */
+async function notifyActiveMembersOfNewEvent(deps: ServerDeps, event: EventWithId): Promise<void> {
+  const recipients = [...new Set((await listActiveMemberEmails(deps.firestore)).map(email => email.toLowerCase()))];
+  if (recipients.length === 0) return;
+
+  const messages = recipients.map(email => eventAddedMessage(email, event, deps.allowedOrigin));
+  const push = eventAddedPush(event);
+  await Promise.all([
+    sendNotifications(deps.mailer, deps.firestore, messages).catch(err => {
+      console.error('Nie udało się wysłać powiadomień e-mail o nowym wyjeździe:', err);
+    }),
+    sendPushNotifications(deps.pusher, deps.firestore, recipients, push).catch(err => {
+      console.error('Nie udało się wysłać powiadomień push o nowym wyjeździe:', err);
+    }),
+  ]);
 }
 
 // E-mail to the configured e-mail roles, push to the configured push roles - two independent,
@@ -3895,6 +3914,7 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
     },
     tx => createEvent(tx, { name, startDate, description, noCampEquipment, mapUrl, discordUrl }, identity.email, eventId),
   );
+  await notifyActiveMembersOfNewEvent(deps, event);
   sendJson(res, 200, { event });
 }
 

@@ -5,6 +5,7 @@
 import type { FirestoreLikeClient, FirestoreTransaction } from './firestore.ts';
 import type { MailMessage, Mailer } from './mailer.ts';
 import type { PushMessage, PushSubscriptionRecord, Pusher } from './pusher.ts';
+import type { EventWithId } from './events.ts';
 import { listAllGrantedRoles } from './roles.ts';
 import { listAllMembers } from './members.ts';
 
@@ -244,6 +245,29 @@ export function photosSubmittedPush(
   const fullName = `${uploader.firstName} ${uploader.lastName}`.trim() || uploader.email;
   const nickname = uploader.nickname ? ` (${uploader.nickname})` : '';
   return { title: 'Nowe zdjęcia do zatwierdzenia', body: `${fullName}${nickname}: ${photoCount}`, url: '/admin/publiczne-wizytowki/' };
+}
+
+/** Builds a member-facing e-mail for a newly created Lista Wyjazdowa event. */
+export function eventAddedMessage(to: string, event: Pick<EventWithId, 'id' | 'name' | 'startDate'>, siteUrl: string): MailMessage {
+  const eventUrl = `${siteUrl}/lista-wyjazdowa/wyjazd/?eventId=${encodeURIComponent(event.id)}`;
+  return {
+    to,
+    subject: `Nowy wyjazd: ${event.name}`,
+    text:
+      `Dodano nowy wyjazd do Listy Wyjazdowej:\n\n` +
+      `${event.name}\nData rozpoczęcia: ${event.startDate}\n\n` +
+      `Szczegóły wyjazdu: ${eventUrl}` +
+      SIGNATURE,
+  };
+}
+
+/** Builds a push notification for a newly created Lista Wyjazdowa event. */
+export function eventAddedPush(event: Pick<EventWithId, 'id' | 'name' | 'startDate'>): PushMessage {
+  return {
+    title: 'Nowy wyjazd',
+    body: `${event.name} · ${event.startDate}`,
+    url: `/lista-wyjazdowa/wyjazd/?eventId=${encodeURIComponent(event.id)}`,
+  };
 }
 
 /**
