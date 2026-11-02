@@ -105,6 +105,36 @@ jobs:
           AUDIT_RECONCILER_SERVICE_ACCOUNT: ${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}
         run: npx tsx scripts/deploy-validation.ts require-secret AUDIT_RECONCILER_SERVICE_ACCOUNT "$AUDIT_RECONCILER_SERVICE_ACCOUNT"
 
+      # KRKG-130 sends one task per opted-in active member. The queue serializes the Gmail
+      # requests to avoid quota bursts while Cloud Tasks owns transient retry/backoff behavior.
+      - name: Provision event email Cloud Tasks queue
+        env:
+          CLOUD_RUN_RUNTIME_SA: ${{ secrets.CLOUD_RUN_RUNTIME_SA }}
+          AUDIT_RECONCILER_SERVICE_ACCOUNT: ${{ secrets.AUDIT_RECONCILER_SERVICE_ACCOUNT }}
+        run: |
+          gcloud services enable cloudtasks.googleapis.com --project=krucze-galery-upload
+          if gcloud tasks queues describe event-email-notifications --location=europe-west1 --project=krucze-galery-upload >/dev/null 2>&1; then
+            gcloud tasks queues update event-email-notifications \
+              --location=europe-west1 --project=krucze-galery-upload \
+              --log-sampling-ratio=1.0 \
+              --max-dispatches-per-second=1 --max-concurrent-dispatches=1 \
+              --max-attempts=8 --max-retry-duration=86400s \
+              --min-backoff=1s --max-backoff=300s --max-doublings=5
+          else
+            gcloud tasks queues create event-email-notifications \
+              --location=europe-west1 --project=krucze-galery-upload \
+              --log-sampling-ratio=1.0 \
+              --max-dispatches-per-second=1 --max-concurrent-dispatches=1 \
+              --max-attempts=8 --max-retry-duration=86400s \
+              --min-backoff=1s --max-backoff=300s --max-doublings=5
+          fi
+          gcloud tasks queues add-iam-policy-binding event-email-notifications \
+            --location=europe-west1 --project=krucze-galery-upload \
+            --member="serviceAccount:$CLOUD_RUN_RUNTIME_SA" --role=roles/cloudtasks.enqueuer
+          gcloud iam service-accounts add-iam-policy-binding "$AUDIT_RECONCILER_SERVICE_ACCOUNT" \
+            --project=krucze-galery-upload \
+            --member="serviceAccount:$CLOUD_RUN_RUNTIME_SA" --role=roles/iam.serviceAccountUser
+
       - id: auth
         name: Authenticate to GCP
         uses: google-github-actions/auth@v2

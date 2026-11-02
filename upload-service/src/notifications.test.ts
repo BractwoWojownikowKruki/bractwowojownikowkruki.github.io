@@ -7,6 +7,7 @@ import {
   addPushSubscriptionInTransaction,
   eventAddedMessage,
   eventAddedPush,
+  enqueueEmailNotifications,
   getNotificationPreferences,
   getNotificationSettings,
   MAX_PUSH_SUBSCRIPTIONS_PER_PERSON,
@@ -154,6 +155,34 @@ test('sendNotifications skips recipients who opted out of e-mail, and sends when
   sent.length = 0;
   await sendNotifications(mailer, { getDoc: async () => { throw new Error('firestore down'); } }, messages);
   assert.deepEqual(sent.sort(), ['OUT@example.com', 'in@example.com']);
+});
+
+test('enqueueEmailNotifications respects email preferences and records deterministic per-recipient deliveries', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.runTransaction(tx => setEmailEnabledInTransaction(tx, 'out@example.com', false));
+  const enqueued: Array<{ recipient: string; deliveryId: string }> = [];
+  const enqueue = async (payload: { recipient: string; deliveryId: string }) => {
+    enqueued.push(payload);
+    return { status: 'created' as const };
+  };
+  const messages = ['in@example.com', 'out@example.com'].map(to => ({ to, subject: 's', text: 'event snapshot' }));
+  await enqueueEmailNotifications(client, messages, 'event-1', enqueue);
+  assert.equal(enqueued.length, 1);
+  assert.equal(enqueued[0].recipient, 'in@example.com');
+  const records = await client.listDocs<{ status: string; recipient: string }>('emailNotificationDeliveries');
+  assert.equal(records.length, 1);
+  assert.equal(records[0].data.status, 'queued');
+  assert.equal(records[0].data.recipient, 'in@example.com');
+});
+
+test('enqueueEmailNotifications does not re-enqueue deliveries already sent or permanently failed', async () => {
+  const client = createInMemoryFirestoreClient();
+  const { createEmailDeliveryId } = await import('./email-tasks.ts');
+  const deliveryId = createEmailDeliveryId('event-2', 'a@example.com');
+  client.seed('emailNotificationDeliveries', deliveryId, { deliveryId, status: 'sent' });
+  let calls = 0;
+  await enqueueEmailNotifications(client, [{ to: 'a@example.com', subject: 's', text: 't' }], 'event-2', async () => { calls++; return { status: 'created' }; });
+  assert.equal(calls, 0);
 });
 
 test('sendPushNotifications sends to every device of every recipient and does nothing when push is disabled', async () => {

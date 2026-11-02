@@ -70,3 +70,55 @@ test('createGmailMailer never throws: HTTP errors, token failures and bad addres
   });
   assert.equal(await brokenToken.send({ to: 'a@example.com', subject: 's', text: 't' }), 'failed');
 });
+
+test('createGmailMailer returns the Gmail message id for an accepted message', async () => {
+  resetGmailTokenCacheForTests();
+  const fetchImpl = (async (url: string) => url.includes('oauth2')
+    ? new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }))
+    : new Response(JSON.stringify({ id: 'gmail-message-123' }))) as typeof fetch;
+  const mailer = createGmailMailer({ clientId: 'c', clientSecret: 's', refreshToken: 'r4', from: 'x@example.com', fetchImpl });
+
+  assert.deepEqual(await mailer.sendDetailed!({ to: 'a@example.com', subject: 's', text: 't' }), {
+    status: 'sent',
+    messageId: 'gmail-message-123',
+    httpStatus: 200,
+  });
+});
+
+test('createGmailMailer identifies retryable Gmail rate-limit 403 and 429 results', async () => {
+  resetGmailTokenCacheForTests();
+  let status = 403;
+  let reason = 'userRateLimitExceeded';
+  const fetchImpl = (async (url: string) => url.includes('oauth2')
+    ? new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }))
+    : new Response(JSON.stringify({ error: { errors: [{ reason }] } }), { status })) as typeof fetch;
+  const mailer = createGmailMailer({ clientId: 'c', clientSecret: 's', refreshToken: 'r5', from: 'x@example.com', fetchImpl });
+
+  assert.deepEqual(await mailer.sendDetailed!({ to: 'a@example.com', subject: 's', text: 't' }), {
+    status: 'failed', httpStatus: 403, reason: 'userRateLimitExceeded', retryable: true,
+  });
+  status = 429;
+  reason = '';
+  assert.deepEqual(await mailer.sendDetailed!({ to: 'a@example.com', subject: 's', text: 't' }), {
+    status: 'failed', httpStatus: 429, reason: null, retryable: true,
+  });
+});
+
+test('createGmailMailer marks policy 403 as permanent and network errors retryable', async () => {
+  resetGmailTokenCacheForTests();
+  let failWithNetworkError = false;
+  const fetchImpl = (async (url: string) => {
+    if (url.includes('oauth2')) return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }));
+    if (failWithNetworkError) throw new Error('network down');
+    return new Response(JSON.stringify({ error: { errors: [{ reason: 'domainPolicy' }] } }), { status: 403 });
+  }) as typeof fetch;
+  const mailer = createGmailMailer({ clientId: 'c', clientSecret: 's', refreshToken: 'r6', from: 'x@example.com', fetchImpl });
+
+  assert.deepEqual(await mailer.sendDetailed!({ to: 'a@example.com', subject: 's', text: 't' }), {
+    status: 'failed', httpStatus: 403, reason: 'domainPolicy', retryable: false,
+  });
+  failWithNetworkError = true;
+  assert.deepEqual(await mailer.sendDetailed!({ to: 'a@example.com', subject: 's', text: 't' }), {
+    status: 'failed', httpStatus: null, reason: 'network_error', retryable: true,
+  });
+});

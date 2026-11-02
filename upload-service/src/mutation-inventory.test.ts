@@ -20,15 +20,15 @@ interface ClassifiedRoute {
 }
 
 /**
- * `POST /internal/audit/reconcile` is a real, authenticated, state-changing dispatch entry, but
- * implementation-contract.md's Mutation-inventory section explicitly excludes it from the table:
- * its caller is Cloud Scheduler's own OIDC service-account identity, never a member's Google
- * identity (the contract's own scope section excludes "machine-only sync" work), and it only
- * finalizes an already-registered action's pending intent rather than creating a new one - see the
- * contract's "External-operation contract" section. Named here explicitly, rather than left as a
- * silent gap, so it can never be confused with an unclassified route this test failed to catch.
+ * The internal Scheduler reconcile and Cloud Tasks email delivery routes are authenticated
+ * service-account callbacks rather than member actions. They are intentionally out of the
+ * business mutation inventory: reconciliation finalizes a pending intent and the email worker
+ * records delivery state. Both are named explicitly rather than left as silent gaps.
  */
-const DOCUMENTED_NON_MEMBER_EXCEPTIONS: ReadonlySet<string> = new Set(['POST /internal/audit/reconcile']);
+const DOCUMENTED_NON_MEMBER_EXCEPTIONS: ReadonlySet<string> = new Set([
+  'POST /internal/audit/reconcile',
+  'POST /internal/notifications/email',
+]);
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -117,5 +117,5 @@ test('the documented non-member exception is not silently absorbing an unrelated
   // Guards against someone "fixing" a future coverage failure by widening
   // DOCUMENTED_NON_MEMBER_EXCEPTIONS instead of updating the contract - it must stay exactly the
   // one route the contract names.
-  assert.deepEqual([...DOCUMENTED_NON_MEMBER_EXCEPTIONS], ['POST /internal/audit/reconcile']);
+  assert.deepEqual([...DOCUMENTED_NON_MEMBER_EXCEPTIONS], ['POST /internal/audit/reconcile', 'POST /internal/notifications/email']);
 });

@@ -4,6 +4,7 @@
 // request handler.
 import type { FirestoreLikeClient, FirestoreTransaction } from './firestore.ts';
 import type { MailMessage, Mailer } from './mailer.ts';
+import { createEmailDeliveryId, type EmailTaskPayload } from './email-tasks.ts';
 import type { PushMessage, PushSubscriptionRecord, Pusher } from './pusher.ts';
 import type { EventWithId } from './events.ts';
 import { listAllGrantedRoles } from './roles.ts';
@@ -320,6 +321,52 @@ export async function sendNotifications(
       console.error('Wysłanie powiadomienia e-mail nie powiodło się:', err);
       return 'failed' as const;
     });
+  }));
+}
+
+/** Records and enqueues each opted-in event email separately so Cloud Tasks can pace delivery. */
+export async function enqueueEmailNotifications(
+  firestore: FirestoreLikeClient,
+  messages: readonly MailMessage[],
+  eventId: string,
+  enqueue: (payload: EmailTaskPayload) => Promise<{ status: 'created' | 'already_exists' }>,
+): Promise<void> {
+  await Promise.all(messages.map(async message => {
+    const optedOut = await getNotificationPreferences(firestore, message.to).then(prefs => !prefs.emailEnabled, err => {
+      console.error('Nie udało się odczytać preferencji powiadomień:', err);
+      return false;
+    });
+    if (optedOut) return;
+
+    const deliveryId = createEmailDeliveryId(eventId, message.to);
+    const payload: EmailTaskPayload = { deliveryId, eventId, recipient: message.to, message };
+    let delivery = await firestore.getDoc<{ status?: string }>('emailNotificationDeliveries', deliveryId);
+    if (!delivery) {
+      try {
+        await firestore.createDoc('emailNotificationDeliveries', deliveryId, {
+          deliveryId, eventId, recipient: message.to, status: 'queued', createdAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        // Another request may have created the deterministic record concurrently.
+        delivery = await firestore.getDoc<{ status?: string }>('emailNotificationDeliveries', deliveryId);
+        if (!delivery) throw error;
+      }
+    }
+    if (delivery?.status === 'sent' || delivery?.status === 'failed') return;
+
+    try {
+      await firestore.setDoc('emailNotificationDeliveries', deliveryId, {
+        deliveryId, eventId, recipient: message.to, status: 'queued', updatedAt: new Date().toISOString(),
+      });
+      const result = await enqueue(payload);
+      console.info(JSON.stringify({ severity: 'INFO', message: 'event_email_enqueued', deliveryId, eventId, recipient: message.to, taskStatus: result.status }));
+    } catch (error) {
+      await firestore.setDoc('emailNotificationDeliveries', deliveryId, {
+        deliveryId, eventId, recipient: message.to, status: 'enqueue_failed',
+        error: error instanceof Error ? error.message : String(error), updatedAt: new Date().toISOString(),
+      });
+      console.error(JSON.stringify({ severity: 'ERROR', message: 'event_email_enqueue_failed', deliveryId, eventId, recipient: message.to, error: error instanceof Error ? error.message : String(error) }));
+    }
   }));
 }
 

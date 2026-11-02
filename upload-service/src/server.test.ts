@@ -7184,9 +7184,9 @@ test('POST /lista-wyjazdowa/events notifies active members through their enabled
     emailEnabled: true,
     pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/shared', createdAt: '2026-09-30T00:00:00.000Z' }],
   });
-  const { sent, mailer } = makeRecordingMailer();
+  const queued: Array<{ recipient: string; message: MailMessage }> = [];
   const { pushed, pusher } = makeRecordingPusher();
-  await withServer(makeDeps({ firestore, mailer, pusher }), async baseUrl => {
+  await withServer(makeDeps({ firestore, pusher, enqueueEventEmail: async payload => { queued.push(payload); return { status: 'created' }; } }), async baseUrl => {
     const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', {
       name: 'Zjazd Łódź 2027!',
       startDate: '2027-05-01',
@@ -7198,7 +7198,7 @@ test('POST /lista-wyjazdowa/events notifies active members through their enabled
     assert.equal(response.status, 200);
     const body = await response.json();
     const eventId = body.event.id as string;
-    assert.deepEqual(sent.map(message => message.to).sort(), ['both@example.com', 'email-only@example.com', 'shared@example.com']);
+    assert.deepEqual(queued.map(payload => payload.recipient).sort(), ['both@example.com', 'email-only@example.com', 'shared@example.com']);
     assert.deepEqual(pushed.map(message => message.endpoint).sort(), [
       'https://fcm.googleapis.com/fcm/send/both-1',
       'https://fcm.googleapis.com/fcm/send/both-2',
@@ -7206,12 +7206,12 @@ test('POST /lista-wyjazdowa/events notifies active members through their enabled
       'https://fcm.googleapis.com/fcm/send/shared',
     ]);
     const friendlyUrl = '/lista-wyjazdowa/wyjazd/?do=2027-05-01-zjazd-lodz-2027';
-    assert.ok(sent.every(message => message.text.includes(`https://example.test${friendlyUrl}`)));
-    assert.ok(sent.every(message => message.text.includes('Szczegóły spotkania.')));
-    assert.ok(sent.every(message => message.text.includes('https://discord.com/channels/123/456')));
-    assert.ok(sent.every(message => message.text.includes('https://maps.app.goo.gl/example')));
-    assert.ok(sent.every(message => message.text.includes('Bez sprzętu obozowego: tak')));
-    assert.ok(sent.every(message => !message.text.includes(eventId)));
+    assert.ok(queued.every(payload => payload.message.text.includes(`https://example.test${friendlyUrl}`)));
+    assert.ok(queued.every(payload => payload.message.text.includes('Szczegóły spotkania.')));
+    assert.ok(queued.every(payload => payload.message.text.includes('https://discord.com/channels/123/456')));
+    assert.ok(queued.every(payload => payload.message.text.includes('https://maps.app.goo.gl/example')));
+    assert.ok(queued.every(payload => payload.message.text.includes('Bez sprzętu obozowego: tak')));
+    assert.ok(queued.every(payload => !payload.message.text.includes(eventId)));
     assert.ok(pushed.every(message => message.message.url === friendlyUrl));
   });
 });
@@ -7224,14 +7224,14 @@ test('POST /lista-wyjazdowa/events succeeds and still sends push when event e-ma
     pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, createdAt: '2026-09-30T00:00:00.000Z' }],
   });
   const { pushed, pusher } = makeRecordingPusher();
-  let mailAttempts = 0;
-  await withServer(makeDeps({ firestore, pusher, mailer: { send: async () => { mailAttempts += 1; throw new Error('mail unavailable'); } } }), async baseUrl => {
+  let enqueueAttempts = 0;
+  await withServer(makeDeps({ firestore, pusher, enqueueEventEmail: async () => { enqueueAttempts += 1; throw new Error('queue unavailable'); } }), async baseUrl => {
     const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.ok(await firestore.getDoc('events', body.event.id));
   });
-  assert.equal(mailAttempts, 1);
+  assert.equal(enqueueAttempts, 1);
   assert.equal(pushed.length, 1);
 });
 
@@ -7242,17 +7242,17 @@ test('POST /lista-wyjazdowa/events succeeds and still sends event e-mail when pu
     emailEnabled: true,
     pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, createdAt: '2026-09-30T00:00:00.000Z' }],
   });
-  const { sent, mailer } = makeRecordingMailer();
+  const queued: string[] = [];
   let pushAttempts = 0;
   const pusher = { publicKey: 'test-public-key', send: async () => { pushAttempts += 1; throw new Error('push unavailable'); } };
-  await withServer(makeDeps({ firestore, mailer, pusher }), async baseUrl => {
+  await withServer(makeDeps({ firestore, pusher, enqueueEventEmail: async payload => { queued.push(payload.recipient); return { status: 'created' }; } }), async baseUrl => {
     const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.ok(await firestore.getDoc('events', body.event.id));
   });
   assert.equal(pushAttempts, 1);
-  assert.deepEqual(sent.map(message => message.to), ['active@example.com']);
+  assert.deepEqual(queued, ['active@example.com']);
 });
 
 test('POST /lista-wyjazdowa/events rejects a malformed startDate with 400', async () => {
@@ -11247,5 +11247,58 @@ test('payment info: members read it via charges, only staff write it, text is ke
   await withServer(makePlainMemberDeps(firestore), async baseUrl => {
     const list = await (await fetch(`${baseUrl}/lista-wyjazdowa/dues/charges`)).json();
     assert.equal(list.paymentInfo.text, 'Konto:\n12 3456\n\n  BLIK: 600 000 000');
+  });
+});
+
+test('POST /internal/notifications/email requires OIDC and records successful Gmail delivery', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deliveryId = 'event-1-abcd';
+  const payload = { deliveryId, eventId: 'event-1', recipient: 'member@example.test', message: { to: 'member@example.test', subject: 'New trip', text: 'Snapshot details' } };
+  const sent: string[] = [];
+  const deps = makeDeps({
+    firestore,
+    auditReconcilerServiceAccountEmail: 'worker@example.iam.gserviceaccount.com',
+    auditReconcileAudience: 'https://upload.example.test',
+    verifyEventEmailTaskToken: async token => { if (token !== 'valid') throw new AuthError('Unauthorized', 401); },
+    mailer: {
+      send: async () => 'sent',
+      sendDetailed: async message => { sent.push(message.to); return { status: 'sent', messageId: 'gmail-id-1', httpStatus: 200 }; },
+    },
+  });
+  await withServer(deps, async baseUrl => {
+    const unauthorized = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', body: JSON.stringify(payload) });
+    assert.equal(unauthorized.status, 401);
+    const response = await fetch(`${baseUrl}/internal/notifications/email`, {
+      method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 204);
+  });
+  assert.deepEqual(sent, ['member@example.test']);
+  const delivery = await firestore.getDoc<{ status: string; attempt: number; gmailHttpStatus: number; gmailMessageId: string }>('emailNotificationDeliveries', deliveryId);
+  assert.equal(delivery?.status, 'sent');
+  assert.equal(delivery?.attempt, 1);
+  assert.equal(delivery?.gmailHttpStatus, 200);
+  assert.equal(delivery?.gmailMessageId, 'gmail-id-1');
+});
+
+test('POST /internal/notifications/email returns retry status for transient Gmail errors and acknowledges permanent errors', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  let result: { status: 'failed'; httpStatus: number; reason: string; retryable: boolean } = { status: 'failed', httpStatus: 429, reason: 'rateLimitExceeded', retryable: true };
+  const deps = makeDeps({
+    firestore,
+    auditReconcilerServiceAccountEmail: 'worker@example.iam.gserviceaccount.com',
+    auditReconcileAudience: 'https://upload.example.test',
+    verifyEventEmailTaskToken: async () => {},
+    mailer: { send: async () => 'failed', sendDetailed: async () => result },
+  });
+  const payload = { deliveryId: 'event-2-abcd', eventId: 'event-2', recipient: 'member@example.test', message: { to: 'member@example.test', subject: 'New trip', text: 'Snapshot details' } };
+  await withServer(deps, async baseUrl => {
+    const retry = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify(payload) });
+    assert.equal(retry.status, 503);
+    assert.equal((await firestore.getDoc<{ status: string }>('emailNotificationDeliveries', payload.deliveryId))?.status, 'retrying');
+    result = { status: 'failed', httpStatus: 403, reason: 'domainPolicy', retryable: false };
+    const permanent = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ ...payload, deliveryId: 'event-2-permanent' }) });
+    assert.equal(permanent.status, 204);
+    assert.equal((await firestore.getDoc<{ status: string }>('emailNotificationDeliveries', 'event-2-permanent'))?.status, 'failed');
   });
 });
