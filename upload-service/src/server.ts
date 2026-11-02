@@ -1887,19 +1887,26 @@ async function handleAdminUpdateNotificationSettings(req: IncomingMessage, res: 
 async function handleGetProfileNotifications(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticate(req, res);
   const email = identity.email.toLowerCase();
-  const [preferences, settings, activeMemberEmails] = await Promise.all([
+  const [preferences, member] = await Promise.all([
     getNotificationPreferences(deps.firestore, email),
-    getNotificationSettings(deps.firestore),
-    deps.pusher.publicKey ? listActiveMemberEmails(deps.firestore) : Promise.resolve([]),
+    deps.pusher.publicKey
+      ? getMember(deps.firestore, email).catch(err => {
+          console.error('Nie udało się sprawdzić aktywnego członkostwa dla zapisu powiadomień push:', err);
+          return null;
+        })
+      : Promise.resolve(null),
   ]);
-  const configuredPushRecipients = deps.pusher.publicKey
-    ? await resolveRegistrationRecipients({ firestore: deps.firestore, listAdminAllowlistEmails: deps.listAdminAllowlistEmails }, settings.pushRecipientRoles)
-    : [];
+  const configuredPushEligible = deps.pusher.publicKey && member?.status !== 'active'
+    ? (await resolveRegistrationRecipients(
+        { firestore: deps.firestore, listAdminAllowlistEmails: deps.listAdminAllowlistEmails },
+        (await getNotificationSettings(deps.firestore)).pushRecipientRoles,
+      )).includes(email)
+    : false;
   sendJson(res, 200, {
     emailEnabled: preferences.emailEnabled,
     push: {
       publicKey: deps.pusher.publicKey,
-      eligible: activeMemberEmails.some(memberEmail => memberEmail.toLowerCase() === email) || configuredPushRecipients.includes(email),
+      eligible: member?.status === 'active' || configuredPushEligible === true,
       // Lets the page tell whether THIS browser's subscription is the one already registered.
       endpoints: preferences.pushSubscriptions.map(subscription => subscription.endpoint),
     },
