@@ -247,26 +247,55 @@ export function photosSubmittedPush(
   return { title: 'Nowe zdjęcia do zatwierdzenia', body: `${fullName}${nickname}: ${photoCount}`, url: '/admin/publiczne-wizytowki/' };
 }
 
-/** Builds a member-facing e-mail for a newly created Lista Wyjazdowa event. */
-export function eventAddedMessage(to: string, event: Pick<EventWithId, 'id' | 'name' | 'startDate'>, siteUrl: string): MailMessage {
-  const eventUrl = `${siteUrl}/lista-wyjazdowa/wyjazd/?eventId=${encodeURIComponent(event.id)}`;
+const EVENT_NAME_DIACRITICS: Record<string, string> = {
+  'ą': 'a', 'ć': 'c', 'ę': 'e', 'ł': 'l', 'ń': 'n', 'ó': 'o', 'ś': 's', 'ź': 'z', 'ż': 'z',
+};
+
+function eventFriendlySlug(event: Pick<EventWithId, 'name' | 'startDate'>): string {
+  const normalizedName = event.name
+    .toLowerCase()
+    .replace(/[ąćęłńóśźż]/g, character => EVENT_NAME_DIACRITICS[character] ?? character)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return `${event.startDate}-${normalizedName}`;
+}
+
+function eventFriendlyPath(event: Pick<EventWithId, 'name' | 'startDate'>): string {
+  return `/lista-wyjazdowa/wyjazd/?do=${eventFriendlySlug(event)}`;
+}
+
+/** Builds a member-facing e-mail with the details submitted for a new Lista Wyjazdowa event. */
+export function eventAddedMessage(
+  to: string,
+  event: Pick<EventWithId, 'name' | 'startDate' | 'description' | 'discordUrl' | 'mapUrl' | 'noCampEquipment'>,
+  siteUrl: string,
+): MailMessage {
+  const eventUrl = `${siteUrl}${eventFriendlyPath(event)}`;
+  const optionalDetails = [
+    event.discordUrl ? `Temat na Discordzie: ${event.discordUrl}` : null,
+    event.description ? `Dodatkowe informacje:\n${event.description}` : null,
+    event.mapUrl ? `Lokalizacja w Google Maps: ${event.mapUrl}` : null,
+    event.noCampEquipment ? 'Bez sprzętu obozowego: tak' : null,
+  ].filter((detail): detail is string => detail !== null);
   return {
     to,
     subject: `Nowy wyjazd: ${event.name}`,
     text:
       `Dodano nowy wyjazd do Listy Wyjazdowej:\n\n` +
       `${event.name}\nData rozpoczęcia: ${event.startDate}\n\n` +
+      (optionalDetails.length > 0 ? `${optionalDetails.join('\n\n')}\n\n` : '') +
       `Szczegóły wyjazdu: ${eventUrl}` +
       SIGNATURE,
   };
 }
 
 /** Builds a push notification for a newly created Lista Wyjazdowa event. */
-export function eventAddedPush(event: Pick<EventWithId, 'id' | 'name' | 'startDate'>): PushMessage {
+export function eventAddedPush(event: Pick<EventWithId, 'name' | 'startDate'>): PushMessage {
   return {
     title: 'Nowy wyjazd',
     body: `${event.name} · ${event.startDate}`,
-    url: `/lista-wyjazdowa/wyjazd/?eventId=${encodeURIComponent(event.id)}`,
+    url: eventFriendlyPath(event),
   };
 }
 

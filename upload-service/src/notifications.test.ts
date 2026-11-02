@@ -66,19 +66,50 @@ test('rejection messages use the admin comment, or the generic hovding text when
   assert.match(membershipDecisionMessage('a@example.com', 'approved', null, 'https://x.test').subject, /zaakceptowane/);
 });
 
-test('new event e-mail includes the event name, start date, and encoded detail link', () => {
-  const message = eventAddedMessage('member@example.com', { id: 'event/ 1', name: 'Zjazd', startDate: '2027-05-01' }, 'https://example.test');
+test('new event e-mail includes form details and the friendly share link', () => {
+  const message = eventAddedMessage('member@example.com', {
+    name: 'Zjazd Łódź 2027!',
+    startDate: '2027-05-01',
+    description: 'Szczegóły spotkania.',
+    discordUrl: 'https://discord.com/channels/123/456',
+    mapUrl: 'https://maps.app.goo.gl/example',
+    noCampEquipment: true,
+  }, 'https://example.test');
   assert.equal(message.to, 'member@example.com');
-  assert.equal(message.subject, 'Nowy wyjazd: Zjazd');
-  assert.match(message.text, /Zjazd\nData rozpoczęcia: 2027-05-01/);
-  assert.match(message.text, /https:\/\/example\.test\/lista-wyjazdowa\/wyjazd\/\?eventId=event%2F%201/);
+  assert.equal(message.subject, 'Nowy wyjazd: Zjazd Łódź 2027!');
+  assert.match(message.text, /Zjazd Łódź 2027!\nData rozpoczęcia: 2027-05-01/);
+  assert.match(message.text, /https:\/\/example\.test\/lista-wyjazdowa\/wyjazd\/\?do=2027-05-01-zjazd-lodz-2027/);
+  assert.match(message.text, /Szczegóły spotkania\./);
+  assert.match(message.text, /https:\/\/discord\.com\/channels\/123\/456/);
+  assert.match(message.text, /https:\/\/maps\.app\.goo\.gl\/example/);
+  assert.match(message.text, /Bez sprzętu obozowego: tak/);
+  assert.doesNotMatch(message.text, /eventId=/);
 });
 
-test('new event push includes the event name, start date, and encoded detail link', () => {
+test('new event push uses the friendly share link without exposing the event ID', () => {
   assert.deepEqual(
-    eventAddedPush({ id: 'event/ 1', name: 'Zjazd', startDate: '2027-05-01' }),
-    { title: 'Nowy wyjazd', body: 'Zjazd · 2027-05-01', url: '/lista-wyjazdowa/wyjazd/?eventId=event%2F%201' },
+    eventAddedPush({ name: 'Zjazd Łódź 2027!', startDate: '2027-05-01' }),
+    { title: 'Nowy wyjazd', body: 'Zjazd Łódź 2027! · 2027-05-01', url: '/lista-wyjazdowa/wyjazd/?do=2027-05-01-zjazd-lodz-2027' },
   );
+});
+
+test('new event friendly links trim and collapse separators in the event name', () => {
+  assert.equal(
+    eventAddedPush({ name: '  --Zjazd / Łódź!! ', startDate: '2027-05-01' }).url,
+    '/lista-wyjazdowa/wyjazd/?do=2027-05-01-zjazd-lodz',
+  );
+});
+
+test('new event e-mail omits optional form details when they were not supplied', () => {
+  const message = eventAddedMessage('member@example.com', {
+    name: 'Zjazd', startDate: '2027-05-01', description: null, mapUrl: null, discordUrl: null, noCampEquipment: false,
+  }, 'https://example.test');
+  assert.doesNotMatch(message.text, /Dodatkowe informacje|Temat na Discordzie|Google Maps|Bez sprzętu obozowego/);
+
+  const emptyMessage = eventAddedMessage('member@example.com', {
+    name: 'Zjazd', startDate: '2027-05-01', description: '', mapUrl: '', discordUrl: undefined, noCampEquipment: undefined,
+  }, 'https://example.test');
+  assert.doesNotMatch(emptyMessage.text, /Dodatkowe informacje|Temat na Discordzie|Google Maps|Bez sprzętu obozowego/);
 });
 
 test('normalizeRejectionReason trims, treats blank as no comment, and rejects non-strings and over-long text', () => {
