@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { createServer, request as httpRequest } from 'node:http';
+import { unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createHash, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { AuthError } from './auth.ts';
 import {
@@ -33,6 +35,8 @@ import { getFile } from './files.ts';
 
 const nodeFetch = globalThis.fetch;
 const ALLOWED_ORIGIN_FOR_TESTS = 'https://example.test'; // matches makeDeps()'s allowedOrigin
+const localServerSockets = new Map<string, string>();
+let nextServerSocketId = 0;
 
 // Response statuses that the Fetch spec forbids from carrying a body - constructing a Response
 // with a non-null body at one of these statuses throws, even if the body is zero-length.
@@ -54,7 +58,7 @@ async function drainResponse(res: Response): Promise<Response> {
 // guard itself (missing Origin) - still drains the body like `fetch` below, just without
 // defaulting the Origin header.
 async function rawFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  return drainResponse(await nodeFetch(url, options));
+  return localOrExternalFetch(url, options);
 }
 
 // Every real caller has sent Origin on every state-changing request since Phase 0 made
@@ -69,7 +73,57 @@ async function fetch(url: string, options: RequestInit = {}): Promise<Response> 
   if (!headers.has('Origin')) {
     headers.set('Origin', ALLOWED_ORIGIN_FOR_TESTS);
   }
-  return drainResponse(await nodeFetch(url, { ...options, headers }));
+  return localOrExternalFetch(url, { ...options, headers });
+}
+
+async function localOrExternalFetch(url: string, options: RequestInit): Promise<Response> {
+  const target = new URL(url);
+  const socketPath = localServerSockets.get(target.hostname);
+  if (!socketPath) {
+    return drainResponse(await nodeFetch(url, options));
+  }
+
+  const request = new Request(url, options);
+  const body = request.body === null ? undefined : Buffer.from(await request.arrayBuffer());
+  const headers = Object.fromEntries(request.headers);
+  if (body !== undefined && !('content-length' in headers)) {
+    headers['content-length'] = String(body.byteLength);
+  }
+  const response = await new Promise<{ status: number; statusText: string; headers: Headers; body: Buffer }>((resolve, reject) => {
+    const outgoing = httpRequest({
+      socketPath,
+      method: request.method,
+      path: `${target.pathname}${target.search}`,
+      headers,
+    }, incoming => {
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(incoming.headers)) {
+        if (Array.isArray(value)) {
+          for (const item of value) headers.append(name, item);
+        } else if (value !== undefined) {
+          headers.set(name, value);
+        }
+      }
+      const chunks: Buffer[] = [];
+      incoming.on('data', chunk => chunks.push(Buffer.from(chunk)));
+      incoming.on('end', () => resolve({
+        status: incoming.statusCode ?? 500,
+        statusText: incoming.statusMessage ?? '',
+        headers,
+        body: Buffer.concat(chunks),
+      }));
+      incoming.on('error', reject);
+    });
+    outgoing.on('error', reject);
+    if (body) outgoing.write(body);
+    outgoing.end();
+  });
+
+  return new Response(NULL_BODY_STATUSES.has(response.status) ? null : response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 const VALID_JPEG_BYTES = Buffer.concat([
@@ -210,12 +264,25 @@ function makeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
 
 async function withServer<T>(deps: ServerDeps, run: (baseUrl: string) => Promise<T>): Promise<T> {
   const server = createServer(createRequestListener(deps));
-  await new Promise<void>(resolve => server.listen(0, resolve));
-  const { port } = server.address() as AddressInfo;
+  nextServerSocketId += 1;
+  const host = `krkg-test-${process.pid}-${nextServerSocketId}.local`;
+  const socketPath = join(tmpdir(), `krkg-test-${process.pid}-${nextServerSocketId}.sock`);
+  await unlink(socketPath).catch(error => {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(socketPath, resolve);
+  });
+  localServerSockets.set(host, socketPath);
   try {
-    return await run(`http://127.0.0.1:${port}`);
+    return await run(`http://${host}`);
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
+    localServerSockets.delete(host);
+    await unlink(socketPath).catch(error => {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    });
   }
 }
 
