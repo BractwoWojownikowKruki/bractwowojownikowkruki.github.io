@@ -83,3 +83,25 @@ test('Cloud Tasks enqueuer refreshes a rejected cached access token once', async
   assert.equal(taskRequestNumber, 2);
   resetCloudTasksTokenCacheForTests();
 });
+
+test('Cloud Tasks enqueuer fails after the refreshed access token is rejected too', async () => {
+  resetCloudTasksTokenCacheForTests();
+  let tokenNumber = 0;
+  let taskRequestNumber = 0;
+  const fetchImpl = (async (url: string) => {
+    if (url.includes('metadata.google.internal')) {
+      tokenNumber++;
+      return new Response(JSON.stringify({ access_token: `token-${tokenNumber}`, expires_in: 3600 }));
+    }
+    taskRequestNumber++;
+    return new Response('', { status: 401 });
+  }) as typeof fetch;
+  const enqueue = createCloudTasksEnqueuer({
+    projectId: 'krucze-galery-upload', location: 'europe-west1', queueName: 'email-notifications',
+    serviceUrl: 'https://upload.example.run.app', serviceAccountEmail: 'email-worker@example.iam.gserviceaccount.com', fetchImpl,
+  });
+  await assert.rejects(enqueue(payload), /Cloud Tasks create task failed: HTTP 401/);
+  assert.equal(tokenNumber, 2);
+  assert.equal(taskRequestNumber, 2);
+  resetCloudTasksTokenCacheForTests();
+});

@@ -6636,7 +6636,7 @@ async function startProductionServer(): Promise<void> {
     listAdminAllowlistEmails: () => adminAllowlist.getEmails(),
     auditReconcilerServiceAccountEmail: config.auditReconcilerServiceAccountEmail,
     auditReconcileAudience: config.auditReconcileAudience,
-    enqueueEventEmail: config.auditReconcilerServiceAccountEmail && config.auditReconcileAudience
+    enqueueEventEmail: config.auditReconcileAudience
       ? createCloudTasksEnqueuer({
         projectId: tasksProjectId,
         location: 'europe-west1',

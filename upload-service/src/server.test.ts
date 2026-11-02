@@ -11309,6 +11309,31 @@ test('POST /internal/notifications/email fails closed with 503 when the worker O
   });
 });
 
+test('POST /internal/notifications/email acknowledges invalid or mismatched delivery records without sending', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  for (const [deliveryId, record] of [
+    ['event-invalid-status', { deliveryId: 'event-invalid-status', eventId: 'event-4', recipient: 'member@example.test', message: { to: 'member@example.test', subject: 's', text: 't' }, status: 'unknown' }],
+    ['event-invalid-recipient', { deliveryId: 'event-invalid-recipient', eventId: 'event-4', recipient: 'member@example.test', message: { to: 'attacker@example.test', subject: 's', text: 't' }, status: 'queued' }],
+  ] as const) firestore.seed('emailNotificationDeliveries', deliveryId, record);
+  let sends = 0;
+  const deps = makeDeps({
+    firestore,
+    emailTaskServiceAccountEmail: 'event-email-worker@example.iam.gserviceaccount.com',
+    auditReconcileAudience: 'https://upload.example.test',
+    verifyEventEmailTaskToken: async () => {},
+    mailer: { send: async () => 'sent', sendDetailed: async () => { sends++; return { status: 'sent', messageId: null, httpStatus: 200 }; } },
+  });
+  await withServer(deps, async baseUrl => {
+    for (const deliveryId of ['event-invalid-status', 'event-invalid-recipient']) {
+      const response = await fetch(`${baseUrl}/internal/notifications/email`, {
+        method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ deliveryId }),
+      });
+      assert.equal(response.status, 204);
+    }
+  });
+  assert.equal(sends, 0);
+});
+
 test('POST /internal/notifications/email returns retry status for transient Gmail errors and acknowledges permanent errors', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const snapshot = { to: 'member@example.test', subject: 'New trip', text: 'Snapshot details' };

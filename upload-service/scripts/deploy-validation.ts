@@ -32,7 +32,7 @@ export interface IamPolicy {
 export interface EmailTaskQueueDescribe {
   rateLimits?: { maxDispatchesPerSecond?: number; maxConcurrentDispatches?: number };
   retryConfig?: { maxAttempts?: number; maxRetryDuration?: string; minBackoff?: string; maxBackoff?: string; maxDoublings?: number };
-  logSamplingRatio?: number;
+  stackdriverLoggingConfig?: { samplingRatio?: number };
 }
 
 export const EXPECTED_EMAIL_TASK_QUEUE = {
@@ -59,8 +59,8 @@ export function validateEmailTaskQueue(queue: EmailTaskQueueDescribe): Validatio
       errors.push(`event-email-notifications ${key} is '${queue.retryConfig?.[key]}', expected '${EXPECTED_EMAIL_TASK_QUEUE[key]}'.`);
     }
   }
-  if (queue.logSamplingRatio !== EXPECTED_EMAIL_TASK_QUEUE.logSamplingRatio) {
-    errors.push(`event-email-notifications logSamplingRatio is '${queue.logSamplingRatio}', expected '${EXPECTED_EMAIL_TASK_QUEUE.logSamplingRatio}'.`);
+  if (queue.stackdriverLoggingConfig?.samplingRatio !== EXPECTED_EMAIL_TASK_QUEUE.logSamplingRatio) {
+    errors.push(`event-email-notifications stackdriverLoggingConfig.samplingRatio is '${queue.stackdriverLoggingConfig?.samplingRatio}', expected '${EXPECTED_EMAIL_TASK_QUEUE.logSamplingRatio}'.`);
   }
   return errors.length > 0 ? { ok: false, errors } : { ok: true };
 }

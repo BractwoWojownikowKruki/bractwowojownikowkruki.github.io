@@ -144,3 +144,20 @@ test('createGmailMailer refreshes an access token rejected with 401 before retry
   assert.equal(tokenRequests, 2);
   assert.equal(sendRequests, 2);
 });
+
+test('createGmailMailer treats a 401 from a freshly refreshed token as terminal', async () => {
+  resetGmailTokenCacheForTests();
+  let tokenRequests = 0;
+  const fetchImpl = (async (url: string) => {
+    if (url.includes('oauth2')) {
+      tokenRequests++;
+      return new Response(JSON.stringify({ access_token: `token-${tokenRequests}`, expires_in: 3600 }));
+    }
+    return new Response(JSON.stringify({ error: { status: 'UNAUTHENTICATED' } }), { status: 401 });
+  }) as typeof fetch;
+  const mailer = createGmailMailer({ clientId: 'c', clientSecret: 's', refreshToken: 'r8', from: 'x@example.com', fetchImpl });
+  assert.deepEqual(await mailer.sendDetailed!({ to: 'a@example.com', subject: 's', text: 't' }), {
+    status: 'failed', httpStatus: 401, reason: 'UNAUTHENTICATED', retryable: false,
+  });
+  assert.equal(tokenRequests, 2);
+});

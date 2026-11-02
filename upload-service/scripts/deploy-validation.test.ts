@@ -146,9 +146,9 @@ test('validateEmailTaskQueue verifies dispatch pacing, retry settings, and queue
   assert.deepEqual(validateEmailTaskQueue({
     rateLimits: { maxDispatchesPerSecond: 1, maxConcurrentDispatches: 1 },
     retryConfig: { maxAttempts: 8, maxRetryDuration: '86400s', minBackoff: '1s', maxBackoff: '300s', maxDoublings: 5 },
-    logSamplingRatio: 1,
+    stackdriverLoggingConfig: { samplingRatio: 1 },
   }), { ok: true });
-  assert.equal(validateEmailTaskQueue({ rateLimits: { maxDispatchesPerSecond: 50 }, retryConfig: { maxAttempts: 2 } }).ok, false);
+  assert.equal(validateEmailTaskQueue({ rateLimits: { maxDispatchesPerSecond: 50 }, retryConfig: { maxAttempts: 2 }, stackdriverLoggingConfig: { samplingRatio: 0 } }).ok, false);
   assert.deepEqual(EXPECTED_EMAIL_TASK_QUEUE, {
     maxDispatchesPerSecond: 1, maxConcurrentDispatches: 1, maxAttempts: 8, maxRetryDuration: '86400s',
     minBackoff: '1s', maxBackoff: '300s', maxDoublings: 5, logSamplingRatio: 1,
