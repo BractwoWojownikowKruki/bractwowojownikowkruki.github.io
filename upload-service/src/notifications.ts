@@ -329,7 +329,7 @@ export async function enqueueEmailNotifications(
   firestore: FirestoreLikeClient,
   messages: readonly MailMessage[],
   eventId: string,
-  enqueue: (payload: EmailTaskPayload) => Promise<{ status: 'created' | 'already_exists' }>,
+  enqueue: (payload: EmailTaskPayload) => Promise<{ status: 'created' | 'already_exists'; taskName?: string }>,
 ): Promise<void> {
   await Promise.all(messages.map(async message => {
     const optedOut = await getNotificationPreferences(firestore, message.to).then(prefs => !prefs.emailEnabled, err => {
@@ -339,12 +339,12 @@ export async function enqueueEmailNotifications(
     if (optedOut) return;
 
     const deliveryId = createEmailDeliveryId(eventId, message.to);
-    const payload: EmailTaskPayload = { deliveryId, eventId, recipient: message.to, message };
+    const payload: EmailTaskPayload = { deliveryId };
     let delivery = await firestore.getDoc<{ status?: string }>('emailNotificationDeliveries', deliveryId);
     if (!delivery) {
       try {
         await firestore.createDoc('emailNotificationDeliveries', deliveryId, {
-          deliveryId, eventId, recipient: message.to, status: 'queued', createdAt: new Date().toISOString(),
+          deliveryId, eventId, recipient: message.to, message, status: 'queued', createdAt: new Date().toISOString(),
         });
       } catch (error) {
         // Another request may have created the deterministic record concurrently.
@@ -359,7 +359,7 @@ export async function enqueueEmailNotifications(
         deliveryId, eventId, recipient: message.to, status: 'queued', updatedAt: new Date().toISOString(),
       });
       const result = await enqueue(payload);
-      console.info(JSON.stringify({ severity: 'INFO', message: 'event_email_enqueued', deliveryId, eventId, recipient: message.to, taskStatus: result.status }));
+      console.info(JSON.stringify({ severity: 'INFO', message: 'event_email_enqueued', deliveryId, taskName: result.taskName ?? deliveryId, eventId, recipient: message.to, taskStatus: result.status }));
     } catch (error) {
       await firestore.setDoc('emailNotificationDeliveries', deliveryId, {
         deliveryId, eventId, recipient: message.to, status: 'enqueue_failed',

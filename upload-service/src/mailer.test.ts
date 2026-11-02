@@ -122,3 +122,25 @@ test('createGmailMailer marks policy 403 as permanent and network errors retryab
     status: 'failed', httpStatus: null, reason: 'network_error', retryable: true,
   });
 });
+
+test('createGmailMailer refreshes an access token rejected with 401 before retrying the send', async () => {
+  resetGmailTokenCacheForTests();
+  let tokenRequests = 0;
+  let sendRequests = 0;
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.includes('oauth2')) {
+      tokenRequests++;
+      return new Response(JSON.stringify({ access_token: `token-${tokenRequests}`, expires_in: 3600 }));
+    }
+    sendRequests++;
+    const authorization = (init?.headers as Record<string, string>).authorization;
+    if (authorization === 'Bearer token-1') return new Response(JSON.stringify({ error: { status: 'UNAUTHENTICATED' } }), { status: 401 });
+    return new Response(JSON.stringify({ id: 'accepted-after-refresh' }));
+  }) as typeof fetch;
+  const mailer = createGmailMailer({ clientId: 'c', clientSecret: 's', refreshToken: 'r7', from: 'x@example.com', fetchImpl });
+  assert.deepEqual(await mailer.sendDetailed!({ to: 'a@example.com', subject: 's', text: 't' }), {
+    status: 'sent', messageId: 'accepted-after-refresh', httpStatus: 200,
+  });
+  assert.equal(tokenRequests, 2);
+  assert.equal(sendRequests, 2);
+});

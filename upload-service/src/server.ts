@@ -267,7 +267,8 @@ export interface ServerDeps {
   auditReconcilerServiceAccountEmail?: string;
   auditReconcileAudience?: string;
   /** Enqueues the immutable event email snapshot; production uses the configured Cloud Tasks queue. */
-  enqueueEventEmail?: (payload: EmailTaskPayload) => Promise<{ status: 'created' | 'already_exists' }>;
+  enqueueEventEmail?: (payload: EmailTaskPayload) => Promise<{ status: 'created' | 'already_exists'; taskName?: string }>;
+  emailTaskServiceAccountEmail?: string;
   /** Injectable verifier for queued-email OIDC; production uses the same Google ID-token verifier as Scheduler. */
   verifyEventEmailTaskToken?: (token: string, audience: string, serviceAccountEmail: string) => Promise<void>;
   // Cloud Storage bucket for equipment photos (storage.ts). Undefined until the bucket is
@@ -6125,18 +6126,16 @@ async function handleInternalAuditReconcile(req: IncomingMessage, res: ServerRes
 
 /** Delivers one queued event email; Cloud Tasks retries transient Gmail failures at queue pace. */
 async function handleInternalEventEmail(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  if (!deps.auditReconcilerServiceAccountEmail || !deps.auditReconcileAudience) {
+  if (!deps.emailTaskServiceAccountEmail || !deps.auditReconcileAudience) {
     throw new AuthError('Kolejka powiadomień nie jest skonfigurowana.', 503);
   }
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) throw new AuthError('Brak tokenu OIDC.', 401);
-  await (deps.verifyEventEmailTaskToken ?? verifyReconcilerOidcToken)(authHeader.slice('Bearer '.length), deps.auditReconcileAudience, deps.auditReconcilerServiceAccountEmail);
+  await (deps.verifyEventEmailTaskToken ?? verifyReconcilerOidcToken)(authHeader.slice('Bearer '.length), deps.auditReconcileAudience, deps.emailTaskServiceAccountEmail);
 
   const payload = await readJsonBody<Partial<EmailTaskPayload>>(req, deps.maxJsonBodyBytes);
-  const { deliveryId, eventId, recipient, message } = payload;
-  if (typeof deliveryId !== 'string' || !deliveryId || typeof eventId !== 'string' || !eventId ||
-      typeof recipient !== 'string' || !recipient || !message || typeof message !== 'object' ||
-      message.to !== recipient || typeof message.subject !== 'string' || typeof message.text !== 'string') {
+  const { deliveryId } = payload;
+  if (typeof deliveryId !== 'string' || !deliveryId || deliveryId.length > 128) {
     console.error(JSON.stringify({ severity: 'ERROR', message: 'event_email_task_invalid_payload', deliveryId: typeof deliveryId === 'string' ? deliveryId : null }));
     res.writeHead(204).end();
     return;
@@ -6144,13 +6143,23 @@ async function handleInternalEventEmail(req: IncomingMessage, res: ServerRespons
 
   const taskRetryCountRaw = req.headers['x-cloudtasks-taskretrycount'];
   const taskRetryCount = typeof taskRetryCountRaw === 'string' && /^\d+$/.test(taskRetryCountRaw) ? Number(taskRetryCountRaw) : 0;
-  const existing = await deps.firestore.getDoc<{ status?: string }>('emailNotificationDeliveries', deliveryId);
+  const taskNameHeader = req.headers['x-cloudtasks-taskname'];
+  const taskName = typeof taskNameHeader === 'string' ? taskNameHeader : deliveryId;
+  const existing = await deps.firestore.getDoc<{ status?: string; eventId?: string; recipient?: string; message?: MailMessage }>('emailNotificationDeliveries', deliveryId);
   if (existing?.status === 'sent' || existing?.status === 'failed') {
     res.writeHead(204).end();
     return;
   }
+  const { eventId, recipient, message } = existing ?? {};
+  if (!existing || !['queued', 'enqueue_failed', 'retrying', 'sending'].includes(existing.status ?? '') ||
+      typeof eventId !== 'string' || typeof recipient !== 'string' || !message || typeof message !== 'object' ||
+      message.to !== recipient || typeof message.subject !== 'string' || typeof message.text !== 'string') {
+    console.error(JSON.stringify({ severity: 'ERROR', message: 'event_email_task_missing_or_invalid_delivery', deliveryId, taskName, taskRetryCount }));
+    res.writeHead(204).end();
+    return;
+  }
   await deps.firestore.setDoc('emailNotificationDeliveries', deliveryId, {
-    deliveryId, eventId, recipient, status: 'sending', attempt: taskRetryCount + 1, updatedAt: new Date().toISOString(),
+    deliveryId, eventId, recipient, taskName, status: 'sending', attempt: taskRetryCount + 1, updatedAt: new Date().toISOString(),
   });
 
   const sendResult = deps.mailer.sendDetailed
@@ -6160,11 +6169,22 @@ async function handleInternalEventEmail(req: IncomingMessage, res: ServerRespons
       : { status: 'not_configured' as const });
 
   if (sendResult.status === 'sent') {
-    await deps.firestore.setDoc('emailNotificationDeliveries', deliveryId, {
-      deliveryId, eventId, recipient, status: 'sent', attempt: taskRetryCount + 1,
-      gmailHttpStatus: sendResult.httpStatus, gmailMessageId: sendResult.messageId, sentAt: new Date().toISOString(),
-    });
-    console.info(JSON.stringify({ severity: 'INFO', message: 'event_email_delivery_succeeded', deliveryId, eventId, recipient, attempt: taskRetryCount + 1, gmailHttpStatus: sendResult.httpStatus, gmailMessageId: sendResult.messageId }));
+    let deliveryLogPersisted = true;
+    try {
+      await deps.firestore.setDoc('emailNotificationDeliveries', deliveryId, {
+        deliveryId, eventId, recipient, taskName, status: 'sent', attempt: taskRetryCount + 1,
+        gmailHttpStatus: sendResult.httpStatus, gmailMessageId: sendResult.messageId, sentAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      // Gmail has accepted the message. A 5xx here would make Cloud Tasks send the same email
+      // again, so acknowledge and leave the Gmail message ID in Cloud Logging for reconciliation.
+      deliveryLogPersisted = false;
+      console.error(JSON.stringify({ severity: 'CRITICAL', message: 'event_email_delivery_log_write_failed_after_gmail_acceptance', deliveryId, taskName, eventId, recipient,
+        gmailHttpStatus: sendResult.httpStatus, gmailMessageId: sendResult.messageId,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
+    console.info(JSON.stringify({ severity: 'INFO', message: 'event_email_delivery_succeeded', deliveryId, taskName, eventId, recipient, attempt: taskRetryCount + 1, gmailHttpStatus: sendResult.httpStatus, gmailMessageId: sendResult.messageId, deliveryLogPersisted }));
     res.writeHead(204).end();
     return;
   }
@@ -6174,7 +6194,7 @@ async function handleInternalEventEmail(req: IncomingMessage, res: ServerRespons
       deliveryId, eventId, recipient, status: 'retrying', attempt: taskRetryCount + 1,
       gmailHttpStatus: sendResult.httpStatus, gmailReason: sendResult.reason, updatedAt: new Date().toISOString(),
     });
-    console.warn(JSON.stringify({ severity: 'WARNING', message: 'event_email_delivery_retryable_failure', deliveryId, eventId, recipient, attempt: taskRetryCount + 1, gmailHttpStatus: sendResult.httpStatus, gmailReason: sendResult.reason }));
+    console.warn(JSON.stringify({ severity: 'WARNING', message: 'event_email_delivery_retryable_failure', deliveryId, taskName, eventId, recipient, attempt: taskRetryCount + 1, gmailHttpStatus: sendResult.httpStatus, gmailReason: sendResult.reason }));
     res.writeHead(503).end();
     return;
   }
@@ -6185,7 +6205,7 @@ async function handleInternalEventEmail(req: IncomingMessage, res: ServerRespons
     gmailReason: sendResult.status === 'failed' ? sendResult.reason : 'not_configured',
     updatedAt: new Date().toISOString(),
   });
-  console.error(JSON.stringify({ severity: 'ERROR', message: 'event_email_delivery_failed', deliveryId, eventId, recipient, attempt: taskRetryCount + 1,
+  console.error(JSON.stringify({ severity: 'ERROR', message: 'event_email_delivery_failed', deliveryId, taskName, eventId, recipient, attempt: taskRetryCount + 1,
     gmailHttpStatus: sendResult.status === 'failed' ? sendResult.httpStatus : null,
     gmailReason: sendResult.status === 'failed' ? sendResult.reason : 'not_configured',
     retryable: sendResult.status === 'failed' && sendResult.retryable && taskRetryCount >= 7,
@@ -6573,6 +6593,8 @@ async function startProductionServer(): Promise<void> {
     config.vapidPublicKey && config.vapidPrivateKey
       ? createWebPusher({ publicKey: config.vapidPublicKey, privateKey: config.vapidPrivateKey, subject: config.vapidSubject })
       : createDisabledPusher();
+  const tasksProjectId = process.env.EMAIL_TASKS_PROJECT_ID ?? 'krucze-galery-upload';
+  const emailTaskServiceAccountEmail = `event-email-worker@${tasksProjectId}.iam.gserviceaccount.com`;
   const productionDeps: ServerDeps = {
     drive: createDriveClient(driveDeps, docsDriveDeps),
     github: createGithubClient({ token: config.githubToken, repo: config.githubRepo }),
@@ -6616,13 +6638,14 @@ async function startProductionServer(): Promise<void> {
     auditReconcileAudience: config.auditReconcileAudience,
     enqueueEventEmail: config.auditReconcilerServiceAccountEmail && config.auditReconcileAudience
       ? createCloudTasksEnqueuer({
-        projectId: process.env.GOOGLE_CLOUD_PROJECT ?? 'krucze-galery-upload',
+        projectId: tasksProjectId,
         location: 'europe-west1',
         queueName: 'event-email-notifications',
         serviceUrl: config.auditReconcileAudience,
-        serviceAccountEmail: config.auditReconcilerServiceAccountEmail,
+        serviceAccountEmail: emailTaskServiceAccountEmail,
       })
       : undefined,
+    emailTaskServiceAccountEmail,
     equipmentPhotoStorage: config.equipmentPhotosBucket ? createGcsPhotoStorage(config.equipmentPhotosBucket) : undefined,
   };
   const server = createServer(createRequestListener(productionDeps));

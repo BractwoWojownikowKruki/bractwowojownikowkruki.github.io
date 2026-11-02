@@ -145,24 +145,31 @@ export function createGmailMailer(opts: GmailMailerOptions): Mailer {
       return { status: 'failed', httpStatus: null, reason: 'invalid_recipient', retryable: false };
     }
     try {
-      const token = await getGmailAccessToken(opts);
-      const res = await fetchImpl('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ raw: buildRawMessage(opts.from, message) }),
-      });
-      if (!res.ok) {
-        const reason = await readErrorReason(res);
-        return { status: 'failed', httpStatus: res.status, reason, retryable: isRetryableGmailFailure(res.status, reason) };
+      for (let tokenAttempt = 0; tokenAttempt < 2; tokenAttempt++) {
+        const token = await getGmailAccessToken(opts);
+        const res = await fetchImpl('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ raw: buildRawMessage(opts.from, message) }),
+        });
+        if (res.status === 401 && tokenAttempt === 0) {
+          tokenCache.delete(opts.refreshToken);
+          continue;
+        }
+        if (!res.ok) {
+          const reason = await readErrorReason(res);
+          return { status: 'failed', httpStatus: res.status, reason, retryable: isRetryableGmailFailure(res.status, reason) };
+        }
+        let messageId: string | null = null;
+        try {
+          const body = (await res.json()) as { id?: unknown };
+          messageId = typeof body.id === 'string' ? body.id : null;
+        } catch {
+          // A successful Gmail status means the request was accepted even if its response body was empty.
+        }
+        return { status: 'sent', messageId, httpStatus: res.status };
       }
-      let messageId: string | null = null;
-      try {
-        const body = (await res.json()) as { id?: unknown };
-        messageId = typeof body.id === 'string' ? body.id : null;
-      } catch {
-        // A successful Gmail status means the request was accepted even if its response body was empty.
-      }
-      return { status: 'sent', messageId, httpStatus: res.status };
+      return { status: 'failed', httpStatus: 401, reason: 'UNAUTHENTICATED', retryable: false };
     } catch (err) {
       if (err instanceof GmailHttpError) {
         return {

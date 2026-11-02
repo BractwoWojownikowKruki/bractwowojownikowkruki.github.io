@@ -1,14 +1,10 @@
 import { createHash } from 'node:crypto';
-import type { MailMessage } from './mailer.ts';
 
 const METADATA_TOKEN_URL = 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
 const CLOUD_TASKS_API = 'https://cloudtasks.googleapis.com/v2';
 
 export interface EmailTaskPayload {
   deliveryId: string;
-  eventId: string;
-  recipient: string;
-  message: MailMessage;
 }
 
 export interface CloudTasksEnqueuerOptions {
@@ -56,39 +52,46 @@ async function getAccessToken(fetchImpl: typeof fetch): Promise<string> {
  * Enqueues one immutable email snapshot per active recipient. Cloud Tasks provides durable,
  * rate-controlled delivery; the deterministic task name makes repeated enqueue attempts safe.
  */
-export function createCloudTasksEnqueuer(options: CloudTasksEnqueuerOptions): (payload: EmailTaskPayload) => Promise<{ status: 'created' | 'already_exists' }> {
+export function createCloudTasksEnqueuer(options: CloudTasksEnqueuerOptions): (payload: EmailTaskPayload) => Promise<{ status: 'created' | 'already_exists'; taskName: string }> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const queuePath = `projects/${encodeURIComponent(options.projectId)}/locations/${encodeURIComponent(options.location)}/queues/${encodeURIComponent(options.queueName)}`;
   const workerUrl = `${options.serviceUrl.replace(/\/$/, '')}/internal/notifications/email`;
 
   return async payload => {
     const taskPath = `${queuePath}/tasks/${payload.deliveryId}`;
-    const taskName = `${CLOUD_TASKS_API}/${taskPath}`;
-    const token = await getAccessToken(fetchImpl);
-    const response = await fetchImpl(`${CLOUD_TASKS_API}/${queuePath}/tasks`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        task: {
-          name: taskName,
-          httpRequest: {
-            httpMethod: 'POST',
-            url: workerUrl,
-            headers: { 'content-type': 'application/json' },
-            body: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),
-            oidcToken: {
-              serviceAccountEmail: options.serviceAccountEmail,
-              audience: options.serviceUrl,
+    const taskName = taskPath;
+    for (let tokenAttempt = 0; tokenAttempt < 2; tokenAttempt++) {
+      const token = await getAccessToken(fetchImpl);
+      const response = await fetchImpl(`${CLOUD_TASKS_API}/${queuePath}/tasks`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          task: {
+            name: taskName,
+            httpRequest: {
+              httpMethod: 'POST',
+              url: workerUrl,
+              headers: { 'content-type': 'application/json' },
+              body: Buffer.from(JSON.stringify(payload), 'utf8').toString('base64'),
+              oidcToken: {
+                serviceAccountEmail: options.serviceAccountEmail,
+                audience: options.serviceUrl,
+              },
             },
           },
-        },
-      }),
-    });
-    if (response.status === 409) return { status: 'already_exists' };
-    if (!response.ok) throw new Error(`Cloud Tasks create task failed: HTTP ${response.status}`);
-    return { status: 'created' };
+        }),
+      });
+      if (response.status === 401 && tokenAttempt === 0) {
+        cachedAccessToken = null;
+        continue;
+      }
+      if (response.status === 409) return { status: 'already_exists', taskName };
+      if (!response.ok) throw new Error(`Cloud Tasks create task failed: HTTP ${response.status}`);
+      return { status: 'created', taskName };
+    }
+    throw new Error('Cloud Tasks create task failed: access token was rejected twice');
   };
 }

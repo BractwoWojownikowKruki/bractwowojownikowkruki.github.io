@@ -7184,9 +7184,9 @@ test('POST /lista-wyjazdowa/events notifies active members through their enabled
     emailEnabled: true,
     pushSubscriptions: [{ ...TEST_PUSH_SUBSCRIPTION, endpoint: 'https://fcm.googleapis.com/fcm/send/shared', createdAt: '2026-09-30T00:00:00.000Z' }],
   });
-  const queued: Array<{ recipient: string; message: MailMessage }> = [];
+  const queued: string[] = [];
   const { pushed, pusher } = makeRecordingPusher();
-  await withServer(makeDeps({ firestore, pusher, enqueueEventEmail: async payload => { queued.push(payload); return { status: 'created' }; } }), async baseUrl => {
+  await withServer(makeDeps({ firestore, pusher, enqueueEventEmail: async payload => { queued.push(payload.deliveryId); return { status: 'created' }; } }), async baseUrl => {
     const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', {
       name: 'Zjazd Łódź 2027!',
       startDate: '2027-05-01',
@@ -7198,7 +7198,9 @@ test('POST /lista-wyjazdowa/events notifies active members through their enabled
     assert.equal(response.status, 200);
     const body = await response.json();
     const eventId = body.event.id as string;
-    assert.deepEqual(queued.map(payload => payload.recipient).sort(), ['both@example.com', 'email-only@example.com', 'shared@example.com']);
+    const queuedRecords = await Promise.all(queued.map(id => firestore.getDoc<{ recipient: string; message: MailMessage }>('emailNotificationDeliveries', id)));
+    const deliveries = queuedRecords.filter((record): record is { recipient: string; message: MailMessage } => record !== null);
+    assert.deepEqual(deliveries.map(record => record.recipient).sort(), ['both@example.com', 'email-only@example.com', 'shared@example.com']);
     assert.deepEqual(pushed.map(message => message.endpoint).sort(), [
       'https://fcm.googleapis.com/fcm/send/both-1',
       'https://fcm.googleapis.com/fcm/send/both-2',
@@ -7206,12 +7208,12 @@ test('POST /lista-wyjazdowa/events notifies active members through their enabled
       'https://fcm.googleapis.com/fcm/send/shared',
     ]);
     const friendlyUrl = '/lista-wyjazdowa/wyjazd/?do=2027-05-01-zjazd-lodz-2027';
-    assert.ok(queued.every(payload => payload.message.text.includes(`https://example.test${friendlyUrl}`)));
-    assert.ok(queued.every(payload => payload.message.text.includes('Szczegóły spotkania.')));
-    assert.ok(queued.every(payload => payload.message.text.includes('https://discord.com/channels/123/456')));
-    assert.ok(queued.every(payload => payload.message.text.includes('https://maps.app.goo.gl/example')));
-    assert.ok(queued.every(payload => payload.message.text.includes('Bez sprzętu obozowego: tak')));
-    assert.ok(queued.every(payload => !payload.message.text.includes(eventId)));
+    assert.ok(deliveries.every(record => record.message.text.includes(`https://example.test${friendlyUrl}`)));
+    assert.ok(deliveries.every(record => record.message.text.includes('Szczegóły spotkania.')));
+    assert.ok(deliveries.every(record => record.message.text.includes('https://discord.com/channels/123/456')));
+    assert.ok(deliveries.every(record => record.message.text.includes('https://maps.app.goo.gl/example')));
+    assert.ok(deliveries.every(record => record.message.text.includes('Bez sprzętu obozowego: tak')));
+    assert.ok(deliveries.every(record => !record.message.text.includes(eventId)));
     assert.ok(pushed.every(message => message.message.url === friendlyUrl));
   });
 });
@@ -7245,14 +7247,15 @@ test('POST /lista-wyjazdowa/events succeeds and still sends event e-mail when pu
   const queued: string[] = [];
   let pushAttempts = 0;
   const pusher = { publicKey: 'test-public-key', send: async () => { pushAttempts += 1; throw new Error('push unavailable'); } };
-  await withServer(makeDeps({ firestore, pusher, enqueueEventEmail: async payload => { queued.push(payload.recipient); return { status: 'created' }; } }), async baseUrl => {
+  await withServer(makeDeps({ firestore, pusher, enqueueEventEmail: async payload => { queued.push(payload.deliveryId); return { status: 'created' }; } }), async baseUrl => {
     const response = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' });
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.ok(await firestore.getDoc('events', body.event.id));
   });
   assert.equal(pushAttempts, 1);
-  assert.deepEqual(queued, ['active@example.com']);
+  const queuedRecord = await firestore.getDoc<{ recipient: string }>('emailNotificationDeliveries', queued[0]);
+  assert.equal(queuedRecord?.recipient, 'active@example.com');
 });
 
 test('POST /lista-wyjazdowa/events rejects a malformed startDate with 400', async () => {
@@ -11253,52 +11256,119 @@ test('payment info: members read it via charges, only staff write it, text is ke
 test('POST /internal/notifications/email requires OIDC and records successful Gmail delivery', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const deliveryId = 'event-1-abcd';
-  const payload = { deliveryId, eventId: 'event-1', recipient: 'member@example.test', message: { to: 'member@example.test', subject: 'New trip', text: 'Snapshot details' } };
+  const payload = { deliveryId, recipient: 'attacker@example.test', message: { to: 'attacker@example.test', subject: 'Forged', text: 'forged' } };
+  firestore.seed('emailNotificationDeliveries', deliveryId, {
+    deliveryId, eventId: 'event-1', recipient: 'member@example.test',
+    message: { to: 'member@example.test', subject: 'New trip', text: 'Snapshot details' }, status: 'queued', createdAt: '2026-11-02T00:00:00.000Z',
+  });
   const sent: string[] = [];
+  const sentTexts: string[] = [];
   const deps = makeDeps({
     firestore,
-    auditReconcilerServiceAccountEmail: 'worker@example.iam.gserviceaccount.com',
+    emailTaskServiceAccountEmail: 'event-email-worker@example.iam.gserviceaccount.com',
     auditReconcileAudience: 'https://upload.example.test',
-    verifyEventEmailTaskToken: async token => { if (token !== 'valid') throw new AuthError('Unauthorized', 401); },
+    verifyEventEmailTaskToken: async (token, audience, serviceAccountEmail) => {
+      assert.equal(audience, 'https://upload.example.test');
+      assert.equal(serviceAccountEmail, 'event-email-worker@example.iam.gserviceaccount.com');
+      if (token !== 'valid') throw new AuthError('Unauthorized', 401);
+    },
     mailer: {
       send: async () => 'sent',
-      sendDetailed: async message => { sent.push(message.to); return { status: 'sent', messageId: 'gmail-id-1', httpStatus: 200 }; },
+      sendDetailed: async message => { sent.push(message.to); sentTexts.push(message.text); return { status: 'sent', messageId: 'gmail-id-1', httpStatus: 200 }; },
     },
   });
   await withServer(deps, async baseUrl => {
     const unauthorized = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', body: JSON.stringify(payload) });
     assert.equal(unauthorized.status, 401);
+    const wrongToken = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer wrong' }, body: JSON.stringify(payload) });
+    assert.equal(wrongToken.status, 401);
     const response = await fetch(`${baseUrl}/internal/notifications/email`, {
-      method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify(payload),
+      method: 'POST', headers: { authorization: 'Bearer valid', 'x-cloudtasks-taskname': 'projects/test/queues/q/tasks/event-1-abcd' }, body: JSON.stringify(payload),
     });
     assert.equal(response.status, 204);
+    const duplicate = await fetch(`${baseUrl}/internal/notifications/email`, {
+      method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify(payload),
+    });
+    assert.equal(duplicate.status, 204);
   });
   assert.deepEqual(sent, ['member@example.test']);
-  const delivery = await firestore.getDoc<{ status: string; attempt: number; gmailHttpStatus: number; gmailMessageId: string }>('emailNotificationDeliveries', deliveryId);
+  assert.deepEqual(sentTexts, ['Snapshot details']);
+  const delivery = await firestore.getDoc<{ status: string; attempt: number; taskName: string; createdAt: string; gmailHttpStatus: number; gmailMessageId: string }>('emailNotificationDeliveries', deliveryId);
   assert.equal(delivery?.status, 'sent');
   assert.equal(delivery?.attempt, 1);
+  assert.equal(delivery?.taskName, 'projects/test/queues/q/tasks/event-1-abcd');
+  assert.equal(delivery?.createdAt, '2026-11-02T00:00:00.000Z');
   assert.equal(delivery?.gmailHttpStatus, 200);
   assert.equal(delivery?.gmailMessageId, 'gmail-id-1');
 });
 
+test('POST /internal/notifications/email fails closed with 503 when the worker OIDC identity is not configured', async () => {
+  await withServer(makeDeps({ auditReconcileAudience: 'https://upload.example.test' }), async baseUrl => {
+    const response = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ deliveryId: 'event-1' }) });
+    assert.equal(response.status, 503);
+  });
+});
+
 test('POST /internal/notifications/email returns retry status for transient Gmail errors and acknowledges permanent errors', async () => {
   const firestore = makeListaWyjazdowaFirestore();
+  const snapshot = { to: 'member@example.test', subject: 'New trip', text: 'Snapshot details' };
+  firestore.seed('emailNotificationDeliveries', 'event-2-abcd', { deliveryId: 'event-2-abcd', eventId: 'event-2', recipient: snapshot.to, message: snapshot, status: 'queued' });
+  firestore.seed('emailNotificationDeliveries', 'event-2-permanent', { deliveryId: 'event-2-permanent', eventId: 'event-2', recipient: snapshot.to, message: snapshot, status: 'queued' });
+  firestore.seed('emailNotificationDeliveries', 'event-2-final', { deliveryId: 'event-2-final', eventId: 'event-2', recipient: snapshot.to, message: snapshot, status: 'queued' });
   let result: { status: 'failed'; httpStatus: number; reason: string; retryable: boolean } = { status: 'failed', httpStatus: 429, reason: 'rateLimitExceeded', retryable: true };
   const deps = makeDeps({
     firestore,
-    auditReconcilerServiceAccountEmail: 'worker@example.iam.gserviceaccount.com',
+    emailTaskServiceAccountEmail: 'event-email-worker@example.iam.gserviceaccount.com',
     auditReconcileAudience: 'https://upload.example.test',
     verifyEventEmailTaskToken: async () => {},
     mailer: { send: async () => 'failed', sendDetailed: async () => result },
   });
-  const payload = { deliveryId: 'event-2-abcd', eventId: 'event-2', recipient: 'member@example.test', message: { to: 'member@example.test', subject: 'New trip', text: 'Snapshot details' } };
+  const payload = { deliveryId: 'event-2-abcd' };
   await withServer(deps, async baseUrl => {
     const retry = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify(payload) });
     assert.equal(retry.status, 503);
     assert.equal((await firestore.getDoc<{ status: string }>('emailNotificationDeliveries', payload.deliveryId))?.status, 'retrying');
+    result = { status: 'failed', httpStatus: 403, reason: 'userRateLimitExceeded', retryable: true };
+    const rateLimited403 = await fetch(`${baseUrl}/internal/notifications/email`, {
+      method: 'POST', headers: { authorization: 'Bearer valid', 'x-cloudtasks-taskretrycount': '1' }, body: JSON.stringify(payload),
+    });
+    assert.equal(rateLimited403.status, 503);
     result = { status: 'failed', httpStatus: 403, reason: 'domainPolicy', retryable: false };
-    const permanent = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ ...payload, deliveryId: 'event-2-permanent' }) });
+    const permanent = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ deliveryId: 'event-2-permanent' }) });
     assert.equal(permanent.status, 204);
     assert.equal((await firestore.getDoc<{ status: string }>('emailNotificationDeliveries', 'event-2-permanent'))?.status, 'failed');
+    const final = await fetch(`${baseUrl}/internal/notifications/email`, {
+      method: 'POST', headers: { authorization: 'Bearer valid', 'x-cloudtasks-taskretrycount': '7' }, body: JSON.stringify({ deliveryId: 'event-2-final' }),
+    });
+    assert.equal(final.status, 204);
+    assert.equal((await firestore.getDoc<{ status: string }>('emailNotificationDeliveries', 'event-2-final'))?.status, 'failed');
   });
+});
+
+test('POST /internal/notifications/email acknowledges Gmail acceptance if delivery logging fails to avoid an automatic resend', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deliveryId = 'event-3-ambiguous';
+  firestore.seed('emailNotificationDeliveries', deliveryId, {
+    deliveryId, eventId: 'event-3', recipient: 'member@example.test',
+    message: { to: 'member@example.test', subject: 'New trip', text: 'Snapshot details' }, status: 'queued',
+  });
+  const normalSetDoc = firestore.setDoc.bind(firestore);
+  firestore.setDoc = async <T extends object>(collection: string, id: string, data: T): Promise<void> => {
+    if (collection === 'emailNotificationDeliveries' && (data as { status?: string }).status === 'sent') throw new Error('Firestore temporarily unavailable');
+    return normalSetDoc(collection, id, data);
+  };
+  let sends = 0;
+  const deps = makeDeps({
+    firestore,
+    emailTaskServiceAccountEmail: 'event-email-worker@example.iam.gserviceaccount.com',
+    auditReconcileAudience: 'https://upload.example.test',
+    verifyEventEmailTaskToken: async () => {},
+    mailer: { send: async () => 'sent', sendDetailed: async () => { sends++; return { status: 'sent', messageId: 'gmail-id-3', httpStatus: 200 }; } },
+  });
+  await withServer(deps, async baseUrl => {
+    const first = await fetch(`${baseUrl}/internal/notifications/email`, { method: 'POST', headers: { authorization: 'Bearer valid' }, body: JSON.stringify({ deliveryId }) });
+    assert.equal(first.status, 204);
+  });
+  assert.equal(sends, 1);
+  assert.equal((await firestore.getDoc<{ status: string }>('emailNotificationDeliveries', deliveryId))?.status, 'sending');
 });

@@ -160,19 +160,20 @@ test('sendNotifications skips recipients who opted out of e-mail, and sends when
 test('enqueueEmailNotifications respects email preferences and records deterministic per-recipient deliveries', async () => {
   const client = createInMemoryFirestoreClient();
   await client.runTransaction(tx => setEmailEnabledInTransaction(tx, 'out@example.com', false));
-  const enqueued: Array<{ recipient: string; deliveryId: string }> = [];
-  const enqueue = async (payload: { recipient: string; deliveryId: string }) => {
+  const enqueued: Array<{ deliveryId: string }> = [];
+  const enqueue = async (payload: { deliveryId: string }) => {
     enqueued.push(payload);
-    return { status: 'created' as const };
+    return { status: 'created' as const, taskName: `task/${payload.deliveryId}` };
   };
   const messages = ['in@example.com', 'out@example.com'].map(to => ({ to, subject: 's', text: 'event snapshot' }));
   await enqueueEmailNotifications(client, messages, 'event-1', enqueue);
   assert.equal(enqueued.length, 1);
-  assert.equal(enqueued[0].recipient, 'in@example.com');
-  const records = await client.listDocs<{ status: string; recipient: string }>('emailNotificationDeliveries');
+  const records = await client.listDocs<{ status: string; recipient: string; message: MailMessage }>('emailNotificationDeliveries');
   assert.equal(records.length, 1);
   assert.equal(records[0].data.status, 'queued');
   assert.equal(records[0].data.recipient, 'in@example.com');
+  assert.deepEqual(records[0].data.message, { to: 'in@example.com', subject: 's', text: 'event snapshot' });
+  assert.equal(enqueued[0].deliveryId, records[0].id);
 });
 
 test('enqueueEmailNotifications does not re-enqueue deliveries already sent or permanently failed', async () => {
