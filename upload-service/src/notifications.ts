@@ -342,6 +342,8 @@ export async function enqueueEmailNotifications(
       if (optedOut) return;
 
       let delivery = await firestore.getDoc<{ status?: string }>('emailNotificationDeliveries', deliveryId);
+      if (delivery && delivery.status !== 'enqueue_failed') return;
+
       if (!delivery) {
         try {
           await firestore.createDoc('emailNotificationDeliveries', deliveryId, {
@@ -351,18 +353,25 @@ export async function enqueueEmailNotifications(
           // Another request may have created the deterministic record concurrently.
           delivery = await firestore.getDoc<{ status?: string }>('emailNotificationDeliveries', deliveryId);
           if (!delivery) throw error;
+          if (delivery.status !== 'enqueue_failed') return;
         }
       }
-      if (['sent', 'failed', 'sending', 'retrying'].includes(delivery?.status ?? '')) return;
 
       const result = await enqueue(payload);
       const taskName = result.taskName ?? deliveryId;
       console.info(JSON.stringify({ severity: 'INFO', message: 'event_email_enqueued', deliveryId, taskName, eventId, recipient: message.to, taskStatus: result.status }));
-      try {
-        await firestore.setDoc('emailNotificationDeliveries', deliveryId, { taskName, updatedAt: new Date().toISOString() });
-      } catch (error) {
-        // The task is already queued; keep that outcome and rely on its callback's short task ID.
-        console.error(JSON.stringify({ severity: 'ERROR', message: 'event_email_task_name_persist_failed', deliveryId, taskName, eventId, recipient: message.to, error: error instanceof Error ? error.message : String(error) }));
+
+      if (delivery?.status === 'enqueue_failed') {
+        try {
+          await firestore.runTransaction(async tx => {
+            const current = await tx.getDoc<{ status?: string }>('emailNotificationDeliveries', deliveryId);
+            if (current?.status === 'enqueue_failed') {
+              await tx.setDoc('emailNotificationDeliveries', deliveryId, { status: 'queued', updatedAt: new Date().toISOString() });
+            }
+          });
+        } catch (error) {
+          console.error(JSON.stringify({ severity: 'ERROR', message: 'event_email_queued_status_persist_failed', deliveryId, eventId, recipient: message.to, error: error instanceof Error ? error.message : String(error) }));
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

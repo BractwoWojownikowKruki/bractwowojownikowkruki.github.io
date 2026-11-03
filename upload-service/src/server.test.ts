@@ -11395,5 +11395,40 @@ test('POST /internal/notifications/email acknowledges Gmail acceptance if delive
     assert.equal(first.status, 204);
   });
   assert.equal(sends, 1);
-  assert.equal((await firestore.getDoc<{ status: string }>('emailNotificationDeliveries', deliveryId))?.status, 'sending');
+  assert.equal((await firestore.getDoc<{ status: string }>('emailNotificationDeliveries', deliveryId))?.status, 'queued');
+});
+
+test('POST /internal/notifications/email transitions directly from queued to sent without an intermediate sending state', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deliveryId = 'event-direct-sent';
+  firestore.seed('emailNotificationDeliveries', deliveryId, {
+    deliveryId, eventId: 'event-direct', recipient: 'member@example.test',
+    message: { to: 'member@example.test', subject: 'Direct transition', text: 'Snapshot details' }, status: 'queued',
+  });
+  const observedStatuses: string[] = [];
+  const normalSetDoc = firestore.setDoc.bind(firestore);
+  firestore.setDoc = async <T extends object>(collection: string, id: string, data: T): Promise<void> => {
+    if (collection === 'emailNotificationDeliveries' && (data as { status?: string }).status) {
+      observedStatuses.push((data as { status: string }).status);
+    }
+    return normalSetDoc(collection, id, data);
+  };
+  const deps = makeDeps({
+    firestore,
+    emailTaskServiceAccountEmail: 'event-email-worker@example.iam.gserviceaccount.com',
+    auditReconcileAudience: 'https://upload.example.test',
+    verifyEventEmailTaskToken: async () => {},
+    mailer: { send: async () => 'sent', sendDetailed: async () => ({ status: 'sent', messageId: 'gmail-direct-1', httpStatus: 200 }) },
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await rawFetch(`${baseUrl}/internal/notifications/email`, {
+      method: 'POST', headers: { authorization: 'Bearer valid', 'x-cloudtasks-taskname': 'projects/test/queues/q/tasks/event-direct-sent' },
+      body: JSON.stringify({ deliveryId }),
+    });
+    assert.equal(res.status, 204);
+  });
+  assert.deepEqual(observedStatuses, ['sent']);
+  const finalDoc = await firestore.getDoc<{ status: string; taskName: string }>('emailNotificationDeliveries', deliveryId);
+  assert.equal(finalDoc?.status, 'sent');
+  assert.equal(finalDoc?.taskName, 'projects/test/queues/q/tasks/event-direct-sent');
 });

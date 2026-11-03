@@ -6158,9 +6158,6 @@ async function handleInternalEventEmail(req: IncomingMessage, res: ServerRespons
     res.writeHead(204).end();
     return;
   }
-  await deps.firestore.setDoc('emailNotificationDeliveries', deliveryId, {
-    deliveryId, eventId, recipient, taskName, status: 'sending', attempt: taskRetryCount + 1, updatedAt: new Date().toISOString(),
-  });
 
   const sendResult = deps.mailer.sendDetailed
     ? await deps.mailer.sendDetailed(message)
@@ -6191,7 +6188,7 @@ async function handleInternalEventEmail(req: IncomingMessage, res: ServerRespons
 
   if (sendResult.status === 'failed' && sendResult.retryable && taskRetryCount < 7) {
     await deps.firestore.setDoc('emailNotificationDeliveries', deliveryId, {
-      deliveryId, eventId, recipient, status: 'retrying', attempt: taskRetryCount + 1,
+      deliveryId, eventId, recipient, taskName, status: 'retrying', attempt: taskRetryCount + 1,
       gmailHttpStatus: sendResult.httpStatus, gmailReason: sendResult.reason, updatedAt: new Date().toISOString(),
     });
     console.warn(JSON.stringify({ severity: 'WARNING', message: 'event_email_delivery_retryable_failure', deliveryId, taskName, eventId, recipient, attempt: taskRetryCount + 1, gmailHttpStatus: sendResult.httpStatus, gmailReason: sendResult.reason }));
@@ -6200,7 +6197,7 @@ async function handleInternalEventEmail(req: IncomingMessage, res: ServerRespons
   }
 
   await deps.firestore.setDoc('emailNotificationDeliveries', deliveryId, {
-    deliveryId, eventId, recipient, status: 'failed', attempt: taskRetryCount + 1,
+    deliveryId, eventId, recipient, taskName, status: 'failed', attempt: taskRetryCount + 1,
     gmailHttpStatus: sendResult.status === 'failed' ? sendResult.httpStatus : null,
     gmailReason: sendResult.status === 'failed' ? sendResult.reason : 'not_configured',
     updatedAt: new Date().toISOString(),
