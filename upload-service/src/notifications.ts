@@ -357,16 +357,19 @@ export async function enqueueEmailNotifications(
         }
       }
 
+      if (delivery?.status === 'enqueue_failed') {
+        const canRetry = await firestore.runTransaction(async tx => {
+          const current = await tx.getDoc<{ status?: string }>('emailNotificationDeliveries', deliveryId);
+          if (current?.status !== 'enqueue_failed') return false;
+          await tx.setDoc('emailNotificationDeliveries', deliveryId, { status: 'queued', updatedAt: new Date().toISOString() });
+          return true;
+        });
+        if (!canRetry) return;
+      }
+
       const result = await enqueue(payload);
       const taskName = result.taskName ?? deliveryId;
       console.info(JSON.stringify({ severity: 'INFO', message: 'event_email_enqueued', deliveryId, taskName, eventId, recipient: message.to, taskStatus: result.status }));
-      if (delivery?.status === 'enqueue_failed') {
-        try {
-          await firestore.setDoc('emailNotificationDeliveries', deliveryId, { status: 'queued', updatedAt: new Date().toISOString() });
-        } catch (error) {
-          console.error(JSON.stringify({ severity: 'ERROR', message: 'event_email_queued_status_persist_failed', deliveryId, eventId, recipient: message.to, error: error instanceof Error ? error.message : String(error) }));
-        }
-      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(JSON.stringify({ severity: 'ERROR', message: 'event_email_enqueue_failed', deliveryId, eventId, recipient: message.to, error: errorMessage }));

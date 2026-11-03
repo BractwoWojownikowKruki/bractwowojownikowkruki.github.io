@@ -246,6 +246,23 @@ test('enqueueEmailNotifications retries enqueueing when previous status is enque
   assert.equal(doc?.status, 'queued');
 });
 
+test('enqueueEmailNotifications preserves worker terminal status if delivery completes before enqueue returns', async () => {
+  const client = createInMemoryFirestoreClient();
+  const { createEmailDeliveryId } = await import('./email-tasks.ts');
+  const deliveryId = createEmailDeliveryId('event-fast-worker', 'fast@example.com');
+  client.seed('emailNotificationDeliveries', deliveryId, {
+    deliveryId, eventId: 'event-fast-worker', recipient: 'fast@example.com',
+    message: { to: 'fast@example.com', subject: 's', text: 't' }, status: 'enqueue_failed', error: 'previous failure',
+  });
+  await enqueueEmailNotifications(client, [{ to: 'fast@example.com', subject: 's', text: 't' }], 'event-fast-worker', async () => {
+    // Simulate fast worker processing task immediately and writing 'sent' before enqueue returns
+    await client.setDoc('emailNotificationDeliveries', deliveryId, { status: 'sent', sentAt: new Date().toISOString() });
+    return { status: 'created' };
+  });
+  const doc = await client.getDoc<{ status: string }>('emailNotificationDeliveries', deliveryId);
+  assert.equal(doc?.status, 'sent');
+});
+
 test('enqueueEmailNotifications skips deliveries already being sent or retried', async () => {
   const client = createInMemoryFirestoreClient();
   const { createEmailDeliveryId } = await import('./email-tasks.ts');
