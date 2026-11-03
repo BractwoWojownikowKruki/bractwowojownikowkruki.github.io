@@ -263,6 +263,28 @@ test('enqueueEmailNotifications preserves worker terminal status if delivery com
   assert.equal(doc?.status, 'sent');
 });
 
+test('enqueueEmailNotifications keeps enqueue_failed if enqueue call fails so it is never stranded in queued', async () => {
+  const client = createInMemoryFirestoreClient();
+  const { createEmailDeliveryId } = await import('./email-tasks.ts');
+  const deliveryId = createEmailDeliveryId('event-failed-enqueue', 'fail@example.com');
+  client.seed('emailNotificationDeliveries', deliveryId, {
+    deliveryId, eventId: 'event-failed-enqueue', recipient: 'fail@example.com',
+    message: { to: 'fail@example.com', subject: 's', text: 't' }, status: 'enqueue_failed', error: 'previous failure',
+  });
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    await enqueueEmailNotifications(client, [{ to: 'fail@example.com', subject: 's', text: 't' }], 'event-failed-enqueue', async () => {
+      throw new Error('Cloud Tasks unavailable');
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+  const doc = await client.getDoc<{ status: string; error?: string }>('emailNotificationDeliveries', deliveryId);
+  assert.equal(doc?.status, 'enqueue_failed');
+  assert.equal(doc?.error, 'Cloud Tasks unavailable');
+});
+
 test('enqueueEmailNotifications skips deliveries already being sent or retried', async () => {
   const client = createInMemoryFirestoreClient();
   const { createEmailDeliveryId } = await import('./email-tasks.ts');
