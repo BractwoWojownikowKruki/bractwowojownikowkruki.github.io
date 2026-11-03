@@ -157,7 +157,7 @@ test('sendNotifications skips recipients who opted out of e-mail, and sends when
   assert.deepEqual(sent.sort(), ['OUT@example.com', 'in@example.com']);
 });
 
-test('enqueueEmailNotifications respects email preferences and records deterministic per-recipient deliveries', async () => {
+test('enqueueEmailNotifications respects email preferences and records deterministic per-recipient deliveries without redundant taskName writes', async () => {
   const client = createInMemoryFirestoreClient();
   await client.runTransaction(tx => setEmailEnabledInTransaction(tx, 'out@example.com', false));
   const enqueued: Array<{ deliveryId: string }> = [];
@@ -165,26 +165,85 @@ test('enqueueEmailNotifications respects email preferences and records determini
     enqueued.push(payload);
     return { status: 'created' as const, taskName: `projects/test/queues/q/tasks/${payload.deliveryId}` };
   };
+  const setDocCalls: Array<{ collection: string; id: string }> = [];
+  const originalSetDoc = client.setDoc.bind(client);
+  client.setDoc = async (collection, id, data) => {
+    setDocCalls.push({ collection, id });
+    return originalSetDoc(collection, id, data);
+  };
   const messages = ['in@example.com', 'out@example.com'].map(to => ({ to, subject: 's', text: 'event snapshot' }));
   await enqueueEmailNotifications(client, messages, 'event-1', enqueue);
   assert.equal(enqueued.length, 1);
-  const records = await client.listDocs<{ status: string; recipient: string; message: MailMessage; taskName: string }>('emailNotificationDeliveries');
+  const records = await client.listDocs<{ status: string; recipient: string; message: MailMessage; taskName?: string }>('emailNotificationDeliveries');
   assert.equal(records.length, 1);
   assert.equal(records[0].data.status, 'queued');
   assert.equal(records[0].data.recipient, 'in@example.com');
   assert.deepEqual(records[0].data.message, { to: 'in@example.com', subject: 's', text: 'event snapshot' });
-  assert.equal(records[0].data.taskName, `projects/test/queues/q/tasks/${enqueued[0].deliveryId}`);
+  // Task name is not written to Firestore during enqueue; worker resolves it from headers/deliveryId.
+  assert.equal(records[0].data.taskName, undefined);
   assert.equal(enqueued[0].deliveryId, records[0].id);
+  // Zero secondary setDoc writes were performed for emailNotificationDeliveries.
+  assert.equal(setDocCalls.filter(c => c.collection === 'emailNotificationDeliveries').length, 0);
 });
 
-test('enqueueEmailNotifications does not re-enqueue deliveries already sent or permanently failed', async () => {
+test('enqueueEmailNotifications skips deliveries already queued or sent', async () => {
   const client = createInMemoryFirestoreClient();
   const { createEmailDeliveryId } = await import('./email-tasks.ts');
-  const deliveryId = createEmailDeliveryId('event-2', 'a@example.com');
-  client.seed('emailNotificationDeliveries', deliveryId, { deliveryId, status: 'sent' });
+  for (const status of ['queued', 'sent', 'failed']) {
+    const deliveryId = createEmailDeliveryId('event-2', `${status}@example.com`);
+    client.seed('emailNotificationDeliveries', deliveryId, { deliveryId, status });
+  }
   let calls = 0;
-  await enqueueEmailNotifications(client, [{ to: 'a@example.com', subject: 's', text: 't' }], 'event-2', async () => { calls++; return { status: 'created' }; });
+  await enqueueEmailNotifications(client, ['queued@example.com', 'sent@example.com', 'failed@example.com'].map(to => ({ to, subject: 's', text: 't' })), 'event-2', async () => {
+    calls++;
+    return { status: 'created' };
+  });
   assert.equal(calls, 0);
+});
+
+test('enqueueEmailNotifications skips re-enqueueing when createDoc loses a concurrent creation race', async () => {
+  const client = createInMemoryFirestoreClient();
+  const { createEmailDeliveryId } = await import('./email-tasks.ts');
+  const deliveryId = createEmailDeliveryId('event-concurrent', 'race@example.com');
+  let createDocAttempted = false;
+  const originalCreateDoc = client.createDoc.bind(client);
+  client.createDoc = async (collection, id, data) => {
+    if (collection === 'emailNotificationDeliveries' && id === deliveryId) {
+      createDocAttempted = true;
+      // Simulate another request creating the doc concurrently right before this createDoc
+      client.seed('emailNotificationDeliveries', deliveryId, {
+        deliveryId, eventId: 'event-concurrent', recipient: 'race@example.com',
+        message: { to: 'race@example.com', subject: 's', text: 't' }, status: 'queued',
+      });
+      throw new Error(`Document already exists: ${collection}/${id}`);
+    }
+    return originalCreateDoc(collection, id, data);
+  };
+  let calls = 0;
+  await enqueueEmailNotifications(client, [{ to: 'race@example.com', subject: 's', text: 't' }], 'event-concurrent', async () => {
+    calls++;
+    return { status: 'created' };
+  });
+  assert.equal(createDocAttempted, true);
+  assert.equal(calls, 0);
+});
+
+test('enqueueEmailNotifications retries enqueueing when previous status is enqueue_failed', async () => {
+  const client = createInMemoryFirestoreClient();
+  const { createEmailDeliveryId } = await import('./email-tasks.ts');
+  const deliveryId = createEmailDeliveryId('event-retry', 'failed@example.com');
+  client.seed('emailNotificationDeliveries', deliveryId, {
+    deliveryId, eventId: 'event-retry', recipient: 'failed@example.com',
+    message: { to: 'failed@example.com', subject: 's', text: 't' }, status: 'enqueue_failed', error: 'previous failure',
+  });
+  let calls = 0;
+  await enqueueEmailNotifications(client, [{ to: 'failed@example.com', subject: 's', text: 't' }], 'event-retry', async () => {
+    calls++;
+    return { status: 'created' };
+  });
+  assert.equal(calls, 1);
+  const doc = await client.getDoc<{ status: string }>('emailNotificationDeliveries', deliveryId);
+  assert.equal(doc?.status, 'queued');
 });
 
 test('enqueueEmailNotifications skips deliveries already being sent or retried', async () => {
