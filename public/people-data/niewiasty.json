@@ -138,6 +138,22 @@
     "url": "/people-photos/1dlPRNbLVFjLFY93L2DyF8tGIdsUxfyD9-800-b9cec2bbc7.jpg"
    },
    "photos": []
+  },
+  {
+   "avatar": {
+    "id": "1vYsgRxe8vS-fRyGzQSML7kFbpXHBs3UO",
+    "url": "/people-photos/1vYsgRxe8vS-fRyGzQSML7kFbpXHBs3UO-64-a171a64c55.jpg"
+   },
+   "folderId": "1n1DXcI-h8Jl1t7w568S9Aw0I1R5cSodp",
+   "name": "Paulina",
+   "order": 12,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1vYsgRxe8vS-fRyGzQSML7kFbpXHBs3UO",
+    "url": "/people-photos/1vYsgRxe8vS-fRyGzQSML7kFbpXHBs3UO-800-a171a64c55.jpg"
+   },
+   "photos": []
   }
  ]
 }
