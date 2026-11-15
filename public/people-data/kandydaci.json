@@ -298,6 +298,27 @@
     "url": "/people-photos/1orXM8GqCQyhsdMxuFnKGrzv110jFqTTH-800-730df0c8a9.jpg"
    },
    "photos": []
+  },
+  {
+   "avatar": {
+    "id": "1Y_Pmkp6s9cOSLUeHzvHsvBw3Ov58hFmO",
+    "url": "/people-photos/1Y_Pmkp6s9cOSLUeHzvHsvBw3Ov58hFmO-64-c07c38d654.jpg"
+   },
+   "folderId": "1X_tSudu13rha02LVlPBYvZFPHc8nGS0W",
+   "name": "Maciej",
+   "order": 16,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1Y_Pmkp6s9cOSLUeHzvHsvBw3Ov58hFmO",
+    "url": "/people-photos/1Y_Pmkp6s9cOSLUeHzvHsvBw3Ov58hFmO-800-c07c38d654.jpg"
+   },
+   "photos": [
+    {
+     "id": "1ZojTCSXYnC1BJFdZRbWFyhn15Mln2g1w",
+     "url": "/people-photos/1ZojTCSXYnC1BJFdZRbWFyhn15Mln2g1w-300-c932c18d1d.jpg"
+    }
+   ]
   }
  ]
 }
