@@ -85,6 +85,7 @@ const mutationFeedbackWiredRoutes = new Set([
   'POST /gallery-photos/finalize',
   'POST /lista-wyjazdowa/events',
   'PUT /lista-wyjazdowa/events',
+  'DELETE /lista-wyjazdowa/events',
   'PUT /lista-wyjazdowa/signups',
   'PUT /lista-wyjazdowa/event-equipment',
   'PUT /lista-wyjazdowa/signups/skladka',

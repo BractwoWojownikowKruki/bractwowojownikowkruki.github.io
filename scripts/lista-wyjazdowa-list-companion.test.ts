@@ -54,7 +54,8 @@ class FormElement extends Element {
   discordUrl = { value: '' };
   noCampEquipment = { checked: false };
   reset() { this.name.value = ''; this.startDate.value = ''; this.description.value = ''; }
-  querySelector(selector: string) { return selector === 'button[type="submit"]' ? new Element('submit-btn') : null; }
+  readonly submitButton = new Element('submit-btn');
+  querySelector(selector: string) { return selector === 'button[type="submit"]' ? this.submitButton : null; }
 }
 
 // The page's delegated click handler only reads closest(...) + dataset off the event target, so a
@@ -76,17 +77,22 @@ interface HarnessOptions {
   viewerAttending?: boolean;
   withAttachedPerson?: boolean;
   hiddenMember?: boolean;
+  events?: Array<Record<string, unknown>>;
+  canDeleteEvents?: boolean;
 }
 
 function createHarness(options: HarnessOptions = {}) {
   const viewerAttending = options.viewerAttending ?? true;
+  const deleterViewer = options.canDeleteEvents === true;
   const elements = new Map(elementIds.map((id) => [id, id === 'add-event-form' ? new FormElement(id) : new Element(id)]));
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   let mutationResult: unknown = null;
   let mutationError: Error | null = null;
+  let mutationGate: Promise<void> | null = null;
+  const busy = { shown: [] as string[], active: 0 };
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
 
-  const events = [
+  const events = options.events ?? [
     { id: 'e1', name: 'Wyjazd Letni', startDate: '2027-05-01', status: 'active', viewerAttending, attendingCount: 2 },
   ];
   const roster = [
@@ -109,6 +115,11 @@ function createHarness(options: HarnessOptions = {}) {
     window: {
       location: { search: '' },
       MutationFeedback: {
+        showBusy: (message: string) => {
+          busy.shown.push(message);
+          busy.active += 1;
+          return () => { busy.active -= 1; };
+        },
         confirmed: async ({ execute, apply, rollback }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown }) => {
           let result: unknown;
           try {
@@ -129,11 +140,13 @@ function createHarness(options: HarnessOptions = {}) {
     initGoogleSignIn: (config: { onSignedIn: (identity: { email: string }) => Promise<void> }) => { signIn = config.onSignedIn; },
     apiFetch: async (url: string, options: Record<string, unknown>) => {
       apiCalls.push({ url, options });
-      if (options.method === 'PUT' || options.method === 'POST') {
+      if (options.method === 'PUT' || options.method === 'POST' || options.method === 'DELETE') {
+        if (mutationGate) await mutationGate;
         if (mutationError) throw mutationError;
         return mutationResult;
       }
       if (url === '/lista-wyjazdowa/events') return { events };
+      if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: false, canManagePeople: deleterViewer, canDeleteEvents: deleterViewer };
       if (url === '/lista-wyjazdowa/roster') return { roster };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [{ id: 'kandydat', label: 'Kandydat' }], weapons: [] };
       if (url === '/lista-wyjazdowa/member') return { member: { categoryId: 'kandydat', ...(hiddenMember ? { hidden: true } : {}) } };
@@ -158,6 +171,9 @@ function createHarness(options: HarnessOptions = {}) {
     async signIn() { await signIn?.({ email: 'viewer@example.com' }); },
     setMutationResult(result: unknown) { mutationResult = result; mutationError = null; },
     setMutationError(error: Error) { mutationError = error; },
+    busy,
+    window: context.window as Record<string, unknown>,
+    holdMutations() { let release!: () => void; mutationGate = new Promise<void>((resolve) => { release = resolve; }); return () => { mutationGate = null; release(); }; },
   };
 }
 
@@ -390,4 +406,94 @@ test('clicking the standalone "+ Dodaj wyjazd" button reveals the inline form in
   assert.equal(form.hidden, false);
   assert.equal(title.textContent, 'Dodaj wyjazd');
   assert.equal(harness.elements.get('events-list')!.hidden, true);
+});
+
+// KRKG-132: a slow create used to be submittable twice, creating two identical events.
+const CREATED_EVENT = { event: { id: 'e2', name: 'Nowy wyjazd', startDate: '2027-09-01', status: 'active', createdBy: 'viewer@example.com', createdAt: '2027-01-01T00:00:00.000Z', description: null, skladkaFee: null, dueDate: null } };
+
+test('while an event is being created the submit is disabled, a wait overlay is shown and a second submit is ignored', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  harness.setMutationResult(CREATED_EVENT);
+  const release = harness.holdMutations();
+  const form = harness.elements.get('add-event-form') as unknown as FormElement;
+  form.name.value = 'Nowy wyjazd';
+  form.startDate.value = '2027-09-01';
+
+  const first = form.dispatch('submit');
+  await Promise.resolve();
+  await form.dispatch('submit'); // double click / Enter while the first is still running
+  assert.equal(form.submitButton.disabled, true);
+  assert.deepEqual(harness.busy.shown, ['Proszę czekać, tworzenie wyjazdu…']);
+  assert.equal(harness.busy.active, 1);
+
+  release();
+  await first;
+  assert.equal(harness.apiCalls.filter((call) => call.options.method === 'POST').length, 1);
+  assert.equal(form.submitButton.disabled, false);
+  assert.equal(harness.busy.active, 0);
+});
+
+test('a failed create re-enables the submit button, hides the wait overlay and shows the error', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  harness.setMutationError(new Error('Wyjazd o tej nazwie i dacie już istnieje.'));
+  const form = harness.elements.get('add-event-form') as unknown as FormElement;
+
+  await form.dispatch('submit');
+  assert.equal(form.submitButton.disabled, false);
+  assert.equal(harness.busy.active, 0);
+  const errorEl = harness.elements.get('add-event-error')!;
+  assert.equal(errorEl.hidden, false);
+  assert.match(errorEl.textContent, /już istnieje/);
+
+  // The user can retry after a failure.
+  harness.setMutationResult(CREATED_EVENT);
+  await form.dispatch('submit');
+  assert.equal(harness.apiCalls.filter((call) => call.options.method === 'POST').length, 2);
+});
+
+test('the events list renders a cancelled trip\'s status as a pill, not as "(odwołany)" text in the name', async () => {
+  const harness = createHarness({ events: [{ id: 'c1', name: 'Odwołany zlot', startDate: '2099-01-01', status: 'cancelled', attendingCount: 0, viewerAttending: false }] });
+  await harness.signIn();
+  // Cancelled trips are hidden by default; the "show all" toggle reveals them.
+  await harness.elements.get('toggle-past-events')!.dispatch('click', { target: { textContent: '' } });
+  const html = harness.elements.get('events-list')!.innerHTML;
+  assert.match(html, /<span class="lw-status-pill lw-status-pill--cancelled">Odwołany<\/span>/);
+  assert.doesNotMatch(html, /\(odwołany\)/);
+});
+
+// KRKG-132: staff can delete an event from the list's edit panel; others only get Odwołaj.
+test('the list edit panel offers "Usuń wyjazd" only to admins/hovding and deleting removes the row', async () => {
+  const member = createHarness();
+  await member.signIn();
+  await member.elements.get('events-list')!.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-toggle' ? { dataset: { eventId: 'e1' } } : null, dataset: {} });
+  assert.doesNotMatch(member.elements.get('events-list')!.innerHTML, /lw-event-edit-delete/);
+
+  const staff = createHarness({ canDeleteEvents: true });
+  await staff.signIn();
+  const list = staff.elements.get('events-list')!;
+  await list.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-toggle' ? { dataset: { eventId: 'e1' } } : null, dataset: {} });
+  assert.match(list.innerHTML, /lw-event-edit-delete/);
+
+  const confirms: string[] = [];
+  (staff.window as { confirm: (message: string) => boolean }).confirm = (message) => { confirms.push(message); return true; };
+  staff.setMutationResult({ eventId: 'e1', deletedSignups: 0, deletedEventEquipment: 0 });
+  const button = { dataset: { idPrefix: 'p' }, disabled: false };
+  await list.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-delete' ? button : null, dataset: {} });
+  assert.equal(confirms.length, 1);
+  assert.match(confirms[0], /nie można cofnąć/);
+  const del = staff.apiCalls.find((call) => call.options.method === 'DELETE');
+  assert.equal(del?.url, '/lista-wyjazdowa/events?eventId=e1');
+  assert.match(list.innerHTML, /Brak wyjazdów do wyświetlenia/);
+});
+
+test('declining the delete confirmation sends no request', async () => {
+  const staff = createHarness({ canDeleteEvents: true });
+  await staff.signIn();
+  const list = staff.elements.get('events-list')!;
+  await list.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-toggle' ? { dataset: { eventId: 'e1' } } : null, dataset: {} });
+  (staff.window as { confirm: () => boolean }).confirm = () => false;
+  await list.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-delete' ? { dataset: { idPrefix: 'p' }, disabled: false } : null, dataset: {} });
+  assert.equal(staff.apiCalls.filter((call) => call.options.method === 'DELETE').length, 0);
 });

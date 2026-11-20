@@ -41,6 +41,9 @@ showOnly(panels.checking);
 function showReauth() {} // no reauth banner on this page yet - matches the placeholder's scope; add one if apiFetch calls start failing with 401 in practice
 function hideReauth() {}
 
+// KRKG-132: admins and hovding (GET /lista-wyjazdowa/my-role's canDeleteEvents) may delete an event
+// outright; everyone else only gets Odwołaj. The server re-checks on every DELETE.
+let canDeleteEvents = false;
 let showAll = false;
 let cachedEvents = [];
 let viewerEmail = null;
@@ -138,7 +141,6 @@ function renderEvents() {
   const viewerMember = currentRoster.find((m) => m.personId === viewerPersonId) ?? null;
   container.innerHTML = events
     .map((e) => {
-      const statusLabel = e.status === 'cancelled' ? ' (odwołany)' : '';
       // KRKG-0094: the "+ osoba towarzysząca" control sits to the right of the toggle and only
       // appears once the viewer is attending and is a real (non-hidden) account. It does not
       // require the roster to be loaded yet - the panel it opens lazy-loads that on first use.
@@ -159,11 +161,12 @@ function renderEvents() {
       // collide with a previously-rendered (now closed) one still cached in cachedEvents.
       const editToggleHtml = window.EventEditForm.toggleButtonHtml({ eventId: e.id, expanded: openEditPanelEventId === e.id, withLabel: false });
       const editPanelHtml = openEditPanelEventId === e.id
-        ? window.EventEditForm.panelHtml(e, { idPrefix: `lw-event-edit-${e.id}` })
+        ? window.EventEditForm.panelHtml(e, { idPrefix: `lw-event-edit-${e.id}`, canDelete: canDeleteEvents })
         : '';
       return `
         <div class="lw-event-row" data-event-id="${escapeAttr(e.id)}">
-          <a href="${escapeAttr(window.LwFriendlyUrl.eventUrl(e))}" class="lw-event-name">${escapeHtml(e.name)}${statusLabel}</a>
+          <a href="${escapeAttr(window.LwFriendlyUrl.eventUrl(e))}" class="lw-event-name">${escapeHtml(e.name)}</a>
+          ${window.EventEditForm.statusPillHtml(e)}
           <span class="lw-event-meta">
             ${window.LwCalendar.datePillHtml(e, `list-${e.id}`, 'start')}
             <span class="attendee-badge" title="Zgłoszone osoby: ${e.attendingCount ?? 0}" aria-label="Zgłoszone osoby: ${e.attendingCount ?? 0}"><img class="attendee-badge-icon" src="/icons/attendees-badge.png" alt="" aria-hidden="true"> <span class="attendee-badge-count">${e.attendingCount ?? 0}</span></span>
@@ -353,6 +356,35 @@ async function setEventStatusFromList(eventId, status, control) {
   }
 }
 
+// KRKG-132: permanent delete from the list's edit panel (staff only). The row simply leaves the
+// list on success; there is nothing to patch in place.
+async function deleteEventFromList(eventId, control) {
+  const errorEl = document.getElementById('events-error');
+  errorEl.hidden = true;
+  try {
+    await window.MutationFeedback.confirmed({
+      control,
+      toast: true, // the row (and its button) is gone after apply
+      execute: () => apiFetch(
+        `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
+        { method: 'DELETE' },
+        showReauth,
+        hideReauth,
+      ),
+      apply: () => {
+        cachedEvents = cachedEvents.filter((item) => item.id !== eventId);
+        openEditPanelEventId = null;
+        renderEvents();
+      },
+      viewRoot: document.getElementById('events-panel'),
+      refreshFragment: loadEvents,
+    });
+  } catch (err) {
+    errorEl.textContent = `Nie udało się usunąć wyjazdu: ${err.message}`;
+    errorEl.hidden = false;
+  }
+}
+
 document.getElementById('events-list').addEventListener('click', async (e) => {
   const errorEl = document.getElementById('events-error');
 
@@ -440,6 +472,14 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
     if (nextStatus === 'cancelled' && !window.confirm('Czy na pewno odwołać ten wyjazd?')) return;
     editStatusBtn.disabled = true;
     setEventStatusFromList(openEditPanelEventId, nextStatus, editStatusBtn).finally(() => { editStatusBtn.disabled = false; });
+    return;
+  }
+
+  const editDeleteBtn = e.target.closest('.lw-event-edit-delete');
+  if (editDeleteBtn) {
+    if (!window.confirm(window.EventEditForm.DELETE_CONFIRM_MESSAGE)) return;
+    editDeleteBtn.disabled = true;
+    deleteEventFromList(openEditPanelEventId, editDeleteBtn).finally(() => { editDeleteBtn.disabled = false; });
     return;
   }
 
@@ -589,11 +629,17 @@ document.getElementById('toggle-past-events').addEventListener('click', (e) => {
   renderEvents();
 });
 
+let addEventSubmitting = false;
+
 document.getElementById('add-event-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.target;
   const errorEl = document.getElementById('add-event-error');
   const submitBtn = form.querySelector('button[type="submit"]');
+  // KRKG-132: a create takes a while, and a second click/Enter while it runs used to create a
+  // second identical event. Ignore re-entrant submits, disable the button and block the page with
+  // a wait overlay until the request has finished, either way.
+  if (addEventSubmitting) return;
   errorEl.hidden = true;
   const invalid = window.EventEditForm.validateForm({ mapUrl: form.mapUrl.value, discordUrl: form.discordUrl.value });
   if (invalid) {
@@ -601,6 +647,9 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
     errorEl.hidden = false;
     return;
   }
+  addEventSubmitting = true;
+  submitBtn.disabled = true;
+  const hideBusy = window.MutationFeedback.showBusy('Proszę czekać, tworzenie wyjazdu…');
   try {
     await window.MutationFeedback.confirmed({
       control: submitBtn,
@@ -633,6 +682,10 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
   } catch (err) {
     errorEl.textContent = `Błąd: ${err.message}`;
     errorEl.hidden = false;
+  } finally {
+    addEventSubmitting = false;
+    submitBtn.disabled = false;
+    hideBusy();
   }
 });
 
@@ -655,10 +708,14 @@ initGoogleSignIn({
     openAddPanelEventId = null;
     companionDataPromise = null;
     try {
-      const [{ member }, { profile }] = await Promise.all([
+      const [{ member }, { profile }, role] = await Promise.all([
         apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
         apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
+        // Only decides whether "Usuń wyjazd" is offered (the server enforces staff-only anyway), so a
+        // failure here must not take the whole list down: just don't offer the button.
+        apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth).catch(() => null),
       ]);
+      canDeleteEvents = role?.canDeleteEvents === true;
       if (!member || !profile) {
         showOnly(panels.noProfile);
         return;

@@ -45,6 +45,7 @@ historical work and do not need to stay synchronized with this contract.
 | PUT `/lista-wyjazdowa/profile` | businessWrite — `profile.member.updated` | member; Firestore | requestAwaited |
 | POST `/lista-wyjazdowa/events` | businessWrite — `event.created` | event; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/events` | businessWrite — `event.updated` / `event.cancelled`, plus `dues.event_fee.changed` only when its fee changes | event and optional eventFee; Firestore; two independent effects emit two events in one transaction | requestAwaited |
+| DELETE `/lista-wyjazdowa/events` | businessWrite — `event.deleted` | event, signups and event equipment; Firestore; one transaction | requestAwaited |
 | PUT `/lista-wyjazdowa/signups` | businessWrite — data-resolved `signup.created` / `signup.updated` | signup; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/event-equipment` | businessWrite — `equipment.event_going.changed` | eventEquipment; Firestore | requestAwaited |
 | PUT `/lista-wyjazdowa/signups/skladka` | businessWrite — `dues.event_fee.changed` | eventFee; Firestore | requestAwaited |

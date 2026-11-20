@@ -918,6 +918,23 @@
   text-decoration: underline;
 }
 
+/* KRKG-132: status pill (e.g. "Odwołany") so a trip's state is not mistaken for part of its name. */
+.lw-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.lw-status-pill--cancelled {
+  background: rgba(220, 70, 70, 0.18);
+  color: #f08a8a;
+  border: 1px solid rgba(220, 70, 70, 0.45);
+}
+
 .lw-event-date {
   color: var(--text-muted);
   font-size: 14px;
@@ -2237,6 +2254,8 @@ button.lw-edit-toggle.lw-share--active {
    own always-visible button; now it only surfaces once the form is open). */
 .lw-event-edit-danger-row {
   display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   justify-content: flex-end;
   margin-top: 0.75rem;
   padding-top: 0.75rem;
@@ -3483,4 +3502,10 @@ a.dashboard-widget:hover { border-color: var(--gold); }
   position: absolute;
   inset: 0;
   z-index: 0;
+}
+
+/* KRKG-132: "Usuń wyjazd" is the destructive one of the two buttons in the danger row. */
+.lw-event-edit-delete {
+  color: #f08a8a;
+  border-color: rgba(220, 70, 70, 0.55);
 }

@@ -45,7 +45,7 @@ const events = [
   { id: 'e2', name: 'Wolin Żarłoczny', startDate: '2026-06-15', status: 'active', description: null },
 ];
 
-function createHarness(search: string) {
+function createHarness(search: string, eventList: Array<Record<string, unknown>> = events) {
   const elements = new Map(elementIds.map(id => [id, new Element()]));
   elements.get('roster-filter-zgloszeni')!.checked = true;
   const calls: Array<{ url: string }> = [];
@@ -73,7 +73,7 @@ function createHarness(search: string) {
     personPillHtml: ({ name }: { name: string }) => `<span>${name}</span>`,
     apiFetch: async (url: string) => {
       calls.push({ url });
-      if (url === '/lista-wyjazdowa/events') return { events };
+      if (url === '/lista-wyjazdowa/events') return { events: eventList };
       if (url.startsWith('/lista-wyjazdowa/roster?')) return { roster: [] };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups: [] };
       if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: false, canManagePeople: false };
@@ -131,4 +131,32 @@ test('an event with no description keeps the paragraph hidden', async () => {
   await harness.signIn();
   const description = harness.elements.get('event-description')!;
   assert.equal(description.hidden, true);
+});
+
+// KRKG-132: a cancelled event and an active replacement can share date + name (and so the slug);
+// the friendly link must open the active one, in whichever order the API lists them.
+for (const [label, list] of [
+  ['cancelled listed first', [
+    { id: 'c1', name: 'Volin', startDate: '2027-05-01', status: 'cancelled', description: null },
+    { id: 'a1', name: 'Volin', startDate: '2027-05-01', status: 'active', description: null },
+  ]],
+  ['active listed first', [
+    { id: 'a1', name: 'Volin', startDate: '2027-05-01', status: 'active', description: null },
+    { id: 'c1', name: 'Volin', startDate: '2027-05-01', status: 'cancelled', description: null },
+  ]],
+] as const) {
+  test(`a ?do= slug shared by a cancelled and an active event opens the active one (${label})`, async () => {
+    const harness = createHarness('?do=2027-05-01-volin', [...list]);
+    await harness.signIn();
+    assert.ok(harness.calls.some(c => c.url.startsWith('/lista-wyjazdowa/roster?eventId=a1')));
+    assert.ok(!harness.calls.some(c => c.url.startsWith('/lista-wyjazdowa/roster?eventId=c1')));
+    assert.equal(harness.elements.get('event-meta')!.innerHTML, '');
+  });
+}
+
+test('a ?do= slug that only a cancelled event has still opens it, with the status pill', async () => {
+  const harness = createHarness('?do=2027-05-01-volin', [{ id: 'c1', name: 'Volin', startDate: '2027-05-01', status: 'cancelled', description: null }]);
+  await harness.signIn();
+  assert.ok(harness.calls.some(c => c.url.startsWith('/lista-wyjazdowa/roster?eventId=c1')));
+  assert.match(harness.elements.get('event-meta')!.innerHTML, /lw-status-pill--cancelled">Odwołany</);
 });

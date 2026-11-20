@@ -119,7 +119,7 @@ import {
   uniqueLookupId,
   type LookupItem,
 } from './lookup-lists.ts';
-import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWithId, type EventWritableFields } from './events.ts';
+import { listEvents, getEvent, readSlugLock, writeSlugRelease, createEventUniqueSlug, updateEventUniqueSlug, eventSlug, findActiveSlugConflict, EventSlugConflictError, EVENT_SLUG_CONFLICT_MESSAGE, type EventDoc, type EventWithId, type EventWritableFields } from './events.ts';
 import {
   listAllSignups,
   listSignupsForEvent,
@@ -315,6 +315,7 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   tripProfile: auditedRoute('PUT', '/lista-wyjazdowa/profile', ['profile.member.updated']),
   eventCreate: auditedRoute('POST', '/lista-wyjazdowa/events', ['event.created']),
   eventUpdate: auditedRoute('PUT', '/lista-wyjazdowa/events', ['event.updated', 'event.cancelled', 'dues.event_fee.changed']),
+  eventDelete: auditedRoute('DELETE', '/lista-wyjazdowa/events', ['event.deleted']),
   signup: auditedRoute('PUT', '/lista-wyjazdowa/signups', ['signup.created', 'signup.updated']),
   eventEquipment: auditedRoute('PUT', '/lista-wyjazdowa/event-equipment', ['equipment.event_going.changed']),
   // KRKG-0087: the accountless-person record routes.
@@ -3902,6 +3903,11 @@ async function handleListaWyjazdowaGetEvents(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, { events: withSummary });
 }
 
+function rethrowSlugConflict(error: unknown): never {
+  if (error instanceof EventSlugConflictError) throw new AuthError(EVENT_SLUG_CONFLICT_MESSAGE, 409);
+  throw error;
+}
+
 async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
@@ -3912,6 +3918,11 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
   const mapUrl = optionalHttpUrl(body.mapUrl, LW_MAP_URL_MESSAGE);
   const discordUrl = optionalHttpUrl(body.discordUrl, LW_DISCORD_URL_MESSAGE);
   const eventId = randomUUID();
+  // KRKG-132: two active events may not share date + name. This listing check also covers events
+  // that predate the slug locks; createEventUniqueSlug's lock closes the concurrent-create race.
+  if (findActiveSlugConflict(await listEvents(deps.firestore), eventSlug({ name, startDate }))) {
+    throw new AuthError(EVENT_SLUG_CONFLICT_MESSAGE, 409);
+  }
   const { result: event } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.eventCreate,
@@ -3929,7 +3940,8 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
         ...(discordUrl !== null ? [{ field: 'discordUrl', after: discordUrl }] : []),
       ],
     },
-    tx => createEvent(tx, { name, startDate, description, noCampEquipment, mapUrl, discordUrl }, identity.email, eventId),
+    tx => createEventUniqueSlug(tx, { name, startDate, description, noCampEquipment, mapUrl, discordUrl }, identity.email, eventId)
+      .catch(rethrowSlugConflict),
   );
   await notifyActiveMembersOfNewEvent(deps, event);
   sendJson(res, 200, { event });
@@ -3967,6 +3979,20 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
   const feeFieldCount = Number(fields.skladkaFee !== undefined) + Number(fields.dueDate !== undefined);
   if (eventFieldCount === 0 && feeFieldCount === 0) {
     throw new AuthError('Podaj co najmniej jedno pole wyjazdu do zmiany.', 400);
+  }
+  // KRKG-132: renaming/redating an active event, or restoring a cancelled one, must not duplicate
+  // another active event's date + name (the listing check covers pre-lock events; the lock in
+  // updateEventUniqueSlug covers races). Unrelated edits are never blocked by a legacy duplicate.
+  if (fields.name !== undefined || fields.startDate !== undefined || fields.status === 'active') {
+    const all = await listEvents(deps.firestore);
+    const current = all.find(e => e.id === eventId);
+    if (current) {
+      const next = { ...current, ...fields };
+      const slugChanged = eventSlug(next) !== eventSlug(current);
+      if (next.status === 'active' && (slugChanged || current.status !== 'active') && findActiveSlugConflict(all, eventSlug(next), eventId)) {
+        throw new AuthError(EVENT_SLUG_CONFLICT_MESSAGE, 409);
+      }
+    }
   }
   const metadataAction = fields.status === 'cancelled' ? 'event.cancelled' : 'event.updated';
   const actions = feeFieldCount > 0
@@ -4009,12 +4035,71 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
       };
       return eventFieldCount > 0 ? [metadataInput, feeInput] : [feeInput];
     },
-    tx => updateEvent(tx, eventId, fields).then(event => {
+    tx => updateEventUniqueSlug(tx, eventId, fields).catch(rethrowSlugConflict).then(event => {
       if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
       return event;
     }),
   );
   sendJson(res, 200, { event });
+}
+
+// KRKG-132: permanent removal of an event together with every signup and per-event equipment
+// record that belongs to it (the event fee lives on the event document itself, so it goes with it).
+// Cancelling stays open to any member; deleting is the staff-only escape hatch for a mistaken or
+// duplicate event. Collections cannot be scanned inside a transaction, so the ids to drop are
+// resolved first and only the deletes (plus the audit event) run transactionally. Immutable audit
+// events are never removed, so the delete stays traceable via event.deleted.
+async function handleListaWyjazdowaDeleteEvent(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  if (!(await canDeleteEvents(req, res, deps))) throw new AuthError('Brak uprawnień do usunięcia wyjazdu.', 403);
+  const eventId = url.searchParams.get('eventId');
+  if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
+  const existing = await getEvent(deps.firestore, eventId);
+  if (!existing) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+  const [signups, equipment] = await Promise.all([
+    deps.firestore.listDocs<{ eventId?: string }>('signups'),
+    deps.firestore.listDocs<{ eventId?: string }>('eventEquipment'),
+  ]);
+  const signupIds = signups.filter(({ data }) => data.eventId === eventId).map(({ id }) => id);
+  const equipmentIds = equipment.filter(({ data }) => data.eventId === eventId).map(({ id }) => id);
+  await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.eventDelete,
+    'event.deleted',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'event', key: `event:${eventId}`, display: existing.name },
+      changes: [
+        { field: 'deleted', after: true },
+        { field: 'droppedSignups', after: signupIds.length },
+        { field: 'droppedEventEquipment', after: equipmentIds.length },
+      ],
+    },
+    async tx => {
+      // The event is re-read inside the transaction: a concurrent rename/redate may have moved its
+      // slug lock since the snapshot above, and it is the current slug that must be released.
+      // Firestore requires every read before the first write, hence both reads come first.
+      const current = await tx.getDoc<EventDoc>('events', eventId);
+      if (!current) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+      const slug = eventSlug(current);
+      const slugLock = await readSlugLock(tx, slug);
+      for (const id of signupIds) await tx.deleteDoc('signups', id);
+      for (const id of equipmentIds) await tx.deleteDoc('eventEquipment', id);
+      await writeSlugRelease(tx, slug, eventId, slugLock);
+      await tx.deleteDoc('events', eventId);
+      return { eventId };
+    },
+  );
+  // Collections cannot be scanned inside a transaction, so a signup or equipment write that landed
+  // between the snapshot above and the commit is swept here, now that the event is gone and no
+  // further write for it can be validated against it.
+  const [lateSignups, lateEquipment] = await Promise.all([
+    deps.firestore.listDocs<{ eventId?: string }>('signups'),
+    deps.firestore.listDocs<{ eventId?: string }>('eventEquipment'),
+  ]);
+  for (const { id, data } of lateSignups) if (data.eventId === eventId) await deps.firestore.deleteDoc('signups', id);
+  for (const { id, data } of lateEquipment) if (data.eventId === eventId) await deps.firestore.deleteDoc('eventEquipment', id);
+  sendJson(res, 200, { eventId, deletedSignups: signupIds.length, deletedEventEquipment: equipmentIds.length });
 }
 
 async function handleListaWyjazdowaGetSignups(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
@@ -4378,7 +4463,21 @@ async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, {
     canManageSkladki: await canManageSkladki(req, res, deps, identity.email),
     canManagePeople: await isPersonStaff(req, res, deps, identity.email),
+    // KRKG-132: permanent event delete is narrower than "staff" - admins and hovding only.
+    canDeleteEvents: await canDeleteEvents(req, res, deps),
   });
+}
+
+// KRKG-132: who may permanently delete an event: administrators and hovding (moderators). Accountants
+// and plain members cannot (any member may still cancel an event).
+async function canDeleteEvents(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<boolean> {
+  try {
+    await deps.authenticateAdminOrHovding(req, res);
+    return true;
+  } catch (err) {
+    if (err instanceof AuthError) return false;
+    throw err;
+  }
 }
 
 // Wpisowe and a trip's składka take the same three-state body as PUT /dues ({ status }). The old
@@ -6399,6 +6498,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaGetEvents(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/lista-wyjazdowa/events') {
         await handleListaWyjazdowaPostEvent(req, res, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/lista-wyjazdowa/events') {
+        await handleListaWyjazdowaDeleteEvent(req, res, url, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/events') {
         await handleListaWyjazdowaPutEvent(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/signups') {

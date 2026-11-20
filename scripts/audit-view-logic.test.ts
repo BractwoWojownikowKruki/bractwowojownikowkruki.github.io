@@ -27,7 +27,7 @@ test('action/category labels cover every registered action and category', () => 
     'membership.application.submitted', 'membership.status.approved', 'membership.status.rejected',
     'membership.status.suspended', 'membership.status.reactivated', 'membership.status.removed',
     'membership.sheet_backup.synchronized',
-    'event.created', 'event.updated', 'event.cancelled',
+    'event.created', 'event.updated', 'event.cancelled', 'event.deleted',
     'signup.created', 'signup.updated',
     'dues.annual.changed', 'dues.entry_fee.changed', 'dues.event_fee.changed',
     'profile.member.updated', 'profile.drive_folder.changed', 'profile.person.created',

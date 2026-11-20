@@ -58,14 +58,26 @@
   }
 
   /**
+   * KRKG-132: the "Odwołany" marker as a status pill (not plain text beside the title), so it
+   * reads as a status and not as part of the event's name or description. Empty for active events.
+   *
+   * @param {{status: string}} event
+   */
+  function statusPillHtml(event) {
+    return event.status === 'cancelled'
+      ? '<span class="lw-status-pill lw-status-pill--cancelled">Odwołany</span>'
+      : '';
+  }
+
+  /**
    * The edit panel itself: Nazwa/Data/links/Opis fields, Zapisz/Anuluj, and a single Odwołaj/Przywróć
    * wyjazd button whose label and target status follow the event's current status. `idPrefix` keeps
    * multiple instances (one per list row, plus the detail page's own) from colliding on element ids.
    *
    * @param {{id: string, name: string, startDate: string, description?: string|null, status: string}} event
-   * @param {{idPrefix: string}} opts
+   * @param {{idPrefix: string, canDelete?: boolean}} opts `canDelete` (staff) adds "Usuń wyjazd", KRKG-132.
    */
-  function panelHtml(event, { idPrefix }) {
+  function panelHtml(event, { idPrefix, canDelete = false }) {
     const isCancelled = event.status === 'cancelled';
     const description = event.description ?? '';
     const mapUrl = event.mapUrl ?? '';
@@ -103,6 +115,7 @@
       </div>
       <div class="lw-event-edit-danger-row">
         <button type="button" class="btn-cancel lw-event-edit-toggle-status" data-id-prefix="${idPrefix}" data-next-status="${isCancelled ? 'active' : 'cancelled'}">${isCancelled ? 'Przywróć wyjazd' : 'Odwołaj wyjazd'}</button>
+        ${canDelete ? `<button type="button" class="btn-cancel lw-event-edit-delete" data-id-prefix="${idPrefix}">Usuń wyjazd</button>` : ''}
       </div>
     </div>`;
   }
@@ -167,5 +180,8 @@
     return body;
   }
 
-  window.EventEditForm = { toggleButtonHtml, panelHtml, readForm, buildUpdateBody, wireUrlWarning, validateForm, isHttpUrl };
+  /** Confirmation shown before a permanent delete; shared so both pages word the warning alike. */
+  const DELETE_CONFIRM_MESSAGE = 'Czy na pewno usunąć ten wyjazd? Zostaną usunięte także wszystkie zgłoszenia i sprzęt przypisany do wyjazdu. Tej operacji nie można cofnąć. Jeśli wyjazd tylko się nie odbędzie, użyj „Odwołaj wyjazd”.';
+
+  window.EventEditForm = { DELETE_CONFIRM_MESSAGE, toggleButtonHtml, statusPillHtml, panelHtml, readForm, buildUpdateBody, wireUrlWarning, validateForm, isHttpUrl };
 }());

@@ -24,6 +24,7 @@ import type { GithubClient } from './github.ts';
 import { invalidateAboutUsCache, resetAboutUsBootstrapForTests } from './about-us.ts';
 import { resetSettingsBootstrapForTests } from './settings.ts';
 import { resetRateLimitForTests } from './rate-limit.ts';
+import { withStrictTransactionOrdering } from './strict-transactions.ts';
 import { createInMemoryFirestoreClient } from './firestore.ts';
 import { createDisabledMailer, type MailMessage } from './mailer.ts';
 import { createDisabledPusher, type PushMessage, type PushSubscriptionRecord } from './pusher.ts';
@@ -8490,15 +8491,15 @@ test('GET /lista-wyjazdowa/my-role reflects granted roles', async () => {
     authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
   }), async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
-    assert.deepEqual(await res.json(), { canManageSkladki: false, canManagePeople: false });
+    assert.deepEqual(await res.json(), { canManageSkladki: false, canManagePeople: false, canDeleteEvents: false });
   });
   await withServer(makeDepsWithRole('accountant'), async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
-    assert.deepEqual(await res.json(), { canManageSkladki: true, canManagePeople: true });
+    assert.deepEqual(await res.json(), { canManageSkladki: true, canManagePeople: true, canDeleteEvents: true });
   });
   await withServer(makeDepsWithRole('admin'), async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
-    assert.deepEqual(await res.json(), { canManageSkladki: true, canManagePeople: true });
+    assert.deepEqual(await res.json(), { canManageSkladki: true, canManagePeople: true, canDeleteEvents: true });
   });
   // A hovding (authenticateAdminOrHovding, no składki grant) still manages people, so the
   // event page can offer them the "+" control on every account row.
@@ -8507,7 +8508,7 @@ test('GET /lista-wyjazdowa/my-role reflects granted roles', async () => {
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
   }), async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
-    assert.deepEqual(await res.json(), { canManageSkladki: false, canManagePeople: true });
+    assert.deepEqual(await res.json(), { canManageSkladki: false, canManagePeople: true, canDeleteEvents: true });
   });
 });
 
@@ -8518,7 +8519,7 @@ test('GET /lista-wyjazdowa/my-role also grants canManageSkladki via the env admi
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() }); // default authenticateAdmin succeeds
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/my-role`);
-    assert.deepEqual(await res.json(), { canManageSkladki: true, canManagePeople: true });
+    assert.deepEqual(await res.json(), { canManageSkladki: true, canManagePeople: true, canDeleteEvents: true });
   });
 });
 
@@ -8536,7 +8537,7 @@ test('GET /lista-wyjazdowa/my-role drops canManageSkladki while an accountant is
   for (const [status, expected] of [['active', true], ['suspended', false], ['removed', false], ['active', true]] as const) {
     await firestore.setDoc('members', 'wojownik@gmail.com', { email: 'wojownik@gmail.com', status });
     await withServer(deps, async baseUrl => {
-      assert.deepEqual(await myRole(baseUrl), { canManageSkladki: expected, canManagePeople: expected }, `status ${status}`);
+      assert.deepEqual(await myRole(baseUrl), { canManageSkladki: expected, canManagePeople: expected, canDeleteEvents: false }, `status ${status}`);
     });
   }
   assert.deepEqual(await firestore.getDoc('userRoles', 'wojownik@gmail.com'), { roles: ['accountant'] });
@@ -8654,7 +8655,7 @@ test('PUT /lista-wyjazdowa/signups/skladka requires accountant and 404s for a me
     assert.equal(res.status, 403);
   });
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
-    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd drugi', startDate: '2027-05-01' })).json();
     const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&personId=wojownik@gmail.com`, { paid: true });
     assert.equal(res.status, 404);
   });
@@ -11431,4 +11432,185 @@ test('POST /internal/notifications/email transitions directly from queued to sen
   const finalDoc = await firestore.getDoc<{ status: string; taskName: string }>('emailNotificationDeliveries', deliveryId);
   assert.equal(finalDoc?.status, 'sent');
   assert.equal(finalDoc?.taskName, 'projects/test/queues/q/tasks/event-direct-sent');
+});
+
+// KRKG-132: the fake Firestore accepts reads after writes in a transaction; the real one rejects
+// them, so the tests of the event slug/delete transactions run through the strict wrapper.
+function strictListaWyjazdowaFirestore() {
+  return withStrictTransactionOrdering(makeListaWyjazdowaFirestore());
+}
+
+// KRKG-132: active events are unique by startDate + slugified name.
+test('POST /lista-wyjazdowa/events rejects a duplicate active date+name with 409, allows other dates', async () => {
+  const firestore = strictListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const first = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' });
+    assert.equal(first.status, 200);
+    const dup = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: ' volin ', startDate: '2027-05-01' });
+    assert.equal(dup.status, 409);
+    assert.match((await dup.json()).error ?? '', /już istnieje/);
+    const otherYear = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2028-05-01' });
+    assert.equal(otherYear.status, 200);
+    assert.equal((await firestore.listDocs('events')).length, 2);
+  });
+});
+
+test('two concurrent identical POST /lista-wyjazdowa/events create exactly one event', async () => {
+  const firestore = strictListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const results = await Promise.all([1, 2, 3].map(() => postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })));
+    assert.deepEqual(results.map(r => r.status).sort(), [200, 409, 409]);
+    assert.equal((await firestore.listDocs('events')).length, 1);
+  });
+});
+
+test('PUT /lista-wyjazdowa/events: a cancelled twin does not conflict, but cannot be restored while the name is taken', async () => {
+  const firestore = strictListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const a = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event;
+    assert.equal((await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${a.id}`, { status: 'cancelled' })).status, 200);
+    const b = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' });
+    assert.equal(b.status, 200);
+    const restore = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${a.id}`, { status: 'active' });
+    assert.equal(restore.status, 409);
+    assert.equal((await firestore.getDoc<{ status: string }>('events', a.id))?.status, 'cancelled');
+  });
+});
+
+test('PUT /lista-wyjazdowa/events rejects renaming/redating onto another active event but allows unrelated edits', async () => {
+  const firestore = strictListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const a = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event;
+    const b = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Wolin', startDate: '2027-05-01' })).json()).event;
+    assert.equal((await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${b.id}`, { name: 'Volin' })).status, 409);
+    assert.equal((await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${a.id}`, { startDate: '2027-06-01' })).status, 200);
+    assert.equal((await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${b.id}`, { name: 'Volin' })).status, 200);
+    assert.equal((await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${b.id}`, { description: 'opis' })).status, 200);
+  });
+});
+
+test('a legacy duplicate (no slug locks) blocks new creates but never blocks unrelated edits of the twins', async () => {
+  const firestore = strictListaWyjazdowaFirestore();
+  const doc = { name: 'Volin', startDate: '2027-05-01', status: 'active', createdBy: 'x@example.test', createdAt: '2027-01-01T00:00:00.000Z', description: null, skladkaFee: null, dueDate: null };
+  await firestore.setDoc('events', 'legacy-1', doc);
+  await firestore.setDoc('events', 'legacy-2', doc);
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    assert.equal((await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).status, 409);
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events?eventId=legacy-1', { description: 'opis' })).status, 200);
+    // Cancelling one twin is the way out; the survivor is then unique.
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events?eventId=legacy-2', { status: 'cancelled' })).status, 200);
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events?eventId=legacy-2', { status: 'active' })).status, 409);
+  });
+});
+
+// KRKG-132: permanent delete of an event is for admins and hovding (moderators) only - not for
+// accountants and not for plain members (any member may still cancel).
+function makeAccountantOnlyDeps(firestore: ReturnType<typeof makeListaWyjazdowaFirestore>) {
+  firestore.seed('userRoles', 'wojownik@gmail.com', { roles: ['accountant'] });
+  firestore.seed('members', 'wojownik@gmail.com', { email: 'wojownik@gmail.com', status: 'active' });
+  return makeDeps({
+    firestore,
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+}
+
+test('DELETE /lista-wyjazdowa/events is refused for plain members and accountants; the event survives and cancelling still works', async () => {
+  const firestore = strictListaWyjazdowaFirestore();
+  let eventId = '';
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    eventId = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event.id;
+  });
+  for (const deps of [makePlainMemberDeps(firestore), makeAccountantOnlyDeps(firestore)]) {
+    await withServer(deps, async baseUrl => {
+      assert.equal((await deleteListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${eventId}`)).status, 403);
+      assert.ok(await firestore.getDoc('events', eventId), 'a denied delete must not remove the event');
+    });
+  }
+  await withServer(makePlainMemberDeps(firestore), async baseUrl => {
+    assert.equal((await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${eventId}`, { status: 'cancelled' })).status, 200);
+  });
+});
+
+test('GET /lista-wyjazdowa/my-role reports canDeleteEvents for admin/hovding only', async () => {
+  const firestore = strictListaWyjazdowaFirestore();
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    assert.equal((await (await fetch(`${baseUrl}/lista-wyjazdowa/my-role`)).json()).canDeleteEvents, true);
+  });
+  await withServer(makeAccountantOnlyDeps(firestore), async baseUrl => {
+    const role = await (await fetch(`${baseUrl}/lista-wyjazdowa/my-role`)).json();
+    assert.equal(role.canDeleteEvents, false);
+    assert.equal(role.canManageSkladki, true);
+  });
+  await withServer(makePlainMemberDeps(makeListaWyjazdowaFirestore()), async baseUrl => {
+    assert.equal((await (await fetch(`${baseUrl}/lista-wyjazdowa/my-role`)).json()).canDeleteEvents, false);
+  });
+});
+
+test('DELETE /lista-wyjazdowa/events removes the event with its signups, equipment and slug lock, audits it and frees the name', async () => {
+  const firestore = strictListaWyjazdowaFirestore();
+  await withServer(makeDeps({ firestore }), async baseUrl => {
+    const eventId = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event.id;
+    const otherId = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Inny', startDate: '2027-05-01' })).json()).event.id;
+    firestore.seed('signups', `${eventId}_a@example.test`, { eventId, memberEmail: 'a@example.test', attending: true });
+    firestore.seed('signups', `${eventId}_b@example.test`, { eventId, memberEmail: 'b@example.test', attending: false });
+    firestore.seed('signups', `${otherId}_a@example.test`, { eventId: otherId, memberEmail: 'a@example.test', attending: true });
+    firestore.seed('eventEquipment', `${eventId}_eq1`, { eventId, equipmentId: 'eq1' });
+    firestore.seed('eventEquipment', `${otherId}_eq1`, { eventId: otherId, equipmentId: 'eq1' });
+
+    assert.equal((await deleteListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events?eventId=nope')).status, 404);
+    const res = await deleteListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${eventId}`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { eventId, deletedSignups: 2, deletedEventEquipment: 1 });
+
+    assert.equal(await firestore.getDoc('events', eventId), null);
+    assert.equal(await firestore.getDoc('eventSlugLocks', '2027-05-01-volin'), null);
+    assert.deepEqual((await firestore.listDocs<{ eventId: string }>('signups')).map(d => d.data.eventId), [otherId]);
+    assert.deepEqual((await firestore.listDocs<{ eventId: string }>('eventEquipment')).map(d => d.data.eventId), [otherId]);
+    assert.ok(await firestore.getDoc('events', otherId), 'other events are untouched');
+
+    const audit = (await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after?: unknown }> }>('auditEvents'))
+      .map(d => d.data).find(e => e.action === 'event.deleted');
+    assert.equal(audit?.resource.key, `event:${eventId}`);
+    assert.deepEqual(audit?.changes.map(c => [c.field, c.after]), [['deleted', true], ['droppedSignups', 2], ['droppedEventEquipment', 1]]);
+
+    // The date + name is free again.
+    assert.equal((await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).status, 200);
+  });
+});
+
+test('DELETE /lista-wyjazdowa/events survives a rename and a late signup landing after the delete started', async () => {
+  const firestore = strictListaWyjazdowaFirestore();
+  let racing = false;
+  let eventId = '';
+  let baseUrlForRace = '';
+  // Fires once, right after the delete handler snapshots the signups: a concurrent rename moves
+  // the slug lock, and a late signup is written that the snapshot does not contain.
+  const racingFirestore = {
+    ...firestore,
+    async listDocs(collection: string) {
+      const docs = await firestore.listDocs(collection);
+      if (collection === 'signups' && !racing) {
+        racing = true;
+        assert.equal((await putListaWyjazdowa(baseUrlForRace, `/lista-wyjazdowa/events?eventId=${eventId}`, { name: 'Wolin' })).status, 200);
+        firestore.seed('signups', `${eventId}_late@example.test`, { eventId, memberEmail: 'late@example.test', attending: true });
+      }
+      return docs;
+    },
+  } as typeof firestore;
+  await withServer(makeDeps({ firestore: racingFirestore }), async baseUrl => {
+    baseUrlForRace = baseUrl;
+    eventId = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event.id;
+    assert.equal((await deleteListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${eventId}`)).status, 200);
+    assert.equal(await firestore.getDoc('events', eventId), null);
+    assert.equal(await firestore.getDoc('eventSlugLocks', '2027-05-01-volin'), null);
+    assert.equal(await firestore.getDoc('eventSlugLocks', '2027-05-01-wolin'), null, 'the lock of the renamed slug is released, not the stale one');
+    assert.deepEqual(await firestore.listDocs('signups'), [], 'the late signup does not outlive its event');
+    assert.equal((await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Wolin', startDate: '2027-05-01' })).status, 200);
+  });
 });

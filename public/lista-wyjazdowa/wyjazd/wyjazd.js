@@ -144,7 +144,7 @@ function renderEventDateAndStatus(event) {
   pill.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${escapeHtml(formatDate(event.startDate))}`;
   document.getElementById('event-date-wrap').hidden = false;
   calendarDropdowns?.refresh();
-  document.getElementById('event-meta').textContent = event.status === 'cancelled' ? 'Odwołany' : '';
+  document.getElementById('event-meta').innerHTML = window.EventEditForm.statusPillHtml(event);
 }
 
 // Date pill -> dropdown (not a modal): "Dodaj do kalendarza" on top, then a one-month view with
@@ -223,6 +223,8 @@ let canManageSkladki = false;
 // KRKG-0087: staff (admin/hovding/accountant) may add a companion to any account row; everyone
 // else only to their own. Same "server re-checks anyway" contract as canManageSkladki above.
 let canManagePeople = false;
+// KRKG-132: admins and hovding only (my-role's canDeleteEvents) - gates "Usuń wyjazd"; the server re-checks.
+let canDeleteEvents = false;
 let cachedEvent = null;
 
 // Shared top-level dropdown (shared/lw-nav.js): `cachedNavEvents` is the full events list fetched
@@ -1233,7 +1235,7 @@ document.addEventListener('click', (e) => {
 });
 
 async function loadAll() {
-  const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue, canManagePeople: peopleValue }, lookupLists, { items: eventEquipmentItems }] = await Promise.all([
+  const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue, canManagePeople: peopleValue, canDeleteEvents: deleteValue }, lookupLists, { items: eventEquipmentItems }] = await Promise.all([
     apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/roster?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
@@ -1243,6 +1245,7 @@ async function loadAll() {
   ]);
   canManageSkladki = roleValue;
   canManagePeople = peopleValue === true;
+  canDeleteEvents = deleteValue === true;
   cachedNavEvents = events;
   renderLwNav();
   sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
@@ -1297,7 +1300,7 @@ async function loadAll() {
 // change (so the fields shown match what was just persisted).
 function renderEventEditPanel() {
   if (!cachedEvent) return;
-  document.getElementById('event-edit-panel').innerHTML = window.EventEditForm.panelHtml(cachedEvent, { idPrefix: 'event-edit' });
+  document.getElementById('event-edit-panel').innerHTML = window.EventEditForm.panelHtml(cachedEvent, { idPrefix: 'event-edit', canDelete: canDeleteEvents });
   window.EventEditForm.wireUrlWarning('event-edit', cachedEvent);
   document.getElementById('event-edit-panel').hidden = !eventEditOpen;
   document.getElementById('event-edit-toggle').setAttribute('aria-expanded', String(eventEditOpen));
@@ -1378,6 +1381,24 @@ async function setEventStatus(status, failureMessage, control) {
   }
 }
 
+// KRKG-132: permanent delete (admins/hovding only - canDeleteEvents gates the button, the server re-checks).
+// The page being viewed is gone afterwards, so success leaves for the events list.
+async function deleteEvent(control) {
+  clearError();
+  try {
+    await confirmedEventMutation(control, () => apiFetch(
+      `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
+      { method: 'DELETE' },
+      showReauth,
+      hideReauth,
+    ), () => {
+      window.location.assign('/lista-wyjazdowa/');
+    }, document.getElementById('event-edit-toggle'));
+  } catch (err) {
+    showError(`Nie udało się usunąć wyjazdu: ${err.message}`);
+  }
+}
+
 // Delegated: #event-edit-panel's content is (re)rendered wholesale by renderEventEditPanel, so a
 // fixed listener on individual buttons would be torn out on every render - same reasoning as the
 // roster table's click delegation below.
@@ -1392,6 +1413,13 @@ document.getElementById('event-edit-panel').addEventListener('click', (e) => {
   if (cancelBtn) {
     eventEditOpen = false;
     renderEventEditPanel();
+    return;
+  }
+  const deleteBtn = e.target.closest('.lw-event-edit-delete');
+  if (deleteBtn) {
+    if (!window.confirm(window.EventEditForm.DELETE_CONFIRM_MESSAGE)) return;
+    deleteBtn.disabled = true;
+    deleteEvent(deleteBtn).finally(() => { deleteBtn.disabled = false; });
     return;
   }
   const statusBtn = e.target.closest('.lw-event-edit-toggle-status');
@@ -1419,7 +1447,10 @@ initGoogleSignIn({
       viewerPersonId = identity.email?.toLowerCase() ?? null;
       if (pendingSlug) {
         const { events } = await apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth);
-        const match = events.find((e) => window.LwFriendlyUrl.eventSlug(e) === pendingSlug);
+        // KRKG-132: a cancelled event and an active replacement may share date + name (the slug); the
+        // friendly link must open the active one, so prefer it over whichever the API lists first.
+        const matches = events.filter((e) => window.LwFriendlyUrl.eventSlug(e) === pendingSlug);
+        const match = matches.find((e) => e.status === 'active') ?? matches[0];
         if (!match) {
           showOnly(panels.notFound);
           return;

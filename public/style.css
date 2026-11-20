@@ -406,6 +406,43 @@ main { padding: 1.25rem 1.5rem 3rem; }
   .mutation-feedback-toast.is-visible { transition: none; }
 }
 
+/* KRKG-132: blocking "please wait" overlay (MutationFeedback.showBusy) - swallows every click on
+   the page while a slow mutation such as creating an event is in flight. */
+.mutation-feedback-busy {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.9rem;
+  background: rgba(0, 0, 0, 0.65);
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 1rem;
+}
+
+.mutation-feedback-busy.is-visible { display: flex; }
+
+.mutation-feedback-busy::before {
+  content: '';
+  width: 2.2rem;
+  height: 2.2rem;
+  border: 3px solid var(--border-hover);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: mutation-feedback-spin 0.9s linear infinite;
+}
+
+@keyframes mutation-feedback-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .mutation-feedback-busy::before { animation: none; }
+}
+
 .mutation-feedback-error {
   display: inline-flex;
   align-items: center;
