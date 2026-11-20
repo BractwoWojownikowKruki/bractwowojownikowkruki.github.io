@@ -138,7 +138,6 @@ function renderEvents() {
   const viewerMember = currentRoster.find((m) => m.personId === viewerPersonId) ?? null;
   container.innerHTML = events
     .map((e) => {
-      const statusLabel = e.status === 'cancelled' ? ' (odwołany)' : '';
       // KRKG-0094: the "+ osoba towarzysząca" control sits to the right of the toggle and only
       // appears once the viewer is attending and is a real (non-hidden) account. It does not
       // require the roster to be loaded yet - the panel it opens lazy-loads that on first use.
@@ -163,7 +162,8 @@ function renderEvents() {
         : '';
       return `
         <div class="lw-event-row" data-event-id="${escapeAttr(e.id)}">
-          <a href="${escapeAttr(window.LwFriendlyUrl.eventUrl(e))}" class="lw-event-name">${escapeHtml(e.name)}${statusLabel}</a>
+          <a href="${escapeAttr(window.LwFriendlyUrl.eventUrl(e))}" class="lw-event-name">${escapeHtml(e.name)}</a>
+          ${window.EventEditForm.statusPillHtml(e)}
           <span class="lw-event-meta">
             ${window.LwCalendar.datePillHtml(e, `list-${e.id}`, 'start')}
             <span class="attendee-badge" title="Zgłoszone osoby: ${e.attendingCount ?? 0}" aria-label="Zgłoszone osoby: ${e.attendingCount ?? 0}"><img class="attendee-badge-icon" src="/icons/attendees-badge.png" alt="" aria-hidden="true"> <span class="attendee-badge-count">${e.attendingCount ?? 0}</span></span>
@@ -589,11 +589,17 @@ document.getElementById('toggle-past-events').addEventListener('click', (e) => {
   renderEvents();
 });
 
+let addEventSubmitting = false;
+
 document.getElementById('add-event-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.target;
   const errorEl = document.getElementById('add-event-error');
   const submitBtn = form.querySelector('button[type="submit"]');
+  // KRKG-132: a create takes a while, and a second click/Enter while it runs used to create a
+  // second identical event. Ignore re-entrant submits, disable the button and block the page with
+  // a wait overlay until the request has finished, either way.
+  if (addEventSubmitting) return;
   errorEl.hidden = true;
   const invalid = window.EventEditForm.validateForm({ mapUrl: form.mapUrl.value, discordUrl: form.discordUrl.value });
   if (invalid) {
@@ -601,6 +607,9 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
     errorEl.hidden = false;
     return;
   }
+  addEventSubmitting = true;
+  submitBtn.disabled = true;
+  const hideBusy = window.MutationFeedback.showBusy('Proszę czekać, tworzenie wyjazdu…');
   try {
     await window.MutationFeedback.confirmed({
       control: submitBtn,
@@ -633,6 +642,10 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
   } catch (err) {
     errorEl.textContent = `Błąd: ${err.message}`;
     errorEl.hidden = false;
+  } finally {
+    addEventSubmitting = false;
+    submitBtn.disabled = false;
+    hideBusy();
   }
 });
 

@@ -50,6 +50,35 @@
     ];
   }
 
+  // Blocking "please wait" overlay for slow mutations (KRKG-132): a fixed full-screen backdrop with
+  // a message, so the page cannot be clicked - and a create therefore cannot be submitted twice -
+  // until the request has finished either way. One shared element; showBusy() returns an
+  // idempotent hide(), and the overlay stays up until every caller has hidden it.
+  let busyCount = 0;
+
+  function showBusy(message = 'Proszę czekać…') {
+    let overlay = document.getElementById('mutation-feedback-busy');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'mutation-feedback-busy';
+      overlay.className = 'mutation-feedback-busy';
+      overlay.setAttribute('role', 'alertdialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-live', 'assertive');
+      document.body.append(overlay);
+    }
+    overlay.textContent = message;
+    overlay.classList.add('is-visible');
+    busyCount += 1;
+    let hidden = false;
+    return function hide() {
+      if (hidden) return;
+      hidden = true;
+      busyCount = Math.max(0, busyCount - 1);
+      if (busyCount === 0) overlay.classList.remove('is-visible');
+    };
+  }
+
   function connectedErrorAnchor(anchor) {
     if (anchor && anchor.isConnected) return anchor;
     if (document.body && document.body.isConnected) return document.body;
@@ -170,5 +199,5 @@
   // fixed anchor up front: they pass `shouldShowCheck: () => false` to skip confirmed()'s own
   // placement, then call this directly once apply() has re-rendered and they can look up the
   // freshly-rendered control to anchor the checkmark next to.
-  window.MutationFeedback = { confirmed, showCheck, showToast };
+  window.MutationFeedback = { confirmed, showCheck, showToast, showBusy };
 }());

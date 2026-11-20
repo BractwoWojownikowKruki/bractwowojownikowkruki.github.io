@@ -385,3 +385,36 @@ test('toast: true skips the inline check even when the control is still connecte
   assert.equal(control.insertedAfter.length, 0);
   assert.equal(harness.body.children.length, 1);
 });
+
+// KRKG-132: a blocking "please wait" overlay so a slow create cannot be submitted twice.
+test('showBusy shows a modal wait message that blocks the page until the returned hide() runs', async () => {
+  const harness = createHarness();
+  await loadMutationFeedback(harness);
+  const hide = (harness.context.window as { MutationFeedback: { showBusy(message: string): () => void } }).MutationFeedback.showBusy('Proszę czekać, tworzenie wyjazdu…');
+  const overlay = harness.body.children.find(child => child.id === 'mutation-feedback-busy');
+  assert.ok(overlay, 'overlay is attached to the body');
+  assert.equal(overlay.textContent, 'Proszę czekać, tworzenie wyjazdu…');
+  assert.equal(overlay.attributes.get('role'), 'alertdialog');
+  assert.equal(overlay.attributes.get('aria-modal'), 'true');
+  assert.equal(overlay.classList.contains('is-visible'), true);
+  hide();
+  assert.equal(overlay.classList.contains('is-visible'), false);
+});
+
+test('showBusy reuses one overlay and stays visible until every caller has hidden it', async () => {
+  const harness = createHarness();
+  await loadMutationFeedback(harness);
+  // The fake document does not index created elements by id; the real DOM does.
+  harness.document.getElementById = (id: string) => harness.body.children.find(child => child.id === id) ?? null;
+  const feedback = (harness.context.window as { MutationFeedback: { showBusy(message: string): () => void } }).MutationFeedback;
+  const hideA = feedback.showBusy('A');
+  const hideB = feedback.showBusy('B');
+  assert.equal(harness.body.children.filter(child => child.id === 'mutation-feedback-busy').length, 1);
+  hideA();
+  const overlay = harness.body.children.find(child => child.id === 'mutation-feedback-busy')!;
+  assert.equal(overlay.classList.contains('is-visible'), true);
+  hideA(); // hiding twice must not under-count
+  assert.equal(overlay.classList.contains('is-visible'), true);
+  hideB();
+  assert.equal(overlay.classList.contains('is-visible'), false);
+});

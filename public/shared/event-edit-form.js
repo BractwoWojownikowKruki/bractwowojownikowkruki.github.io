@@ -58,6 +58,18 @@
   }
 
   /**
+   * KRKG-132: the "Odwołany" marker as a status pill (not plain text beside the title), so it
+   * reads as a status and not as part of the event's name or description. Empty for active events.
+   *
+   * @param {{status: string}} event
+   */
+  function statusPillHtml(event) {
+    return event.status === 'cancelled'
+      ? '<span class="lw-status-pill lw-status-pill--cancelled">Odwołany</span>'
+      : '';
+  }
+
+  /**
    * The edit panel itself: Nazwa/Data/links/Opis fields, Zapisz/Anuluj, and a single Odwołaj/Przywróć
    * wyjazd button whose label and target status follow the event's current status. `idPrefix` keeps
    * multiple instances (one per list row, plus the detail page's own) from colliding on element ids.
@@ -167,5 +179,5 @@
     return body;
   }
 
-  window.EventEditForm = { toggleButtonHtml, panelHtml, readForm, buildUpdateBody, wireUrlWarning, validateForm, isHttpUrl };
+  window.EventEditForm = { toggleButtonHtml, statusPillHtml, panelHtml, readForm, buildUpdateBody, wireUrlWarning, validateForm, isHttpUrl };
 }());

@@ -136,3 +136,15 @@ test('buildUpdateBody sends mapUrl/discordUrl only when changed, and null when c
   assert.deepEqual({ ...EventEditForm.buildUpdateBody(event, { ...form, mapUrl: '' }) }, { mapUrl: null });
   assert.deepEqual({ ...EventEditForm.buildUpdateBody(event, { ...form, discordUrl: ' https://discord.com/channels/1/2 ' }) }, { discordUrl: 'https://discord.com/channels/1/2' });
 });
+
+// KRKG-132: the cancelled state is a status pill, not plain text that reads like part of the title.
+test('statusPillHtml renders "Odwołany" as a status pill only for cancelled events', () => {
+  const context: Record<string, unknown> = { window: {}, String };
+  vm.runInNewContext(source, context);
+  const form = (context.window as { EventEditForm: { statusPillHtml(event: { status: string }): string } }).EventEditForm;
+  assert.equal(form.statusPillHtml({ status: 'active' }), '');
+  assert.equal(
+    form.statusPillHtml({ status: 'cancelled' }),
+    '<span class="lw-status-pill lw-status-pill--cancelled">Odwołany</span>',
+  );
+});
