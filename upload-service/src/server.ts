@@ -4051,7 +4051,7 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
 // events are never removed, so the delete stays traceable via event.deleted.
 async function handleListaWyjazdowaDeleteEvent(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  if (!(await isPersonStaff(req, res, deps, identity.email))) throw new AuthError('Brak uprawnień do usunięcia wyjazdu.', 403);
+  if (!(await canDeleteEvents(req, res, deps))) throw new AuthError('Brak uprawnień do usunięcia wyjazdu.', 403);
   const eventId = url.searchParams.get('eventId');
   if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
   const existing = await getEvent(deps.firestore, eventId);
@@ -4076,14 +4076,26 @@ async function handleListaWyjazdowaDeleteEvent(req: IncomingMessage, res: Server
       ],
     },
     async tx => {
-      if (!(await tx.getDoc<EventDoc>('events', eventId))) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+      // The event is re-read inside the transaction: a concurrent rename/redate may have moved its
+      // slug lock since the snapshot above, and it is the current slug that must be released.
+      const current = await tx.getDoc<EventDoc>('events', eventId);
+      if (!current) throw new AuthError('Nie znaleziono wyjazdu.', 404);
       for (const id of signupIds) await tx.deleteDoc('signups', id);
       for (const id of equipmentIds) await tx.deleteDoc('eventEquipment', id);
-      await releaseSlug(tx, eventSlug(existing), eventId);
+      await releaseSlug(tx, eventSlug(current), eventId);
       await tx.deleteDoc('events', eventId);
       return { eventId };
     },
   );
+  // Collections cannot be scanned inside a transaction, so a signup or equipment write that landed
+  // between the snapshot above and the commit is swept here, now that the event is gone and no
+  // further write for it can be validated against it.
+  const [lateSignups, lateEquipment] = await Promise.all([
+    deps.firestore.listDocs<{ eventId?: string }>('signups'),
+    deps.firestore.listDocs<{ eventId?: string }>('eventEquipment'),
+  ]);
+  for (const { id, data } of lateSignups) if (data.eventId === eventId) await deps.firestore.deleteDoc('signups', id);
+  for (const { id, data } of lateEquipment) if (data.eventId === eventId) await deps.firestore.deleteDoc('eventEquipment', id);
   sendJson(res, 200, { eventId, deletedSignups: signupIds.length, deletedEventEquipment: equipmentIds.length });
 }
 
@@ -4448,7 +4460,21 @@ async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, {
     canManageSkladki: await canManageSkladki(req, res, deps, identity.email),
     canManagePeople: await isPersonStaff(req, res, deps, identity.email),
+    // KRKG-132: permanent event delete is narrower than "staff" - admins and hovding only.
+    canDeleteEvents: await canDeleteEvents(req, res, deps),
   });
+}
+
+// KRKG-132: who may permanently delete an event: administrators and hovding (moderators). Accountants
+// and plain members cannot (any member may still cancel an event).
+async function canDeleteEvents(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<boolean> {
+  try {
+    await deps.authenticateAdminOrHovding(req, res);
+    return true;
+  } catch (err) {
+    if (err instanceof AuthError) return false;
+    throw err;
+  }
 }
 
 // Wpisowe and a trip's składka take the same three-state body as PUT /dues ({ status }). The old

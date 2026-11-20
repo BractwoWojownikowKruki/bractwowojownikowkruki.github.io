@@ -78,12 +78,12 @@ interface HarnessOptions {
   withAttachedPerson?: boolean;
   hiddenMember?: boolean;
   events?: Array<Record<string, unknown>>;
-  canManagePeople?: boolean;
+  canDeleteEvents?: boolean;
 }
 
 function createHarness(options: HarnessOptions = {}) {
   const viewerAttending = options.viewerAttending ?? true;
-  const staffViewer = options.canManagePeople === true;
+  const deleterViewer = options.canDeleteEvents === true;
   const elements = new Map(elementIds.map((id) => [id, id === 'add-event-form' ? new FormElement(id) : new Element(id)]));
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   let mutationResult: unknown = null;
@@ -146,7 +146,7 @@ function createHarness(options: HarnessOptions = {}) {
         return mutationResult;
       }
       if (url === '/lista-wyjazdowa/events') return { events };
-      if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: false, canManagePeople: staffViewer };
+      if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: false, canManagePeople: deleterViewer, canDeleteEvents: deleterViewer };
       if (url === '/lista-wyjazdowa/roster') return { roster };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [{ id: 'kandydat', label: 'Kandydat' }], weapons: [] };
       if (url === '/lista-wyjazdowa/member') return { member: { categoryId: 'kandydat', ...(hiddenMember ? { hidden: true } : {}) } };
@@ -464,13 +464,13 @@ test('the events list renders a cancelled trip\'s status as a pill, not as "(odw
 });
 
 // KRKG-132: staff can delete an event from the list's edit panel; others only get Odwołaj.
-test('the list edit panel offers "Usuń wyjazd" only to staff and deleting removes the row', async () => {
+test('the list edit panel offers "Usuń wyjazd" only to admins/hovding and deleting removes the row', async () => {
   const member = createHarness();
   await member.signIn();
   await member.elements.get('events-list')!.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-toggle' ? { dataset: { eventId: 'e1' } } : null, dataset: {} });
   assert.doesNotMatch(member.elements.get('events-list')!.innerHTML, /lw-event-edit-delete/);
 
-  const staff = createHarness({ canManagePeople: true });
+  const staff = createHarness({ canDeleteEvents: true });
   await staff.signIn();
   const list = staff.elements.get('events-list')!;
   await list.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-toggle' ? { dataset: { eventId: 'e1' } } : null, dataset: {} });
@@ -489,7 +489,7 @@ test('the list edit panel offers "Usuń wyjazd" only to staff and deleting remov
 });
 
 test('declining the delete confirmation sends no request', async () => {
-  const staff = createHarness({ canManagePeople: true });
+  const staff = createHarness({ canDeleteEvents: true });
   await staff.signIn();
   const list = staff.elements.get('events-list')!;
   await list.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-toggle' ? { dataset: { eventId: 'e1' } } : null, dataset: {} });

@@ -41,8 +41,8 @@ showOnly(panels.checking);
 function showReauth() {} // no reauth banner on this page yet - matches the placeholder's scope; add one if apiFetch calls start failing with 401 in practice
 function hideReauth() {}
 
-// KRKG-132: staff (admin/hovding/accountant, GET /lista-wyjazdowa/my-role's canManagePeople) may
-// delete an event outright; everyone else only gets Odwołaj. The server re-checks on every DELETE.
+// KRKG-132: admins and hovding (GET /lista-wyjazdowa/my-role's canDeleteEvents) may delete an event
+// outright; everyone else only gets Odwołaj. The server re-checks on every DELETE.
 let canDeleteEvents = false;
 let showAll = false;
 let cachedEvents = [];
@@ -715,7 +715,7 @@ initGoogleSignIn({
         // failure here must not take the whole list down: just don't offer the button.
         apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth).catch(() => null),
       ]);
-      canDeleteEvents = role?.canManagePeople === true;
+      canDeleteEvents = role?.canDeleteEvents === true;
       if (!member || !profile) {
         showOnly(panels.noProfile);
         return;

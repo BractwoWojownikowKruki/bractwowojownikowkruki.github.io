@@ -223,6 +223,8 @@ let canManageSkladki = false;
 // KRKG-0087: staff (admin/hovding/accountant) may add a companion to any account row; everyone
 // else only to their own. Same "server re-checks anyway" contract as canManageSkladki above.
 let canManagePeople = false;
+// KRKG-132: admins and hovding only (my-role's canDeleteEvents) - gates "Usuń wyjazd"; the server re-checks.
+let canDeleteEvents = false;
 let cachedEvent = null;
 
 // Shared top-level dropdown (shared/lw-nav.js): `cachedNavEvents` is the full events list fetched
@@ -1233,7 +1235,7 @@ document.addEventListener('click', (e) => {
 });
 
 async function loadAll() {
-  const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue, canManagePeople: peopleValue }, lookupLists, { items: eventEquipmentItems }] = await Promise.all([
+  const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue, canManagePeople: peopleValue, canDeleteEvents: deleteValue }, lookupLists, { items: eventEquipmentItems }] = await Promise.all([
     apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/roster?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
@@ -1243,6 +1245,7 @@ async function loadAll() {
   ]);
   canManageSkladki = roleValue;
   canManagePeople = peopleValue === true;
+  canDeleteEvents = deleteValue === true;
   cachedNavEvents = events;
   renderLwNav();
   sectionLabelById = new Map((lookupLists.sections ?? []).map((s) => [s.id, s.label]));
@@ -1297,7 +1300,7 @@ async function loadAll() {
 // change (so the fields shown match what was just persisted).
 function renderEventEditPanel() {
   if (!cachedEvent) return;
-  document.getElementById('event-edit-panel').innerHTML = window.EventEditForm.panelHtml(cachedEvent, { idPrefix: 'event-edit', canDelete: canManagePeople });
+  document.getElementById('event-edit-panel').innerHTML = window.EventEditForm.panelHtml(cachedEvent, { idPrefix: 'event-edit', canDelete: canDeleteEvents });
   window.EventEditForm.wireUrlWarning('event-edit', cachedEvent);
   document.getElementById('event-edit-panel').hidden = !eventEditOpen;
   document.getElementById('event-edit-toggle').setAttribute('aria-expanded', String(eventEditOpen));
@@ -1378,7 +1381,7 @@ async function setEventStatus(status, failureMessage, control) {
   }
 }
 
-// KRKG-132: permanent delete (staff only - canManagePeople gates the button, the server re-checks).
+// KRKG-132: permanent delete (admins/hovding only - canDeleteEvents gates the button, the server re-checks).
 // The page being viewed is gone afterwards, so success leaves for the events list.
 async function deleteEvent(control) {
   clearError();
