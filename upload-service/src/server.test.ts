@@ -24,6 +24,7 @@ import type { GithubClient } from './github.ts';
 import { invalidateAboutUsCache, resetAboutUsBootstrapForTests } from './about-us.ts';
 import { resetSettingsBootstrapForTests } from './settings.ts';
 import { resetRateLimitForTests } from './rate-limit.ts';
+import { withStrictTransactionOrdering } from './strict-transactions.ts';
 import { createInMemoryFirestoreClient } from './firestore.ts';
 import { createDisabledMailer, type MailMessage } from './mailer.ts';
 import { createDisabledPusher, type PushMessage, type PushSubscriptionRecord } from './pusher.ts';
@@ -11433,9 +11434,15 @@ test('POST /internal/notifications/email transitions directly from queued to sen
   assert.equal(finalDoc?.taskName, 'projects/test/queues/q/tasks/event-direct-sent');
 });
 
+// KRKG-132: the fake Firestore accepts reads after writes in a transaction; the real one rejects
+// them, so the tests of the event slug/delete transactions run through the strict wrapper.
+function strictListaWyjazdowaFirestore() {
+  return withStrictTransactionOrdering(makeListaWyjazdowaFirestore());
+}
+
 // KRKG-132: active events are unique by startDate + slugified name.
 test('POST /lista-wyjazdowa/events rejects a duplicate active date+name with 409, allows other dates', async () => {
-  const firestore = makeListaWyjazdowaFirestore();
+  const firestore = strictListaWyjazdowaFirestore();
   const deps = makeDepsWithRole('accountant', firestore);
   await withServer(deps, async baseUrl => {
     const first = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' });
@@ -11450,7 +11457,7 @@ test('POST /lista-wyjazdowa/events rejects a duplicate active date+name with 409
 });
 
 test('two concurrent identical POST /lista-wyjazdowa/events create exactly one event', async () => {
-  const firestore = makeListaWyjazdowaFirestore();
+  const firestore = strictListaWyjazdowaFirestore();
   const deps = makeDepsWithRole('accountant', firestore);
   await withServer(deps, async baseUrl => {
     const results = await Promise.all([1, 2, 3].map(() => postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })));
@@ -11460,7 +11467,7 @@ test('two concurrent identical POST /lista-wyjazdowa/events create exactly one e
 });
 
 test('PUT /lista-wyjazdowa/events: a cancelled twin does not conflict, but cannot be restored while the name is taken', async () => {
-  const firestore = makeListaWyjazdowaFirestore();
+  const firestore = strictListaWyjazdowaFirestore();
   const deps = makeDepsWithRole('accountant', firestore);
   await withServer(deps, async baseUrl => {
     const a = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event;
@@ -11474,7 +11481,7 @@ test('PUT /lista-wyjazdowa/events: a cancelled twin does not conflict, but canno
 });
 
 test('PUT /lista-wyjazdowa/events rejects renaming/redating onto another active event but allows unrelated edits', async () => {
-  const firestore = makeListaWyjazdowaFirestore();
+  const firestore = strictListaWyjazdowaFirestore();
   const deps = makeDepsWithRole('accountant', firestore);
   await withServer(deps, async baseUrl => {
     const a = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event;
@@ -11487,7 +11494,7 @@ test('PUT /lista-wyjazdowa/events rejects renaming/redating onto another active 
 });
 
 test('a legacy duplicate (no slug locks) blocks new creates but never blocks unrelated edits of the twins', async () => {
-  const firestore = makeListaWyjazdowaFirestore();
+  const firestore = strictListaWyjazdowaFirestore();
   const doc = { name: 'Volin', startDate: '2027-05-01', status: 'active', createdBy: 'x@example.test', createdAt: '2027-01-01T00:00:00.000Z', description: null, skladkaFee: null, dueDate: null };
   await firestore.setDoc('events', 'legacy-1', doc);
   await firestore.setDoc('events', 'legacy-2', doc);
@@ -11514,7 +11521,7 @@ function makeAccountantOnlyDeps(firestore: ReturnType<typeof makeListaWyjazdowaF
 }
 
 test('DELETE /lista-wyjazdowa/events is refused for plain members and accountants; the event survives and cancelling still works', async () => {
-  const firestore = makeListaWyjazdowaFirestore();
+  const firestore = strictListaWyjazdowaFirestore();
   let eventId = '';
   await withServer(makeDeps({ firestore }), async baseUrl => {
     eventId = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event.id;
@@ -11531,7 +11538,7 @@ test('DELETE /lista-wyjazdowa/events is refused for plain members and accountant
 });
 
 test('GET /lista-wyjazdowa/my-role reports canDeleteEvents for admin/hovding only', async () => {
-  const firestore = makeListaWyjazdowaFirestore();
+  const firestore = strictListaWyjazdowaFirestore();
   await withServer(makeDeps({ firestore }), async baseUrl => {
     assert.equal((await (await fetch(`${baseUrl}/lista-wyjazdowa/my-role`)).json()).canDeleteEvents, true);
   });
@@ -11546,7 +11553,7 @@ test('GET /lista-wyjazdowa/my-role reports canDeleteEvents for admin/hovding onl
 });
 
 test('DELETE /lista-wyjazdowa/events removes the event with its signups, equipment and slug lock, audits it and frees the name', async () => {
-  const firestore = makeListaWyjazdowaFirestore();
+  const firestore = strictListaWyjazdowaFirestore();
   await withServer(makeDeps({ firestore }), async baseUrl => {
     const eventId = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event.id;
     const otherId = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Inny', startDate: '2027-05-01' })).json()).event.id;
@@ -11578,7 +11585,7 @@ test('DELETE /lista-wyjazdowa/events removes the event with its signups, equipme
 });
 
 test('DELETE /lista-wyjazdowa/events survives a rename and a late signup landing after the delete started', async () => {
-  const firestore = makeListaWyjazdowaFirestore();
+  const firestore = strictListaWyjazdowaFirestore();
   let racing = false;
   let eventId = '';
   let baseUrlForRace = '';

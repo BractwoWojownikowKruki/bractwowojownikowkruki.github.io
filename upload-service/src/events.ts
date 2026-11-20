@@ -124,25 +124,36 @@ export function findActiveSlugConflict(events: EventWithId[], slug: string, excl
 
 interface SlugLockDoc { eventId: string }
 
+// Firestore transactions require every read to come before the first write, so the helpers below
+// are split into a read phase (these `...Reads` functions) and plain writes performed afterwards.
+
+/** The lock doc of `slug`, or null. Read phase. */
+export async function readSlugLock(tx: Pick<FirestoreLikeClient, 'getDoc'>, slug: string): Promise<SlugLockDoc | null> {
+  return tx.getDoc<SlugLockDoc>(SLUG_LOCK_COLLECTION, slug);
+}
+
 /**
- * Takes the per-slug lock document for `eventId`. Collections cannot be scanned inside a Firestore
- * transaction, so this lock is what makes two concurrent creates of the same date + name race
- * safely: both read the same lock and the transaction commit serializes them. A lock whose owner
- * no longer holds that slug as an active event is stale and is simply taken over, so a missed
- * release can never block anyone permanently.
+ * Read phase of taking the per-slug lock for `eventId`; throws EventSlugConflictError when another
+ * active event holds it. Collections cannot be scanned inside a Firestore transaction, so this lock
+ * is what makes two concurrent creates of the same date + name race safely: both read the same lock
+ * and the transaction commit serializes them. A lock whose owner no longer holds that slug as an
+ * active event is stale and is simply taken over, so a missed release can never block anyone.
  */
-async function claimSlug(tx: FirestoreSlugContext, slug: string, eventId: string): Promise<void> {
-  const lock = await tx.getDoc<SlugLockDoc>(SLUG_LOCK_COLLECTION, slug);
+async function assertSlugClaimable(tx: Pick<FirestoreLikeClient, 'getDoc'>, slug: string, eventId: string): Promise<void> {
+  const lock = await readSlugLock(tx, slug);
   if (lock && lock.eventId !== eventId) {
     const owner = await tx.getDoc<EventDoc>(COLLECTION, lock.eventId);
     if (owner && owner.status === 'active' && eventSlug(owner) === slug) throw new EventSlugConflictError();
   }
+}
+
+/** Write phase: points the lock of `slug` at `eventId`. */
+async function writeSlugClaim(tx: FirestoreSlugContext, slug: string, eventId: string): Promise<void> {
   await tx.setDoc(SLUG_LOCK_COLLECTION, slug, { eventId } satisfies SlugLockDoc);
 }
 
-/** Releases `slug` only if `eventId` owns it; used when an event is renamed, redated, cancelled or deleted. */
-export async function releaseSlug(tx: FirestoreSlugContext, slug: string, eventId: string): Promise<void> {
-  const lock = await tx.getDoc<SlugLockDoc>(SLUG_LOCK_COLLECTION, slug);
+/** Write phase: drops `slug`'s lock when `lock` (read earlier) shows `eventId` owns it. */
+export async function writeSlugRelease(tx: FirestoreSlugContext, slug: string, eventId: string, lock: SlugLockDoc | null): Promise<void> {
   if (lock?.eventId === eventId) await tx.deleteDoc(SLUG_LOCK_COLLECTION, slug);
 }
 
@@ -153,30 +164,36 @@ export async function createEventUniqueSlug(
   createdBy: string,
   id: string = randomUUID(),
 ): Promise<EventWithId> {
-  await claimSlug(tx, eventSlug(fields), id);
+  const slug = eventSlug(fields);
+  await assertSlugClaimable(tx, slug, id);
+  await writeSlugClaim(tx, slug, id);
   return createEvent(tx, fields, createdBy, id);
 }
 
 /**
- * updateEvent plus the slug uniqueness guarantee; run inside a transaction. Only a change of
- * name/date, or restoring a cancelled event, needs the slug claimed, so editing unrelated fields
- * of an event is never blocked. Cancelling or moving away releases the old slug.
+ * updateEvent plus the slug uniqueness guarantee; run inside a transaction (reads first, then
+ * writes). Only a change of name/date, or restoring a cancelled event, needs the slug claimed, so
+ * editing unrelated fields of an event is never blocked. Cancelling or moving away releases the
+ * old slug.
  */
 export async function updateEventUniqueSlug(
   tx: FirestoreSlugContext,
   eventId: string,
   fields: EventWritableFields,
 ): Promise<EventWithId | null> {
+  // Read phase.
   const existing = await tx.getDoc<EventDoc>(COLLECTION, eventId);
   if (!existing) return null;
   const next = { ...existing, ...fields };
   const oldSlug = eventSlug(existing);
   const newSlug = eventSlug(next);
-  if (next.status === 'active') {
-    if (newSlug !== oldSlug || existing.status !== 'active') await claimSlug(tx, newSlug, eventId);
-    if (newSlug !== oldSlug) await releaseSlug(tx, oldSlug, eventId);
-  } else {
-    await releaseSlug(tx, oldSlug, eventId);
-  }
-  return updateEvent(tx, eventId, fields);
+  const claimNew = next.status === 'active' && (newSlug !== oldSlug || existing.status !== 'active');
+  const releaseOld = next.status !== 'active' || newSlug !== oldSlug;
+  if (claimNew) await assertSlugClaimable(tx, newSlug, eventId);
+  const oldLock = releaseOld ? await readSlugLock(tx, oldSlug) : null;
+  // Write phase.
+  if (claimNew) await writeSlugClaim(tx, newSlug, eventId);
+  await writeSlugRelease(tx, oldSlug, eventId, oldLock);
+  await tx.setDoc(COLLECTION, eventId, fields);
+  return { id: eventId, ...existing, ...fields };
 }

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInMemoryFirestoreClient } from './firestore.ts';
+import { withStrictTransactionOrdering } from './strict-transactions.ts';
 import { listEvents, getEvent, createEvent, updateEvent } from './events.ts';
 
 test('listEvents returns [] when no events exist', async () => {
@@ -144,7 +145,7 @@ test('friendly-URL slug logic is identical on server and in the browser module',
 
 test('createEventUniqueSlug rejects a second active event with the same date and name', async () => {
   const { createEventUniqueSlug, EventSlugConflictError } = await import('./events.ts');
-  const client = createInMemoryFirestoreClient();
+  const client = withStrictTransactionOrdering(createInMemoryFirestoreClient());
   await client.runTransaction(tx => createEventUniqueSlug(tx, { name: 'Volin', startDate: '2027-05-01' }, 'a@example.test', 'id-1'));
   await assert.rejects(
     client.runTransaction(tx => createEventUniqueSlug(tx, { name: ' volin ', startDate: '2027-05-01' }, 'b@example.test', 'id-2')),
@@ -158,7 +159,7 @@ test('createEventUniqueSlug rejects a second active event with the same date and
 
 test('updateEventUniqueSlug: cancelling frees the slug, restoring is refused while it is taken', async () => {
   const { createEventUniqueSlug, updateEventUniqueSlug, EventSlugConflictError } = await import('./events.ts');
-  const client = createInMemoryFirestoreClient();
+  const client = withStrictTransactionOrdering(createInMemoryFirestoreClient());
   await client.runTransaction(tx => createEventUniqueSlug(tx, { name: 'Volin', startDate: '2027-05-01' }, 'a@example.test', 'id-1'));
   await client.runTransaction(tx => updateEventUniqueSlug(tx, 'id-1', { status: 'cancelled' }));
   await client.runTransaction(tx => createEventUniqueSlug(tx, { name: 'Volin', startDate: '2027-05-01' }, 'b@example.test', 'id-2'));
@@ -168,7 +169,7 @@ test('updateEventUniqueSlug: cancelling frees the slug, restoring is refused whi
 
 test('updateEventUniqueSlug rejects a rename or redate onto another active event', async () => {
   const { createEventUniqueSlug, updateEventUniqueSlug, EventSlugConflictError } = await import('./events.ts');
-  const client = createInMemoryFirestoreClient();
+  const client = withStrictTransactionOrdering(createInMemoryFirestoreClient());
   await client.runTransaction(tx => createEventUniqueSlug(tx, { name: 'Volin', startDate: '2027-05-01' }, 'a@example.test', 'id-1'));
   await client.runTransaction(tx => createEventUniqueSlug(tx, { name: 'Wolin', startDate: '2027-05-01' }, 'a@example.test', 'id-2'));
   await assert.rejects(client.runTransaction(tx => updateEventUniqueSlug(tx, 'id-2', { name: 'Volin' })), EventSlugConflictError);
@@ -180,7 +181,7 @@ test('updateEventUniqueSlug rejects a rename or redate onto another active event
 
 test('a stale slug lock (owner gone or moved on) does not block a new event', async () => {
   const { createEventUniqueSlug } = await import('./events.ts');
-  const client = createInMemoryFirestoreClient();
+  const client = withStrictTransactionOrdering(createInMemoryFirestoreClient());
   await client.setDoc('eventSlugLocks', '2027-05-01-volin', { eventId: 'ghost' });
   await client.runTransaction(tx => createEventUniqueSlug(tx, { name: 'Volin', startDate: '2027-05-01' }, 'a@example.test', 'id-1'));
   assert.equal((await listEvents(client)).length, 1);

@@ -1447,7 +1447,10 @@ initGoogleSignIn({
       viewerPersonId = identity.email?.toLowerCase() ?? null;
       if (pendingSlug) {
         const { events } = await apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth);
-        const match = events.find((e) => window.LwFriendlyUrl.eventSlug(e) === pendingSlug);
+        // KRKG-132: a cancelled event and an active replacement may share date + name (the slug); the
+        // friendly link must open the active one, so prefer it over whichever the API lists first.
+        const matches = events.filter((e) => window.LwFriendlyUrl.eventSlug(e) === pendingSlug);
+        const match = matches.find((e) => e.status === 'active') ?? matches[0];
         if (!match) {
           showOnly(panels.notFound);
           return;

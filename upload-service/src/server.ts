@@ -119,7 +119,7 @@ import {
   uniqueLookupId,
   type LookupItem,
 } from './lookup-lists.ts';
-import { listEvents, getEvent, releaseSlug, createEventUniqueSlug, updateEventUniqueSlug, eventSlug, findActiveSlugConflict, EventSlugConflictError, EVENT_SLUG_CONFLICT_MESSAGE, type EventDoc, type EventWithId, type EventWritableFields } from './events.ts';
+import { listEvents, getEvent, readSlugLock, writeSlugRelease, createEventUniqueSlug, updateEventUniqueSlug, eventSlug, findActiveSlugConflict, EventSlugConflictError, EVENT_SLUG_CONFLICT_MESSAGE, type EventDoc, type EventWithId, type EventWritableFields } from './events.ts';
 import {
   listAllSignups,
   listSignupsForEvent,
@@ -4078,11 +4078,14 @@ async function handleListaWyjazdowaDeleteEvent(req: IncomingMessage, res: Server
     async tx => {
       // The event is re-read inside the transaction: a concurrent rename/redate may have moved its
       // slug lock since the snapshot above, and it is the current slug that must be released.
+      // Firestore requires every read before the first write, hence both reads come first.
       const current = await tx.getDoc<EventDoc>('events', eventId);
       if (!current) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+      const slug = eventSlug(current);
+      const slugLock = await readSlugLock(tx, slug);
       for (const id of signupIds) await tx.deleteDoc('signups', id);
       for (const id of equipmentIds) await tx.deleteDoc('eventEquipment', id);
-      await releaseSlug(tx, eventSlug(current), eventId);
+      await writeSlugRelease(tx, slug, eventId, slugLock);
       await tx.deleteDoc('events', eventId);
       return { eventId };
     },
