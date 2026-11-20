@@ -11500,3 +11500,50 @@ test('a legacy duplicate (no slug locks) blocks new creates but never blocks unr
     assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events?eventId=legacy-2', { status: 'active' })).status, 409);
   });
 });
+
+// KRKG-132: staff-only permanent delete of an event (any member may still cancel it).
+test('DELETE /lista-wyjazdowa/events is staff-only: a plain member is refused and the event survives', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  let eventId = '';
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    eventId = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event.id;
+  });
+  await withServer(makePlainMemberDeps(firestore), async baseUrl => {
+    assert.equal((await deleteListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${eventId}`)).status, 403);
+    assert.ok(await firestore.getDoc('events', eventId), 'a denied delete must not remove the event');
+    // ...but any member may still cancel it.
+    assert.equal((await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${eventId}`, { status: 'cancelled' })).status, 200);
+  });
+});
+
+test('DELETE /lista-wyjazdowa/events removes the event with its signups, equipment and slug lock, audits it and frees the name', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
+    const eventId = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event.id;
+    const otherId = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Inny', startDate: '2027-05-01' })).json()).event.id;
+    firestore.seed('signups', `${eventId}_a@example.test`, { eventId, memberEmail: 'a@example.test', attending: true });
+    firestore.seed('signups', `${eventId}_b@example.test`, { eventId, memberEmail: 'b@example.test', attending: false });
+    firestore.seed('signups', `${otherId}_a@example.test`, { eventId: otherId, memberEmail: 'a@example.test', attending: true });
+    firestore.seed('eventEquipment', `${eventId}_eq1`, { eventId, equipmentId: 'eq1' });
+    firestore.seed('eventEquipment', `${otherId}_eq1`, { eventId: otherId, equipmentId: 'eq1' });
+
+    assert.equal((await deleteListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events?eventId=nope')).status, 404);
+    const res = await deleteListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${eventId}`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { eventId, deletedSignups: 2, deletedEventEquipment: 1 });
+
+    assert.equal(await firestore.getDoc('events', eventId), null);
+    assert.equal(await firestore.getDoc('eventSlugLocks', '2027-05-01-volin'), null);
+    assert.deepEqual((await firestore.listDocs<{ eventId: string }>('signups')).map(d => d.data.eventId), [otherId]);
+    assert.deepEqual((await firestore.listDocs<{ eventId: string }>('eventEquipment')).map(d => d.data.eventId), [otherId]);
+    assert.ok(await firestore.getDoc('events', otherId), 'other events are untouched');
+
+    const audit = (await firestore.listDocs<{ action: string; resource: { key: string }; changes: Array<{ field: string; after?: unknown }> }>('auditEvents'))
+      .map(d => d.data).find(e => e.action === 'event.deleted');
+    assert.equal(audit?.resource.key, `event:${eventId}`);
+    assert.deepEqual(audit?.changes.map(c => [c.field, c.after]), [['deleted', true], ['droppedSignups', 2], ['droppedEventEquipment', 1]]);
+
+    // The date + name is free again.
+    assert.equal((await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).status, 200);
+  });
+});

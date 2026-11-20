@@ -65,6 +65,7 @@
     'event.created': 'Utworzenie wyjazdu',
     'event.updated': 'Aktualizacja wyjazdu',
     'event.cancelled': 'Odwołanie wyjazdu',
+    'event.deleted': 'Usunięcie wyjazdu',
     'signup.created': 'Zgłoszenie na wyjazd',
     'signup.updated': 'Aktualizacja zgłoszenia',
     'dues.annual.changed': 'Zmiana składki rocznej',
@@ -148,7 +149,7 @@
       'membership.status.removed',
       'membership.sheet_backup.synchronized',
     ],
-    events: ['event.created', 'event.updated', 'event.cancelled'],
+    events: ['event.created', 'event.updated', 'event.cancelled', 'event.deleted'],
     signups: ['signup.created', 'signup.updated'],
     dues: ['dues.annual.changed', 'dues.entry_fee.changed', 'dues.event_fee.changed'],
     profile: [

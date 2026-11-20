@@ -78,10 +78,12 @@ interface HarnessOptions {
   withAttachedPerson?: boolean;
   hiddenMember?: boolean;
   events?: Array<Record<string, unknown>>;
+  canManagePeople?: boolean;
 }
 
 function createHarness(options: HarnessOptions = {}) {
   const viewerAttending = options.viewerAttending ?? true;
+  const staffViewer = options.canManagePeople === true;
   const elements = new Map(elementIds.map((id) => [id, id === 'add-event-form' ? new FormElement(id) : new Element(id)]));
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   let mutationResult: unknown = null;
@@ -138,12 +140,13 @@ function createHarness(options: HarnessOptions = {}) {
     initGoogleSignIn: (config: { onSignedIn: (identity: { email: string }) => Promise<void> }) => { signIn = config.onSignedIn; },
     apiFetch: async (url: string, options: Record<string, unknown>) => {
       apiCalls.push({ url, options });
-      if (options.method === 'PUT' || options.method === 'POST') {
+      if (options.method === 'PUT' || options.method === 'POST' || options.method === 'DELETE') {
         if (mutationGate) await mutationGate;
         if (mutationError) throw mutationError;
         return mutationResult;
       }
       if (url === '/lista-wyjazdowa/events') return { events };
+      if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: false, canManagePeople: staffViewer };
       if (url === '/lista-wyjazdowa/roster') return { roster };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [{ id: 'kandydat', label: 'Kandydat' }], weapons: [] };
       if (url === '/lista-wyjazdowa/member') return { member: { categoryId: 'kandydat', ...(hiddenMember ? { hidden: true } : {}) } };
@@ -169,6 +172,7 @@ function createHarness(options: HarnessOptions = {}) {
     setMutationResult(result: unknown) { mutationResult = result; mutationError = null; },
     setMutationError(error: Error) { mutationError = error; },
     busy,
+    window: context.window as Record<string, unknown>,
     holdMutations() { let release!: () => void; mutationGate = new Promise<void>((resolve) => { release = resolve; }); return () => { mutationGate = null; release(); }; },
   };
 }
@@ -457,4 +461,39 @@ test('the events list renders a cancelled trip\'s status as a pill, not as "(odw
   const html = harness.elements.get('events-list')!.innerHTML;
   assert.match(html, /<span class="lw-status-pill lw-status-pill--cancelled">Odwołany<\/span>/);
   assert.doesNotMatch(html, /\(odwołany\)/);
+});
+
+// KRKG-132: staff can delete an event from the list's edit panel; others only get Odwołaj.
+test('the list edit panel offers "Usuń wyjazd" only to staff and deleting removes the row', async () => {
+  const member = createHarness();
+  await member.signIn();
+  await member.elements.get('events-list')!.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-toggle' ? { dataset: { eventId: 'e1' } } : null, dataset: {} });
+  assert.doesNotMatch(member.elements.get('events-list')!.innerHTML, /lw-event-edit-delete/);
+
+  const staff = createHarness({ canManagePeople: true });
+  await staff.signIn();
+  const list = staff.elements.get('events-list')!;
+  await list.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-toggle' ? { dataset: { eventId: 'e1' } } : null, dataset: {} });
+  assert.match(list.innerHTML, /lw-event-edit-delete/);
+
+  const confirms: string[] = [];
+  (staff.window as { confirm: (message: string) => boolean }).confirm = (message) => { confirms.push(message); return true; };
+  staff.setMutationResult({ eventId: 'e1', deletedSignups: 0, deletedEventEquipment: 0 });
+  const button = { dataset: { idPrefix: 'p' }, disabled: false };
+  await list.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-delete' ? button : null, dataset: {} });
+  assert.equal(confirms.length, 1);
+  assert.match(confirms[0], /nie można cofnąć/);
+  const del = staff.apiCalls.find((call) => call.options.method === 'DELETE');
+  assert.equal(del?.url, '/lista-wyjazdowa/events?eventId=e1');
+  assert.match(list.innerHTML, /Brak wyjazdów do wyświetlenia/);
+});
+
+test('declining the delete confirmation sends no request', async () => {
+  const staff = createHarness({ canManagePeople: true });
+  await staff.signIn();
+  const list = staff.elements.get('events-list')!;
+  await list.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-toggle' ? { dataset: { eventId: 'e1' } } : null, dataset: {} });
+  (staff.window as { confirm: () => boolean }).confirm = () => false;
+  await list.clickWith({ closest: (sel: string) => sel === '.lw-event-edit-delete' ? { dataset: { idPrefix: 'p' }, disabled: false } : null, dataset: {} });
+  assert.equal(staff.apiCalls.filter((call) => call.options.method === 'DELETE').length, 0);
 });

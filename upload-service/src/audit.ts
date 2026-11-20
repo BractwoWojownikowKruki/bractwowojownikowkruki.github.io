@@ -54,6 +54,9 @@ const eventFields = {
   noCampEquipment: 'memberVisible',
   mapUrl: 'memberVisible',
   discordUrl: 'memberVisible',
+  deleted: 'memberVisible',
+  droppedSignups: 'memberVisible',
+  droppedEventEquipment: 'memberVisible',
 } as const;
 const signupFields = {
   memberEmail: 'memberVisible',
@@ -216,6 +219,7 @@ export const ACTION_REGISTRY = {
   'event.created': action('events', 'members', ['event'], eventFields),
   'event.updated': action('events', 'members', ['event'], eventFields),
   'event.cancelled': action('events', 'members', ['event'], eventFields),
+  'event.deleted': action('events', 'members', ['event'], eventFields),
   'signup.created': action('signups', 'members', ['signup'], signupFields),
   'signup.updated': action('signups', 'members', ['signup'], signupFields),
   'dues.annual.changed': action('dues', 'adminOrAccountant', ['due'], duesFields),

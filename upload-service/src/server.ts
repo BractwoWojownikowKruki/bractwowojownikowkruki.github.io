@@ -119,7 +119,7 @@ import {
   uniqueLookupId,
   type LookupItem,
 } from './lookup-lists.ts';
-import { listEvents, getEvent, createEventUniqueSlug, updateEventUniqueSlug, eventSlug, findActiveSlugConflict, EventSlugConflictError, EVENT_SLUG_CONFLICT_MESSAGE, type EventDoc, type EventWithId, type EventWritableFields } from './events.ts';
+import { listEvents, getEvent, releaseSlug, createEventUniqueSlug, updateEventUniqueSlug, eventSlug, findActiveSlugConflict, EventSlugConflictError, EVENT_SLUG_CONFLICT_MESSAGE, type EventDoc, type EventWithId, type EventWritableFields } from './events.ts';
 import {
   listAllSignups,
   listSignupsForEvent,
@@ -315,6 +315,7 @@ export const AUDITED_MEMBER_MUTATION_ROUTES = {
   tripProfile: auditedRoute('PUT', '/lista-wyjazdowa/profile', ['profile.member.updated']),
   eventCreate: auditedRoute('POST', '/lista-wyjazdowa/events', ['event.created']),
   eventUpdate: auditedRoute('PUT', '/lista-wyjazdowa/events', ['event.updated', 'event.cancelled', 'dues.event_fee.changed']),
+  eventDelete: auditedRoute('DELETE', '/lista-wyjazdowa/events', ['event.deleted']),
   signup: auditedRoute('PUT', '/lista-wyjazdowa/signups', ['signup.created', 'signup.updated']),
   eventEquipment: auditedRoute('PUT', '/lista-wyjazdowa/event-equipment', ['equipment.event_going.changed']),
   // KRKG-0087: the accountless-person record routes.
@@ -4042,6 +4043,50 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
   sendJson(res, 200, { event });
 }
 
+// KRKG-132: permanent removal of an event together with every signup and per-event equipment
+// record that belongs to it (the event fee lives on the event document itself, so it goes with it).
+// Cancelling stays open to any member; deleting is the staff-only escape hatch for a mistaken or
+// duplicate event. Collections cannot be scanned inside a transaction, so the ids to drop are
+// resolved first and only the deletes (plus the audit event) run transactionally. Immutable audit
+// events are never removed, so the delete stays traceable via event.deleted.
+async function handleListaWyjazdowaDeleteEvent(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  const identity = await deps.authenticateWojownicyUpload(req, res);
+  if (!(await isPersonStaff(req, res, deps, identity.email))) throw new AuthError('Brak uprawnień do usunięcia wyjazdu.', 403);
+  const eventId = url.searchParams.get('eventId');
+  if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
+  const existing = await getEvent(deps.firestore, eventId);
+  if (!existing) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+  const [signups, equipment] = await Promise.all([
+    deps.firestore.listDocs<{ eventId?: string }>('signups'),
+    deps.firestore.listDocs<{ eventId?: string }>('eventEquipment'),
+  ]);
+  const signupIds = signups.filter(({ data }) => data.eventId === eventId).map(({ id }) => id);
+  const equipmentIds = equipment.filter(({ data }) => data.eventId === eventId).map(({ id }) => id);
+  await executeDeclaredAuditedMutation(
+    deps,
+    AUDITED_MEMBER_MUTATION_ROUTES.eventDelete,
+    'event.deleted',
+    {
+      actor: { email: identity.email },
+      resource: { kind: 'event', key: `event:${eventId}`, display: existing.name },
+      changes: [
+        { field: 'deleted', after: true },
+        { field: 'droppedSignups', after: signupIds.length },
+        { field: 'droppedEventEquipment', after: equipmentIds.length },
+      ],
+    },
+    async tx => {
+      if (!(await tx.getDoc<EventDoc>('events', eventId))) throw new AuthError('Nie znaleziono wyjazdu.', 404);
+      for (const id of signupIds) await tx.deleteDoc('signups', id);
+      for (const id of equipmentIds) await tx.deleteDoc('eventEquipment', id);
+      await releaseSlug(tx, eventSlug(existing), eventId);
+      await tx.deleteDoc('events', eventId);
+      return { eventId };
+    },
+  );
+  sendJson(res, 200, { eventId, deletedSignups: signupIds.length, deletedEventEquipment: equipmentIds.length });
+}
+
 async function handleListaWyjazdowaGetSignups(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   await deps.authenticateWojownicyUpload(req, res);
   const eventId = url.searchParams.get('eventId');
@@ -6424,6 +6469,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleListaWyjazdowaGetEvents(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/lista-wyjazdowa/events') {
         await handleListaWyjazdowaPostEvent(req, res, deps);
+      } else if (req.method === 'DELETE' && url.pathname === '/lista-wyjazdowa/events') {
+        await handleListaWyjazdowaDeleteEvent(req, res, url, deps);
       } else if (req.method === 'PUT' && url.pathname === '/lista-wyjazdowa/events') {
         await handleListaWyjazdowaPutEvent(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/lista-wyjazdowa/signups') {

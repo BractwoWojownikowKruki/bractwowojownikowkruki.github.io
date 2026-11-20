@@ -41,6 +41,9 @@ showOnly(panels.checking);
 function showReauth() {} // no reauth banner on this page yet - matches the placeholder's scope; add one if apiFetch calls start failing with 401 in practice
 function hideReauth() {}
 
+// KRKG-132: staff (admin/hovding/accountant, GET /lista-wyjazdowa/my-role's canManagePeople) may
+// delete an event outright; everyone else only gets Odwołaj. The server re-checks on every DELETE.
+let canDeleteEvents = false;
 let showAll = false;
 let cachedEvents = [];
 let viewerEmail = null;
@@ -158,7 +161,7 @@ function renderEvents() {
       // collide with a previously-rendered (now closed) one still cached in cachedEvents.
       const editToggleHtml = window.EventEditForm.toggleButtonHtml({ eventId: e.id, expanded: openEditPanelEventId === e.id, withLabel: false });
       const editPanelHtml = openEditPanelEventId === e.id
-        ? window.EventEditForm.panelHtml(e, { idPrefix: `lw-event-edit-${e.id}` })
+        ? window.EventEditForm.panelHtml(e, { idPrefix: `lw-event-edit-${e.id}`, canDelete: canDeleteEvents })
         : '';
       return `
         <div class="lw-event-row" data-event-id="${escapeAttr(e.id)}">
@@ -353,6 +356,35 @@ async function setEventStatusFromList(eventId, status, control) {
   }
 }
 
+// KRKG-132: permanent delete from the list's edit panel (staff only). The row simply leaves the
+// list on success; there is nothing to patch in place.
+async function deleteEventFromList(eventId, control) {
+  const errorEl = document.getElementById('events-error');
+  errorEl.hidden = true;
+  try {
+    await window.MutationFeedback.confirmed({
+      control,
+      toast: true, // the row (and its button) is gone after apply
+      execute: () => apiFetch(
+        `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
+        { method: 'DELETE' },
+        showReauth,
+        hideReauth,
+      ),
+      apply: () => {
+        cachedEvents = cachedEvents.filter((item) => item.id !== eventId);
+        openEditPanelEventId = null;
+        renderEvents();
+      },
+      viewRoot: document.getElementById('events-panel'),
+      refreshFragment: loadEvents,
+    });
+  } catch (err) {
+    errorEl.textContent = `Nie udało się usunąć wyjazdu: ${err.message}`;
+    errorEl.hidden = false;
+  }
+}
+
 document.getElementById('events-list').addEventListener('click', async (e) => {
   const errorEl = document.getElementById('events-error');
 
@@ -440,6 +472,14 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
     if (nextStatus === 'cancelled' && !window.confirm('Czy na pewno odwołać ten wyjazd?')) return;
     editStatusBtn.disabled = true;
     setEventStatusFromList(openEditPanelEventId, nextStatus, editStatusBtn).finally(() => { editStatusBtn.disabled = false; });
+    return;
+  }
+
+  const editDeleteBtn = e.target.closest('.lw-event-edit-delete');
+  if (editDeleteBtn) {
+    if (!window.confirm(window.EventEditForm.DELETE_CONFIRM_MESSAGE)) return;
+    editDeleteBtn.disabled = true;
+    deleteEventFromList(openEditPanelEventId, editDeleteBtn).finally(() => { editDeleteBtn.disabled = false; });
     return;
   }
 
@@ -668,10 +708,14 @@ initGoogleSignIn({
     openAddPanelEventId = null;
     companionDataPromise = null;
     try {
-      const [{ member }, { profile }] = await Promise.all([
+      const [{ member }, { profile }, role] = await Promise.all([
         apiFetch('/lista-wyjazdowa/member', { method: 'GET' }, showReauth, hideReauth),
         apiFetch('/lista-wyjazdowa/profile', { method: 'GET' }, showReauth, hideReauth),
+        // Only decides whether "Usuń wyjazd" is offered (the server enforces staff-only anyway), so a
+        // failure here must not take the whole list down: just don't offer the button.
+        apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth).catch(() => null),
       ]);
+      canDeleteEvents = role?.canManagePeople === true;
       if (!member || !profile) {
         showOnly(panels.noProfile);
         return;

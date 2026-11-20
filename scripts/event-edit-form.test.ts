@@ -148,3 +148,17 @@ test('statusPillHtml renders "Odwołany" as a status pill only for cancelled eve
     '<span class="lw-status-pill lw-status-pill--cancelled">Odwołany</span>',
   );
 });
+
+// KRKG-132: "Usuń wyjazd" is offered to staff only (the server enforces it as well).
+test('panelHtml offers "Usuń wyjazd" only when canDelete is set, next to - not instead of - Odwołaj', () => {
+  const context: Record<string, unknown> = { window: {}, String };
+  vm.runInNewContext(source, context);
+  const form = (context.window as { EventEditForm: { panelHtml(event: object, opts: object): string } }).EventEditForm;
+  const event = { id: 'e1', name: 'Volin', startDate: '2027-05-01', status: 'active' };
+  const member = form.panelHtml(event, { idPrefix: 'p' });
+  assert.doesNotMatch(member, /lw-event-edit-delete/);
+  assert.match(member, /Odwołaj wyjazd/);
+  const staff = form.panelHtml(event, { idPrefix: 'p', canDelete: true });
+  assert.match(staff, /<button type="button" class="btn-cancel lw-event-edit-delete" data-id-prefix="p">Usuń wyjazd<\/button>/);
+  assert.match(staff, /Odwołaj wyjazd/);
+});

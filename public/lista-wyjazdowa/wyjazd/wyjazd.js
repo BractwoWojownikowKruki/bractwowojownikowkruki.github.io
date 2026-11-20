@@ -1297,7 +1297,7 @@ async function loadAll() {
 // change (so the fields shown match what was just persisted).
 function renderEventEditPanel() {
   if (!cachedEvent) return;
-  document.getElementById('event-edit-panel').innerHTML = window.EventEditForm.panelHtml(cachedEvent, { idPrefix: 'event-edit' });
+  document.getElementById('event-edit-panel').innerHTML = window.EventEditForm.panelHtml(cachedEvent, { idPrefix: 'event-edit', canDelete: canManagePeople });
   window.EventEditForm.wireUrlWarning('event-edit', cachedEvent);
   document.getElementById('event-edit-panel').hidden = !eventEditOpen;
   document.getElementById('event-edit-toggle').setAttribute('aria-expanded', String(eventEditOpen));
@@ -1378,6 +1378,24 @@ async function setEventStatus(status, failureMessage, control) {
   }
 }
 
+// KRKG-132: permanent delete (staff only - canManagePeople gates the button, the server re-checks).
+// The page being viewed is gone afterwards, so success leaves for the events list.
+async function deleteEvent(control) {
+  clearError();
+  try {
+    await confirmedEventMutation(control, () => apiFetch(
+      `/lista-wyjazdowa/events?eventId=${encodeURIComponent(eventId)}`,
+      { method: 'DELETE' },
+      showReauth,
+      hideReauth,
+    ), () => {
+      window.location.assign('/lista-wyjazdowa/');
+    }, document.getElementById('event-edit-toggle'));
+  } catch (err) {
+    showError(`Nie udało się usunąć wyjazdu: ${err.message}`);
+  }
+}
+
 // Delegated: #event-edit-panel's content is (re)rendered wholesale by renderEventEditPanel, so a
 // fixed listener on individual buttons would be torn out on every render - same reasoning as the
 // roster table's click delegation below.
@@ -1392,6 +1410,13 @@ document.getElementById('event-edit-panel').addEventListener('click', (e) => {
   if (cancelBtn) {
     eventEditOpen = false;
     renderEventEditPanel();
+    return;
+  }
+  const deleteBtn = e.target.closest('.lw-event-edit-delete');
+  if (deleteBtn) {
+    if (!window.confirm(window.EventEditForm.DELETE_CONFIRM_MESSAGE)) return;
+    deleteBtn.disabled = true;
+    deleteEvent(deleteBtn).finally(() => { deleteBtn.disabled = false; });
     return;
   }
   const statusBtn = e.target.closest('.lw-event-edit-toggle-status');
