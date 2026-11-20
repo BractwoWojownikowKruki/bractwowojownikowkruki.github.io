@@ -119,7 +119,7 @@ import {
   uniqueLookupId,
   type LookupItem,
 } from './lookup-lists.ts';
-import { listEvents, getEvent, createEvent, updateEvent, type EventDoc, type EventWithId, type EventWritableFields } from './events.ts';
+import { listEvents, getEvent, createEventUniqueSlug, updateEventUniqueSlug, eventSlug, findActiveSlugConflict, EventSlugConflictError, EVENT_SLUG_CONFLICT_MESSAGE, type EventDoc, type EventWithId, type EventWritableFields } from './events.ts';
 import {
   listAllSignups,
   listSignupsForEvent,
@@ -3902,6 +3902,11 @@ async function handleListaWyjazdowaGetEvents(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, { events: withSummary });
 }
 
+function rethrowSlugConflict(error: unknown): never {
+  if (error instanceof EventSlugConflictError) throw new AuthError(EVENT_SLUG_CONFLICT_MESSAGE, 409);
+  throw error;
+}
+
 async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
@@ -3912,6 +3917,11 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
   const mapUrl = optionalHttpUrl(body.mapUrl, LW_MAP_URL_MESSAGE);
   const discordUrl = optionalHttpUrl(body.discordUrl, LW_DISCORD_URL_MESSAGE);
   const eventId = randomUUID();
+  // KRKG-132: two active events may not share date + name. This listing check also covers events
+  // that predate the slug locks; createEventUniqueSlug's lock closes the concurrent-create race.
+  if (findActiveSlugConflict(await listEvents(deps.firestore), eventSlug({ name, startDate }))) {
+    throw new AuthError(EVENT_SLUG_CONFLICT_MESSAGE, 409);
+  }
   const { result: event } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.eventCreate,
@@ -3929,7 +3939,8 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
         ...(discordUrl !== null ? [{ field: 'discordUrl', after: discordUrl }] : []),
       ],
     },
-    tx => createEvent(tx, { name, startDate, description, noCampEquipment, mapUrl, discordUrl }, identity.email, eventId),
+    tx => createEventUniqueSlug(tx, { name, startDate, description, noCampEquipment, mapUrl, discordUrl }, identity.email, eventId)
+      .catch(rethrowSlugConflict),
   );
   await notifyActiveMembersOfNewEvent(deps, event);
   sendJson(res, 200, { event });
@@ -3967,6 +3978,20 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
   const feeFieldCount = Number(fields.skladkaFee !== undefined) + Number(fields.dueDate !== undefined);
   if (eventFieldCount === 0 && feeFieldCount === 0) {
     throw new AuthError('Podaj co najmniej jedno pole wyjazdu do zmiany.', 400);
+  }
+  // KRKG-132: renaming/redating an active event, or restoring a cancelled one, must not duplicate
+  // another active event's date + name (the listing check covers pre-lock events; the lock in
+  // updateEventUniqueSlug covers races). Unrelated edits are never blocked by a legacy duplicate.
+  if (fields.name !== undefined || fields.startDate !== undefined || fields.status === 'active') {
+    const all = await listEvents(deps.firestore);
+    const current = all.find(e => e.id === eventId);
+    if (current) {
+      const next = { ...current, ...fields };
+      const slugChanged = eventSlug(next) !== eventSlug(current);
+      if (next.status === 'active' && (slugChanged || current.status !== 'active') && findActiveSlugConflict(all, eventSlug(next), eventId)) {
+        throw new AuthError(EVENT_SLUG_CONFLICT_MESSAGE, 409);
+      }
+    }
   }
   const metadataAction = fields.status === 'cancelled' ? 'event.cancelled' : 'event.updated';
   const actions = feeFieldCount > 0
@@ -4009,7 +4034,7 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
       };
       return eventFieldCount > 0 ? [metadataInput, feeInput] : [feeInput];
     },
-    tx => updateEvent(tx, eventId, fields).then(event => {
+    tx => updateEventUniqueSlug(tx, eventId, fields).catch(rethrowSlugConflict).then(event => {
       if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
       return event;
     }),

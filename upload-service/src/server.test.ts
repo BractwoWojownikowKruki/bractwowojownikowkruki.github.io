@@ -8654,7 +8654,7 @@ test('PUT /lista-wyjazdowa/signups/skladka requires accountant and 404s for a me
     assert.equal(res.status, 403);
   });
   await withServer(makeDepsWithRole('accountant', firestore), async baseUrl => {
-    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd drugi', startDate: '2027-05-01' })).json();
     const res = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/signups/skladka?eventId=${created.event.id}&personId=wojownik@gmail.com`, { paid: true });
     assert.equal(res.status, 404);
   });
@@ -11431,4 +11431,72 @@ test('POST /internal/notifications/email transitions directly from queued to sen
   const finalDoc = await firestore.getDoc<{ status: string; taskName: string }>('emailNotificationDeliveries', deliveryId);
   assert.equal(finalDoc?.status, 'sent');
   assert.equal(finalDoc?.taskName, 'projects/test/queues/q/tasks/event-direct-sent');
+});
+
+// KRKG-132: active events are unique by startDate + slugified name.
+test('POST /lista-wyjazdowa/events rejects a duplicate active date+name with 409, allows other dates', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const first = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' });
+    assert.equal(first.status, 200);
+    const dup = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: ' volin ', startDate: '2027-05-01' });
+    assert.equal(dup.status, 409);
+    assert.match((await dup.json()).error ?? '', /już istnieje/);
+    const otherYear = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2028-05-01' });
+    assert.equal(otherYear.status, 200);
+    assert.equal((await firestore.listDocs('events')).length, 2);
+  });
+});
+
+test('two concurrent identical POST /lista-wyjazdowa/events create exactly one event', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const results = await Promise.all([1, 2, 3].map(() => postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })));
+    assert.deepEqual(results.map(r => r.status).sort(), [200, 409, 409]);
+    assert.equal((await firestore.listDocs('events')).length, 1);
+  });
+});
+
+test('PUT /lista-wyjazdowa/events: a cancelled twin does not conflict, but cannot be restored while the name is taken', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const a = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event;
+    assert.equal((await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${a.id}`, { status: 'cancelled' })).status, 200);
+    const b = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' });
+    assert.equal(b.status, 200);
+    const restore = await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${a.id}`, { status: 'active' });
+    assert.equal(restore.status, 409);
+    assert.equal((await firestore.getDoc<{ status: string }>('events', a.id))?.status, 'cancelled');
+  });
+});
+
+test('PUT /lista-wyjazdowa/events rejects renaming/redating onto another active event but allows unrelated edits', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const a = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).json()).event;
+    const b = (await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Wolin', startDate: '2027-05-01' })).json()).event;
+    assert.equal((await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${b.id}`, { name: 'Volin' })).status, 409);
+    assert.equal((await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${a.id}`, { startDate: '2027-06-01' })).status, 200);
+    assert.equal((await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${b.id}`, { name: 'Volin' })).status, 200);
+    assert.equal((await putListaWyjazdowa(baseUrl, `/lista-wyjazdowa/events?eventId=${b.id}`, { description: 'opis' })).status, 200);
+  });
+});
+
+test('a legacy duplicate (no slug locks) blocks new creates but never blocks unrelated edits of the twins', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const doc = { name: 'Volin', startDate: '2027-05-01', status: 'active', createdBy: 'x@example.test', createdAt: '2027-01-01T00:00:00.000Z', description: null, skladkaFee: null, dueDate: null };
+  await firestore.setDoc('events', 'legacy-1', doc);
+  await firestore.setDoc('events', 'legacy-2', doc);
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    assert.equal((await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Volin', startDate: '2027-05-01' })).status, 409);
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events?eventId=legacy-1', { description: 'opis' })).status, 200);
+    // Cancelling one twin is the way out; the survivor is then unique.
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events?eventId=legacy-2', { status: 'cancelled' })).status, 200);
+    assert.equal((await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events?eventId=legacy-2', { status: 'active' })).status, 409);
+  });
 });
