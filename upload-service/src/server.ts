@@ -1835,7 +1835,7 @@ async function resolvePeopleAccessAuth(req: IncomingMessage, res: ServerResponse
 }
 
 // Identifies page access separately from /admin/whoami: admins and hovdings retain the full page,
-// while an accountant-only caller receives the restricted accountless-person creation view.
+// while an accountant-only caller receives accountless-person listing and creation access.
 async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const auth = await resolvePeopleAccessAuth(req, res, deps);
   sendJson(res, 200, {
@@ -4282,8 +4282,13 @@ async function handleListaWyjazdowaPutEventEquipment(req: IncomingMessage, res: 
 // lastName/firstName/nickname/sectionId/categoryId are null for such a member; the event page's "Wszyscy"
 // filter is what surfaces them (see wyjazd.js's renderRoster), hidden by default behind "tylko
 // zgłoszeni" so a long allowlist doesn't bury the people who already signed up.
+/** Keeps hidden or unresolved account owners anonymous unless the viewer owns that relationship. */
+function shouldRedactAccountlessOwner(owner: MemberDoc | null, isSelfOwner: boolean): boolean {
+  return !isSelfOwner && (!owner || owner.hidden === true);
+}
+
 async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateWojownicyUpload(req, res);
+  const identity = await deps.authenticateWojownicyUpload(req, res);
   // KRKG-0087: the event-scoped read is the historical one. For one specific trip the roster must
   // still resolve people who have since been removed (tombstoned), as long as they were signed up
   // for that trip - otherwise a past trip's counts and summary would change when someone leaves the
@@ -4308,13 +4313,13 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
   ]);
   const signupPersonIds = new Set(eventSignups.map((s) => s.memberEmail.toLowerCase()));
 
-  const memberByEmail = new Map(members.map((m) => [m.email, m]));
+  const memberByEmail = new Map(members.map((m) => [m.email.toLowerCase(), m]));
   const profileByEmail = new Map(profiles.map((p) => [p.email, p]));
   const duesByEmail = new Map(dues.map((d) => [d.email, d]));
   // KRKG-0060: a member marked hidden (only settable from Zarządzanie ludźmi) is excluded from
   // this roster entirely, not just their name - they read as absent, not as an anonymous row.
-  const roster = emails.filter((email) => memberByEmail.get(email)?.hidden !== true).map((email) => {
-    const member = memberByEmail.get(email);
+  const roster = emails.filter((email) => memberByEmail.get(email.toLowerCase())?.hidden !== true).map((email) => {
+    const member = memberByEmail.get(email.toLowerCase());
     const profile = profileByEmail.get(email);
     return {
       // KRKG-0087: the canonical person key. For a member it equals the e-mail, which is why
@@ -4355,10 +4360,19 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
     .filter(({ data: person }) => !person.deletedAt || signupPersonIds.has(person.personId.toLowerCase()))
     .map(({ data: person }) => {
     const profile = profileByEmail.get(person.personId);
+    const ownerMember = person.ownerPersonId ? memberByEmail.get(person.ownerPersonId.toLowerCase()) ?? null : null;
+    // Hidden or unresolved owners remain absent to other viewers even when their attached
+    // companion appears in the trip roster. The owner can still identify their own relationship.
+    const ownerPersonId = shouldRedactAccountlessOwner(
+      ownerMember,
+      person.ownerPersonId?.toLowerCase() === identity.email.toLowerCase(),
+    )
+      ? null
+      : person.ownerPersonId;
     return {
       personId: person.personId,
       accountless: true,
-      ownerPersonId: person.ownerPersonId,
+      ownerPersonId,
       email: null,
       // KRKG-0091: a tombstoned person still resolves in a historical read (they were signed up for
       // that trip); the client renders their row read-only instead of offering a toggle that 404s.
@@ -4399,11 +4413,14 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
     person.ownerPersonId ? getMember(deps.firestore, person.ownerPersonId) : Promise.resolve(null),
   ]);
   const weaponLabelById = new Map(lookupLists.weapons.map((w) => [w.id, w.label]));
-  const ownerName = person.ownerPersonId
+  const staff = await isPersonManager(req, res, deps);
+  const isSelfOwner = person.ownerPersonId?.toLowerCase() === identity.email.toLowerCase();
+  const hideOwner = !staff && shouldRedactAccountlessOwner(ownerMember, isSelfOwner);
+  const ownerPersonId = hideOwner ? null : person.ownerPersonId ?? null;
+  const ownerName = hideOwner ? null : person.ownerPersonId
     ? (ownerMember ? (ownerMember.nickname || [ownerMember.firstName, ownerMember.lastName].filter(Boolean).join(' ') || person.ownerPersonId) : person.ownerPersonId)
     : null;
-  const isOwner = person.ownerPersonId?.toLowerCase() === identity.email.toLowerCase();
-  const staff = await isPersonManager(req, res, deps);
+  const isOwner = isSelfOwner;
   const canEditIdentity = staff || isOwner;
   const canEditWeapons = staff || isOwner;
   const canEditDues = await canManageSkladki(req, res, deps, identity.email);
@@ -4414,7 +4431,7 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
     profile: {
       personId: person.personId,
       accountless: true,
-      ownerPersonId: person.ownerPersonId ?? null,
+      ownerPersonId,
       ownerName,
       // KRKG-0103: no `fullName` here - lastName/firstName are the source of truth, matching
       // every other person/member response shape.
@@ -5143,36 +5160,43 @@ async function handleListaWyjazdowaDeletePerson(req: IncomingMessage, res: Serve
   sendJson(res, 200, { person });
 }
 
-// KRKG-0091: manager-only listing of every person, including deactivated (tombstoned) ones, so
-// Zarządzanie ludźmi can show and permanently remove them. The roster's current read excludes
-// tombstones, so this is the one place they remain visible.
+// KRKG-0091/KRKG-135: people managers list every person, including deactivated (tombstoned) ones,
+// so Zarządzanie ludźmi can show and permanently remove them. Accountants get the same rows
+// read-only, with owner identities redacted when hidden or no longer resolvable.
 async function handleListaWyjazdowaGetPersons(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  if (!(await isPersonManager(req, res, deps))) throw new AuthError('Brak uprawnień do tej osoby.', 403);
+  const isManager = await isPersonManager(req, res, deps);
+  const isAccountantOnly = !isManager && (await getEffectiveRoles(deps.firestore, identity.email)).includes('accountant');
+  if (!isManager && !isAccountantOnly) throw new AuthError('Brak uprawnień do tej osoby.', 403);
   const [persons, members] = await Promise.all([
     listPersons(deps.firestore, { includeDeleted: true }),
     listAllMembers(deps.firestore),
   ]);
-  const memberByEmail = new Map(members.map((m) => [m.email, m]));
+  const memberByEmail = new Map(members.map((m) => [m.email.toLowerCase(), m]));
   const ownerName = (ownerPersonId: string | null): string | null => {
     if (!ownerPersonId) return null;
     const owner = memberByEmail.get(ownerPersonId.toLowerCase());
     return owner ? (owner.nickname || [owner.firstName, owner.lastName].filter(Boolean).join(' ') || ownerPersonId) : ownerPersonId;
   };
   sendJson(res, 200, {
-    persons: persons.map(({ data: person }) => ({
-      personId: person.personId,
-      ksywka: person.ksywka,
-      firstName: person.firstName,
-      lastName: person.lastName,
-      categoryId: person.categoryId,
-      sectionId: person.sectionId,
-      weaponIds: person.weaponIds,
-      ownerPersonId: person.ownerPersonId,
-      ownerName: ownerName(person.ownerPersonId),
-      deletedAt: person.deletedAt,
-      deleted: Boolean(person.deletedAt),
-    })),
+    persons: persons.map(({ data: person }) => {
+      const owner = person.ownerPersonId ? memberByEmail.get(person.ownerPersonId.toLowerCase()) : null;
+      const isSelfOwner = person.ownerPersonId?.toLowerCase() === identity.email.toLowerCase();
+      const hideOwner = isAccountantOnly && shouldRedactAccountlessOwner(owner ?? null, isSelfOwner);
+      return {
+        personId: person.personId,
+        ksywka: person.ksywka,
+        firstName: person.firstName,
+        lastName: person.lastName,
+        categoryId: person.categoryId,
+        sectionId: person.sectionId,
+        weaponIds: person.weaponIds,
+        ownerPersonId: hideOwner ? null : person.ownerPersonId,
+        ownerName: hideOwner ? null : ownerName(person.ownerPersonId),
+        deletedAt: person.deletedAt,
+        deleted: Boolean(person.deletedAt),
+      };
+    }),
   });
 }
 

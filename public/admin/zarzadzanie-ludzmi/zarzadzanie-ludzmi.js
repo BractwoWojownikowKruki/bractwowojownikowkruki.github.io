@@ -9,6 +9,7 @@
 let isAdminCaller = false;
 let isAccountantOnlyCaller = false;
 let accountlessCreationOptionsReady = false;
+let accountlessTableLoaded = false;
 // Wpisowe management needs requireSkladkiAccess (accountant/Firestore-admin role, or the env admin
 // allowlist), same as the Lista Wyjazdowa Składki page - a plain hovding with neither must not
 // see or use the new Wpisowe column, even though this page's own admin-or-hovding gate lets them
@@ -26,7 +27,6 @@ initGoogleSignIn({
     const isAccountant = payload.isAccountant === true;
     isAccountantOnlyCaller = isAccountant && payload.isAdmin !== true && payload.isHovding !== true;
     document.getElementById('membership-management-section').closest('section').hidden = isAccountantOnlyCaller;
-    document.getElementById('accountless-records-section').hidden = isAccountantOnlyCaller;
     document.getElementById('accountless-owner-field').hidden = !isAccountantOnlyCaller;
     document.getElementById('accountless-description-admin').hidden = isAccountantOnlyCaller;
     document.getElementById('accountless-description-accountant').hidden = !isAccountantOnlyCaller;
@@ -52,6 +52,7 @@ initGoogleSignIn({
       addButton.disabled = true;
       accountlessCreationOptionsReady = await loadAccountlessCreationOptions();
       addButton.disabled = false;
+      loadAccountless();
     } else {
       loadMembershipMembers();
       loadAccountless();
@@ -930,7 +931,9 @@ function accountlessDisplayName(person) {
 // KRKG-0091: the list is GET /lista-wyjazdowa/persons (staff), which - unlike the roster's current
 // read - also returns deactivated (tombstoned) people, so they can be permanently removed.
 const accountlessFilter = createSummaryFilter(['section', 'category'], { key: LIST_PREFERENCE_KEYS.adminSummaryFilter, slot: 'accountless' });
-wireSummaryFilter(document.getElementById('accountless-summary-filter'), accountlessFilter, () => renderAccountless(accountlessCache.persons));
+wireSummaryFilter(document.getElementById('accountless-summary-filter'), accountlessFilter, () => {
+  if (accountlessTableLoaded) renderAccountless(accountlessCache.persons);
+});
 
 function renderAccountless(persons) {
   accountlessCache.persons = persons;
@@ -963,12 +966,7 @@ function renderAccountless(persons) {
       <td>${weaponLabel ? escapeHtml(weaponLabel) : '—'}</td>
       <td>${person.ownerPersonId ? escapeHtml(person.ownerName ?? person.ownerPersonId) : '—'}</td>
       <td>${person.deleted ? 'deaktywowana' : 'bez konta'}</td>
-      <td>
-        ${person.deleted ? '' : '<button type="button" class="member-action accountless-edit edit-compact">Edytuj</button>'}
-        ${!person.deleted && person.ownerPersonId ? '<button type="button" class="member-action accountless-detach">Odepnij</button>' : ''}
-        ${person.deleted ? '' : '<button type="button" class="member-action accountless-deactivate">Deaktywuj</button>'}
-        <button type="button" class="member-action accountless-purge">Usuń trwale</button>
-      </td>
+      <td>${accountlessActionsHtml(person)}</td>
     </tr>`;
     }).join('');
   }
@@ -980,20 +978,38 @@ function renderAccountless(persons) {
       .join('');
 }
 
+function accountlessActionsHtml(person) {
+  if (isAccountantOnlyCaller) return '';
+  return [
+    person.deleted ? '' : '<button type="button" class="member-action accountless-edit edit-compact">Edytuj</button>',
+    !person.deleted && person.ownerPersonId ? '<button type="button" class="member-action accountless-detach">Odepnij</button>' : '',
+    person.deleted ? '' : '<button type="button" class="member-action accountless-deactivate">Deaktywuj</button>',
+    '<button type="button" class="member-action accountless-purge">Usuń trwale</button>',
+  ].join(' ');
+}
+
 async function loadAccountless() {
   const tbody = document.getElementById('accountless-list');
+  accountlessTableLoaded = false;
+  document.getElementById('accountless-summary-filter').innerHTML = '';
   tbody.innerHTML = '<tr><td colspan="7" class="czl-empty">Ładowanie...</td></tr>';
   try {
-    const [{ persons }, sections, categories, weapons] = await Promise.all([
+    const [{ persons }, staffLists] = await Promise.all([
       apiFetch('/lista-wyjazdowa/persons', { method: 'GET' }, showReauth, hideReauth),
-      loadSections(),
-      loadCategories(),
-      loadWeapons(),
+      isAccountantOnlyCaller
+        ? Promise.resolve(null)
+        : Promise.all([loadSections(), loadCategories(), loadWeapons()]).then(([sections, categories, weapons]) => ({ sections, categories, weapons })),
     ]);
+    // Read the accountant's cache after the list request settles so a concurrent lookup retry
+    // cannot leave this refresh holding a stale snapshot.
+    const lists = isAccountantOnlyCaller ? accountlessCache : staffLists;
+    const { sections, categories, weapons } = lists;
     accountlessCache = { persons: [], sections, categories, weapons };
-    resetAccountlessForm();
+    accountlessTableLoaded = true;
     renderAccountless(persons);
   } catch (err) {
+    accountlessTableLoaded = false;
+    document.getElementById('accountless-summary-filter').innerHTML = '';
     tbody.innerHTML = `<tr><td colspan="7" class="czl-empty">Błąd: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
@@ -1013,11 +1029,12 @@ async function loadAccountlessCreationOptions() {
       apiFetch('/admin/person-owners', { method: 'GET' }, showReauth, hideReauth),
     ]);
     accountlessCache = {
-      persons: [],
+      persons: accountlessCache.persons,
       sections: lookupLists.sections ?? [],
       categories: lookupLists.categories ?? [],
       weapons: lookupLists.weapons ?? [],
     };
+    if (accountlessTableLoaded) renderAccountless(accountlessCache.persons);
     resetAccountlessForm();
     populateAccountlessOwnerOptions(owners);
     accountlessCreationOptionsReady = true;
@@ -1076,7 +1093,7 @@ async function submitAccountlessForm() {
       },
       showReauth,
       hideReauth,
-    ), !isAccountantOnlyCaller);
+    ));
     document.getElementById('accountless-form-panel').hidden = true;
     resetAccountlessForm();
   } catch (err) {

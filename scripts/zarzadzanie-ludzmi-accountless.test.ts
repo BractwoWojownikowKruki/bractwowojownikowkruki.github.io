@@ -43,3 +43,27 @@ test('Osoby bez konta writes go through the persons routes and the admin-only me
   assert.match(script, /accountless-merge-section'\)\.hidden = !isAdminCaller/);
   assert.match(script, /const ACCOUNT_NO_WEAPON_CATEGORY_IDS = \['niewiasta', 'bobo'\]/);
 });
+
+test('accountants can load the accountless table without rendering its write actions', () => {
+  assert.doesNotMatch(script, /getElementById\('accountless-records-section'\)\.hidden = isAccountantOnlyCaller/);
+  assert.match(script, /if \(isAccountantOnlyCaller\) \{[\s\S]*?loadAccountless\(\);/);
+  assert.match(script, /function accountlessActionsHtml\(person\)[\s\S]*?if \(isAccountantOnlyCaller\) return ''/);
+  assert.match(script, /accountlessActionsHtml\(person\)/);
+  const submitStart = script.indexOf('async function submitAccountlessForm()');
+  const submit = script.slice(submitStart, script.indexOf("document.getElementById('accountless-add-toggle')", submitStart));
+  assert.doesNotMatch(submit, /!isAccountantOnlyCaller/);
+  const loadStart = script.indexOf('async function loadAccountless()');
+  const load = script.slice(loadStart, script.indexOf('function populateAccountlessOwnerOptions', loadStart));
+  assert.doesNotMatch(load, /resetAccountlessForm\(\)/);
+  assert.match(load, /const lists = isAccountantOnlyCaller \? accountlessCache : staffLists/);
+  assert.match(script, /async function loadAccountlessCreationOptions\(\)[\s\S]*?persons: accountlessCache\.persons/);
+  assert.match(script, /async function loadAccountlessCreationOptions\(\)[\s\S]*?if \(accountlessTableLoaded\) renderAccountless\(accountlessCache\.persons\)/);
+});
+
+test('accountless summary filter preserves loading and error rows until the table has loaded', () => {
+  assert.match(script, /wireSummaryFilter\(document\.getElementById\('accountless-summary-filter'\), accountlessFilter, \(\) => \{\s*if \(accountlessTableLoaded\) renderAccountless\(accountlessCache\.persons\);\s*\}\)/);
+  const loadStart = script.indexOf('async function loadAccountless()');
+  const load = script.slice(loadStart, script.indexOf('function populateAccountlessOwnerOptions', loadStart));
+  assert.match(load, /accountlessTableLoaded = false;\s*document\.getElementById\('accountless-summary-filter'\)\.innerHTML = ''/);
+  assert.match(load, /catch \(err\) \{\s*accountlessTableLoaded = false;\s*document\.getElementById\('accountless-summary-filter'\)\.innerHTML = ''/);
+});
