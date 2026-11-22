@@ -7994,6 +7994,33 @@ test('GET /lista-wyjazdowa/persons lets accountants read accountless people with
   });
 });
 
+test('GET /lista-wyjazdowa/person-profile hides a hidden owner from ordinary members', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'viewer@example.com', {
+    email: 'viewer@example.com', status: 'active', hidden: false, lastName: '', firstName: '', nickname: null,
+    sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  firestore.seed('members', 'hidden@example.com', {
+    email: 'hidden@example.com', status: 'active', hidden: true, lastName: 'Tajne', firstName: 'Imię', nickname: 'Ukryty',
+    sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  seedPerson(firestore, 'hidden-owner-person', 'hidden@example.com');
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'viewer', email: 'viewer@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+
+  await withServer(deps, async baseUrl => {
+    const response = await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=hidden-owner-person`);
+    assert.equal(response.status, 200);
+    const { profile } = await response.json();
+    assert.equal(profile.ownerPersonId, null);
+    assert.equal(profile.ownerName, null);
+  });
+});
+
 test('DELETE /lista-wyjazdowa/persons/permanent purges the person, profile, signups and dues', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedEvent(firestore, 'event-1');
@@ -8609,6 +8636,7 @@ test('GET /lista-wyjazdowa/roster does not reveal the owner ID of a hidden membe
     ...seedMemberDoc({ email: 'hidden@example.com', hidden: true }),
   });
   seedPerson(firestore, 'hidden-member-companion', 'hidden@example.com');
+  seedPerson(firestore, 'unknown-owner-companion', 'missing@example.com');
   const deps = makeDeps({ firestore, listMemberEmails: async () => ['visible@example.com', 'hidden@example.com'] });
 
   await withServer(deps, async baseUrl => {
@@ -8618,6 +8646,8 @@ test('GET /lista-wyjazdowa/roster does not reveal the owner ID of a hidden membe
     assert.equal(roster.some((person: { personId: string }) => person.personId === 'hidden@example.com'), false);
     const companion = roster.find((person: { personId: string }) => person.personId === 'hidden-member-companion');
     assert.equal(companion.ownerPersonId, null);
+    const unresolved = roster.find((person: { personId: string }) => person.personId === 'unknown-owner-companion');
+    assert.equal(unresolved.ownerPersonId, null);
   });
 });
 

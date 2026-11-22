@@ -55,4 +55,5 @@ test('accountants can load the accountless table without rendering its write act
   const loadStart = script.indexOf('async function loadAccountless()');
   const load = script.slice(loadStart, script.indexOf('function populateAccountlessOwnerOptions', loadStart));
   assert.doesNotMatch(load, /resetAccountlessForm\(\)/);
+  assert.match(load, /isAccountantOnlyCaller\s*\?\s*Promise\.resolve\(accountlessCache\)/);
 });

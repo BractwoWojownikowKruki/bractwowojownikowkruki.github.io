@@ -4282,6 +4282,11 @@ async function handleListaWyjazdowaPutEventEquipment(req: IncomingMessage, res: 
 // lastName/firstName/nickname/sectionId/categoryId are null for such a member; the event page's "Wszyscy"
 // filter is what surfaces them (see wyjazd.js's renderRoster), hidden by default behind "tylko
 // zgłoszeni" so a long allowlist doesn't bury the people who already signed up.
+/** Keeps hidden or unresolved account owners anonymous unless the viewer owns that relationship. */
+function shouldRedactAccountlessOwner(owner: MemberDoc | null, isSelfOwner: boolean): boolean {
+  return !isSelfOwner && (!owner || owner.hidden === true);
+}
+
 async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   // KRKG-0087: the event-scoped read is the historical one. For one specific trip the roster must
@@ -4355,12 +4360,13 @@ async function handleListaWyjazdowaGetRoster(req: IncomingMessage, res: ServerRe
     .filter(({ data: person }) => !person.deletedAt || signupPersonIds.has(person.personId.toLowerCase()))
     .map(({ data: person }) => {
     const profile = profileByEmail.get(person.personId);
-    const ownerIsHidden = person.ownerPersonId
-      ? memberByEmail.get(person.ownerPersonId.toLowerCase())?.hidden === true
-      : false;
-    // Hidden owners remain absent to other viewers even when their attached companion appears
-    // in the trip roster. The hidden owner can still identify their own relationship.
-    const ownerPersonId = ownerIsHidden && person.ownerPersonId?.toLowerCase() !== identity.email.toLowerCase()
+    const ownerMember = person.ownerPersonId ? memberByEmail.get(person.ownerPersonId.toLowerCase()) ?? null : null;
+    // Hidden or unresolved owners remain absent to other viewers even when their attached
+    // companion appears in the trip roster. The owner can still identify their own relationship.
+    const ownerPersonId = shouldRedactAccountlessOwner(
+      ownerMember,
+      person.ownerPersonId?.toLowerCase() === identity.email.toLowerCase(),
+    )
       ? null
       : person.ownerPersonId;
     return {
@@ -4408,11 +4414,10 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
   ]);
   const weaponLabelById = new Map(lookupLists.weapons.map((w) => [w.id, w.label]));
   const staff = await isPersonManager(req, res, deps);
-  const isAccountantOnly = !staff && (await getEffectiveRoles(deps.firestore, identity.email)).includes('accountant');
   const isSelfOwner = person.ownerPersonId?.toLowerCase() === identity.email.toLowerCase();
-  const hideOwnerForAccountant = isAccountantOnly && !isSelfOwner && (!ownerMember || ownerMember.hidden === true);
-  const ownerPersonId = hideOwnerForAccountant ? null : person.ownerPersonId ?? null;
-  const ownerName = hideOwnerForAccountant ? null : person.ownerPersonId
+  const hideOwner = !staff && shouldRedactAccountlessOwner(ownerMember, isSelfOwner);
+  const ownerPersonId = hideOwner ? null : person.ownerPersonId ?? null;
+  const ownerName = hideOwner ? null : person.ownerPersonId
     ? (ownerMember ? (ownerMember.nickname || [ownerMember.firstName, ownerMember.lastName].filter(Boolean).join(' ') || person.ownerPersonId) : person.ownerPersonId)
     : null;
   const isOwner = isSelfOwner;
@@ -5177,7 +5182,7 @@ async function handleListaWyjazdowaGetPersons(req: IncomingMessage, res: ServerR
     persons: persons.map(({ data: person }) => {
       const owner = person.ownerPersonId ? memberByEmail.get(person.ownerPersonId.toLowerCase()) : null;
       const isSelfOwner = person.ownerPersonId?.toLowerCase() === identity.email.toLowerCase();
-      const hideOwner = isAccountantOnly && !isSelfOwner && (!owner || owner.hidden === true);
+      const hideOwner = isAccountantOnly && shouldRedactAccountlessOwner(owner ?? null, isSelfOwner);
       return {
         personId: person.personId,
         ksywka: person.ksywka,

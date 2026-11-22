@@ -989,12 +989,13 @@ async function loadAccountless() {
   const tbody = document.getElementById('accountless-list');
   tbody.innerHTML = '<tr><td colspan="7" class="czl-empty">Ładowanie...</td></tr>';
   try {
-    const [{ persons }, sections, categories, weapons] = await Promise.all([
+    const [{ persons }, lists] = await Promise.all([
       apiFetch('/lista-wyjazdowa/persons', { method: 'GET' }, showReauth, hideReauth),
-      loadSections(),
-      loadCategories(),
-      loadWeapons(),
+      isAccountantOnlyCaller
+        ? Promise.resolve(accountlessCache)
+        : Promise.all([loadSections(), loadCategories(), loadWeapons()]).then(([sections, categories, weapons]) => ({ sections, categories, weapons })),
     ]);
+    const { sections, categories, weapons } = lists;
     accountlessCache = { persons: [], sections, categories, weapons };
     renderAccountless(persons);
   } catch (err) {
