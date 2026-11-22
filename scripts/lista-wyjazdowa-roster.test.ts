@@ -68,13 +68,14 @@ const elementIds = [
   'event-share-button', 'event-share-button-text',
 ];
 
-function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]>; signupStatusByPersonId?: Record<string, string> } = {}) {
+function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]>; signupStatusByPersonId?: Record<string, string>; signupAttendingByPersonId?: Record<string, boolean>; initialStorage?: Record<string, string> } = {}) {
   const canManageSkladki = options.canManageSkladki ?? true;
   const canManagePeople = options.canManagePeople ?? false;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
   // Mirrors index.html's default: "Zgłoszeni + ja" starts checked, "Niezgłoszeni" unchecked.
   elements.get('roster-filter-zgloszeni')!.checked = true;
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
+  const localStore = new Map(Object.entries(options.initialStorage ?? {}));
   let mutationResult: unknown = null;
   let mutationError: Error | null = null;
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
@@ -94,7 +95,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   const eventRoster = options.withRemovedPerson ? [...currentRoster, removedPerson] : currentRoster;
   const signups = [
     { memberEmail: 'signed@example.com', attending: true, skladkaStatus: 'unpaid' },
-    ...Object.entries(options.signupStatusByPersonId ?? {}).map(([memberEmail, skladkaStatus]) => ({ memberEmail, attending: true, skladkaStatus })),
+    ...Object.entries(options.signupStatusByPersonId ?? {}).map(([memberEmail, skladkaStatus]) => ({ memberEmail, attending: options.signupAttendingByPersonId?.[memberEmail] ?? true, skladkaStatus })),
     ...(options.withRemovedPerson ? [{ memberEmail: 'gone-uuid-1', attending: true, skladkaStatus: 'unpaid' }] : []),
     // KRKG-0089: an attached person already marked "nie jadę" (a signup with attending:false) must
     // still be offered in the add panel so they can be added back.
@@ -129,6 +130,10 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
       getElementById: (id: string) => elements.get(id) ?? null,
       querySelectorAll: () => [],
       addEventListener: () => {},
+    },
+    localStorage: {
+      getItem: (key: string) => localStore.get(key) ?? null,
+      setItem: (key: string, value: string) => { localStore.set(key, value); },
     },
     initSortableTable: () => ({ key: 'section', dir: 'asc' }),
     compareValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
@@ -260,22 +265,77 @@ test('the contribution filter cycles through paid, unpaid and not applicable and
   await clickContributionFilter();
   assert.match(roster.innerHTML, /viewer@example\.com/);
   assert.doesNotMatch(roster.innerHTML, /signed@example\.com|other@example\.com/);
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="paid"[^>]*aria-pressed="true">.*opłacona/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="paid"[^>]*aria-label="Filtr składki: opłacona\. Kliknij, aby zmienić"[^>]*>.*opłacona/);
+  assert.doesNotMatch(harness.elements.get('summary-content')!.innerHTML, /data-filter-group="contributionStatus"[^>]*aria-pressed/);
 
   await clickContributionFilter();
   assert.match(roster.innerHTML, /signed@example\.com/);
   assert.doesNotMatch(roster.innerHTML, /viewer@example\.com|other@example\.com/);
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="unpaid"[^>]*aria-pressed="true">.*nieopłacona/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="unpaid"[^>]*aria-label="Filtr składki: nieopłacona\. Kliknij, aby zmienić"[^>]*>.*nieopłacona/);
 
   await clickContributionFilter();
   assert.doesNotMatch(roster.innerHTML, /signed@example\.com|viewer@example\.com/);
   assert.match(roster.innerHTML, /other@example\.com/);
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="not_applicable"[^>]*aria-pressed="true">.*nie dotyczy/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="not_applicable"[^>]*aria-label="Filtr składki: nie dotyczy\. Kliknij, aby zmienić"[^>]*>.*nie dotyczy/);
 
   await clickContributionFilter();
   assert.match(roster.innerHTML, /signed@example\.com/);
   assert.match(roster.innerHTML, /viewer@example\.com/);
   assert.match(roster.innerHTML, /other@example\.com/);
+});
+
+test('contribution filtering excludes non-attending and no-signup rows', async () => {
+  const harness = createHarness(event('50 zł'), {
+    withAttachedPerson: true,
+    signupStatusByPersonId: {
+      'viewer@example.com': 'paid',
+      'other@example.com': 'unpaid',
+    },
+    signupAttendingByPersonId: { 'other@example.com': false },
+  });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  const summary = harness.elements.get('summary-panel')!;
+  harness.elements.get('roster-filter-niezgloszeni')!.checked = true;
+  await harness.elements.get('roster-filter-niezgloszeni')!.change();
+  const clickContributionFilter = () => summary.clickWith({
+    closest: (selector: string) => selector === '[data-filter-group]'
+      ? { dataset: { filterGroup: 'contributionStatus', filterCycle: 'paid unpaid not_applicable' }, disabled: false, focus() {} }
+      : null,
+  });
+  await clickContributionFilter();
+  await clickContributionFilter();
+
+  assert.match(roster.innerHTML, /signed@example\.com/);
+  assert.doesNotMatch(roster.innerHTML, /viewer@example\.com|other@example\.com|attached-uuid-1/);
+});
+
+test('the contribution filter is hidden and cleared when the event has no fee', async () => {
+  const harness = createHarness(event(null), {
+    withAttachedPerson: true,
+    initialStorage: {
+      'kruki_pref_wyjazd_summary_filter': JSON.stringify({ v: 1, value: { roster: { contributionStatus: ['paid'] } } }),
+    },
+  });
+  await harness.signIn();
+
+  assert.doesNotMatch(harness.elements.get('summary-content')!.innerHTML, /lw-contribution-filter/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-active="false"/);
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /signed@example\.com/);
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
+});
+
+test('unknown stored contribution statuses restore as an unfiltered state', async () => {
+  const harness = createHarness(event('50 zł'), {
+    initialStorage: {
+      'kruki_pref_wyjazd_summary_filter': JSON.stringify({ v: 1, value: { roster: { contributionStatus: ['unexpected'] } } }),
+    },
+  });
+  await harness.signIn();
+
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="all"[^>]*>.*Wszystkie/);
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /signed@example\.com/);
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
 });
 
 test('roster shows one combo icon and a T/W/D letter caption for multi-weapon members', async () => {

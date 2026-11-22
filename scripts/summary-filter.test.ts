@@ -7,7 +7,7 @@ const source = readFileSync(new URL('../public/shared/summary-filter.js', import
 
 function load(): Record<string, any> {
   const context: Record<string, unknown> = {};
-  vm.runInNewContext(`${source}\n;globalThis.__h = { createSummaryFilter, summaryFilterActive, summaryFilterMatches, summaryFilterPrune, summaryFilterChipHtml, summaryFilterBlockHtml };`, context, { filename: 'summary-filter.js' });
+  vm.runInNewContext(`${source}\n;globalThis.__h = { createSummaryFilter, summaryFilterActive, summaryFilterMatches, summaryFilterPrune, summaryFilterNormalizeSingleValue, summaryFilterChipHtml, summaryFilterBlockHtml };`, context, { filename: 'summary-filter.js' });
   return context.__h as Record<string, any>;
 }
 
@@ -50,6 +50,19 @@ test('prune drops pressed values whose pill is gone', () => {
   filter.selected.section.add('');
   h.summaryFilterPrune(filter, { section: new Map([[null, 1], ['krakow', 2]]).keys() });
   assert.deepEqual([...filter.selected.section], ['']);
+});
+
+test('single-value groups discard invalid or multiple persisted values', () => {
+  const h = load();
+  const filter = h.createSummaryFilter(['contributionStatus']);
+  filter.selected.contributionStatus.add('unknown');
+  h.summaryFilterNormalizeSingleValue(filter, 'contributionStatus', ['paid', 'unpaid', 'not_applicable']);
+  assert.deepEqual([...filter.selected.contributionStatus], []);
+
+  filter.selected.contributionStatus.add('unpaid');
+  filter.selected.contributionStatus.add('paid');
+  h.summaryFilterNormalizeSingleValue(filter, 'contributionStatus', ['paid', 'unpaid', 'not_applicable']);
+  assert.deepEqual([...filter.selected.contributionStatus], ['paid']);
 });
 
 test('chips are pressed buttons and the block carries headings and one clear button', () => {

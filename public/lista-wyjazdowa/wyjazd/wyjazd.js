@@ -469,18 +469,20 @@ function renderSummary(roster, signups) {
     })
     .join('');
 
+  const hasContributionFee = Boolean(normalizeSkladkaFee(cachedEvent?.skladkaFee));
+  if (!hasContributionFee) rosterFilter.selected.contributionStatus.clear();
   const selectedContributionStatus = rosterFilter.selected.contributionStatus.values().next().value ?? 'all';
-  const contributionStatusLabel = {
-    all: 'Wszystkie',
-    paid: 'opłacona',
-    unpaid: 'nieopłacona',
-    not_applicable: 'nie dotyczy',
-  }[selectedContributionStatus] ?? 'Wszystkie';
-  const contributionStatusChip = summaryFilterChipHtml(rosterFilter, 'contributionStatus', selectedContributionStatus, {
-    className: 'lw-contribution-filter',
-    attrs: `data-status="${escapeAttr(selectedContributionStatus)}" data-filter-cycle="paid unpaid not_applicable"`,
-    content: `<span aria-hidden="true">💰</span>${escapeHtml(contributionStatusLabel)}`,
-  });
+  const contributionStatusLabel = selectedContributionStatus === 'all'
+    ? 'Wszystkie'
+    : skladkaStatusLabel(selectedContributionStatus).replace(/^Składka:\s*/, '');
+  const contributionStatusChip = hasContributionFee
+    ? summaryFilterChipHtml(rosterFilter, 'contributionStatus', selectedContributionStatus, {
+      className: 'lw-contribution-filter',
+      attrs: `data-status="${escapeAttr(selectedContributionStatus)}" data-filter-cycle="${CONTRIBUTION_STATUS_CYCLE.join(' ')}" aria-label="${escapeAttr(`Filtr składki: ${contributionStatusLabel}. Kliknij, aby zmienić`)}" aria-live="polite"`,
+      content: `<span aria-hidden="true">💰</span>${escapeHtml(contributionStatusLabel)}`,
+      includeAriaPressed: false,
+    })
+    : '';
 
   document.getElementById('summary-content').innerHTML = `
     <p>Łącznie: <strong>${attending.length}</strong> os.${shelterSummaryText()}</p>
@@ -577,6 +579,8 @@ let cachedEventEquipment = [];
 // weapon set the "Filtruj wg broni" pills count by.
 // Pressed pills are saved per page type, not per event (KRKG-116): one key for every trip page.
 const rosterFilter = createSummaryFilter(['section', 'weapon', 'category', 'contributionStatus'], { key: LIST_PREFERENCE_KEYS.wyjazdSummaryFilter, slot: 'roster' });
+const CONTRIBUTION_STATUS_CYCLE = ['paid', 'unpaid', 'not_applicable'];
+summaryFilterNormalizeSingleValue(rosterFilter, 'contributionStatus', CONTRIBUTION_STATUS_CYCLE);
 // The per-category pills above the equipment table filter that table on their own, separate from
 // the roster/section pills in Podsumowanie.
 const equipmentFilter = createSummaryFilter(['equipmentCategory'], { key: LIST_PREFERENCE_KEYS.wyjazdSummaryFilter, slot: 'equipment' });
@@ -591,11 +595,15 @@ wireSummaryFilter(document.getElementById('summary-panel'), rosterFilter, () => 
 });
 
 function rosterFilterMatches(member, signup) {
+  // Only an attending member with a configured event fee has the coin/status shown in their row.
+  const contributionStatus = signup?.attending && normalizeSkladkaFee(cachedEvent?.skladkaFee)
+    ? signup.skladkaStatus
+    : undefined;
   return summaryFilterMatches(rosterFilter, {
     section: member.sectionId,
     weapon: weaponGroupKey(member.weaponIds),
     category: member.categoryId,
-    contributionStatus: signup?.skladkaStatus,
+    contributionStatus,
   });
 }
 // KRKG-0087: which account row's inline "add companion" panel is open, or null when none is. Only

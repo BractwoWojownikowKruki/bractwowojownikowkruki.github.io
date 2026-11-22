@@ -117,17 +117,17 @@ test('a cycled contribution filter persists and combines with other roster group
   const storage = memoryStorage();
   const h = load(storage);
   const preference = { key: h.LIST_PREFERENCE_KEYS.wyjazdSummaryFilter as string, slot: 'roster' };
-  const filter = h.createSummaryFilter(['section', 'contribution'], preference);
+  const filter = h.createSummaryFilter(['section', 'contributionStatus'], preference);
   const ui = captureContainer();
   h.wireSummaryFilter(ui.container, filter, () => {});
   ui.click('section', 'krakow');
-  ui.cycle('contribution', 'paid unpaid not_applicable');
+  ui.cycle('contributionStatus', 'paid unpaid not_applicable');
 
-  const restored = h.createSummaryFilter(['section', 'contribution'], preference);
-  assert.deepEqual(values(restored.selected.contribution), ['paid']);
-  assert.equal(h.summaryFilterMatches(restored, { section: 'krakow', contribution: 'paid' }), true);
-  assert.equal(h.summaryFilterMatches(restored, { section: 'krakow', contribution: 'unpaid' }), false);
-  assert.equal(h.summaryFilterMatches(restored, { section: 'poznan', contribution: 'paid' }), false);
+  const restored = h.createSummaryFilter(['section', 'contributionStatus'], preference);
+  assert.deepEqual(values(restored.selected.contributionStatus), ['paid']);
+  assert.equal(h.summaryFilterMatches(restored, { section: 'krakow', contributionStatus: 'paid' }), true);
+  assert.equal(h.summaryFilterMatches(restored, { section: 'krakow', contributionStatus: 'unpaid' }), false);
+  assert.equal(h.summaryFilterMatches(restored, { section: 'poznan', contributionStatus: 'paid' }), false);
 });
 
 test('several slots under one page-type key keep each other (event roster and equipment)', () => {

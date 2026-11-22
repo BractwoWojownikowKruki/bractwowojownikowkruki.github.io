@@ -67,6 +67,16 @@ function summaryFilterMatches(filter, values) {
   );
 }
 
+// Restored storage may contain a value the group no longer accepts, or several values for a
+// single-select control. Keep the first allowed value in the caller's declared order, or none.
+function summaryFilterNormalizeSingleValue(filter, group, allowedValues) {
+  const selected = filter.selected[group];
+  if (!selected) return;
+  const normalized = allowedValues.find((value) => selected.has(value));
+  selected.clear();
+  if (normalized !== undefined) selected.add(normalized);
+}
+
 // A cycle group is single-select: no value advances to its first state, and advancing past its
 // last state clears it so the filter returns to the unfiltered view.
 function cycleSummaryFilterGroup(filter, group, values) {
@@ -93,10 +103,11 @@ function summaryFilterPrune(filter, availableByGroup) {
 // `content` is already-escaped HTML (label, icon, count badge); `className`/`attrs` carry the pill's
 // own look (section-pill + data-section, category-name-pill + data-category, or nothing for a
 // neutral pill).
-function summaryFilterChipHtml(filter, group, value, { className = '', attrs = '', content }) {
+function summaryFilterChipHtml(filter, group, value, { className = '', attrs = '', content, includeAriaPressed = true }) {
   const key = summaryFilterKey(value);
   const pressed = filter.selected[group].has(key);
-  return `<button type="button" class="${className ? `${className} ` : ''}lw-summary-chip lw-filter-chip"${attrs ? ` ${attrs}` : ''} data-filter-group="${summaryFilterEscape(group)}" data-filter-value="${summaryFilterEscape(key)}" aria-pressed="${pressed}">${content}</button>`;
+  const ariaPressed = includeAriaPressed ? ` aria-pressed="${pressed}"` : '';
+  return `<button type="button" class="${className ? `${className} ` : ''}lw-summary-chip lw-filter-chip"${attrs ? ` ${attrs}` : ''} data-filter-group="${summaryFilterEscape(group)}" data-filter-value="${summaryFilterEscape(key)}"${ariaPressed}>${content}</button>`;
 }
 
 // columns: [{ heading, chipsHtml }] - heading is plain text ("Filtruj wg sekcji").
