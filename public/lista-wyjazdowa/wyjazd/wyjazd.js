@@ -479,7 +479,7 @@ function renderSummary(roster, signups) {
   const contributionStatusChip = hasContributionFee
     ? summaryFilterChipHtml(rosterFilter, 'contributionStatus', selectedContributionStatus, {
       className: 'lw-contribution-filter',
-      attrs: `data-status="${escapeAttr(selectedContributionStatus)}" data-filter-cycle="${CONTRIBUTION_STATUS_CYCLE.join(' ')}" aria-label="${escapeAttr(`Filtr składki: ${contributionStatusLabel}. Kliknij, aby zmienić`)}" aria-live="polite"`,
+      attrs: `data-status="${escapeAttr(selectedContributionStatus)}" data-filter-cycle="${CONTRIBUTION_STATUS_CYCLE.join(' ')}" aria-label="${escapeAttr(`Filtr składki: ${contributionStatusLabel}. Kliknij, aby zmienić`)}"`,
       content: `<span aria-hidden="true">💰</span>${escapeHtml(contributionStatusLabel)}`,
       includeAriaPressed: false,
     })

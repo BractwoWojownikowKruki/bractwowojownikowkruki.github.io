@@ -68,7 +68,7 @@ const elementIds = [
   'event-share-button', 'event-share-button-text',
 ];
 
-function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]>; signupStatusByPersonId?: Record<string, string>; signupAttendingByPersonId?: Record<string, boolean>; initialStorage?: Record<string, string> } = {}) {
+function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]>; signupStatusByPersonId?: Record<string, string | undefined>; signupAttendingByPersonId?: Record<string, boolean>; initialStorage?: Record<string, string> } = {}) {
   const canManageSkladki = options.canManageSkladki ?? true;
   const canManagePeople = options.canManagePeople ?? false;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
