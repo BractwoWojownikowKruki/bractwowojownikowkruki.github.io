@@ -459,6 +459,37 @@
   margin-bottom: 0.15rem;
 }
 
+.accountless-weapons-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: 0.45rem;
+}
+
+.accountless-weapons-grid .accountless-weapon-option {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 44px;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  margin: 0;
+  font-size: 14px;
+}
+
+.accountless-weapon-option input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--gold);
+  appearance: auto;
+}
+
 .czl-table .member-action {
   background: none;
   border: 1px solid var(--border);

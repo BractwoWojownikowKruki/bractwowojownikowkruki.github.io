@@ -97,9 +97,10 @@ export async function setProfileWeaponIds(
   personId: string,
   weaponIds: string[],
   updatedBy: string,
+  preloaded?: ListaWyjazdowaProfileDoc | null,
 ): Promise<ListaWyjazdowaProfileDoc> {
   const id = personId.toLowerCase();
-  const existing = await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id);
+  const existing = preloaded === undefined ? await client.getDoc<ListaWyjazdowaProfileDoc>(COLLECTION, id) : preloaded;
   const writable = { weaponIds, updatedBy, updatedAt: new Date().toISOString() };
   await client.setDoc(COLLECTION, id, existing ? writable : { ...writable, wpisowePaid: false });
   return {

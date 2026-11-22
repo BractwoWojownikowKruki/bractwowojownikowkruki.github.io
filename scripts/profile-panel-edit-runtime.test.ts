@@ -313,6 +313,49 @@ test('refreshing after an identity save retains the unsaved annual-dues draft', 
   assert.equal(harness.apiCalls.filter((call) => call.url.startsWith('/member-profile?')).length, 2);
 });
 
+test('saving a non-combat category clears a stale weapon draft from the profile drawer', async () => {
+  let serverProfile = {
+    firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik',
+    sectionLabel: 'Kruki', categoryLabel: 'Wojownik', weapons: [], weaponIds: ['tarcza'], photos: [], pendingPhotos: [],
+    published: false, wpisoweStatus: 'paid', duesStatus: 'paid', duesYear: 2026,
+    editor: { canEditIdentity: true, canEditWeapons: true, canEditDues: true, lookupLists: { sections: [{ id: 'kruki', label: 'Kruki' }], categories: [{ id: 'wojownik', label: 'Wojownik' }, { id: 'bobo', label: 'Bobo' }], weapons: [{ id: 'tarcza', label: 'Tarcza' }] } },
+  };
+  const harness = createHarness({
+    profile: serverProfile,
+    apiFetch: async (url, request) => {
+      if (url === '/admin/members/profile' && request.method === 'PUT') {
+        const body = JSON.parse(String(request.body));
+        serverProfile = {
+          ...serverProfile,
+          categoryId: body.categoryId,
+          categoryLabel: body.categoryId === 'bobo' ? 'Bobo' : 'Wojownik',
+          weaponIds: body.categoryId === 'bobo' ? [] : serverProfile.weaponIds,
+        };
+        return serverProfile;
+      }
+      return url.startsWith('/lista-wyjazdowa/person-profile?') ? { profile: serverProfile } : serverProfile;
+    },
+  });
+  await harness.window.ProfilePanel.open('jan@example.test');
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
+
+  await harness.document.dispatch('change', harness.document.body.querySelector('.profile-weapons-form')!);
+  const identity = harness.document.body.querySelector('.profile-identity-form')!;
+  identity.elements.categoryId.value = 'bobo';
+  await harness.document.dispatch('change', identity);
+  await harness.document.dispatch('submit', identity);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(harness.document.body.querySelector('.profile-weapons-form'), null);
+
+  const combatIdentity = harness.document.body.querySelector('.profile-identity-form')!;
+  combatIdentity.elements.categoryId.value = 'wojownik';
+  await harness.document.dispatch('change', combatIdentity);
+  await harness.document.dispatch('submit', combatIdentity);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.doesNotMatch(harness.drawer?.querySelector('.profile-drawer-content')?.innerHTML ?? '', /name="weaponIds" value="tarcza" checked/);
+});
+
 test('an identity 401 that survives auth.js\'s reauth retry closes the drawer', async () => {
   const harness = createHarness({
     apiFetch: async (_url, request) => {

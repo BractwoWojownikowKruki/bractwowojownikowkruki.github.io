@@ -43,6 +43,7 @@
     dunczyk: 'dun',
   };
   const WEAPON_DISPLAY_ORDER = ['tarczownik', 'wlocznik', 'dunczyk'];
+  const NO_WEAPON_CATEGORY_IDS = ['niewiasta', 'bobo'];
 
   function weaponGroupIconFile(weaponIds) {
     if (weaponIds.length === 0 || weaponIds.length > 3) return null;
@@ -57,6 +58,7 @@
   // WEAPON_ITEM_NAMES) fall back to the server-provided label at the same index - the backend
   // builds profile.weapons from the same weaponIds array in order, so the two stay aligned.
   function weaponFieldHtml(profile) {
+    if (NO_WEAPON_CATEGORY_IDS.includes(profile.categoryId)) return '';
     const weaponIds = Array.isArray(profile.weaponIds) ? profile.weaponIds : null;
     // A backend without weaponIds yet (KRKG-0074 rollout skew): plain labels, same as before.
     if (!weaponIds) {
@@ -179,7 +181,7 @@
   // resources, audit events, drafts, errors, and pending controls are all independent. Like
   // profileIdentityFormHtml, only ever rendered inside the shared editor panel.
   function profileWeaponsFormHtml(profile) {
-    if (!profile.editor?.canEditWeapons) return '';
+    if (!profile.editor?.canEditWeapons || NO_WEAPON_CATEGORY_IDS.includes(profile.categoryId)) return '';
     const draft = editorState.drafts.weapons ?? weaponsDraft(profile);
     const errorHtml = editorState.errors.weapons
       ? `<p class="profile-weapons-error" role="alert">${escapeHtml(editorState.errors.weapons)}</p>`
@@ -578,6 +580,10 @@
     const profile = await loadProfileTarget(editorState.target);
     editorState.profile = profile;
     editorState.drafts = otherDrafts;
+    if (NO_WEAPON_CATEGORY_IDS.includes(profile.categoryId)) {
+      editorState.drafts.weapons = null;
+      editorState.errors.weapons = null;
+    }
     if (savedSection) {
       editorState.drafts[savedSection] = null;
       editorState.errors[savedSection] = null;

@@ -3683,6 +3683,55 @@ test('PUT /admin/members/weapons can clear weaponIds back to empty', async () =>
   assert.deepEqual(stored?.weaponIds, []);
 });
 
+test('PUT /admin/members/weapons clears the weapon set for a non-combat category', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'weapons', { items: [{ id: 'miecz', label: 'Miecz', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', lastName: 'Ala', firstName: '', nickname: null, sectionId: 'krakow',
+    categoryId: 'niewiasta', driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/weapons`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', weaponIds: ['miecz'] }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ weaponIds: string[] }>('listaWyjazdowaProfile', 'ala@example.com');
+  assert.deepEqual(stored?.weaponIds, []);
+});
+
+test('PUT /admin/members/profile clears weapons when category changes to Bobo', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'categories', { items: [{ id: 'bobo', label: 'Bobo', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', lastName: 'Ala', firstName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: 'brokul', driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  client.seed('listaWyjazdowaProfile', 'ala@example.com', {
+    weaponIds: ['miecz'], companions: [], wpisowePaid: false, updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', categoryId: 'bobo' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ weaponIds: string[] }>('listaWyjazdowaProfile', 'ala@example.com');
+  assert.deepEqual(stored?.weaponIds, []);
+});
+
 test('PUT /admin/members/weapons rejects a weaponId that is not in lookupLists', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('lookupLists', 'weapons', { items: [{ id: 'miecz', label: 'Miecz', retired: false }] });
@@ -7083,6 +7132,34 @@ test('PUT /lista-wyjazdowa/profile creates the caller\'s own profile', async () 
   });
 });
 
+test('PUT /lista-wyjazdowa/profile clears weapons for a non-combat member category', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'wojownik@gmail.com', {
+    email: 'wojownik@gmail.com', lastName: 'Wojownik', firstName: 'Jan', nickname: null, sectionId: 'krakow',
+    categoryId: 'bobo', driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: ['tarczownik'] });
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).profile.weaponIds, []);
+  });
+});
+
+test('PUT /lista-wyjazdowa/profile accepts an omitted weaponIds field for Bobo', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'wojownik@gmail.com', {
+    email: 'wojownik@gmail.com', lastName: 'Wojownik', firstName: 'Jan', nickname: null, sectionId: 'krakow',
+    categoryId: 'bobo', driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {});
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).profile.weaponIds, []);
+  });
+});
+
 // wpisowePaid is the accountant/admin-only field (design.md §7a/§9); the module-level
 // "preserved on update" test would still pass if the HTTP handler started trusting the request
 // body, so the ignore-the-body invariant is asserted here, at the edge that receives it.
@@ -7829,6 +7906,31 @@ test('POST /lista-wyjazdowa/persons lets a hovding create a person for anyone an
   });
 });
 
+test('POST /lista-wyjazdowa/persons audits normalized weapon counts for Niewiasta and Bobo', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    for (const categoryId of ['niewiasta', 'bobo']) {
+      const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', {
+        ...personBody, categoryId, weaponIds: ['tarczownik'],
+      });
+      assert.equal(res.status, 201);
+      const { person } = await res.json();
+      assert.deepEqual(person.weaponIds, [], `${categoryId} must not retain a weapon`);
+      const stored = await firestore.getDoc<{ weaponIds: string[] }>('persons', person.personId);
+      assert.deepEqual(stored?.weaponIds, [], `${categoryId} must be stored without a weapon`);
+    }
+    const audits = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; after?: unknown }> }>('auditEvents'))
+      .map(doc => doc.data).filter(event => event.action === 'person.created');
+    assert.deepEqual(audits.map(audit => audit.changes.find(change => change.field === 'weaponCount')?.after), [0, 0]);
+  });
+});
+
 test('POST /lista-wyjazdowa/persons lets a member create their own person but not an unowned or foreign one', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const deps = memberDeps(firestore, 'wojownik@gmail.com');
@@ -7860,6 +7962,29 @@ test('PUT /lista-wyjazdowa/persons lets the owner edit their own person, clears 
   });
   await withServer(memberDeps(firestore, 'ktos@gmail.com'), async baseUrl => {
     assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', { personId: 'p1', ...personBody })).status, 403);
+  });
+});
+
+test('PUT /lista-wyjazdowa/persons audits normalized weapon counts for Niewiasta and Bobo', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  for (const personId of ['p-niewiasta', 'p-bobo']) seedPerson(firestore, personId, 'wojownik@gmail.com');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    for (const categoryId of ['niewiasta', 'bobo']) {
+      const res = await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', {
+        ...personBody, personId: `p-${categoryId}`, categoryId, weaponIds: ['tarczownik'],
+      });
+      assert.equal(res.status, 200);
+      const { person } = await res.json();
+      assert.deepEqual(person.weaponIds, [], `${categoryId} must not retain a weapon`);
+      const stored = await firestore.getDoc<{ weaponIds: string[] }>('persons', person.personId);
+      assert.deepEqual(stored?.weaponIds, [], `${categoryId} must be stored without a weapon`);
+    }
+    const audits = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; before?: unknown; after?: unknown }> }>('auditEvents'))
+      .map(doc => doc.data).filter(event => event.action === 'person.updated');
+    assert.deepEqual(audits.map(audit => {
+      const weaponCount = audit.changes.find(change => change.field === 'weaponCount');
+      return [weaponCount?.before, weaponCount?.after];
+    }), [[1, 0], [1, 0]]);
   });
 });
 

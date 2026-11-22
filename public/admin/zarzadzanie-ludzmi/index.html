@@ -135,11 +135,11 @@
         <p class="add-album-error" id="accountless-error" hidden></p>
         <div id="accountless-form-panel" hidden style="margin: 1rem 0; max-width: 32rem;">
           <div class="field"><label for="accountless-ksywka">Ksywka</label><input type="text" id="accountless-ksywka" /></div>
-          <div class="field"><label for="accountless-first-name">Imię</label><input type="text" id="accountless-first-name" /></div>
-          <div class="field"><label for="accountless-last-name">Nazwisko</label><input type="text" id="accountless-last-name" /></div>
-          <div class="field"><label for="accountless-category">Status (kategoria)</label><select id="accountless-category"></select></div>
-          <div class="field"><label for="accountless-section-select">Sekcja</label><select id="accountless-section-select"></select></div>
-          <div class="field"><label>Broń</label><div id="accountless-weapons" class="lw-checkbox-grid"></div></div>
+          <div class="field"><label for="accountless-first-name">Imię</label><input type="text" id="accountless-first-name" required /></div>
+          <div class="field"><label for="accountless-last-name">Nazwisko</label><input type="text" id="accountless-last-name" required /></div>
+          <div class="field"><label for="accountless-category">Status (kategoria)</label><select id="accountless-category" required></select></div>
+          <div class="field"><label for="accountless-section-select">Sekcja</label><select id="accountless-section-select" required></select></div>
+          <div class="field" id="accountless-weapon-field"><label>Broń</label><div id="accountless-weapons" class="accountless-weapons-grid"></div></div>
           <div class="field" id="accountless-owner-field" hidden>
             <label for="accountless-owner">Opiekun (opcjonalnie)</label>
             <select id="accountless-owner"><option value="">— bez opiekuna —</option></select>
