@@ -8649,6 +8649,18 @@ test('GET /lista-wyjazdowa/roster does not reveal the owner ID of a hidden membe
     const unresolved = roster.find((person: { personId: string }) => person.personId === 'unknown-owner-companion');
     assert.equal(unresolved.ownerPersonId, null);
   });
+
+  const ownerDeps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'hidden', email: 'hidden@example.com' }),
+    listMemberEmails: async () => ['visible@example.com', 'hidden@example.com'],
+  });
+  await withServer(ownerDeps, async baseUrl => {
+    const response = await fetch(`${baseUrl}/lista-wyjazdowa/roster`);
+    const { roster } = await response.json();
+    const companion = roster.find((person: { personId: string }) => person.personId === 'hidden-member-companion');
+    assert.equal(companion.ownerPersonId, 'hidden@example.com', 'the owner can identify their own companion relationship');
+  });
 });
 
 test('GET /lista-wyjazdowa/signups returns the full raw roster of signups for an event', async () => {

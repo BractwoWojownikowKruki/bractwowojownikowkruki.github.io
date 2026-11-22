@@ -1018,7 +1018,7 @@ async function loadAccountlessCreationOptions() {
       apiFetch('/admin/person-owners', { method: 'GET' }, showReauth, hideReauth),
     ]);
     accountlessCache = {
-      persons: [],
+      persons: accountlessCache.persons,
       sections: lookupLists.sections ?? [],
       categories: lookupLists.categories ?? [],
       weapons: lookupLists.weapons ?? [],
