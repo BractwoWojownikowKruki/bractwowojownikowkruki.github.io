@@ -44,6 +44,7 @@ function hideReauth() {}
 // KRKG-132: admins and hovding (GET /lista-wyjazdowa/my-role's canDeleteEvents) may delete an event
 // outright; everyone else only gets Odwołaj. The server re-checks on every DELETE.
 let canDeleteEvents = false;
+let canQuickAddPeople = true;
 let showAll = false;
 let cachedEvents = [];
 let viewerEmail = null;
@@ -144,7 +145,7 @@ function renderEvents() {
       // KRKG-0094: the "+ osoba towarzysząca" control sits to the right of the toggle and only
       // appears once the viewer is attending and is a real (non-hidden) account. It does not
       // require the roster to be loaded yet - the panel it opens lazy-loads that on first use.
-      const canAddCompanion = e.viewerAttending && viewerHasAccount;
+      const canAddCompanion = canQuickAddPeople && e.viewerAttending && viewerHasAccount;
       const addCompanionHtml = canAddCompanion
         ? window.CompanionAdd.buttonHtml({ ownerPersonId: viewerPersonId, eventId: e.id, expanded: openAddPanelEventId === e.id })
         : '';
@@ -716,6 +717,7 @@ initGoogleSignIn({
         apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth).catch(() => null),
       ]);
       canDeleteEvents = role?.canDeleteEvents === true;
+      canQuickAddPeople = role?.canQuickAddPeople !== false;
       if (!member || !profile) {
         showOnly(panels.noProfile);
         return;

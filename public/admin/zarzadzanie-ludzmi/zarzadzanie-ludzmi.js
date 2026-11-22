@@ -1001,17 +1001,6 @@ function populateAccountlessOwnerOptions(owners) {
   }).join('');
 }
 
-async function loadAccountlessOwners() {
-  try {
-    const { owners } = await apiFetch('/admin/person-owners', { method: 'GET' }, showReauth, hideReauth);
-    populateAccountlessOwnerOptions(owners);
-  } catch (err) {
-    const errorEl = document.getElementById('accountless-error');
-    errorEl.textContent = `Błąd: ${err.message}`;
-    errorEl.hidden = false;
-  }
-}
-
 async function loadAccountlessCreationOptions() {
   try {
     const [lookupLists, { owners }] = await Promise.all([

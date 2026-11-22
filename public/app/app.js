@@ -81,6 +81,7 @@ const dash = {
   viewerEmail: null,
   viewerPersonId: null,
   canSignUp: false,
+  canQuickAddPeople: true,
   roster: [],
   categories: [],
   panelSignups: [],
@@ -119,7 +120,7 @@ function renderNearestEventWidget(events) {
   const widget = document.createElement('div');
   widget.className = 'dashboard-widget';
   const canManage = dash.canSignUp;
-  const canAddCompanion = canManage && event.viewerAttending;
+  const canAddCompanion = dash.canQuickAddPeople && canManage && event.viewerAttending;
   const addCompanionHtml = canAddCompanion
     ? window.CompanionAdd.buttonHtml({ ownerPersonId: dash.viewerPersonId, eventId: event.id, expanded: dash.openPanelEventId === event.id })
     : '';
@@ -589,10 +590,11 @@ initGoogleSignIn({
     const duesSlot = document.getElementById('app-dues-panel-slot');
     let events;
     try {
-      const [eventsResult, galleriesWidget, canSignUp] = await Promise.all([
+      const [eventsResult, galleriesWidget, canSignUp, role] = await Promise.all([
         apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
         renderNewGalleriesWidget(),
         viewerCanSignUp(),
+        apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth).catch(() => null),
       ]);
       events = eventsResult.events;
       dash.events = events;
@@ -600,6 +602,7 @@ initGoogleSignIn({
       dash.viewerEmail = identity?.email ?? null;
       dash.viewerPersonId = identity?.email?.toLowerCase() ?? null;
       dash.canSignUp = canSignUp && dash.viewerPersonId !== null;
+      dash.canQuickAddPeople = role?.canQuickAddPeople !== false;
       dash.roster = [];
       dash.categories = [];
       dash.panelSignups = [];

@@ -1811,7 +1811,7 @@ async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerRespons
     if (!(err instanceof AuthError)) throw err;
     identity = await deps.authenticate(req, res);
     const roles = await getEffectiveRoles(deps.firestore, identity.email);
-    if (!roles.includes('accountant')) throw new AuthError('Brak uprawnień.', 403);
+    if (!satisfiesRole(roles, 'accountant')) throw new AuthError('Brak uprawnień.', 403);
     sendJson(res, 200, {
       ...identityResponseBody(identity),
       isAdmin: false,
@@ -1823,26 +1823,28 @@ async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerRespons
   let isAdmin = true;
   try {
     await deps.authenticateAdmin(req, res);
-  } catch {
+  } catch (err) {
+    if (!(err instanceof AuthError)) throw err;
     isAdmin = false;
   }
   const roles = await getEffectiveRoles(deps.firestore, identity.email);
   sendJson(res, 200, {
     ...identityResponseBody(identity),
     isAdmin,
-    ...(roles.includes('accountant') ? { isHovding: !isAdmin, isAccountant: true } : {}),
+    ...(satisfiesRole(roles, 'accountant') ? { isHovding: !isAdmin, isAccountant: true } : {}),
   });
 }
 
 /** Returns the minimum account-holder data needed to attach a newly created accountless person. */
 async function handleAdminPersonOwners(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  await resolveAdminAuditAuth(req, res, deps);
+  const auth = await resolveAdminAuditAuth(req, res, deps);
   const [emails, members] = await Promise.all([
     deps.listMemberEmails(),
     listAllMembers(deps.firestore),
   ]);
   const byEmail = new Map(members.map((member) => [member.email.toLowerCase(), member]));
   const owners = [...new Set(emails.map((email) => email.toLowerCase()))]
+    .filter((email) => auth.isAdmin || auth.isHovding || byEmail.get(email)?.hidden !== true)
     .map((email) => {
       const member = byEmail.get(email);
       const name = member?.nickname || [member?.firstName, member?.lastName].filter(Boolean).join(' ') || email;
@@ -4496,6 +4498,7 @@ async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerRe
   sendJson(res, 200, {
     canManageSkladki: await canManageSkladki(req, res, deps, identity.email),
     canManagePeople: await isPersonStaff(req, res, deps, identity.email),
+    canQuickAddPeople: !(await isAccountantOnlyPersonStaff(req, res, deps, identity.email)),
     // KRKG-132: permanent event delete is narrower than "staff" - admins and hovding only.
     canDeleteEvents: await canDeleteEvents(req, res, deps),
   });
@@ -5038,6 +5041,8 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
     if (!canonicalOwner) {
       throw new AuthError('Nie znaleziono takiego członka.', 404);
     }
+    const owner = (await listAllMembers(deps.firestore)).find((member) => member.email.toLowerCase() === canonicalOwner.toLowerCase());
+    if (owner?.hidden === true) throw new AuthError('Nie znaleziono takiego członka.', 404);
     ownerPersonId = canonicalOwner;
   }
   const personId = randomUUID();
@@ -5292,6 +5297,9 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
   if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
 
   const staff = await isPersonStaff(req, res, deps, identity.email);
+  if (await isAccountantOnlyPersonStaff(req, res, deps, identity.email)) {
+    throw new AuthError('Brak uprawnień do szybkiego dodawania osób na wyjazd.', 403);
+  }
   const caller = await resolvePersonId(deps.firestore, identity.email);
   if (!staff && ownerPersonId.toLowerCase() !== caller.personId.toLowerCase()) {
     throw new AuthError('Brak uprawnień do tego opiekuna.', 403);
