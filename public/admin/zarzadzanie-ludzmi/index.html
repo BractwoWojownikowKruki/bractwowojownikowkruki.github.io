@@ -43,7 +43,7 @@
         <div id="admin-panel" hidden>
       <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Zalogowano jako <span id="admin-email"></span></p>
 
-      <section style="margin-bottom: 2rem;">
+      <section id="membership-management-section" style="margin-bottom: 2rem;">
         <header class="member-management-heading-row">
           <h2>Członkowie</h2>
           <a class="audyt-history-btn" href="/admin/audyt/" title="Historia" aria-label="Historia">
@@ -122,7 +122,7 @@
            an unattached (or detached) one is edited. -->
       <section id="accountless-section" style="margin-bottom: 2rem;">
         <h2>Osoby bez konta</h2>
-        <p style="color: var(--text-muted); margin-bottom: 0.75rem;">
+        <p id="accountless-description" style="color: var(--text-muted); margin-bottom: 0.75rem;">
           Osoby bez konta (przywiązane lub bez opiekuna). Edycja i odpięcie tutaj; osoby przywiązane
           można też edytować na profilu opiekuna. <strong>Deaktywacja</strong> odłącza osobę od
           opiekuna i zostawia ją w historii jako nieaktywną (read-only). <strong>Trwałe usunięcie</strong>
@@ -136,28 +136,34 @@
           <div class="field"><label for="accountless-category">Status (kategoria)</label><select id="accountless-category"></select></div>
           <div class="field"><label for="accountless-section-select">Sekcja</label><select id="accountless-section-select"></select></div>
           <div class="field"><label>Broń</label><div id="accountless-weapons" class="lw-checkbox-grid"></div></div>
+          <div class="field" id="accountless-owner-field" hidden>
+            <label for="accountless-owner">Opiekun (opcjonalnie)</label>
+            <select id="accountless-owner"><option value="">— bez opiekuna —</option></select>
+          </div>
           <div style="display:flex; gap:0.5rem;">
             <button type="button" id="accountless-save" class="add-album-submit">Dodaj osobę</button>
             <button type="button" id="accountless-cancel" class="btn-cancel">Anuluj</button>
           </div>
           <p class="add-album-error" id="accountless-error" hidden></p>
         </div>
-        <div id="accountless-summary-filter" style="margin-top: 1rem;"></div>
-        <div class="czl-table-wrap">
-          <table class="czl-table" id="accountless-table">
-            <thead>
-              <tr>
-                <th scope="col" class="czl-section-cell" title="Sekcja">S</th>
-                <th scope="col">Imię i nazwisko</th>
-                <th scope="col">Status</th>
-                <th scope="col">Broń</th>
-                <th scope="col">Przywiązana do</th>
-                <th scope="col">Konto</th>
-                <th scope="col">Akcje</th>
-              </tr>
-            </thead>
-            <tbody id="accountless-list"></tbody>
-          </table>
+        <div id="accountless-records-section">
+          <div id="accountless-summary-filter" style="margin-top: 1rem;"></div>
+          <div class="czl-table-wrap">
+            <table class="czl-table" id="accountless-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="czl-section-cell" title="Sekcja">S</th>
+                  <th scope="col">Imię i nazwisko</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Broń</th>
+                  <th scope="col">Przywiązana do</th>
+                  <th scope="col">Konto</th>
+                  <th scope="col">Akcje</th>
+                </tr>
+              </thead>
+              <tbody id="accountless-list"></tbody>
+            </table>
+          </div>
         </div>
 
         <!-- Admin-only (design.md section D): merging an accountless person with a new account

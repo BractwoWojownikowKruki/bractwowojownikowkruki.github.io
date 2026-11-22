@@ -119,10 +119,10 @@ const MEMBERS_ZONE_MENU = [
 // collapsible group (same mechanism as "Do przeczytania" below) instead of one flat link.
 // KRKG-0073: each item's `gate` says which zoneState flag (below) must be `true` before that
 // item exists in the DOM at all - "Zarządzanie ludźmi" and "Audyt" are reachable by a
-// Firestore-role hovding too (gated server-side via /admin/members/whoami ->
-// isAdminOrHovding), the other three stay admin-allowlist-only (isAdmin). The toggle itself
-// gates on the broader `isAdminOrHovding` (see reconcileAdminSection below) so it reveals for
-// either audience - never the OR of two independently-resolved flags, which would let one
+// Firestore-role hovding too, and Zarządzanie ludźmi also admits accountant-only users through
+// its restricted view. The other three stay admin-allowlist-only (isAdmin). The toggle itself
+// gates on the broad `isPeopleManagement` flag (see reconcileAdminSection below) so it reveals
+// for admins, hovdings, and accountants - never the OR of independently-resolved flags, which would let one
 // resolve while the other is still unknown and either flash the toggle briefly for a plain
 // member (before the narrower check catches up) or hide it a moment too long for a hovding.
 const ADMIN_ZONE_MENU = {
@@ -131,7 +131,7 @@ const ADMIN_ZONE_MENU = {
   items: [
     { href: '/admin/', label: 'Ogólne', icon: 'tool', gate: 'isAdmin' },
     { href: '/admin/zgloszenia/', label: 'Zgłoszenia', icon: 'scroll', gate: 'isAdmin' },
-    { href: '/admin/zarzadzanie-ludzmi/', label: 'Zarządzanie ludźmi', icon: 'users', gate: 'isAdminOrHovding' },
+    { href: '/admin/zarzadzanie-ludzmi/', label: 'Zarządzanie ludźmi', icon: 'users', gate: 'isPeopleManagement' },
     { href: '/admin/publiczne-wizytowki/', label: 'Publiczne wizytówki', icon: 'user', gate: 'isAdmin' },
     { href: '/admin/audyt/', label: 'Audyt', icon: 'history', gate: 'isAdminOrHovding' },
   ],
@@ -142,7 +142,7 @@ const ADMIN_ZONE_MENU = {
 // `false`, i.e. nothing gated renders. Shared, page-wide state: the whole point of this refactor
 // is that DOM presence for every member/admin-only nav element is driven from here, never from
 // `hidden`/CSS.
-const zoneState = { isMember: null, isAdmin: null, isAdminOrHovding: null };
+const zoneState = { isMember: null, isAdmin: null, isAdminOrHovding: null, isPeopleManagement: null };
 
 // KRKG-0073: which verification round the state above currently reflects (see
 // verificationGeneration in auth.js). Every onSignedIn/onSignedOut/onForbidden callback below
@@ -238,7 +238,7 @@ function buildMountContent(mount) {
     if (link) memberNodes.push(link);
   });
 
-  // "Zarządzanie" section: toggle gated on isAdminOrHovding (broadest - see ADMIN_ZONE_MENU's
+  // "Zarządzanie" section: toggle gated on isPeopleManagement (broadest - see ADMIN_ZONE_MENU's
   // comment above), each item gated independently on its OWN `gate` - reconcileAdminSection
   // inserts/removes each of these on its own, in ADMIN_ZONE_MENU.items order, regardless of
   // which of isAdmin/isAdminOrHovding resolves first or how much later than the other.
@@ -290,7 +290,7 @@ function reconcileAdminSection(mount) {
   if (!build) return;
   const { adminToggle, adminSublist, adminItems } = build;
 
-  const toggleShouldShow = zoneState.isAdminOrHovding === true;
+  const toggleShouldShow = zoneState.isPeopleManagement === true;
   if (toggleShouldShow && !adminToggle.isConnected) {
     mount.append(adminToggle, adminSublist);
   } else if (!toggleShouldShow && adminToggle.isConnected) {
@@ -464,6 +464,7 @@ document.addEventListener('DOMContentLoaded', () => {
     zoneState.isMember = null;
     zoneState.isAdmin = null;
     zoneState.isAdminOrHovding = null;
+    zoneState.isPeopleManagement = null;
     renderAvatar(null);
     reconcileAllMounts();
   }
@@ -525,16 +526,19 @@ document.addEventListener('DOMContentLoaded', () => {
   initGoogleSignIn({
     buttonIds: [],
     whoamiPath: '/admin/members/whoami',
-    onSignedIn: (_identity, generation) => ifCurrentRound(generation, () => {
-      zoneState.isAdminOrHovding = true;
+    onSignedIn: (identity, generation) => ifCurrentRound(generation, () => {
+      zoneState.isAdminOrHovding = identity.isAdmin === true || identity.isHovding === true;
+      zoneState.isPeopleManagement = identity.isAdmin === true || identity.isHovding === true || identity.isAccountant === true;
       reconcileAllMounts();
     }),
     onSignedOut: generation => ifCurrentRound(generation, () => {
       zoneState.isAdminOrHovding = false;
+      zoneState.isPeopleManagement = false;
       reconcileAllMounts();
     }),
     onForbidden: generation => ifCurrentRound(generation, () => {
       zoneState.isAdminOrHovding = false;
+      zoneState.isPeopleManagement = false;
       reconcileAllMounts();
     }),
   });

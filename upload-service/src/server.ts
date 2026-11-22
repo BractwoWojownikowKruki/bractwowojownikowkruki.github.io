@@ -1801,22 +1801,35 @@ async function handleAdminWhoami(req: IncomingMessage, res: ServerResponse, deps
   sendJson(res, 200, identityResponseBody(identity));
 }
 
-// KRKG-0049: the Zarządzanie ludźmi page's own whoami, separate from /admin/whoami - a hovding
-// (Firestore role, not necessarily on the admin allowlist) must see this one admin-panel page
-// without the other three revealing themselves too. Drives both this page's own sign-in gate and
-// nav.js's narrower visibility toggle for that one nav entry. Also reports isAdmin so the page can
-// hide the Rola column/audit log for a plain hovding - role assignment stays admin-only
-// (see ASSIGNABLE_ROLES/handleAdminSetRoles), and GET /admin/roles would just 403 for
-// them, which would otherwise break Promise.all-loading the whole member list.
+// Identifies page access separately from /admin/whoami: admins and hovdings retain the full page,
+// while an accountant-only caller receives the restricted accountless-person creation view.
 async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const identity = await deps.authenticateAdminOrHovding(req, res);
-  let isAdmin = true;
-  try {
-    await deps.authenticateAdmin(req, res);
-  } catch {
-    isAdmin = false;
-  }
-  sendJson(res, 200, { ...identityResponseBody(identity), isAdmin });
+  const auth = await resolveAdminAuditAuth(req, res, deps);
+  const roles = await getEffectiveRoles(deps.firestore, auth.identity.email);
+  sendJson(res, 200, {
+    ...identityResponseBody(auth.identity),
+    isAdmin: auth.isAdmin,
+    isHovding: auth.isHovding,
+    isAccountant: roles.includes('accountant'),
+  });
+}
+
+/** Returns the minimum account-holder data needed to attach a newly created accountless person. */
+async function handleAdminPersonOwners(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  await resolveAdminAuditAuth(req, res, deps);
+  const [emails, members] = await Promise.all([
+    deps.listMemberEmails(),
+    listAllMembers(deps.firestore),
+  ]);
+  const byEmail = new Map(members.map((member) => [member.email.toLowerCase(), member]));
+  const owners = [...new Set(emails.map((email) => email.toLowerCase()))]
+    .map((email) => {
+      const member = byEmail.get(email);
+      const name = member?.nickname || [member?.firstName, member?.lastName].filter(Boolean).join(' ') || email;
+      return { email, name };
+    })
+    .sort((left, right) => left.name.localeCompare(right.name, 'pl') || left.email.localeCompare(right.email));
+  sendJson(res, 200, { owners });
 }
 
 // Not scoped to About Us specifically - clears the Instagram/Facebook posts cache so the
@@ -4356,7 +4369,7 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
     ? (ownerMember ? (ownerMember.nickname || [ownerMember.firstName, ownerMember.lastName].filter(Boolean).join(' ') || person.ownerPersonId) : person.ownerPersonId)
     : null;
   const isOwner = person.ownerPersonId?.toLowerCase() === identity.email.toLowerCase();
-  const staff = await isPersonStaff(req, res, deps, identity.email);
+  const staff = await isPersonManager(req, res, deps);
   const canEditIdentity = staff || isOwner;
   const canEditWeapons = staff || isOwner;
   const canEditDues = await canManageSkladki(req, res, deps, identity.email);
@@ -4909,12 +4922,12 @@ async function handleListaWyjazdowaPutPaymentInfo(req: IncomingMessage, res: Ser
 }
 
 // ---------------------------------------------------------------------------------------------
-// KRKG-0087: accountless-person record routes. Staff (admin, hovding, accountant) may manage any
-// person; a plain member may only create/update/delete/detach a person attached to them - their own
-// "osoba towarzysząca". Merging a person with a real account is administrator-only.
+// KRKG-0087: admins and hovdings may manage any accountless person. Accountants may create people
+// and may manage only their own attached people as members. Other members may create/update/delete/
+// detach only their own "osoba towarzysząca". Merging a person with a real account is admin-only.
 // ---------------------------------------------------------------------------------------------
 
-/** Staff = admin or accountant (requireSkladkiAccess) or admin or hovding (authenticateAdminOrHovding). */
+/** Creation and event quick-add staff = admin, accountant, or hovding; record management excludes accountant-only callers. */
 async function isPersonStaff(req: IncomingMessage, res: ServerResponse, deps: ServerDeps, email: string): Promise<boolean> {
   try {
     await requireSkladkiAccess(req, res, deps, email);
@@ -4929,6 +4942,28 @@ async function isPersonStaff(req: IncomingMessage, res: ServerResponse, deps: Se
     if (!(err instanceof AuthError)) throw err;
     return false;
   }
+}
+
+/** Administrators and hovdings may manage other people's accountless-person records. */
+async function isPersonManager(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<boolean> {
+  try {
+    await deps.authenticateAdminOrHovding(req, res);
+    return true;
+  } catch (err) {
+    if (!(err instanceof AuthError)) throw err;
+    return false;
+  }
+}
+
+/** True only for an accountant who does not also have administrator or hovding privileges. */
+async function isAccountantOnlyPersonStaff(
+  req: IncomingMessage,
+  res: ServerResponse,
+  deps: ServerDeps,
+  email: string,
+): Promise<boolean> {
+  if (!(await getEffectiveRoles(deps.firestore, email)).includes('accountant')) return false;
+  return !(await isPersonManager(req, res, deps));
 }
 
 /** A member may act on a person only when that person is attached to them (their own personId is their e-mail). */
@@ -4973,8 +5008,15 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
   const fields = readPersonWritableFields(body);
   const ownerPersonId = readOwnerPersonId(body.ownerPersonId);
   const staff = await isPersonStaff(req, res, deps, identity.email);
+  const accountantOnly = await isAccountantOnlyPersonStaff(req, res, deps, identity.email);
   if (!staff && (!ownerPersonId || ownerPersonId.toLowerCase() !== identity.email.toLowerCase())) {
     throw new AuthError('Brak uprawnień do utworzenia takiej osoby.', 403);
+  }
+  if (accountantOnly && ownerPersonId) {
+    const activeMembers = await deps.listMemberEmails();
+    if (!activeMembers.some((email) => email.toLowerCase() === ownerPersonId.toLowerCase())) {
+      throw new AuthError('Nie znaleziono takiego członka.', 404);
+    }
   }
   const personId = randomUUID();
   const { result: person } = await executeDeclaredAuditedMutation(
@@ -5003,7 +5045,7 @@ async function handleListaWyjazdowaPutPerson(req: IncomingMessage, res: ServerRe
   const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
   const existing = await getPerson(deps.firestore, personId);
   if (!existing) throw new AuthError('Nie znaleziono takiej osoby.', 404);
-  requireOwnedOrStaff(identity, existing, await isPersonStaff(req, res, deps, identity.email));
+  requireOwnedOrStaff(identity, existing, await isPersonManager(req, res, deps));
   const fields = readPersonWritableFields(body);
   const { result: person } = await executeDeclaredAuditedMutation(
     deps,
@@ -5038,7 +5080,7 @@ async function handleListaWyjazdowaDeletePerson(req: IncomingMessage, res: Serve
   const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
   const existing = await getPerson(deps.firestore, personId);
   if (!existing) throw new AuthError('Nie znaleziono takiej osoby.', 404);
-  requireOwnedOrStaff(identity, existing, await isPersonStaff(req, res, deps, identity.email));
+  requireOwnedOrStaff(identity, existing, await isPersonManager(req, res, deps));
   // KRKG-97: the person stops resolving, so their private equipment becomes team equipment (see the
   // release helper). Ids are scanned here; the transaction re-reads each item before writing it.
   const equipmentIds = await listEquipmentIdsOwnedBy(deps.firestore, existing.personId);
@@ -5064,12 +5106,12 @@ async function handleListaWyjazdowaDeletePerson(req: IncomingMessage, res: Serve
   sendJson(res, 200, { person });
 }
 
-// KRKG-0091: staff-only listing of every person, including deactivated (tombstoned) ones, so
+// KRKG-0091: manager-only listing of every person, including deactivated (tombstoned) ones, so
 // Zarządzanie ludźmi can show and permanently remove them. The roster's current read excludes
 // tombstones, so this is the one place they remain visible.
 async function handleListaWyjazdowaGetPersons(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  if (!(await isPersonStaff(req, res, deps, identity.email))) throw new AuthError('Brak uprawnień do tej osoby.', 403);
+  if (!(await isPersonManager(req, res, deps))) throw new AuthError('Brak uprawnień do tej osoby.', 403);
   const [persons, members] = await Promise.all([
     listPersons(deps.firestore, { includeDeleted: true }),
     listAllMembers(deps.firestore),
@@ -5097,13 +5139,13 @@ async function handleListaWyjazdowaGetPersons(req: IncomingMessage, res: ServerR
   });
 }
 
-// KRKG-0091: permanent removal - the person record, profile, every signup and every annual-dues
+// KRKG-0091: manager-only permanent removal - the person record, profile, every signup and every annual-dues
 // record keyed by this person. Unlike the tombstone it also drops the person from past trips (their
 // counts change); this is the escape hatch for a mistaken duplicate. Immutable audit events are
-// never removed, so the purge stays traceable via person.purged. Staff-only.
+// never removed, so the purge stays traceable via person.purged. Admin/hovding-only.
 async function handleListaWyjazdowaDeletePersonPermanent(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  if (!(await isPersonStaff(req, res, deps, identity.email))) throw new AuthError('Brak uprawnień do tej osoby.', 403);
+  if (!(await isPersonManager(req, res, deps))) throw new AuthError('Brak uprawnień do tej osoby.', 403);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
   const existing = await getPerson(deps.firestore, personId);
@@ -5152,7 +5194,7 @@ async function handleListaWyjazdowaPutPersonOwner(req: IncomingMessage, res: Ser
   if (body.ownerPersonId !== null) throw new AuthError('Odpięcie wymaga ownerPersonId = null.', 400);
   const existing = await getPerson(deps.firestore, personId);
   if (!existing) throw new AuthError('Nie znaleziono takiej osoby.', 404);
-  requireOwnedOrStaff(identity, existing, await isPersonStaff(req, res, deps, identity.email));
+  requireOwnedOrStaff(identity, existing, await isPersonManager(req, res, deps));
   const { result: person } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.personOwner,
@@ -6360,6 +6402,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/members/whoami') {
         await handleAdminMembersWhoami(req, res, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/person-owners') {
+        await handleAdminPersonOwners(req, res, deps);
       } else if (req.method === 'POST' && url.pathname === '/admin/social-media/refresh') {
         await handleAdminRefreshSocialCache(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/members') {
