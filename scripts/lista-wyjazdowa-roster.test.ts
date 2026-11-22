@@ -52,6 +52,7 @@ class Element {
   }
   setAttribute(name: string, value: string) { this.attributes.set(name, value); }
   getAttribute(name: string) { return this.attributes.get(name) ?? null; }
+  querySelectorAll() { return []; }
   scrollIntoView() {}
 }
 
@@ -67,7 +68,7 @@ const elementIds = [
   'event-share-button', 'event-share-button-text',
 ];
 
-function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]> } = {}) {
+function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]>; signupStatusByPersonId?: Record<string, string> } = {}) {
   const canManageSkladki = options.canManageSkladki ?? true;
   const canManagePeople = options.canManagePeople ?? false;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
@@ -93,6 +94,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   const eventRoster = options.withRemovedPerson ? [...currentRoster, removedPerson] : currentRoster;
   const signups = [
     { memberEmail: 'signed@example.com', attending: true, skladkaStatus: 'unpaid' },
+    ...Object.entries(options.signupStatusByPersonId ?? {}).map(([memberEmail, skladkaStatus]) => ({ memberEmail, attending: true, skladkaStatus })),
     ...(options.withRemovedPerson ? [{ memberEmail: 'gone-uuid-1', attending: true, skladkaStatus: 'unpaid' }] : []),
     // KRKG-0089: an attached person already marked "nie jadę" (a signup with attending:false) must
     // still be offered in the add panel so they can be added back.
@@ -232,6 +234,48 @@ test('roster checkboxes filter locally and preserve the signed-in viewer', async
   assert.doesNotMatch(roster.innerHTML, /other@example\.com/);
 
   assert.equal(harness.apiCalls.length, requestsBeforeToggle);
+});
+
+test('the contribution filter cycles through paid, unpaid and not applicable and combines with roster visibility', async () => {
+  const harness = createHarness(event('50 zł'), {
+    signupStatusByPersonId: {
+      'viewer@example.com': 'paid',
+      'other@example.com': 'not_applicable',
+    },
+  });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  const summary = harness.elements.get('summary-panel')!;
+  const clickContributionFilter = async () => summary.clickWith({
+    closest: (selector: string) => selector === '[data-filter-group]'
+      ? { dataset: { filterGroup: 'contributionStatus', filterCycle: 'paid unpaid not_applicable' }, disabled: false, focus() {} }
+      : null,
+  });
+
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /Wszystkie/);
+  assert.match(roster.innerHTML, /signed@example\.com/);
+  assert.match(roster.innerHTML, /viewer@example\.com/);
+  assert.match(roster.innerHTML, /other@example\.com/);
+
+  await clickContributionFilter();
+  assert.match(roster.innerHTML, /viewer@example\.com/);
+  assert.doesNotMatch(roster.innerHTML, /signed@example\.com|other@example\.com/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="paid"[^>]*aria-pressed="true">.*opłacona/);
+
+  await clickContributionFilter();
+  assert.match(roster.innerHTML, /signed@example\.com/);
+  assert.doesNotMatch(roster.innerHTML, /viewer@example\.com|other@example\.com/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="unpaid"[^>]*aria-pressed="true">.*nieopłacona/);
+
+  await clickContributionFilter();
+  assert.doesNotMatch(roster.innerHTML, /signed@example\.com|viewer@example\.com/);
+  assert.match(roster.innerHTML, /other@example\.com/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="not_applicable"[^>]*aria-pressed="true">.*nie dotyczy/);
+
+  await clickContributionFilter();
+  assert.match(roster.innerHTML, /signed@example\.com/);
+  assert.match(roster.innerHTML, /viewer@example\.com/);
+  assert.match(roster.innerHTML, /other@example\.com/);
 });
 
 test('roster shows one combo icon and a T/W/D letter caption for multi-weapon members', async () => {

@@ -67,6 +67,17 @@ function summaryFilterMatches(filter, values) {
   );
 }
 
+// A cycle group is single-select: no value advances to its first state, and advancing past its
+// last state clears it so the filter returns to the unfiltered view.
+function cycleSummaryFilterGroup(filter, group, values) {
+  const selected = filter.selected[group];
+  if (!selected || values.length === 0) return;
+  const current = selected.values().next().value;
+  const nextIndex = current === undefined ? 0 : values.indexOf(current) + 1;
+  selected.clear();
+  if (nextIndex >= 0 && nextIndex < values.length) selected.add(values[nextIndex]);
+}
+
 // Drops pressed values that no longer have a pill (e.g. the last attendee from a section signed
 // off), so the filter can never be stuck on a pill that is not rendered. `availableByGroup` maps a
 // group to the values its pills are rendered for.
@@ -110,8 +121,11 @@ function wireSummaryFilter(container, filter, onChange) {
     if (!isClear && !chip) return;
     const group = chip?.dataset.filterGroup;
     const key = chip?.dataset.filterValue;
+    const cycle = chip?.dataset.filterCycle?.trim().split(/\s+/).filter(Boolean);
     if (isClear) {
       for (const set of Object.values(filter.selected)) set.clear();
+    } else if (cycle?.length) {
+      cycleSummaryFilterGroup(filter, group, cycle);
     } else if (filter.selected[group]?.has(key)) {
       filter.selected[group].delete(key);
     } else {
@@ -120,9 +134,10 @@ function wireSummaryFilter(container, filter, onChange) {
     persistSummaryFilter(filter);
     onChange();
     const buttons = [...container.querySelectorAll('[data-filter-clear], [data-filter-group]')];
+    const isCycle = Boolean(cycle?.length);
     const again = isClear
       ? buttons.find((b) => 'filterClear' in b.dataset)
-      : buttons.find((b) => b.dataset.filterGroup === group && b.dataset.filterValue === key);
+      : buttons.find((b) => b.dataset.filterGroup === group && (isCycle || b.dataset.filterValue === key));
     // The clear button is disabled right after clearing, so it cannot take focus - fall back to the
     // first pill then.
     (again && !again.disabled ? again : buttons.find((b) => 'filterGroup' in b.dataset))?.focus();

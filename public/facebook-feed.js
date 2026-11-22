@@ -182,7 +182,7 @@ class FacebookFeed {
   }
 
   renderPost(post) {
-    const { caption, mediaUrl, permalink, timestamp, likeCount, commentsCount } = post;
+    const { caption, mediaUrl, permalink, timestamp } = post;
     const date = new Date(timestamp);
     const dateStr = date.toLocaleDateString('pl-PL', {
       year: 'numeric',
@@ -204,8 +204,7 @@ class FacebookFeed {
           </div>
         ` : ''}
         <a href="${safePermalink}" target="_blank" rel="noopener noreferrer" class="fb-post-engagement" aria-label="Zobacz post na Facebooku">
-          <span class="fb-post-stat">${this.likeIconSvg()}${likeCount ?? 0}</span>
-          <span class="fb-post-stat">${this.commentIconSvg()}${commentsCount ?? 0}</span>
+          <span class="fb-post-stat">${this.likeIconSvg()}</span>
           <span class="fb-post-fb-icon">${this.facebookIconSvg()}</span>
         </a>
         <div class="fb-post-content">
@@ -218,10 +217,6 @@ class FacebookFeed {
 
   likeIconSvg() {
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"/></svg>';
-  }
-
-  commentIconSvg() {
-    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>';
   }
 
   facebookIconSvg() {

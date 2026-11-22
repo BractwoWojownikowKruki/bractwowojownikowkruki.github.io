@@ -1618,6 +1618,40 @@ button.lw-filter-chip {
   margin-right: 0.3rem;
 }
 
+.lw-contribution-filter {
+  gap: 0.35rem;
+  font-weight: 600;
+}
+
+.lw-contribution-filter[aria-pressed="true"]::before {
+  content: none;
+  margin: 0;
+}
+
+.lw-contribution-filter[data-status="all"] {
+  background: color-mix(in srgb, var(--text-faint) 28%, var(--surface-deep));
+  border: 1px solid var(--text-faint);
+  color: var(--text-muted);
+}
+
+.lw-contribution-filter[data-status="paid"] {
+  background: color-mix(in srgb, #2e7d32 38%, var(--surface-deep));
+  border: 1px solid #2e7d32;
+  color: var(--text);
+}
+
+.lw-contribution-filter[data-status="unpaid"] {
+  background: color-mix(in srgb, #c62828 38%, var(--surface-deep));
+  border: 1px solid #c62828;
+  color: var(--text);
+}
+
+.lw-contribution-filter[data-status="not_applicable"] {
+  background: color-mix(in srgb, var(--text-faint) 28%, var(--surface-deep));
+  border: 1px solid var(--text-faint);
+  color: var(--text-muted);
+}
+
 .lw-summary-filter[data-filter-active="true"] .lw-filter-chip[aria-pressed="false"] {
   opacity: 0.45;
 }

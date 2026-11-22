@@ -469,12 +469,25 @@ function renderSummary(roster, signups) {
     })
     .join('');
 
+  const selectedContributionStatus = rosterFilter.selected.contributionStatus.values().next().value ?? 'all';
+  const contributionStatusLabel = {
+    all: 'Wszystkie',
+    paid: 'opłacona',
+    unpaid: 'nieopłacona',
+    not_applicable: 'nie dotyczy',
+  }[selectedContributionStatus] ?? 'Wszystkie';
+  const contributionStatusChip = summaryFilterChipHtml(rosterFilter, 'contributionStatus', selectedContributionStatus, {
+    className: 'lw-contribution-filter',
+    attrs: `data-status="${escapeAttr(selectedContributionStatus)}" data-filter-cycle="paid unpaid not_applicable"`,
+    content: `<span aria-hidden="true">💰</span>${escapeHtml(contributionStatusLabel)}`,
+  });
+
   document.getElementById('summary-content').innerHTML = `
     <p>Łącznie: <strong>${attending.length}</strong> os.${shelterSummaryText()}</p>
     ${summaryFilterBlockHtml(rosterFilter, [
       { heading: 'Filtruj wg sekcji', chipsHtml: sectionChips },
       { heading: 'Filtruj wg broni', chipsHtml: weaponChips },
-      { heading: 'Filtruj wg statusu', chipsHtml: categoryChips },
+      { heading: 'Filtruj wg statusu', chipsHtml: `${categoryChips}${contributionStatusChip}` },
     ])}
   `;
 }
@@ -563,7 +576,7 @@ let cachedEventEquipment = [];
 // private equipment, see equipmentSectionId). Weapon values are weaponGroupKey()s - the same full
 // weapon set the "Filtruj wg broni" pills count by.
 // Pressed pills are saved per page type, not per event (KRKG-116): one key for every trip page.
-const rosterFilter = createSummaryFilter(['section', 'weapon', 'category'], { key: LIST_PREFERENCE_KEYS.wyjazdSummaryFilter, slot: 'roster' });
+const rosterFilter = createSummaryFilter(['section', 'weapon', 'category', 'contributionStatus'], { key: LIST_PREFERENCE_KEYS.wyjazdSummaryFilter, slot: 'roster' });
 // The per-category pills above the equipment table filter that table on their own, separate from
 // the roster/section pills in Podsumowanie.
 const equipmentFilter = createSummaryFilter(['equipmentCategory'], { key: LIST_PREFERENCE_KEYS.wyjazdSummaryFilter, slot: 'equipment' });
@@ -577,11 +590,12 @@ wireSummaryFilter(document.getElementById('summary-panel'), rosterFilter, () => 
   renderEventEquipment(cachedEventEquipment);
 });
 
-function rosterFilterMatches(member) {
+function rosterFilterMatches(member, signup) {
   return summaryFilterMatches(rosterFilter, {
     section: member.sectionId,
     weapon: weaponGroupKey(member.weaponIds),
     category: member.categoryId,
+    contributionStatus: signup?.skladkaStatus,
   });
 }
 // KRKG-0087: which account row's inline "add companion" panel is open, or null when none is. Only
@@ -818,7 +832,7 @@ function renderRoster(roster, signups) {
   const visible = roster.filter((m) => {
     const attending = signupByPersonId.get(m.personId)?.attending ?? false;
     const shownByCheckbox = attending || m.personId === viewerPersonId ? showSignedUpAndMe : showNotSignedUp;
-    return shownByCheckbox && rosterFilterMatches(m);
+    return shownByCheckbox && rosterFilterMatches(m, signupByPersonId.get(m.personId));
   });
 
   const tbody = document.getElementById('roster-content');
