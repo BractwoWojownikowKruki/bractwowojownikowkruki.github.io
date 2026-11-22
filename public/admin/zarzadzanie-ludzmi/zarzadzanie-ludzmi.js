@@ -989,12 +989,15 @@ async function loadAccountless() {
   const tbody = document.getElementById('accountless-list');
   tbody.innerHTML = '<tr><td colspan="7" class="czl-empty">Ładowanie...</td></tr>';
   try {
-    const [{ persons }, lists] = await Promise.all([
+    const [{ persons }, staffLists] = await Promise.all([
       apiFetch('/lista-wyjazdowa/persons', { method: 'GET' }, showReauth, hideReauth),
       isAccountantOnlyCaller
-        ? Promise.resolve(accountlessCache)
+        ? Promise.resolve(null)
         : Promise.all([loadSections(), loadCategories(), loadWeapons()]).then(([sections, categories, weapons]) => ({ sections, categories, weapons })),
     ]);
+    // Read the accountant's cache after the list request settles so a concurrent lookup retry
+    // cannot leave this refresh holding a stale snapshot.
+    const lists = isAccountantOnlyCaller ? accountlessCache : staffLists;
     const { sections, categories, weapons } = lists;
     accountlessCache = { persons: [], sections, categories, weapons };
     renderAccountless(persons);
@@ -1023,6 +1026,7 @@ async function loadAccountlessCreationOptions() {
       categories: lookupLists.categories ?? [],
       weapons: lookupLists.weapons ?? [],
     };
+    renderAccountless(accountlessCache.persons);
     resetAccountlessForm();
     populateAccountlessOwnerOptions(owners);
     accountlessCreationOptionsReady = true;
