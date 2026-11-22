@@ -3683,6 +3683,55 @@ test('PUT /admin/members/weapons can clear weaponIds back to empty', async () =>
   assert.deepEqual(stored?.weaponIds, []);
 });
 
+test('PUT /admin/members/weapons clears the weapon set for a non-combat category', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'weapons', { items: [{ id: 'miecz', label: 'Miecz', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', lastName: 'Ala', firstName: '', nickname: null, sectionId: 'krakow',
+    categoryId: 'niewiasta', driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/weapons`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', weaponIds: ['miecz'] }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ weaponIds: string[] }>('listaWyjazdowaProfile', 'ala@example.com');
+  assert.deepEqual(stored?.weaponIds, []);
+});
+
+test('PUT /admin/members/profile clears weapons when category changes to Bobo', async () => {
+  const client = createInMemoryFirestoreClient();
+  client.seed('lookupLists', 'categories', { items: [{ id: 'bobo', label: 'Bobo', retired: false }] });
+  client.seed('members', 'ala@example.com', {
+    email: 'ala@example.com', lastName: 'Ala', firstName: 'Ala', nickname: null, sectionId: 'krakow',
+    categoryId: 'brokul', driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  client.seed('listaWyjazdowaProfile', 'ala@example.com', {
+    weaponIds: ['miecz'], companions: [], wpisowePaid: false, updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore: client,
+    authenticateAdminOrHovdingWithStepUp: async () => fakeSessionClaims({ sub: 'admin-1', email: 'admin@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/profile`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', origin: ALLOWED_ORIGIN_FOR_TESTS },
+      body: JSON.stringify({ email: 'ala@example.com', categoryId: 'bobo' }),
+    });
+    assert.equal(res.status, 200);
+  });
+  const stored = await client.getDoc<{ weaponIds: string[] }>('listaWyjazdowaProfile', 'ala@example.com');
+  assert.deepEqual(stored?.weaponIds, []);
+});
+
 test('PUT /admin/members/weapons rejects a weaponId that is not in lookupLists', async () => {
   const client = createInMemoryFirestoreClient();
   client.seed('lookupLists', 'weapons', { items: [{ id: 'miecz', label: 'Miecz', retired: false }] });
@@ -7080,6 +7129,20 @@ test('PUT /lista-wyjazdowa/profile creates the caller\'s own profile', async () 
     const body = await res.json();
     assert.deepEqual(body.profile.weaponIds, ['tarczownik']);
     assert.equal(body.profile.wpisowePaid, false);
+  });
+});
+
+test('PUT /lista-wyjazdowa/profile clears weapons for a non-combat member category', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'wojownik@gmail.com', {
+    email: 'wojownik@gmail.com', lastName: 'Wojownik', firstName: 'Jan', nickname: null, sectionId: 'krakow',
+    categoryId: 'bobo', driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', { weaponIds: ['tarczownik'] });
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).profile.weaponIds, []);
   });
 });
 

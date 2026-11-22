@@ -107,6 +107,7 @@ import {
   resolvePersonId,
   softDeletePerson,
   updatePerson,
+  weaponAllowedForCategory,
   type PersonDoc,
   type PersonMergeApplyResult,
   type PersonWritableFields,
@@ -3474,15 +3475,22 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
   }
   // Filled by the audit factory below, which runs first in the same transaction attempt.
   let followingCompanions: PersonDoc[] = [];
+  let profileToClearWeapons: ListaWyjazdowaProfileDoc | null = null;
   const { result: member } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.memberProfile,
     'profile.member.updated',
     async tx => {
+      profileToClearWeapons = null;
       const current = await tx.getDoc<MemberDoc>('members', email.toLowerCase());
       followingCompanions = fields
         ? await findCompanionsFollowingSection(tx, email, companionIds, current?.sectionId, fields.sectionId)
         : [];
+      const effectiveCategoryId = categoryId !== undefined ? categoryId : current?.categoryId ?? null;
+      if (!weaponAllowedForCategory(effectiveCategoryId ?? '')) {
+        const currentProfile = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', email.toLowerCase());
+        if (currentProfile?.weaponIds.length) profileToClearWeapons = currentProfile;
+      }
       return {
         actor: { email: identity.email },
         resource: { kind: 'member', key: `member:${email.toLowerCase()}`, display: 'member' },
@@ -3495,6 +3503,7 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
             ...(followingCompanions.length ? [{ field: 'movedCompanions', after: followingCompanions.length }] : []),
           ] : []),
           ...(categoryId !== undefined ? [{ field: 'category', before: current?.categoryId ?? null, after: categoryId }] : []),
+          ...(profileToClearWeapons ? [{ field: 'weaponCount', before: profileToClearWeapons.weaponIds.length, after: 0 }] : []),
           ...(hidden !== undefined ? [{ field: 'hidden', before: current?.hidden ?? false, after: hidden }] : []),
         ],
       };
@@ -3509,6 +3518,9 @@ async function handleAdminUpdateMemberProfile(req: IncomingMessage, res: ServerR
       if (categoryId !== undefined) {
         await setMemberCategoryId(tx, email, categoryId, currentDoc);
         saved.categoryId = categoryId;
+      }
+      if (profileToClearWeapons) {
+        await setProfileWeaponIds(tx, email, [], identity.email, profileToClearWeapons);
       }
       if (hidden !== undefined) {
         await setMemberHidden(tx, email, hidden, currentDoc);
@@ -3536,19 +3548,22 @@ async function handleAdminSetMemberWeapons(req: IncomingMessage, res: ServerResp
   if (typeof email !== 'string' || !email.trim()) throw new AuthError('Brak email.', 400);
   const existing = await getMember(deps.firestore, email);
   if (!existing) throw new AuthError('Nie znaleziono takiego członka.', 404);
-  const weaponIds = requireArray(body.weaponIds, 'Lista broni ma nieprawidłowy format.').map((id) =>
+  const requestedWeaponIds = requireArray(body.weaponIds, 'Lista broni ma nieprawidłowy format.').map((id) =>
     requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista broni ma nieprawidłowy format.'),
   );
   const lookupLists = await getAllLookupLists(deps.firestore);
-  for (const weaponId of weaponIds) {
+  for (const weaponId of requestedWeaponIds) {
     requireKnownLookupId(lookupLists.weapons, weaponId, 'Wybrana broń nie istnieje.');
   }
+  let weaponIds = requestedWeaponIds;
   const normalizedEmail = email.toLowerCase();
   const { result: profile } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.memberWeapons,
     'profile.member.updated',
     async tx => {
+      const currentMember = await tx.getDoc<MemberDoc>('members', normalizedEmail);
+      weaponIds = weaponAllowedForCategory(currentMember?.categoryId ?? existing.categoryId ?? '') ? requestedWeaponIds : [];
       const currentProfile = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', normalizedEmail);
       return {
         actor: { email: identity.email },
@@ -3862,6 +3877,7 @@ async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerR
       requireTrimmedString(id, LW_MAX_NAME_LENGTH, 'Lista broni ma nieprawidłowy format.'),
     ),
   };
+  const requestedWeaponIds = fields.weaponIds;
   const lookupLists = await getAllLookupLists(deps.firestore);
   for (const weaponId of fields.weaponIds) {
     requireKnownLookupId(lookupLists.weapons, weaponId, 'Wybrana broń nie istnieje.');
@@ -3871,6 +3887,8 @@ async function handleListaWyjazdowaPutProfile(req: IncomingMessage, res: ServerR
     AUDITED_MEMBER_MUTATION_ROUTES.tripProfile,
     'profile.member.updated',
     async tx => {
+      const member = await tx.getDoc<MemberDoc>('members', identity.email.toLowerCase());
+      fields.weaponIds = weaponAllowedForCategory(member?.categoryId ?? '') ? requestedWeaponIds : [];
       const existing = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', identity.email.toLowerCase());
       return {
         actor: { email: identity.email },

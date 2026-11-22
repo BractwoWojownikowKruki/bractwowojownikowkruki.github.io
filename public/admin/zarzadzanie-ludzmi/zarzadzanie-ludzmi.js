@@ -445,7 +445,8 @@ function inactiveRolesHintHtml(status, roles) {
 // A retired weapon (same "still resolve for someone who already has it" rule as
 // sectionOptions/categoryOptions above) stays offered here if this member currently has it
 // checked, otherwise drops out of new selection - mirrors profil.js's selectableLookupItems.
-function weaponCheckboxesHtml(email, weapons, currentWeaponIds) {
+function weaponCheckboxesHtml(email, weapons, currentWeaponIds, categoryId) {
+  if (ACCOUNT_NO_WEAPON_CATEGORY_IDS.includes(categoryId)) return '';
   const current = new Set(currentWeaponIds ?? []);
   return weapons
     .filter(w => !w.retired || current.has(w.id))
@@ -535,7 +536,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
         <input id="${memberFocusId(m.email, 'drive-folder')}" type="text" class="czl-field drive-folder-input" list="drive-folder-datalist" placeholder="Folder na stronie..." value="${escapeAttr(currentValue)}" />
         <span class="drive-folder-saved" style="color:var(--gold);" hidden>✓</span>
       </td>
-      <td class="member-weapons-cell">${weaponCheckboxesHtml(m.email, weapons, m.weaponIds)}</td>
+      <td class="member-weapons-cell">${weaponCheckboxesHtml(m.email, weapons, m.weaponIds, m.categoryId)}</td>
       <td class="member-roles-cell" ${isAdminCaller ? '' : 'hidden'}>${roleCheckboxesHtml(m.email, rolesByEmail.get(m.email))}${inactiveRolesHintHtml(status, rolesByEmail.get(m.email))}</td>
       <td ${canManageSkladki ? '' : 'hidden'}>
         <select id="${memberFocusId(m.email, 'wpisowe')}" class="czl-field member-wpisowe-select" data-email="${escapeAttr(m.email)}" aria-label="Wpisowe">
@@ -593,7 +594,10 @@ async function saveMemberProfileField(row, email, control) {
           member.nickname = nickname || null;
           member.sectionId = sectionId;
           member.categoryId = categoryId;
+          if (ACCOUNT_NO_WEAPON_CATEGORY_IDS.includes(categoryId)) member.weaponIds = [];
         }
+        const weaponCell = row.querySelector('.member-weapons-cell');
+        weaponCell.innerHTML = weaponCheckboxesHtml(email, membershipMembersCache.weapons, member?.weaponIds ?? [], categoryId);
         row.dataset.section = sectionId;
         const sectionCell = sectionSelect.closest('td');
         const fullLabel = membershipMembersCache.sections.find(section => section.id === sectionId)?.label;
@@ -878,7 +882,7 @@ function accountlessWeaponCheckboxesHtml(weapons, currentIds) {
   const current = new Set(currentIds ?? []);
   return weapons
     .filter((w) => !w.retired || current.has(w.id))
-    .map((w) => `<label class="member-role-label"><input type="checkbox" class="accountless-weapon-checkbox" value="${escapeAttr(w.id)}"${current.has(w.id) ? ' checked' : ''} />${escapeHtml(w.label)}</label>`)
+    .map((w) => `<label class="accountless-weapon-option"><input type="checkbox" class="accountless-weapon-checkbox" value="${escapeAttr(w.id)}"${current.has(w.id) ? ' checked' : ''} /><span>${escapeHtml(w.label)}</span></label>`)
     .join('');
 }
 
@@ -887,7 +891,7 @@ function accountlessWeaponCheckboxesHtml(weapons, currentIds) {
 function updateAccountlessWeaponState() {
   const allowed = !ACCOUNT_NO_WEAPON_CATEGORY_IDS.includes(document.getElementById('accountless-category').value);
   const weapons = document.getElementById('accountless-weapons');
-  weapons.hidden = !allowed;
+  document.getElementById('accountless-weapon-field').hidden = !allowed;
   if (!allowed) {
     for (const cb of weapons.querySelectorAll('.accountless-weapon-checkbox')) cb.checked = false;
   }
@@ -1077,8 +1081,8 @@ async function submitAccountlessForm() {
       : Array.from(document.querySelectorAll('#accountless-weapons .accountless-weapon-checkbox:checked')).map((cb) => cb.value),
   };
   const ownerPersonId = document.getElementById('accountless-owner').value || null;
-  if (!fields.ksywka || !fields.categoryId || !fields.sectionId) {
-    errorEl.textContent = 'Ksywka, kategoria i sekcja są wymagane.';
+  if (!fields.firstName || !fields.lastName || !fields.categoryId || !fields.sectionId) {
+    errorEl.textContent = 'Imię, nazwisko, kategoria i sekcja są wymagane.';
     errorEl.hidden = false;
     return;
   }

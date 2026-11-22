@@ -1100,7 +1100,10 @@ async function initForm(lookupLists) {
   ownerSectionId = member?.sectionId ?? null;
 
   populateSectionSelect(form.sectionId, lookupLists.sections, member?.sectionId ?? null);
-  populateWeaponCheckboxes(document.getElementById('weapons-checkboxes'), lookupLists.weapons, profile?.weaponIds ?? []);
+  const memberCategoryId = member?.categoryId ?? null;
+  const canMemberUseWeapons = !NO_WEAPON_CATEGORY_IDS.includes(memberCategoryId);
+  document.getElementById('weapons-panel').hidden = !canMemberUseWeapons;
+  populateWeaponCheckboxes(document.getElementById('weapons-checkboxes'), lookupLists.weapons, canMemberUseWeapons ? (profile?.weaponIds ?? []) : []);
 
   // An existing member/profile prefills the same form rather than locking it: a member must
   // always be able to come back and fix a typo, change section/weapons, or add equipment
