@@ -7146,6 +7146,20 @@ test('PUT /lista-wyjazdowa/profile clears weapons for a non-combat member catego
   });
 });
 
+test('PUT /lista-wyjazdowa/profile accepts an omitted weaponIds field for Bobo', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('members', 'wojownik@gmail.com', {
+    email: 'wojownik@gmail.com', lastName: 'Wojownik', firstName: 'Jan', nickname: null, sectionId: 'krakow',
+    categoryId: 'bobo', driveFolderId: null, status: 'active', appliedAt: 'x', approvedAt: 'x', approvedBy: 'admin', updatedAt: 'x', updatedBy: 'x',
+  });
+  const deps = makeDepsWithRole('accountant', firestore);
+  await withServer(deps, async baseUrl => {
+    const res = await putListaWyjazdowa(baseUrl, '/lista-wyjazdowa/profile', {});
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).profile.weaponIds, []);
+  });
+});
+
 // wpisowePaid is the accountant/admin-only field (design.md §7a/§9); the module-level
 // "preserved on update" test would still pass if the HTTP handler started trusting the request
 // body, so the ignore-the-body invariant is asserted here, at the edge that receives it.

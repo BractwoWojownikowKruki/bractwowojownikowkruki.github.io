@@ -1117,7 +1117,7 @@ async function initForm(lookupLists) {
     document.getElementById('category-readout').textContent =
       lookupLists.categories.find((c) => c.id === member.categoryId)?.label ?? '—';
   }
-  if (profile) {
+  if (profile && canMemberUseWeapons) {
     for (const cb of document.querySelectorAll('#weapons-checkboxes input[name="weaponIds"]')) {
       cb.checked = profile.weaponIds.includes(cb.value);
     }

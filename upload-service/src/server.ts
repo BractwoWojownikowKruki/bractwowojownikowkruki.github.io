@@ -3556,15 +3556,18 @@ async function handleAdminSetMemberWeapons(req: IncomingMessage, res: ServerResp
     requireKnownLookupId(lookupLists.weapons, weaponId, 'Wybrana broń nie istnieje.');
   }
   let weaponIds = requestedWeaponIds;
+  let profileBefore: ListaWyjazdowaProfileDoc | null = null;
   const normalizedEmail = email.toLowerCase();
   const { result: profile } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.memberWeapons,
     'profile.member.updated',
     async tx => {
+      profileBefore = null;
       const currentMember = await tx.getDoc<MemberDoc>('members', normalizedEmail);
       weaponIds = weaponAllowedForCategory(currentMember?.categoryId ?? existing.categoryId ?? '') ? requestedWeaponIds : [];
       const currentProfile = await tx.getDoc<ListaWyjazdowaProfileDoc>('listaWyjazdowaProfile', normalizedEmail);
+      profileBefore = currentProfile;
       return {
         actor: { email: identity.email },
         resource: { kind: 'member', key: `member:${normalizedEmail}`, display: 'member' },
@@ -3573,7 +3576,7 @@ async function handleAdminSetMemberWeapons(req: IncomingMessage, res: ServerResp
         ],
       };
     },
-    tx => setProfileWeaponIds(tx, normalizedEmail, weaponIds, identity.email),
+    tx => setProfileWeaponIds(tx, normalizedEmail, weaponIds, identity.email, profileBefore),
   );
   sendJson(res, 200, { profile });
 }
