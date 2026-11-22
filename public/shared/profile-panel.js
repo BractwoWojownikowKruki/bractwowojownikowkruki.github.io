@@ -580,6 +580,10 @@
     const profile = await loadProfileTarget(editorState.target);
     editorState.profile = profile;
     editorState.drafts = otherDrafts;
+    if (NO_WEAPON_CATEGORY_IDS.includes(profile.categoryId)) {
+      editorState.drafts.weapons = null;
+      editorState.errors.weapons = null;
+    }
     if (savedSection) {
       editorState.drafts[savedSection] = null;
       editorState.errors[savedSection] = null;
