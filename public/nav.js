@@ -527,8 +527,9 @@ document.addEventListener('DOMContentLoaded', () => {
     buttonIds: [],
     whoamiPath: '/admin/members/whoami',
     onSignedIn: (identity, generation) => ifCurrentRound(generation, () => {
-      zoneState.isAdminOrHovding = identity.isAdmin === true || identity.isHovding === true;
-      zoneState.isPeopleManagement = identity.isAdmin === true || identity.isHovding === true || identity.isAccountant === true;
+      const accountantOnly = identity.isAccountant === true && identity.isAdmin !== true && identity.isHovding !== true;
+      zoneState.isAdminOrHovding = !accountantOnly;
+      zoneState.isPeopleManagement = true;
       reconcileAllMounts();
     }),
     onSignedOut: generation => ifCurrentRound(generation, () => {

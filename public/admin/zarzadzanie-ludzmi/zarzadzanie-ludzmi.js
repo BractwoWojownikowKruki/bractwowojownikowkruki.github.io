@@ -29,7 +29,7 @@ initGoogleSignIn({
     isAccountantOnlyCaller = isAccountantCaller && payload.isAdmin !== true && payload.isHovding !== true;
     document.getElementById('membership-management-section').hidden = isAccountantOnlyCaller;
     document.getElementById('accountless-records-section').hidden = isAccountantOnlyCaller;
-    document.getElementById('accountless-owner-field').hidden = !isAccountantCaller;
+    document.getElementById('accountless-owner-field').hidden = !isAccountantOnlyCaller;
     if (isAccountantOnlyCaller) {
       document.getElementById('accountless-description').textContent = 'Dodaj osobę bez konta i opcjonalnie powiąż ją z członkiem.';
     }
@@ -52,9 +52,7 @@ initGoogleSignIn({
       loadAccountlessCreationOptions();
     } else {
       loadMembershipMembers();
-      loadAccountless().then(() => {
-        if (isAccountantCaller) loadAccountlessOwners();
-      });
+      loadAccountless();
     }
   },
   onSignedOut: () => {
@@ -905,6 +903,7 @@ function resetAccountlessForm() {
 
 function openAccountlessForm(person) {
   resetAccountlessForm();
+  document.getElementById('accountless-owner-field').hidden = !isAccountantOnlyCaller || Boolean(person);
   if (person) {
     editingAccountlessPersonId = person.personId;
     document.getElementById('accountless-ksywka').value = person.ksywka ?? person.nickname ?? '';
@@ -1075,7 +1074,7 @@ async function submitAccountlessForm() {
       {
         method: editing ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editing ? { personId: editing, ...fields } : { ...fields, ...(isAccountantCaller ? { ownerPersonId } : {}) }),
+        body: JSON.stringify(editing ? { personId: editing, ...fields } : { ...fields, ...(isAccountantOnlyCaller ? { ownerPersonId } : {}) }),
       },
       showReauth,
       hideReauth,

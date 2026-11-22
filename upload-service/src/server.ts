@@ -1804,13 +1804,33 @@ async function handleAdminWhoami(req: IncomingMessage, res: ServerResponse, deps
 // Identifies page access separately from /admin/whoami: admins and hovdings retain the full page,
 // while an accountant-only caller receives the restricted accountless-person creation view.
 async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const auth = await resolveAdminAuditAuth(req, res, deps);
-  const roles = await getEffectiveRoles(deps.firestore, auth.identity.email);
+  let identity: SessionClaims;
+  try {
+    identity = await deps.authenticateAdminOrHovding(req, res);
+  } catch (err) {
+    if (!(err instanceof AuthError)) throw err;
+    identity = await deps.authenticate(req, res);
+    const roles = await getEffectiveRoles(deps.firestore, identity.email);
+    if (!roles.includes('accountant')) throw new AuthError('Brak uprawnień.', 403);
+    sendJson(res, 200, {
+      ...identityResponseBody(identity),
+      isAdmin: false,
+      isHovding: false,
+      isAccountant: true,
+    });
+    return;
+  }
+  let isAdmin = true;
+  try {
+    await deps.authenticateAdmin(req, res);
+  } catch {
+    isAdmin = false;
+  }
+  const roles = await getEffectiveRoles(deps.firestore, identity.email);
   sendJson(res, 200, {
-    ...identityResponseBody(auth.identity),
-    isAdmin: auth.isAdmin,
-    isHovding: auth.isHovding,
-    isAccountant: roles.includes('accountant'),
+    ...identityResponseBody(identity),
+    isAdmin,
+    ...(roles.includes('accountant') ? { isHovding: !isAdmin, isAccountant: true } : {}),
   });
 }
 
@@ -5006,7 +5026,7 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const fields = readPersonWritableFields(body);
-  const ownerPersonId = readOwnerPersonId(body.ownerPersonId);
+  let ownerPersonId = readOwnerPersonId(body.ownerPersonId);
   const staff = await isPersonStaff(req, res, deps, identity.email);
   const accountantOnly = await isAccountantOnlyPersonStaff(req, res, deps, identity.email);
   if (!staff && (!ownerPersonId || ownerPersonId.toLowerCase() !== identity.email.toLowerCase())) {
@@ -5014,9 +5034,11 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
   }
   if (accountantOnly && ownerPersonId) {
     const activeMembers = await deps.listMemberEmails();
-    if (!activeMembers.some((email) => email.toLowerCase() === ownerPersonId.toLowerCase())) {
+    const canonicalOwner = activeMembers.find((email) => email.toLowerCase() === ownerPersonId?.toLowerCase());
+    if (!canonicalOwner) {
       throw new AuthError('Nie znaleziono takiego członka.', 404);
     }
+    ownerPersonId = canonicalOwner;
   }
   const personId = randomUUID();
   const { result: person } = await executeDeclaredAuditedMutation(
