@@ -7758,8 +7758,8 @@ test('GET /lista-wyjazdowa/roster?eventId= still omits a tombstoned person with 
   });
 });
 
-// KRKG-0087: the accountless-person record routes. Staff (admin/hovding/accountant) manage any
-// person; a plain member only their own attached person; merging with an account is admin-only.
+// KRKG-0087: accountants may create accountless people, while only admins/hovdings manage any
+// person's record. Members may manage their own attached person; merging with an account is admin-only.
 const personBody = {
   ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski',
   categoryId: 'thing', sectionId: 'krakow', weaponIds: ['tarczownik'],
@@ -8066,21 +8066,29 @@ test('PUT /lista-wyjazdowa/persons/account refuses to merge a deactivated person
   });
 });
 
-test('an accountant is staff on the person routes', async () => {
+test('an accountant can create a person but cannot manage other accountless-person records', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'wojownik@gmail.com');
+  seedPerson(firestore, 'p-other', 'wojownik@gmail.com');
   firestore.seed('userRoles', 'ksiegowa@example.com', { roles: ['accountant'] });
   firestore.seed('members', 'ksiegowa@example.com', { email: 'ksiegowa@example.com', status: 'active' });
   const deps = makeDeps({
     firestore,
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'k1', email: 'ksiegowa@example.com' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminWithStepUp: async () => { throw new AuthError('Brak uprawnień.', 403); },
     authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
     listMemberEmails: async () => ['ksiegowa@example.com', 'wojownik@gmail.com'],
   });
   await withServer(deps, async baseUrl => {
     const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'wojownik@gmail.com' });
-    assert.equal(res.status, 201, 'an accountant may create a person for anyone');
+    assert.equal(res.status, 201, 'an accountant may create a person for an active member');
+    assert.equal((await fetch(`${baseUrl}/lista-wyjazdowa/persons`)).status, 403);
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', { personId: 'p-other', ...personBody })).status, 403);
+    assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons', { personId: 'p-other' })).status, 403);
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/owner', { personId: 'p-other', ownerPersonId: null })).status, 403);
+    assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons/permanent', { personId: 'p-other' })).status, 403);
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/account', { personId: 'p-other', accountEmail: 'wojownik@gmail.com' })).status, 403);
   });
 });
 

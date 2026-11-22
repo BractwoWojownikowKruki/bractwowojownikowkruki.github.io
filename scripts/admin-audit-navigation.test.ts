@@ -21,7 +21,7 @@ test('member management exposes one unfiltered Historia icon button beside the C
   assert.ok(membersSection, 'the Członkowie section should be present');
   assert.match(
     membersSection,
-    /<header class="member-management-heading-row">\s*<h2(?: id="membership-management-section")?>Członkowie<\/h2>\s*<a class="audyt-history-btn" href="\/admin\/audyt\/" title="Historia" aria-label="Historia">\s*<svg[^>]*viewBox="0 0 24 24"[^>]*aria-hidden="true"[^>]*><path d="M3 12a9 9 0 1 0 3-6.7L3 8"\/><path d="M3 3v5h5"\/><path d="M12 7v5l4 2"\/><\/svg>\s*<\/a>\s*<\/header>/,
+    /<header class="member-management-heading-row">\s*<h2 id="membership-management-section">Członkowie<\/h2>\s*<a class="audyt-history-btn" href="\/admin\/audyt\/" title="Historia" aria-label="Historia">\s*<svg[^>]*viewBox="0 0 24 24"[^>]*aria-hidden="true"[^>]*><path d="M3 12a9 9 0 1 0 3-6.7L3 8"\/><path d="M3 3v5h5"\/><path d="M12 7v5l4 2"\/><\/svg>\s*<\/a>\s*<\/header>/,
   );
   assert.equal((membersSection.match(/class="audyt-history-btn"/g) ?? []).length, 1);
   assert.match(stylesheet, /a\.audyt-history-btn\s*\{[^}]*border:\s*1px solid var\(--border\);/);
