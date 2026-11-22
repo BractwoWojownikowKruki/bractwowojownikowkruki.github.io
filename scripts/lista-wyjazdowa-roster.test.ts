@@ -284,7 +284,7 @@ test('the contribution filter cycles through paid, unpaid and not applicable and
   assert.match(roster.innerHTML, /other@example\.com/);
 });
 
-test('contribution filtering excludes non-attending and no-signup rows', async () => {
+test('contribution filtering excludes non-attending and no-signup rows and uses the unpaid fallback', async () => {
   const harness = createHarness(event('50 zł'), {
     withAttachedPerson: true,
     signupStatusByPersonId: {
@@ -308,6 +308,20 @@ test('contribution filtering excludes non-attending and no-signup rows', async (
 
   assert.match(roster.innerHTML, /signed@example\.com/);
   assert.doesNotMatch(roster.innerHTML, /viewer@example\.com|other@example\.com|attached-uuid-1/);
+
+  const missingStatusHarness = createHarness(event('50 zł'), {
+    signupStatusByPersonId: { 'viewer@example.com': undefined },
+  });
+  await missingStatusHarness.signIn();
+  const unpaidFilter = missingStatusHarness.elements.get('summary-panel')!;
+  const cycleToUnpaid = () => unpaidFilter.clickWith({
+    closest: (selector: string) => selector === '[data-filter-group]'
+      ? { dataset: { filterGroup: 'contributionStatus', filterCycle: 'paid unpaid not_applicable' }, disabled: false, focus() {} }
+      : null,
+  });
+  await cycleToUnpaid();
+  await cycleToUnpaid();
+  assert.match(missingStatusHarness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
 });
 
 test('the contribution filter is hidden and cleared when the event has no fee', async () => {
@@ -425,6 +439,30 @@ test('removing the fee clears both fields, sends nulls and hides payment icons',
   assert.equal(harness.elements.get('skladka-fee-duedate-input')!.disabled, true);
   assert.equal(harness.elements.get('skladka-fee-remove')!.disabled, true);
   assert.doesNotMatch(roster.innerHTML, /lw-skladka-icon/);
+});
+
+test('removing an event fee clears the active contribution filter and refreshes the summary', async () => {
+  const harness = createHarness(event('50 zł'), {
+    signupStatusByPersonId: { 'viewer@example.com': 'paid' },
+  });
+  await harness.signIn();
+  const summary = harness.elements.get('summary-panel')!;
+  const cycleFilter = () => summary.clickWith({
+    closest: (selector: string) => selector === '[data-filter-group]'
+      ? { dataset: { filterGroup: 'contributionStatus', filterCycle: 'paid unpaid not_applicable' }, disabled: false, focus() {} }
+      : null,
+  });
+  await cycleFilter();
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
+  assert.doesNotMatch(harness.elements.get('roster-content')!.innerHTML, /signed@example\.com/);
+
+  harness.setMutationResult({ event: event(null, null) });
+  await harness.elements.get('skladka-fee-remove')!.click();
+
+  assert.doesNotMatch(harness.elements.get('summary-content')!.innerHTML, /lw-contribution-filter/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-active="false"/);
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /signed@example\.com/);
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
 });
 
 test('an empty fee disables and clears the due-date field and never sends a date', async () => {

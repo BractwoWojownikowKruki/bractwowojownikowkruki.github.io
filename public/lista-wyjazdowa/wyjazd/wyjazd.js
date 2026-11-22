@@ -357,6 +357,7 @@ async function saveSkladkaFee(control = document.getElementById('skladka-fee-sav
       cachedEvent = result.event;
       skladkaEditOpen = false;
       renderSkladkaFee(cachedEvent);
+      renderSummary(cachedRoster, cachedSignups);
       renderRoster(cachedRoster, cachedSignups);
     }, control, rollback);
   } catch (err) {
@@ -597,7 +598,7 @@ wireSummaryFilter(document.getElementById('summary-panel'), rosterFilter, () => 
 function rosterFilterMatches(member, signup) {
   // Only an attending member with a configured event fee has the coin/status shown in their row.
   const contributionStatus = signup?.attending && normalizeSkladkaFee(cachedEvent?.skladkaFee)
-    ? signup.skladkaStatus
+    ? signup.skladkaStatus ?? 'unpaid'
     : undefined;
   return summaryFilterMatches(rosterFilter, {
     section: member.sectionId,

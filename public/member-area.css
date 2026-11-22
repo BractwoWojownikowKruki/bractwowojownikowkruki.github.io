@@ -1623,25 +1623,25 @@ button.lw-filter-chip {
   font-weight: 600;
 }
 
-.lw-contribution-filter[data-status="all"] {
+.lw-summary-chip.lw-contribution-filter[data-status="all"] {
   background: color-mix(in srgb, var(--text-faint) 28%, var(--surface-deep));
   border: 1px solid var(--text-faint);
   color: var(--text-muted);
 }
 
-.lw-contribution-filter[data-status="paid"] {
+.lw-summary-chip.lw-contribution-filter[data-status="paid"] {
   background: color-mix(in srgb, #2e7d32 38%, var(--surface-deep));
   border: 1px solid #2e7d32;
   color: var(--text);
 }
 
-.lw-contribution-filter[data-status="unpaid"] {
+.lw-summary-chip.lw-contribution-filter[data-status="unpaid"] {
   background: color-mix(in srgb, #c62828 38%, var(--surface-deep));
   border: 1px solid #c62828;
   color: var(--text);
 }
 
-.lw-contribution-filter[data-status="not_applicable"] {
+.lw-summary-chip.lw-contribution-filter[data-status="not_applicable"] {
   background: color-mix(in srgb, var(--text-faint) 28%, var(--surface-deep));
   border: 1px solid var(--text-faint);
   color: var(--text-muted);
@@ -1657,7 +1657,15 @@ button.lw-filter-chip {
   opacity: 0.45;
 }
 
+.lw-summary-filter[data-filter-active="true"] .lw-contribution-filter[data-status="all"] {
+  opacity: 0.45;
+}
+
 .lw-summary-filter[data-filter-active="true"] .lw-filter-chip[aria-pressed="false"]:hover {
+  opacity: 0.75;
+}
+
+.lw-summary-filter[data-filter-active="true"] .lw-contribution-filter[data-status="all"]:hover {
   opacity: 0.75;
 }
 
