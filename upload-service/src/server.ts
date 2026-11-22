@@ -5105,7 +5105,7 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
         { field: 'nickname', after: fields.ksywka },
         { field: 'categoryId', after: fields.categoryId },
         { field: 'sectionId', after: fields.sectionId },
-        { field: 'weaponCount', after: fields.weaponIds.length },
+        { field: 'weaponCount', after: weaponAllowedForCategory(fields.categoryId) ? fields.weaponIds.length : 0 },
         { field: 'ownerPersonId', after: ownerPersonId },
       ],
     },
@@ -5136,7 +5136,7 @@ async function handleListaWyjazdowaPutPerson(req: IncomingMessage, res: ServerRe
           { field: 'nickname', before: before.ksywka, after: fields.ksywka },
           { field: 'categoryId', before: before.categoryId, after: fields.categoryId },
           { field: 'sectionId', before: before.sectionId, after: fields.sectionId },
-          { field: 'weaponCount', before: before.weaponIds.length, after: fields.weaponIds.length },
+          { field: 'weaponCount', before: before.weaponIds.length, after: weaponAllowedForCategory(fields.categoryId) ? fields.weaponIds.length : 0 },
         ],
       };
     },

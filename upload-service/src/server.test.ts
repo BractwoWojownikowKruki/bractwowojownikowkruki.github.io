@@ -7906,6 +7906,27 @@ test('POST /lista-wyjazdowa/persons lets a hovding create a person for anyone an
   });
 });
 
+test('POST /lista-wyjazdowa/persons audits the normalized weapon count for Niewiasta', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
+  });
+  await withServer(deps, async baseUrl => {
+    const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', {
+      ...personBody, categoryId: 'niewiasta', weaponIds: ['tarczownik'],
+    });
+    assert.equal(res.status, 201);
+    const { person } = await res.json();
+    assert.deepEqual(person.weaponIds, []);
+    const audit = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; after?: unknown }> }>('auditEvents'))
+      .map(doc => doc.data).find(event => event.action === 'person.created');
+    assert.equal(audit?.changes.find(change => change.field === 'weaponCount')?.after, 0);
+  });
+});
+
 test('POST /lista-wyjazdowa/persons lets a member create their own person but not an unowned or foreign one', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const deps = memberDeps(firestore, 'wojownik@gmail.com');
@@ -7937,6 +7958,22 @@ test('PUT /lista-wyjazdowa/persons lets the owner edit their own person, clears 
   });
   await withServer(memberDeps(firestore, 'ktos@gmail.com'), async baseUrl => {
     assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', { personId: 'p1', ...personBody })).status, 403);
+  });
+});
+
+test('PUT /lista-wyjazdowa/persons audits the normalized weapon count for Bobo', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const res = await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', {
+      ...personBody, personId: 'p1', categoryId: 'bobo', weaponIds: ['tarczownik'],
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).person.weaponIds, []);
+    const audit = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; before?: unknown; after?: unknown }> }>('auditEvents'))
+      .map(doc => doc.data).find(event => event.action === 'person.updated');
+    const weaponCount = audit?.changes.find(change => change.field === 'weaponCount');
+    assert.deepEqual([weaponCount?.before, weaponCount?.after], [1, 0]);
   });
 });
 
