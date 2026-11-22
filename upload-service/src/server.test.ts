@@ -7641,7 +7641,7 @@ test('GET profile endpoints expose editor capabilities and lookup lists only for
   personFirestore.seed('members', 'staff@example.test', { email: 'staff@example.test', status: 'active' });
   const personCases: Array<{ name: string; deps: ServerDeps; expected: { canEditIdentity: boolean; canEditWeapons: boolean; canEditDues: boolean } }> = [
     { name: 'accountless owner', deps: memberDeps(personFirestore, 'owner@example.test'), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: false } },
-    { name: 'accountless staff', deps: makeDeps({ firestore: personFirestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'staff@example.test' }) }), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: true } },
+    { name: 'accountant can edit dues but not other members’ identity or weapons', deps: makeDeps({ firestore: personFirestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'staff@example.test' }) }), expected: { canEditIdentity: false, canEditWeapons: false, canEditDues: true } },
   ];
   for (const role of personCases) await withServer(role.deps, async baseUrl => {
     const response = await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=person-capabilities`);
@@ -8068,6 +8068,7 @@ test('PUT /lista-wyjazdowa/persons/account refuses to merge a deactivated person
 
 test('an accountant is staff on the person routes', async () => {
   const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
   firestore.seed('userRoles', 'ksiegowa@example.com', { roles: ['accountant'] });
   firestore.seed('members', 'ksiegowa@example.com', { email: 'ksiegowa@example.com', status: 'active' });
   const deps = makeDeps({
@@ -8075,6 +8076,7 @@ test('an accountant is staff on the person routes', async () => {
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'k1', email: 'ksiegowa@example.com' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
     authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    listMemberEmails: async () => ['ksiegowa@example.com', 'wojownik@gmail.com'],
   });
   await withServer(deps, async baseUrl => {
     const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'wojownik@gmail.com' });
