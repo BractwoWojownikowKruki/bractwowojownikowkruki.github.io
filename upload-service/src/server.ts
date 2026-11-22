@@ -107,6 +107,7 @@ import {
   resolvePersonId,
   softDeletePerson,
   updatePerson,
+  applyWeaponCategoryRule,
   weaponAllowedForCategory,
   type PersonDoc,
   type PersonMergeApplyResult,
@@ -5076,6 +5077,7 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const fields = readPersonWritableFields(body);
+  const persistedWeaponIds = applyWeaponCategoryRule(fields).weaponIds;
   let ownerPersonId = readOwnerPersonId(body.ownerPersonId);
   const staff = await isPersonStaff(req, res, deps, identity.email);
   const accountantOnly = await isAccountantOnlyPersonStaff(req, res, deps, identity.email);
@@ -5105,7 +5107,7 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
         { field: 'nickname', after: fields.ksywka },
         { field: 'categoryId', after: fields.categoryId },
         { field: 'sectionId', after: fields.sectionId },
-        { field: 'weaponCount', after: weaponAllowedForCategory(fields.categoryId) ? fields.weaponIds.length : 0 },
+        { field: 'weaponCount', after: persistedWeaponIds.length },
         { field: 'ownerPersonId', after: ownerPersonId },
       ],
     },
@@ -5122,6 +5124,7 @@ async function handleListaWyjazdowaPutPerson(req: IncomingMessage, res: ServerRe
   if (!existing) throw new AuthError('Nie znaleziono takiej osoby.', 404);
   requireOwnedOrStaff(identity, existing, await isPersonManager(req, res, deps));
   const fields = readPersonWritableFields(body);
+  const persistedWeaponIds = applyWeaponCategoryRule(fields).weaponIds;
   const { result: person } = await executeDeclaredAuditedMutation(
     deps,
     AUDITED_MEMBER_MUTATION_ROUTES.personUpdate,
@@ -5136,7 +5139,7 @@ async function handleListaWyjazdowaPutPerson(req: IncomingMessage, res: ServerRe
           { field: 'nickname', before: before.ksywka, after: fields.ksywka },
           { field: 'categoryId', before: before.categoryId, after: fields.categoryId },
           { field: 'sectionId', before: before.sectionId, after: fields.sectionId },
-          { field: 'weaponCount', before: before.weaponIds.length, after: weaponAllowedForCategory(fields.categoryId) ? fields.weaponIds.length : 0 },
+          { field: 'weaponCount', before: before.weaponIds.length, after: persistedWeaponIds.length },
         ],
       };
     },
