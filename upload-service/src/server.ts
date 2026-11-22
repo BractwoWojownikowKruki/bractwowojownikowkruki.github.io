@@ -4959,7 +4959,7 @@ async function handleListaWyjazdowaPutPaymentInfo(req: IncomingMessage, res: Ser
 // detach only their own "osoba towarzysząca". Merging a person with a real account is admin-only.
 // ---------------------------------------------------------------------------------------------
 
-/** Creation and event quick-add staff = admin, accountant, or hovding; record management excludes accountant-only callers. */
+/** Person creation staff includes accountants; record management and cross-member event quick-add require admin or hovding. */
 async function isPersonStaff(req: IncomingMessage, res: ServerResponse, deps: ServerDeps, email: string): Promise<boolean> {
   try {
     await requireSkladkiAccess(req, res, deps, email);
