@@ -4507,7 +4507,7 @@ async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerRe
   // on staff-managed rows, and to gate role-specific event controls. Mutations re-check on server.
   sendJson(res, 200, {
     canManageSkladki: await canManageSkladki(req, res, deps, identity.email),
-    canManagePeople: await isPersonManager(req, res, deps),
+    canManagePeople: await isPersonStaff(req, res, deps, identity.email),
     // KRKG-132: permanent event delete is narrower than "staff" - admins and hovding only.
     canDeleteEvents: await canDeleteEvents(req, res, deps),
   });
@@ -5306,7 +5306,7 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
   const event = await getEvent(deps.firestore, eventId);
   if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
 
-  const staff = await isPersonManager(req, res, deps);
+  const staff = await isPersonStaff(req, res, deps, identity.email);
   const caller = await resolvePersonId(deps.firestore, identity.email);
   if (!staff && ownerPersonId.toLowerCase() !== caller.personId.toLowerCase()) {
     throw new AuthError('Brak uprawnień do tego opiekuna.', 403);
