@@ -7906,7 +7906,7 @@ test('POST /lista-wyjazdowa/persons lets a hovding create a person for anyone an
   });
 });
 
-test('POST /lista-wyjazdowa/persons audits the normalized weapon count for Niewiasta', async () => {
+test('POST /lista-wyjazdowa/persons audits normalized weapon counts for Niewiasta and Bobo', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   const deps = makeDeps({
     firestore,
@@ -7915,15 +7915,17 @@ test('POST /lista-wyjazdowa/persons audits the normalized weapon count for Niewi
     authenticateAdminOrHovding: async () => fakeSessionClaims({ sub: 'm1', email: 'hovding@example.com' }),
   });
   await withServer(deps, async baseUrl => {
-    const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', {
-      ...personBody, categoryId: 'niewiasta', weaponIds: ['tarczownik'],
-    });
-    assert.equal(res.status, 201);
-    const { person } = await res.json();
-    assert.deepEqual(person.weaponIds, []);
-    const audit = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; after?: unknown }> }>('auditEvents'))
-      .map(doc => doc.data).find(event => event.action === 'person.created');
-    assert.equal(audit?.changes.find(change => change.field === 'weaponCount')?.after, 0);
+    for (const categoryId of ['niewiasta', 'bobo']) {
+      const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', {
+        ...personBody, categoryId, weaponIds: ['tarczownik'],
+      });
+      assert.equal(res.status, 201);
+      const { person } = await res.json();
+      assert.deepEqual(person.weaponIds, [], `${categoryId} must not retain a weapon`);
+    }
+    const audits = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; after?: unknown }> }>('auditEvents'))
+      .map(doc => doc.data).filter(event => event.action === 'person.created');
+    assert.deepEqual(audits.map(audit => audit.changes.find(change => change.field === 'weaponCount')?.after), [0, 0]);
   });
 });
 
@@ -7961,19 +7963,23 @@ test('PUT /lista-wyjazdowa/persons lets the owner edit their own person, clears 
   });
 });
 
-test('PUT /lista-wyjazdowa/persons audits the normalized weapon count for Bobo', async () => {
+test('PUT /lista-wyjazdowa/persons audits normalized weapon counts for Niewiasta and Bobo', async () => {
   const firestore = makeListaWyjazdowaFirestore();
-  seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  for (const personId of ['p-niewiasta', 'p-bobo']) seedPerson(firestore, personId, 'wojownik@gmail.com');
   await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
-    const res = await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', {
-      ...personBody, personId: 'p1', categoryId: 'bobo', weaponIds: ['tarczownik'],
-    });
-    assert.equal(res.status, 200);
-    assert.deepEqual((await res.json()).person.weaponIds, []);
-    const audit = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; before?: unknown; after?: unknown }> }>('auditEvents'))
-      .map(doc => doc.data).find(event => event.action === 'person.updated');
-    const weaponCount = audit?.changes.find(change => change.field === 'weaponCount');
-    assert.deepEqual([weaponCount?.before, weaponCount?.after], [1, 0]);
+    for (const categoryId of ['niewiasta', 'bobo']) {
+      const res = await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', {
+        ...personBody, personId: `p-${categoryId}`, categoryId, weaponIds: ['tarczownik'],
+      });
+      assert.equal(res.status, 200);
+      assert.deepEqual((await res.json()).person.weaponIds, [], `${categoryId} must not retain a weapon`);
+    }
+    const audits = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; before?: unknown; after?: unknown }> }>('auditEvents'))
+      .map(doc => doc.data).filter(event => event.action === 'person.updated');
+    assert.deepEqual(audits.map(audit => {
+      const weaponCount = audit.changes.find(change => change.field === 'weaponCount');
+      return [weaponCount?.before, weaponCount?.after];
+    }), [[1, 0], [1, 0]]);
   });
 });
 
