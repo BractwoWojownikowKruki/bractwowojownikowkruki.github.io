@@ -7922,6 +7922,8 @@ test('POST /lista-wyjazdowa/persons audits normalized weapon counts for Niewiast
       assert.equal(res.status, 201);
       const { person } = await res.json();
       assert.deepEqual(person.weaponIds, [], `${categoryId} must not retain a weapon`);
+      const stored = await firestore.getDoc<{ weaponIds: string[] }>('persons', person.personId);
+      assert.deepEqual(stored?.weaponIds, [], `${categoryId} must be stored without a weapon`);
     }
     const audits = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; after?: unknown }> }>('auditEvents'))
       .map(doc => doc.data).filter(event => event.action === 'person.created');
@@ -7972,7 +7974,10 @@ test('PUT /lista-wyjazdowa/persons audits normalized weapon counts for Niewiasta
         ...personBody, personId: `p-${categoryId}`, categoryId, weaponIds: ['tarczownik'],
       });
       assert.equal(res.status, 200);
-      assert.deepEqual((await res.json()).person.weaponIds, [], `${categoryId} must not retain a weapon`);
+      const { person } = await res.json();
+      assert.deepEqual(person.weaponIds, [], `${categoryId} must not retain a weapon`);
+      const stored = await firestore.getDoc<{ weaponIds: string[] }>('persons', person.personId);
+      assert.deepEqual(stored?.weaponIds, [], `${categoryId} must be stored without a weapon`);
     }
     const audits = (await firestore.listDocs<{ action: string; changes: Array<{ field: string; before?: unknown; after?: unknown }> }>('auditEvents'))
       .map(doc => doc.data).filter(event => event.action === 'person.updated');
