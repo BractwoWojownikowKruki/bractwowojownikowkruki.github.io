@@ -43,3 +43,16 @@ test('Osoby bez konta writes go through the persons routes and the admin-only me
   assert.match(script, /accountless-merge-section'\)\.hidden = !isAdminCaller/);
   assert.match(script, /const ACCOUNT_NO_WEAPON_CATEGORY_IDS = \['niewiasta', 'bobo'\]/);
 });
+
+test('accountants can load the accountless table without rendering its write actions', () => {
+  assert.doesNotMatch(script, /getElementById\('accountless-records-section'\)\.hidden = isAccountantOnlyCaller/);
+  assert.match(script, /if \(isAccountantOnlyCaller\) \{[\s\S]*?loadAccountless\(\);/);
+  assert.match(script, /function accountlessActionsHtml\(person\)[\s\S]*?if \(isAccountantOnlyCaller\) return ''/);
+  assert.match(script, /accountlessActionsHtml\(person\)/);
+  const submitStart = script.indexOf('async function submitAccountlessForm()');
+  const submit = script.slice(submitStart, script.indexOf("document.getElementById('accountless-add-toggle')", submitStart));
+  assert.doesNotMatch(submit, /!isAccountantOnlyCaller/);
+  const loadStart = script.indexOf('async function loadAccountless()');
+  const load = script.slice(loadStart, script.indexOf('function populateAccountlessOwnerOptions', loadStart));
+  assert.doesNotMatch(load, /resetAccountlessForm\(\)/);
+});

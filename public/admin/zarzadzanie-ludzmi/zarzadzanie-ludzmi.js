@@ -26,7 +26,6 @@ initGoogleSignIn({
     const isAccountant = payload.isAccountant === true;
     isAccountantOnlyCaller = isAccountant && payload.isAdmin !== true && payload.isHovding !== true;
     document.getElementById('membership-management-section').closest('section').hidden = isAccountantOnlyCaller;
-    document.getElementById('accountless-records-section').hidden = isAccountantOnlyCaller;
     document.getElementById('accountless-owner-field').hidden = !isAccountantOnlyCaller;
     document.getElementById('accountless-description-admin').hidden = isAccountantOnlyCaller;
     document.getElementById('accountless-description-accountant').hidden = !isAccountantOnlyCaller;
@@ -52,6 +51,7 @@ initGoogleSignIn({
       addButton.disabled = true;
       accountlessCreationOptionsReady = await loadAccountlessCreationOptions();
       addButton.disabled = false;
+      loadAccountless();
     } else {
       loadMembershipMembers();
       loadAccountless();
@@ -963,12 +963,7 @@ function renderAccountless(persons) {
       <td>${weaponLabel ? escapeHtml(weaponLabel) : '—'}</td>
       <td>${person.ownerPersonId ? escapeHtml(person.ownerName ?? person.ownerPersonId) : '—'}</td>
       <td>${person.deleted ? 'deaktywowana' : 'bez konta'}</td>
-      <td>
-        ${person.deleted ? '' : '<button type="button" class="member-action accountless-edit edit-compact">Edytuj</button>'}
-        ${!person.deleted && person.ownerPersonId ? '<button type="button" class="member-action accountless-detach">Odepnij</button>' : ''}
-        ${person.deleted ? '' : '<button type="button" class="member-action accountless-deactivate">Deaktywuj</button>'}
-        <button type="button" class="member-action accountless-purge">Usuń trwale</button>
-      </td>
+      <td>${accountlessActionsHtml(person)}</td>
     </tr>`;
     }).join('');
   }
@@ -978,6 +973,16 @@ function renderAccountless(persons) {
       .filter((person) => !person.deleted)
       .map((person) => `<option value="${escapeAttr(person.personId)}">${escapeHtml(accountlessDisplayName(person))}</option>`)
       .join('');
+}
+
+function accountlessActionsHtml(person) {
+  if (isAccountantOnlyCaller) return '';
+  return [
+    person.deleted ? '' : '<button type="button" class="member-action accountless-edit edit-compact">Edytuj</button>',
+    !person.deleted && person.ownerPersonId ? '<button type="button" class="member-action accountless-detach">Odepnij</button>' : '',
+    person.deleted ? '' : '<button type="button" class="member-action accountless-deactivate">Deaktywuj</button>',
+    '<button type="button" class="member-action accountless-purge">Usuń trwale</button>',
+  ].join(' ');
 }
 
 async function loadAccountless() {
@@ -991,7 +996,6 @@ async function loadAccountless() {
       loadWeapons(),
     ]);
     accountlessCache = { persons: [], sections, categories, weapons };
-    resetAccountlessForm();
     renderAccountless(persons);
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="czl-empty">Błąd: ${escapeHtml(err.message)}</td></tr>`;
@@ -1076,7 +1080,7 @@ async function submitAccountlessForm() {
       },
       showReauth,
       hideReauth,
-    ), !isAccountantOnlyCaller);
+    ));
     document.getElementById('accountless-form-panel').hidden = true;
     resetAccountlessForm();
   } catch (err) {

@@ -7876,15 +7876,19 @@ test('DELETE /lista-wyjazdowa/persons tombstones the owner\'s person, detaches i
   });
 });
 
-// KRKG-0091: staff-only listing of every person including deactivated ones, so Zarządzanie ludźmi
-// can show and permanently remove them.
-test('GET /lista-wyjazdowa/persons is staff-only and lists deactivated people with their owner name', async () => {
+// KRKG-0091/KRKG-135: people managers can manage this full list; accountants receive the same
+// accountless rows read-only, with hidden owner identities redacted.
+test('GET /lista-wyjazdowa/persons lists deactivated people for managers and accountants', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   firestore.seed('members', 'wojownik@gmail.com', {
     lastName: 'Adam Król', firstName: '', nickname: 'Kruk', sectionId: 'krakow', categoryId: 'thing',
     driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
   });
+  firestore.seed('members', 'hidden@example.com', {
+    ...seedMemberDoc({ email: 'hidden@example.com', hidden: true, nickname: 'Ukryty' }),
+  });
   seedPerson(firestore, 'p1', 'wojownik@gmail.com');
+  seedPerson(firestore, 'p-hidden-owner', 'hidden@example.com');
   firestore.seed('persons', 'p2', {
     personId: 'p2', ksywka: 'Cień', firstName: '', lastName: '', categoryId: 'thing',
     sectionId: 'krakow', weaponIds: [], ownerPersonId: null, email: null,
@@ -7904,11 +7908,89 @@ test('GET /lista-wyjazdowa/persons is staff-only and lists deactivated people wi
   await withServer(deps, async baseUrl => {
     const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/persons`)).json();
     const live = body.persons.find((p: { personId: string }) => p.personId === 'p1');
+    const hiddenOwner = body.persons.find((p: { personId: string }) => p.personId === 'p-hidden-owner');
     const gone = body.persons.find((p: { personId: string }) => p.personId === 'p2');
     assert.equal(live.deleted, false);
     assert.equal(live.ownerName, 'Kruk');
+    assert.equal(hiddenOwner.ownerPersonId, 'hidden@example.com', 'people managers retain hidden-owner details');
+    assert.equal(hiddenOwner.ownerName, 'Ukryty');
     assert.equal(gone.deleted, true);
     assert.ok(gone.deletedAt);
+  });
+});
+
+test('GET /lista-wyjazdowa/persons lets accountants read accountless people without hidden owner identity', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  firestore.seed('userRoles', 'accountant@example.com', { roles: ['accountant'] });
+  firestore.seed('members', 'accountant@example.com', {
+    email: 'accountant@example.com', status: 'active', hidden: false, lastName: '', firstName: '', nickname: null,
+    sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  firestore.seed('members', 'visible@example.com', {
+    email: 'visible@example.com', status: 'active', hidden: false, lastName: '', firstName: '', nickname: 'Widoczny',
+    sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  firestore.seed('members', 'hidden@example.com', {
+    email: 'hidden@example.com', status: 'active', hidden: true, lastName: '', firstName: '', nickname: 'Ukryty',
+    sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  seedPerson(firestore, 'visible-owner-person', 'visible@example.com');
+  seedPerson(firestore, 'hidden-owner-person', 'hidden@example.com');
+  seedPerson(firestore, 'unknown-owner-person', 'missing@example.com');
+  firestore.seed('persons', 'deactivated-person', {
+    personId: 'deactivated-person', ksywka: 'Nieaktywny', firstName: '', lastName: '', categoryId: 'thing',
+    sectionId: 'krakow', weaponIds: [], ownerPersonId: null, email: null, deletedAt: '2027-01-01T00:00:00.000Z',
+    createdAt: 'x', createdBy: 'x',
+  });
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'accountant', email: 'accountant@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+
+  await withServer(deps, async baseUrl => {
+    const response = await fetch(`${baseUrl}/lista-wyjazdowa/persons`);
+    assert.equal(response.status, 200);
+    const { persons } = await response.json();
+    const visible = persons.find((person: { personId: string }) => person.personId === 'visible-owner-person');
+    const hidden = persons.find((person: { personId: string }) => person.personId === 'hidden-owner-person');
+    const unknown = persons.find((person: { personId: string }) => person.personId === 'unknown-owner-person');
+    const deactivated = persons.find((person: { personId: string }) => person.personId === 'deactivated-person');
+    assert.equal(visible.ownerPersonId, 'visible@example.com');
+    assert.equal(visible.ownerName, 'Widoczny');
+    assert.equal(hidden.ownerPersonId, null);
+    assert.equal(hidden.ownerName, null);
+    assert.equal(unknown.ownerPersonId, null);
+    assert.equal(unknown.ownerName, null);
+    assert.equal(deactivated.deleted, true);
+    assert.ok(deactivated.deletedAt);
+
+    const profileResponse = await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=hidden-owner-person`);
+    assert.equal(profileResponse.status, 200);
+    const { profile } = await profileResponse.json();
+    assert.equal(profile.ownerPersonId, null);
+    assert.equal(profile.ownerName, null);
+  });
+
+  const selfFirestore = makeListaWyjazdowaFirestore();
+  selfFirestore.seed('userRoles', 'self@example.com', { roles: ['accountant'] });
+  selfFirestore.seed('members', 'self@example.com', {
+    email: 'self@example.com', status: 'active', hidden: true, lastName: '', firstName: '', nickname: 'Sama',
+    sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
+  });
+  seedPerson(selfFirestore, 'self-owned-person', 'self@example.com');
+  const selfDeps = makeDeps({
+    firestore: selfFirestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'self', email: 'self@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+  await withServer(selfDeps, async baseUrl => {
+    const { persons } = await (await fetch(`${baseUrl}/lista-wyjazdowa/persons`)).json();
+    const own = persons.find((person: { personId: string }) => person.personId === 'self-owned-person');
+    assert.equal(own.ownerPersonId, 'self@example.com');
+    assert.equal(own.ownerName, 'Sama');
   });
 });
 
@@ -8099,7 +8181,7 @@ test('an accountant can create a person but cannot manage other accountless-pers
     const peopleBeforeHiddenRequest = (await firestore.listDocs('persons')).length;
     assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'ukryty@example.test' })).status, 404);
     assert.equal((await firestore.listDocs('persons')).length, peopleBeforeHiddenRequest, 'hidden-owner rejection creates no person');
-    assert.equal((await fetch(`${baseUrl}/lista-wyjazdowa/persons`)).status, 403);
+    assert.equal((await fetch(`${baseUrl}/lista-wyjazdowa/persons`)).status, 200, 'an accountant may read the accountless-person table');
     assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', { personId: 'p-other', ...personBody, ksywka: 'Nowy Wilk' })).status, 403);
     assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons', { personId: 'p-other' })).status, 403);
     assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/owner', { personId: 'p-other', ownerPersonId: null })).status, 403);
@@ -8517,6 +8599,25 @@ test('GET /lista-wyjazdowa/roster excludes a member marked hidden', async () => 
     const body = await (await fetch(`${baseUrl}/lista-wyjazdowa/roster`)).json();
     assert.equal(body.roster.length, 1);
     assert.equal(body.roster[0].email, 'wojownik@gmail.com');
+  });
+});
+
+test('GET /lista-wyjazdowa/roster does not reveal the owner ID of a hidden member’s companion', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'visible@example.com');
+  firestore.seed('members', 'hidden@example.com', {
+    ...seedMemberDoc({ email: 'hidden@example.com', hidden: true }),
+  });
+  seedPerson(firestore, 'hidden-member-companion', 'hidden@example.com');
+  const deps = makeDeps({ firestore, listMemberEmails: async () => ['visible@example.com', 'hidden@example.com'] });
+
+  await withServer(deps, async baseUrl => {
+    const response = await fetch(`${baseUrl}/lista-wyjazdowa/roster`);
+    assert.equal(response.status, 200);
+    const { roster } = await response.json();
+    assert.equal(roster.some((person: { personId: string }) => person.personId === 'hidden@example.com'), false);
+    const companion = roster.find((person: { personId: string }) => person.personId === 'hidden-member-companion');
+    assert.equal(companion.ownerPersonId, null);
   });
 });
 
