@@ -4491,10 +4491,8 @@ async function canManageSkladki(req: IncomingMessage, res: ServerResponse, deps:
 
 async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  // KRKG-0087: the event page offers the "+" (add companion) control on the viewer's own row to
-  // everyone, and on every account row to staff - so the client needs to know whether the viewer
-  // is staff (admin/hovding/accountant) even when they cannot manage składki. Reuses the same
-  // isPersonStaff predicate the person routes themselves enforce, so the UI and the server agree.
+  // The roster uses these separate capabilities to show event quick-add on the viewer's own row,
+  // on staff-managed rows, and to gate role-specific event controls. Mutations re-check on server.
   sendJson(res, 200, {
     canManageSkladki: await canManageSkladki(req, res, deps, identity.email),
     canManagePeople: await isPersonStaff(req, res, deps, identity.email),
