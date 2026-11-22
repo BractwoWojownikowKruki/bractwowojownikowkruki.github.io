@@ -4959,7 +4959,7 @@ async function handleListaWyjazdowaPutPaymentInfo(req: IncomingMessage, res: Ser
 // detach only their own "osoba towarzysząca". Merging a person with a real account is admin-only.
 // ---------------------------------------------------------------------------------------------
 
-/** Person creation staff includes accountants; record management and cross-member event quick-add require admin or hovding. */
+/** Person creation and event quick-add include accountants; person-record management requires admin or hovding. */
 async function isPersonStaff(req: IncomingMessage, res: ServerResponse, deps: ServerDeps, email: string): Promise<boolean> {
   try {
     await requireSkladkiAccess(req, res, deps, email);
@@ -5293,8 +5293,8 @@ async function handleListaWyjazdowaPutPersonAccount(req: IncomingMessage, res: S
 // KRKG-0087: adding a person to a trip straight from the event page. `mode='existing'` signs up an
 // already-attached accountless person; `mode='new'` creates the person (section inherited from the
 // owner, no account) and signs them up in one transaction, so a failed signup write cannot leave an
-// orphan person. The owner must be the caller unless the caller is an admin or hovding, and an
-// existing target must be an accountless person attached to that owner.
+// orphan person. The owner must be the caller unless the caller is staff (admin, accountant, or
+// hovding), and an existing target must be an accountless person attached to that owner.
 async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
@@ -5317,6 +5317,11 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
   const ownerKey = owner.personId;
   const allowedEmails = await deps.listMemberEmails();
   if (!allowedEmails.includes(ownerKey)) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  const accountantOnly = await isAccountantOnlyPersonStaff(req, res, deps, identity.email);
+  if (accountantOnly && ownerKey.toLowerCase() !== identity.email.toLowerCase()) {
+    const member = await getMember(deps.firestore, ownerKey);
+    if (!member || member.hidden === true) throw new AuthError('Nie znaleziono takiego członka.', 404);
+  }
 
   if (mode === 'existing') {
     const personId = requireTrimmedString(body.personId, LW_MAX_NAME_LENGTH, 'Brak identyfikatora osoby.');
