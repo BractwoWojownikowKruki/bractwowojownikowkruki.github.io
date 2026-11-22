@@ -589,11 +589,10 @@ initGoogleSignIn({
     const duesSlot = document.getElementById('app-dues-panel-slot');
     let events;
     try {
-      const [eventsResult, galleriesWidget, canSignUp, role] = await Promise.all([
+      const [eventsResult, galleriesWidget, canSignUp] = await Promise.all([
         apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
         renderNewGalleriesWidget(),
         viewerCanSignUp(),
-        apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth).catch(() => null),
       ]);
       events = eventsResult.events;
       dash.events = events;

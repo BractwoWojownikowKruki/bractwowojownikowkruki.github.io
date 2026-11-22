@@ -25,7 +25,7 @@ initGoogleSignIn({
     isAdminCaller = payload.isAdmin === true;
     const isAccountant = payload.isAccountant === true;
     isAccountantOnlyCaller = isAccountant && payload.isAdmin !== true && payload.isHovding !== true;
-    document.getElementById('membership-management-section').hidden = isAccountantOnlyCaller;
+    document.getElementById('membership-management-section').closest('section').hidden = isAccountantOnlyCaller;
     document.getElementById('accountless-records-section').hidden = isAccountantOnlyCaller;
     document.getElementById('accountless-owner-field').hidden = !isAccountantOnlyCaller;
     document.getElementById('accountless-description-admin').hidden = isAccountantOnlyCaller;
