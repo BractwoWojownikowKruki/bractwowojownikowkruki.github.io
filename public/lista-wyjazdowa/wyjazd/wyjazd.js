@@ -220,8 +220,8 @@ function confirmedEventMutation(control, execute, apply, fallbackAnchor = null, 
 // read-only text - the server re-checks the role on every mutation regardless, this only
 // controls what the UI offers.
 let canManageSkladki = false;
-// KRKG-0087: staff (admin/hovding/accountant) may add a companion to any account row; everyone
-// else only to their own. Same "server re-checks anyway" contract as canManageSkladki above.
+// Staff (accountant, admin, hovding) can quick-add for other account rows; members can add to
+// their own account. Mutations remain server-authorized.
 let canManagePeople = false;
 // KRKG-132: admins and hovding only (my-role's canDeleteEvents) - gates "Usuń wyjazd"; the server re-checks.
 let canDeleteEvents = false;

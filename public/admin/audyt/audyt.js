@@ -4,7 +4,7 @@
 // showReauth/hideReauth/escapeHtml/formatDateTime come from ../admin-shared.js.
 //
 // /admin/audyt/whoami gates this shell - its own endpoint, not /admin/members/whoami (which
-// is admin-or-hovding only and gates the very different, broader Zarządzanie ludźmi page):
+// also admits accountants for Zarządzanie ludźmi's restricted accountless-person creation view):
 // an accountant-only viewer must pass this gate to reach the page at all, restricted server-
 // side to the 'dues' category once they're in (resolveAdminAuditAuth, server.ts).
 //

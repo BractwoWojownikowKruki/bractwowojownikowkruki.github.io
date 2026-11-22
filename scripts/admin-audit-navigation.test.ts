@@ -21,7 +21,7 @@ test('member management exposes one unfiltered Historia icon button beside the C
   assert.ok(membersSection, 'the Członkowie section should be present');
   assert.match(
     membersSection,
-    /<header class="member-management-heading-row">\s*<h2>Członkowie<\/h2>\s*<a class="audyt-history-btn" href="\/admin\/audyt\/" title="Historia" aria-label="Historia">\s*<svg[^>]*viewBox="0 0 24 24"[^>]*aria-hidden="true"[^>]*><path d="M3 12a9 9 0 1 0 3-6.7L3 8"\/><path d="M3 3v5h5"\/><path d="M12 7v5l4 2"\/><\/svg>\s*<\/a>\s*<\/header>/,
+    /<header class="member-management-heading-row">\s*<h2 id="membership-management-section">Członkowie<\/h2>\s*<a class="audyt-history-btn" href="\/admin\/audyt\/" title="Historia" aria-label="Historia">\s*<svg[^>]*viewBox="0 0 24 24"[^>]*aria-hidden="true"[^>]*><path d="M3 12a9 9 0 1 0 3-6.7L3 8"\/><path d="M3 3v5h5"\/><path d="M12 7v5l4 2"\/><\/svg>\s*<\/a>\s*<\/header>/,
   );
   assert.equal((membersSection.match(/class="audyt-history-btn"/g) ?? []).length, 1);
   assert.match(stylesheet, /a\.audyt-history-btn\s*\{[^}]*border:\s*1px solid var\(--border\);/);
@@ -34,9 +34,9 @@ test('member table leaves member audit history out of its row template and drops
   assert.doesNotMatch(memberManagementHtml, /roles-audit-log-panel/);
 });
 
-test('admin audit shell authorizes through its own whoami endpoint, not the admin-or-hovding-only one', () => {
-  // Its own endpoint, not /admin/members/whoami - that one is admin-or-hovding only and would
-  // 403 a pure accountant before they ever reached the page, even though the server-side query
+test('admin audit shell authorizes through its own whoami endpoint, not the people-management one', () => {
+  // Its own endpoint, not /admin/members/whoami - that endpoint grants accountants access to a
+  // restricted person-creation flow, not to the audit shell, even though the server-side query
   // (resolveAdminAuditAuth, server.ts) grants them dues-category-only access.
   assert.match(adminAuditScript, /whoamiPath:\s*'\/admin\/audyt\/whoami'/);
   assert.doesNotMatch(adminAuditScript, /whoamiPath:\s*'\/admin\/members\/whoami'/);

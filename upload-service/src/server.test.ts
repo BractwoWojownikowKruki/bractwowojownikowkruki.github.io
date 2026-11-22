@@ -7637,11 +7637,12 @@ test('GET profile endpoints expose editor capabilities and lookup lists only for
 
   const personFirestore = makeListaWyjazdowaFirestore();
   seedPerson(personFirestore, 'person-capabilities', 'owner@example.test');
+  seedPerson(personFirestore, 'accountant-owned-person', 'staff@example.test');
   personFirestore.seed('userRoles', 'staff@example.test', { roles: ['accountant'] });
   personFirestore.seed('members', 'staff@example.test', { email: 'staff@example.test', status: 'active' });
   const personCases: Array<{ name: string; deps: ServerDeps; expected: { canEditIdentity: boolean; canEditWeapons: boolean; canEditDues: boolean } }> = [
     { name: 'accountless owner', deps: memberDeps(personFirestore, 'owner@example.test'), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: false } },
-    { name: 'accountless staff', deps: makeDeps({ firestore: personFirestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'staff@example.test' }) }), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: true } },
+    { name: 'accountant can edit dues but not other members’ identity or weapons', deps: makeDeps({ firestore: personFirestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'staff@example.test' }) }), expected: { canEditIdentity: false, canEditWeapons: false, canEditDues: true } },
   ];
   for (const role of personCases) await withServer(role.deps, async baseUrl => {
     const response = await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=person-capabilities`);
@@ -7649,6 +7650,16 @@ test('GET profile endpoints expose editor capabilities and lookup lists only for
     const body = await response.json();
     assert.deepEqual({ canEditIdentity: body.profile.editor?.canEditIdentity, canEditWeapons: body.profile.editor?.canEditWeapons, canEditDues: body.profile.editor?.canEditDues }, role.expected, role.name);
     assert.ok(body.profile.editor?.lookupLists, `${role.name} receives lookup lists for the editable target`);
+  });
+  await withServer(personCases[1].deps, async baseUrl => {
+    const response = await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=accountant-owned-person`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(
+      { canEditIdentity: body.profile.editor?.canEditIdentity, canEditWeapons: body.profile.editor?.canEditWeapons, canEditDues: body.profile.editor?.canEditDues },
+      { canEditIdentity: true, canEditWeapons: true, canEditDues: true },
+      'an accountant retains member-owned editing for their own companion',
+    );
   });
 
   const accountlessViewer = memberDeps(personFirestore, 'viewer@example.test');
@@ -7758,8 +7769,8 @@ test('GET /lista-wyjazdowa/roster?eventId= still omits a tombstoned person with 
   });
 });
 
-// KRKG-0087: the accountless-person record routes. Staff (admin/hovding/accountant) manage any
-// person; a plain member only their own attached person; merging with an account is admin-only.
+// KRKG-0087: accountants may create accountless people, while only admins/hovdings manage any
+// person's record. Members may manage their own attached person; merging with an account is admin-only.
 const personBody = {
   ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski',
   categoryId: 'thing', sectionId: 'krakow', weaponIds: ['tarczownik'],
@@ -8066,19 +8077,85 @@ test('PUT /lista-wyjazdowa/persons/account refuses to merge a deactivated person
   });
 });
 
-test('an accountant is staff on the person routes', async () => {
+test('an accountant can create a person but cannot manage other accountless-person records', async () => {
   const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  firestore.seed('members', 'ukryty@example.test', seedMemberDoc({ email: 'ukryty@example.test', hidden: true }));
+  seedPerson(firestore, 'p-other', 'wojownik@gmail.com');
   firestore.seed('userRoles', 'ksiegowa@example.com', { roles: ['accountant'] });
   firestore.seed('members', 'ksiegowa@example.com', { email: 'ksiegowa@example.com', status: 'active' });
   const deps = makeDeps({
     firestore,
     authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'k1', email: 'ksiegowa@example.com' }),
     authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminWithStepUp: async () => { throw new AuthError('Brak uprawnień.', 403); },
     authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    listMemberEmails: async () => ['ksiegowa@example.com', 'wojownik@gmail.com', 'ukryty@example.test'],
   });
   await withServer(deps, async baseUrl => {
     const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'wojownik@gmail.com' });
-    assert.equal(res.status, 201, 'an accountant may create a person for anyone');
+    assert.equal(res.status, 201, 'an accountant may create a person for an active member');
+    assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'nieaktywny@example.test' })).status, 404);
+    const peopleBeforeHiddenRequest = (await firestore.listDocs('persons')).length;
+    assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'ukryty@example.test' })).status, 404);
+    assert.equal((await firestore.listDocs('persons')).length, peopleBeforeHiddenRequest, 'hidden-owner rejection creates no person');
+    assert.equal((await fetch(`${baseUrl}/lista-wyjazdowa/persons`)).status, 403);
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', { personId: 'p-other', ...personBody, ksywka: 'Nowy Wilk' })).status, 403);
+    assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons', { personId: 'p-other' })).status, 403);
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/owner', { personId: 'p-other', ownerPersonId: null })).status, 403);
+    assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons/permanent', { personId: 'p-other' })).status, 403);
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/account', { personId: 'p-other', accountEmail: 'wojownik@gmail.com' })).status, 403);
+    const unchanged = await firestore.getDoc<{ ownerPersonId?: string | null; deletedAt?: string | null; mergedInto?: string | null }>('persons', 'p-other');
+    assert.equal(unchanged?.ownerPersonId, 'wojownik@gmail.com');
+    assert.equal(unchanged?.deletedAt ?? null, null);
+    assert.equal(unchanged?.mergedInto ?? null, null);
+  });
+});
+
+test('GET /admin/person-owners shows accountants only visible members and themselves', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'widoczny@example.test');
+  firestore.seed('members', 'ukryty@example.test', seedMemberDoc({ email: 'ukryty@example.test', hidden: true }));
+  firestore.seed('members', 'ksiegowa@example.test', seedMemberDoc({ email: 'ksiegowa@example.test', hidden: true }));
+  firestore.seed('userRoles', 'ksiegowa@example.test', { roles: ['accountant'] });
+  const deps = makeDeps({
+    firestore,
+    authenticate: async () => fakeSessionClaims({ email: 'ksiegowa@example.test' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    listMemberEmails: async () => ['widoczny@example.test', 'ukryty@example.test', 'ksiegowa@example.test'],
+  });
+  await withServer(deps, async baseUrl => {
+    const response = await fetch(`${baseUrl}/admin/person-owners`);
+    assert.equal(response.status, 200);
+    const { owners } = await response.json();
+    assert.deepEqual(owners.map((owner: { email: string }) => owner.email).sort(), ['ksiegowa@example.test', 'widoczny@example.test']);
+    assert.ok(owners.every((owner: Record<string, unknown>) => Object.keys(owner).sort().join(',') === 'email,name'));
+  });
+});
+
+test('an accountant retains editing, deletion, detach and event quick-add for their own companions', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'ksiegowa@example.test');
+  seedPerson(firestore, 'own-edit', 'ksiegowa@example.test');
+  seedPerson(firestore, 'own-delete', 'ksiegowa@example.test');
+  seedPerson(firestore, 'own-detach', 'ksiegowa@example.test');
+  seedEvent(firestore, 'event-own');
+  firestore.seed('userRoles', 'ksiegowa@example.test', { roles: ['accountant'] });
+  const deps = makeDeps({
+    firestore,
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'ksiegowa@example.test' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    listMemberEmails: async () => ['ksiegowa@example.test'],
+  });
+  await withServer(deps, async baseUrl => {
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons', { personId: 'own-edit', ...personBody, ksywka: 'Zmieniona' })).status, 200);
+    assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons', { personId: 'own-delete' })).status, 200);
+    assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/owner', { personId: 'own-detach', ownerPersonId: null })).status, 200);
+    assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', {
+      eventId: 'event-own', ownerPersonId: 'ksiegowa@example.test', mode: 'new', ...personBody,
+    })).status, 201);
   });
 });
 
@@ -8259,6 +8336,7 @@ test('POST /lista-wyjazdowa/signups/quick-add rejects an owner that is not an ac
 test('POST /lista-wyjazdowa/signups/quick-add lets staff quick-add for someone else', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   seedMember(firestore, 'ktos@gmail.com');
+  firestore.seed('members', 'ukryty@gmail.com', seedMemberDoc({ email: 'ukryty@gmail.com', hidden: true }));
   seedEvent(firestore, 'event-1');
   firestore.seed('userRoles', 'ksiegowa@example.com', { roles: ['accountant'] });
   firestore.seed('members', 'ksiegowa@example.com', { email: 'ksiegowa@example.com', status: 'active' });
@@ -8282,6 +8360,22 @@ test('POST /lista-wyjazdowa/signups/quick-add lets staff quick-add for someone e
     authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
   }));
   await run(makeDeps({ firestore, listMemberEmails: async () => ['ktos@gmail.com'] }));
+
+  const accountantDeps = makeDeps({
+    firestore,
+    listMemberEmails: async () => ['ktos@gmail.com', 'ukryty@gmail.com'],
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ sub: 'k1', email: 'ksiegowa@example.com' }),
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+  });
+  await withServer(accountantDeps, async baseUrl => {
+    const personCount = (await firestore.listDocs('persons')).length;
+    const signupCount = (await firestore.listDocs('signups')).length;
+    const hiddenOwnerRequest = { ...request, ownerPersonId: 'ukryty@gmail.com' };
+    assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', hiddenOwnerRequest)).status, 404);
+    assert.equal((await firestore.listDocs('persons')).length, personCount, 'a denied hidden-owner quick-add creates no person');
+    assert.equal((await firestore.listDocs('signups')).length, signupCount, 'a denied hidden-owner quick-add creates no signup');
+  });
 });
 
 test('POST /lista-wyjazdowa/signups/quick-add mode=existing audits signup.created then signup.updated', async () => {

@@ -7,6 +7,8 @@
 // reports isAdmin so a plain hovding never triggers the role-assignment-only fetches below
 // (GET /admin/roles is still admin-only and would 403 for them).
 let isAdminCaller = false;
+let isAccountantOnlyCaller = false;
+let accountlessCreationOptionsReady = false;
 // Wpisowe management needs requireSkladkiAccess (accountant/Firestore-admin role, or the env admin
 // allowlist), same as the Lista Wyjazdowa Składki page - a plain hovding with neither must not
 // see or use the new Wpisowe column, even though this page's own admin-or-hovding gate lets them
@@ -18,11 +20,16 @@ initGoogleSignIn({
   buttonIds: ['google-signin-button'],
   whoamiPath: '/admin/members/whoami',
   onSignedIn: async payload => {
-    document.getElementById('admin-checking').hidden = true;
     document.getElementById('admin-signin').hidden = true;
     document.getElementById('admin-email').textContent = payload.email;
-    document.getElementById('admin-panel').hidden = false;
     isAdminCaller = payload.isAdmin === true;
+    const isAccountant = payload.isAccountant === true;
+    isAccountantOnlyCaller = isAccountant && payload.isAdmin !== true && payload.isHovding !== true;
+    document.getElementById('membership-management-section').closest('section').hidden = isAccountantOnlyCaller;
+    document.getElementById('accountless-records-section').hidden = isAccountantOnlyCaller;
+    document.getElementById('accountless-owner-field').hidden = !isAccountantOnlyCaller;
+    document.getElementById('accountless-description-admin').hidden = isAccountantOnlyCaller;
+    document.getElementById('accountless-description-accountant').hidden = !isAccountantOnlyCaller;
     document.getElementById('membership-role-header').hidden = !isAdminCaller;
     // Admin-only (KRKG bugfix): a hovding manages member records but must not trigger the
     // Sheets backup sync or the Google Group drift check - both now also 403 server-side
@@ -30,18 +37,30 @@ initGoogleSignIn({
     // just keeps the buttons from being shown at all.
     document.getElementById('membership-sheet-sync-section').hidden = !isAdminCaller;
     document.getElementById('membership-group-sync-section').hidden = !isAdminCaller;
-    try {
-      ({ canManageSkladki } = await apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth));
-    } catch {
-      canManageSkladki = false;
+    if (!isAccountantOnlyCaller) {
+      try {
+        ({ canManageSkladki } = await apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth));
+      } catch {
+        canManageSkladki = false;
+      }
     }
     document.getElementById('membership-wpisowe-header').hidden = !canManageSkladki;
     // KRKG-0087: only an administrator may merge an accountless person with an account.
     document.getElementById('accountless-merge-section').hidden = !isAdminCaller;
-    loadMembershipMembers();
-    loadAccountless();
+    if (isAccountantOnlyCaller) {
+      const addButton = document.getElementById('accountless-add-toggle');
+      addButton.disabled = true;
+      accountlessCreationOptionsReady = await loadAccountlessCreationOptions();
+      addButton.disabled = false;
+    } else {
+      loadMembershipMembers();
+      loadAccountless();
+    }
+    document.getElementById('admin-checking').hidden = true;
+    document.getElementById('admin-panel').hidden = false;
   },
   onSignedOut: () => {
+    document.getElementById('admin-panel').hidden = true;
     document.getElementById('admin-checking').hidden = true;
     document.getElementById('admin-signin').hidden = false;
   },
@@ -881,6 +900,7 @@ function resetAccountlessForm() {
   document.getElementById('accountless-category').innerHTML = accountlessOptionsHtml(accountlessCache.categories, null);
   document.getElementById('accountless-section-select').innerHTML = accountlessOptionsHtml(accountlessCache.sections, null);
   document.getElementById('accountless-weapons').innerHTML = accountlessWeaponCheckboxesHtml(accountlessCache.weapons, []);
+  document.getElementById('accountless-owner').value = '';
   updateAccountlessWeaponState();
   document.getElementById('accountless-save').textContent = 'Dodaj osobę';
   document.getElementById('accountless-error').hidden = true;
@@ -888,6 +908,7 @@ function resetAccountlessForm() {
 
 function openAccountlessForm(person) {
   resetAccountlessForm();
+  document.getElementById('accountless-owner-field').hidden = !isAccountantOnlyCaller || Boolean(person);
   if (person) {
     editingAccountlessPersonId = person.personId;
     document.getElementById('accountless-ksywka').value = person.ksywka ?? person.nickname ?? '';
@@ -977,14 +998,50 @@ async function loadAccountless() {
   }
 }
 
-async function runAccountlessMutation(control, execute) {
+function populateAccountlessOwnerOptions(owners) {
+  const select = document.getElementById('accountless-owner');
+  select.innerHTML = '<option value="">— bez opiekuna —</option>' + owners.map((owner) => {
+    const label = owner.name === owner.email ? owner.email : `${owner.name} (${owner.email})`;
+    return `<option value="${escapeAttr(owner.email)}">${escapeHtml(label)}</option>`;
+  }).join('');
+}
+
+async function loadAccountlessCreationOptions() {
+  try {
+    const [lookupLists, { owners }] = await Promise.all([
+      apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }, showReauth, hideReauth),
+      apiFetch('/admin/person-owners', { method: 'GET' }, showReauth, hideReauth),
+    ]);
+    accountlessCache = {
+      persons: [],
+      sections: lookupLists.sections ?? [],
+      categories: lookupLists.categories ?? [],
+      weapons: lookupLists.weapons ?? [],
+    };
+    resetAccountlessForm();
+    populateAccountlessOwnerOptions(owners);
+    accountlessCreationOptionsReady = true;
+    return true;
+  } catch (err) {
+    const errorEl = document.getElementById('accountless-error');
+    errorEl.textContent = `Błąd: ${err.message}`;
+    errorEl.hidden = false;
+    document.getElementById('accountless-form-panel').hidden = true;
+    accountlessCreationOptionsReady = false;
+    return false;
+  }
+}
+
+async function runAccountlessMutation(control, execute, refreshRecords = true) {
+  const refreshFragment = refreshRecords ? loadAccountless : async () => {};
   await window.MutationFeedback.confirmed({
     control,
     fallbackAnchor: 'toast',
+    toast: !refreshRecords,
     viewRoot: document.getElementById('accountless-section'),
-    refreshFragment: loadAccountless,
+    refreshFragment,
     execute,
-    apply: () => loadAccountless(),
+    apply: refreshFragment,
   });
 }
 
@@ -1002,6 +1059,7 @@ async function submitAccountlessForm() {
       ? []
       : Array.from(document.querySelectorAll('#accountless-weapons .accountless-weapon-checkbox:checked')).map((cb) => cb.value),
   };
+  const ownerPersonId = document.getElementById('accountless-owner').value || null;
   if (!fields.ksywka || !fields.categoryId || !fields.sectionId) {
     errorEl.textContent = 'Ksywka, kategoria i sekcja są wymagane.';
     errorEl.hidden = false;
@@ -1014,11 +1072,11 @@ async function submitAccountlessForm() {
       {
         method: editing ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editing ? { personId: editing, ...fields } : fields),
+        body: JSON.stringify(editing ? { personId: editing, ...fields } : { ...fields, ...(isAccountantOnlyCaller ? { ownerPersonId } : {}) }),
       },
       showReauth,
       hideReauth,
-    ));
+    ), !isAccountantOnlyCaller);
     document.getElementById('accountless-form-panel').hidden = true;
     resetAccountlessForm();
   } catch (err) {
@@ -1027,7 +1085,16 @@ async function submitAccountlessForm() {
   }
 }
 
-document.getElementById('accountless-add-toggle').addEventListener('click', () => openAccountlessForm(null));
+document.getElementById('accountless-add-toggle').addEventListener('click', async () => {
+  if (isAccountantOnlyCaller && !accountlessCreationOptionsReady) {
+    const addButton = document.getElementById('accountless-add-toggle');
+    addButton.disabled = true;
+    const ready = await loadAccountlessCreationOptions();
+    addButton.disabled = false;
+    if (!ready) return;
+  }
+  openAccountlessForm(null);
+});
 document.getElementById('accountless-cancel').addEventListener('click', () => {
   document.getElementById('accountless-form-panel').hidden = true;
   resetAccountlessForm();
