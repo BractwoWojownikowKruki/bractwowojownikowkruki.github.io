@@ -1801,9 +1801,13 @@ async function handleAdminWhoami(req: IncomingMessage, res: ServerResponse, deps
   sendJson(res, 200, identityResponseBody(identity));
 }
 
-// Identifies page access separately from /admin/whoami: admins and hovdings retain the full page,
-// while an accountant-only caller receives the restricted accountless-person creation view.
-async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+/** Resolves administrator, hovding, and accountant access for people-management endpoints. */
+async function resolvePeopleAccessAuth(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<{
+  identity: SessionClaims;
+  isAdmin: boolean;
+  isHovding: boolean;
+  isAccountant: boolean;
+}> {
   let identity: SessionClaims;
   try {
     identity = await deps.authenticateAdminOrHovding(req, res);
@@ -1812,13 +1816,7 @@ async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerRespons
     identity = await deps.authenticate(req, res);
     const roles = await getEffectiveRoles(deps.firestore, identity.email);
     if (!roles.includes('accountant')) throw new AuthError('Brak uprawnień.', 403);
-    sendJson(res, 200, {
-      ...identityResponseBody(identity),
-      isAdmin: false,
-      isHovding: false,
-      isAccountant: true,
-    });
-    return;
+    return { identity, isAdmin: false, isHovding: false, isAccountant: true };
   }
   let isAdmin = true;
   try {
@@ -1828,23 +1826,37 @@ async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerRespons
     isAdmin = false;
   }
   const roles = await getEffectiveRoles(deps.firestore, identity.email);
-  sendJson(res, 200, {
-    ...identityResponseBody(identity),
+  return {
+    identity,
     isAdmin,
-    ...(roles.includes('accountant') ? { isHovding: !isAdmin, isAccountant: true } : {}),
+    isHovding: !isAdmin,
+    isAccountant: roles.includes('accountant'),
+  };
+}
+
+// Identifies page access separately from /admin/whoami: admins and hovdings retain the full page,
+// while an accountant-only caller receives the restricted accountless-person creation view.
+async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+  const auth = await resolvePeopleAccessAuth(req, res, deps);
+  sendJson(res, 200, {
+    ...identityResponseBody(auth.identity),
+    isAdmin: auth.isAdmin,
+    ...(auth.isAccountant ? { isHovding: auth.isHovding, isAccountant: true } : {}),
   });
 }
 
 /** Returns the minimum account-holder data needed to attach a newly created accountless person. */
 async function handleAdminPersonOwners(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
-  const auth = await resolveAdminAuditAuth(req, res, deps);
+  const auth = await resolvePeopleAccessAuth(req, res, deps);
   const [emails, members] = await Promise.all([
     deps.listMemberEmails(),
     listAllMembers(deps.firestore),
   ]);
   const byEmail = new Map(members.map((member) => [member.email.toLowerCase(), member]));
   const owners = [...new Set(emails.map((email) => email.toLowerCase()))]
-    .filter((email) => auth.isAdmin || auth.isHovding || byEmail.get(email)?.hidden !== true)
+    .filter((email) => !auth.isAccountant || auth.isAdmin || auth.isHovding
+      || email === auth.identity.email.toLowerCase()
+      || (byEmail.has(email) && byEmail.get(email)?.hidden !== true))
     .map((email) => {
       const member = byEmail.get(email);
       const name = member?.nickname || [member?.firstName, member?.lastName].filter(Boolean).join(' ') || email;
@@ -5039,9 +5051,10 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
     if (!canonicalOwner) {
       throw new AuthError('Nie znaleziono takiego członka.', 404);
     }
-    const owner = (await listAllMembers(deps.firestore)).find((member) => member.email.toLowerCase() === canonicalOwner.toLowerCase());
-    if (owner?.hidden === true) throw new AuthError('Nie znaleziono takiego członka.', 404);
-    ownerPersonId = canonicalOwner;
+    const owner = await getMember(deps.firestore, canonicalOwner);
+    const isSelf = canonicalOwner.toLowerCase() === identity.email.toLowerCase();
+    if (!owner || (owner.hidden === true && !isSelf)) throw new AuthError('Nie znaleziono takiego członka.', 404);
+    ownerPersonId = canonicalOwner.toLowerCase();
   }
   const personId = randomUUID();
   const { result: person } = await executeDeclaredAuditedMutation(
@@ -6048,10 +6061,8 @@ async function resolveAdminAuditViewer(req: IncomingMessage, res: ServerResponse
   return { scope: 'admin', isAdmin: auth.isAdmin, isAccountant: auth.isAccountant, isHovding: auth.isHovding };
 }
 
-// Dedicated whoami for the /admin/audyt/ shell (rather than reusing /admin/members/whoami, which
-// is admin-or-hovding only and gates Zarządzanie ludźmi's very different, broader people-
-// management page) - an accountant-only viewer must pass this gate to see the page at all, even
-// though they'd fail /admin/members/whoami's stricter check.
+// Dedicated whoami for the /admin/audyt/ shell. /admin/members/whoami also admits accountant-only
+// users, but only to Zarządzanie ludźmi's restricted accountless-person creation flow.
 async function handleAdminAuditWhoami(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const auth = await resolveAdminAuditAuth(req, res, deps);
   sendJson(res, 200, { ...identityResponseBody(auth.identity), isAdmin: auth.isAdmin });

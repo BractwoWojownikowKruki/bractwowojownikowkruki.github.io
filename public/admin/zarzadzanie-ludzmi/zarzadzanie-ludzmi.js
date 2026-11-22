@@ -7,8 +7,8 @@
 // reports isAdmin so a plain hovding never triggers the role-assignment-only fetches below
 // (GET /admin/roles is still admin-only and would 403 for them).
 let isAdminCaller = false;
-let isAccountantCaller = false;
 let isAccountantOnlyCaller = false;
+let accountlessCreationOptionsReady = false;
 // Wpisowe management needs requireSkladkiAccess (accountant/Firestore-admin role, or the env admin
 // allowlist), same as the Lista Wyjazdowa Składki page - a plain hovding with neither must not
 // see or use the new Wpisowe column, even though this page's own admin-or-hovding gate lets them
@@ -20,19 +20,16 @@ initGoogleSignIn({
   buttonIds: ['google-signin-button'],
   whoamiPath: '/admin/members/whoami',
   onSignedIn: async payload => {
-    document.getElementById('admin-checking').hidden = true;
     document.getElementById('admin-signin').hidden = true;
     document.getElementById('admin-email').textContent = payload.email;
-    document.getElementById('admin-panel').hidden = false;
     isAdminCaller = payload.isAdmin === true;
-    isAccountantCaller = payload.isAccountant === true;
-    isAccountantOnlyCaller = isAccountantCaller && payload.isAdmin !== true && payload.isHovding !== true;
+    const isAccountant = payload.isAccountant === true;
+    isAccountantOnlyCaller = isAccountant && payload.isAdmin !== true && payload.isHovding !== true;
     document.getElementById('membership-management-section').hidden = isAccountantOnlyCaller;
     document.getElementById('accountless-records-section').hidden = isAccountantOnlyCaller;
     document.getElementById('accountless-owner-field').hidden = !isAccountantOnlyCaller;
-    if (isAccountantOnlyCaller) {
-      document.getElementById('accountless-description').textContent = 'Dodaj osobę bez konta i opcjonalnie powiąż ją z członkiem.';
-    }
+    document.getElementById('accountless-description-admin').hidden = isAccountantOnlyCaller;
+    document.getElementById('accountless-description-accountant').hidden = !isAccountantOnlyCaller;
     document.getElementById('membership-role-header').hidden = !isAdminCaller;
     // Admin-only (KRKG bugfix): a hovding manages member records but must not trigger the
     // Sheets backup sync or the Google Group drift check - both now also 403 server-side
@@ -40,22 +37,30 @@ initGoogleSignIn({
     // just keeps the buttons from being shown at all.
     document.getElementById('membership-sheet-sync-section').hidden = !isAdminCaller;
     document.getElementById('membership-group-sync-section').hidden = !isAdminCaller;
-    try {
-      ({ canManageSkladki } = await apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth));
-    } catch {
-      canManageSkladki = false;
+    if (!isAccountantOnlyCaller) {
+      try {
+        ({ canManageSkladki } = await apiFetch('/lista-wyjazdowa/my-role', { method: 'GET' }, showReauth, hideReauth));
+      } catch {
+        canManageSkladki = false;
+      }
     }
     document.getElementById('membership-wpisowe-header').hidden = !canManageSkladki;
     // KRKG-0087: only an administrator may merge an accountless person with an account.
     document.getElementById('accountless-merge-section').hidden = !isAdminCaller;
     if (isAccountantOnlyCaller) {
-      loadAccountlessCreationOptions();
+      const addButton = document.getElementById('accountless-add-toggle');
+      addButton.disabled = true;
+      accountlessCreationOptionsReady = await loadAccountlessCreationOptions();
+      addButton.disabled = false;
     } else {
       loadMembershipMembers();
       loadAccountless();
     }
+    document.getElementById('admin-checking').hidden = true;
+    document.getElementById('admin-panel').hidden = false;
   },
   onSignedOut: () => {
+    document.getElementById('admin-panel').hidden = true;
     document.getElementById('admin-checking').hidden = true;
     document.getElementById('admin-signin').hidden = false;
   },
@@ -1015,11 +1020,15 @@ async function loadAccountlessCreationOptions() {
     };
     resetAccountlessForm();
     populateAccountlessOwnerOptions(owners);
+    accountlessCreationOptionsReady = true;
+    return true;
   } catch (err) {
     const errorEl = document.getElementById('accountless-error');
     errorEl.textContent = `Błąd: ${err.message}`;
     errorEl.hidden = false;
-    document.getElementById('accountless-form-panel').hidden = false;
+    document.getElementById('accountless-form-panel').hidden = true;
+    accountlessCreationOptionsReady = false;
+    return false;
   }
 }
 
@@ -1076,7 +1085,16 @@ async function submitAccountlessForm() {
   }
 }
 
-document.getElementById('accountless-add-toggle').addEventListener('click', () => openAccountlessForm(null));
+document.getElementById('accountless-add-toggle').addEventListener('click', async () => {
+  if (isAccountantOnlyCaller && !accountlessCreationOptionsReady) {
+    const addButton = document.getElementById('accountless-add-toggle');
+    addButton.disabled = true;
+    const ready = await loadAccountlessCreationOptions();
+    addButton.disabled = false;
+    if (!ready) return;
+  }
+  openAccountlessForm(null);
+});
 document.getElementById('accountless-cancel').addEventListener('click', () => {
   document.getElementById('accountless-form-panel').hidden = true;
   resetAccountlessForm();

@@ -43,7 +43,7 @@
         <div id="admin-panel" hidden>
       <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Zalogowano jako <span id="admin-email"></span></p>
 
-      <section id="membership-management-section" style="margin-bottom: 2rem;">
+      <section style="margin-bottom: 2rem;" id="membership-management-section">
         <header class="member-management-heading-row">
           <h2>Członkowie</h2>
           <a class="audyt-history-btn" href="/admin/audyt/" title="Historia" aria-label="Historia">
@@ -122,13 +122,17 @@
            an unattached (or detached) one is edited. -->
       <section id="accountless-section" style="margin-bottom: 2rem;">
         <h2>Osoby bez konta</h2>
-        <p id="accountless-description" style="color: var(--text-muted); margin-bottom: 0.75rem;">
+        <p id="accountless-description-admin" style="color: var(--text-muted); margin-bottom: 0.75rem;">
           Osoby bez konta (przywiązane lub bez opiekuna). Edycja i odpięcie tutaj; osoby przywiązane
           można też edytować na profilu opiekuna. <strong>Deaktywacja</strong> odłącza osobę od
           opiekuna i zostawia ją w historii jako nieaktywną (read-only). <strong>Trwałe usunięcie</strong>
           kasuje ją także z przeszłych wyjazdów, zmieniając ich statystyki - audyt pozostaje.
         </p>
+        <p id="accountless-description-accountant" style="color: var(--text-muted); margin-bottom: 0.75rem;" hidden>
+          Dodaj osobę bez konta i opcjonalnie powiąż ją z członkiem.
+        </p>
         <button type="button" id="accountless-add-toggle" class="btn-add-album">Dodaj osobę bez konta</button>
+        <p class="add-album-error" id="accountless-error" hidden></p>
         <div id="accountless-form-panel" hidden style="margin: 1rem 0; max-width: 32rem;">
           <div class="field"><label for="accountless-ksywka">Ksywka</label><input type="text" id="accountless-ksywka" /></div>
           <div class="field"><label for="accountless-first-name">Imię</label><input type="text" id="accountless-first-name" /></div>
@@ -144,7 +148,6 @@
             <button type="button" id="accountless-save" class="add-album-submit">Dodaj osobę</button>
             <button type="button" id="accountless-cancel" class="btn-cancel">Anuluj</button>
           </div>
-          <p class="add-album-error" id="accountless-error" hidden></p>
         </div>
         <div id="accountless-records-section">
           <div id="accountless-summary-filter" style="margin-top: 1rem;"></div>
