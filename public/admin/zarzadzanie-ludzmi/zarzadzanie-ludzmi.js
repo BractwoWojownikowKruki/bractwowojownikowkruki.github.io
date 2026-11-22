@@ -9,6 +9,7 @@
 let isAdminCaller = false;
 let isAccountantOnlyCaller = false;
 let accountlessCreationOptionsReady = false;
+let accountlessTableLoaded = false;
 // Wpisowe management needs requireSkladkiAccess (accountant/Firestore-admin role, or the env admin
 // allowlist), same as the Lista Wyjazdowa Składki page - a plain hovding with neither must not
 // see or use the new Wpisowe column, even though this page's own admin-or-hovding gate lets them
@@ -987,6 +988,7 @@ function accountlessActionsHtml(person) {
 
 async function loadAccountless() {
   const tbody = document.getElementById('accountless-list');
+  accountlessTableLoaded = false;
   tbody.innerHTML = '<tr><td colspan="7" class="czl-empty">Ładowanie...</td></tr>';
   try {
     const [{ persons }, staffLists] = await Promise.all([
@@ -1000,8 +1002,10 @@ async function loadAccountless() {
     const lists = isAccountantOnlyCaller ? accountlessCache : staffLists;
     const { sections, categories, weapons } = lists;
     accountlessCache = { persons: [], sections, categories, weapons };
+    accountlessTableLoaded = true;
     renderAccountless(persons);
   } catch (err) {
+    accountlessTableLoaded = false;
     tbody.innerHTML = `<tr><td colspan="7" class="czl-empty">Błąd: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
@@ -1026,7 +1030,7 @@ async function loadAccountlessCreationOptions() {
       categories: lookupLists.categories ?? [],
       weapons: lookupLists.weapons ?? [],
     };
-    renderAccountless(accountlessCache.persons);
+    if (accountlessTableLoaded) renderAccountless(accountlessCache.persons);
     resetAccountlessForm();
     populateAccountlessOwnerOptions(owners);
     accountlessCreationOptionsReady = true;

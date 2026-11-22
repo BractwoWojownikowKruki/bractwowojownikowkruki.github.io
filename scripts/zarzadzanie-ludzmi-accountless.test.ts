@@ -57,5 +57,5 @@ test('accountants can load the accountless table without rendering its write act
   assert.doesNotMatch(load, /resetAccountlessForm\(\)/);
   assert.match(load, /const lists = isAccountantOnlyCaller \? accountlessCache : staffLists/);
   assert.match(script, /async function loadAccountlessCreationOptions\(\)[\s\S]*?persons: accountlessCache\.persons/);
-  assert.match(script, /async function loadAccountlessCreationOptions\(\)[\s\S]*?renderAccountless\(accountlessCache\.persons\)/);
+  assert.match(script, /async function loadAccountlessCreationOptions\(\)[\s\S]*?if \(accountlessTableLoaded\) renderAccountless\(accountlessCache\.persons\)/);
 });
