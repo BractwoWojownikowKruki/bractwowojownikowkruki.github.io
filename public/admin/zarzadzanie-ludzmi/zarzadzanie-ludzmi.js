@@ -991,6 +991,7 @@ function accountlessActionsHtml(person) {
 async function loadAccountless() {
   const tbody = document.getElementById('accountless-list');
   accountlessTableLoaded = false;
+  document.getElementById('accountless-summary-filter').innerHTML = '';
   tbody.innerHTML = '<tr><td colspan="7" class="czl-empty">Ładowanie...</td></tr>';
   try {
     const [{ persons }, staffLists] = await Promise.all([
@@ -1008,6 +1009,7 @@ async function loadAccountless() {
     renderAccountless(persons);
   } catch (err) {
     accountlessTableLoaded = false;
+    document.getElementById('accountless-summary-filter').innerHTML = '';
     tbody.innerHTML = `<tr><td colspan="7" class="czl-empty">Błąd: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
