@@ -59,3 +59,7 @@ test('accountants can load the accountless table without rendering its write act
   assert.match(script, /async function loadAccountlessCreationOptions\(\)[\s\S]*?persons: accountlessCache\.persons/);
   assert.match(script, /async function loadAccountlessCreationOptions\(\)[\s\S]*?if \(accountlessTableLoaded\) renderAccountless\(accountlessCache\.persons\)/);
 });
+
+test('accountless summary filter preserves loading and error rows until the table has loaded', () => {
+  assert.match(script, /wireSummaryFilter\(document\.getElementById\('accountless-summary-filter'\), accountlessFilter, \(\) => \{\s*if \(accountlessTableLoaded\) renderAccountless\(accountlessCache\.persons\);\s*\}\)/);
+});

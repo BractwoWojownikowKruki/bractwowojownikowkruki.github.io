@@ -931,7 +931,9 @@ function accountlessDisplayName(person) {
 // KRKG-0091: the list is GET /lista-wyjazdowa/persons (staff), which - unlike the roster's current
 // read - also returns deactivated (tombstoned) people, so they can be permanently removed.
 const accountlessFilter = createSummaryFilter(['section', 'category'], { key: LIST_PREFERENCE_KEYS.adminSummaryFilter, slot: 'accountless' });
-wireSummaryFilter(document.getElementById('accountless-summary-filter'), accountlessFilter, () => renderAccountless(accountlessCache.persons));
+wireSummaryFilter(document.getElementById('accountless-summary-filter'), accountlessFilter, () => {
+  if (accountlessTableLoaded) renderAccountless(accountlessCache.persons);
+});
 
 function renderAccountless(persons) {
   accountlessCache.persons = persons;
