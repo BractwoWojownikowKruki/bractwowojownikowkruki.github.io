@@ -1811,7 +1811,7 @@ async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerRespons
     if (!(err instanceof AuthError)) throw err;
     identity = await deps.authenticate(req, res);
     const roles = await getEffectiveRoles(deps.firestore, identity.email);
-    if (!satisfiesRole(roles, 'accountant')) throw new AuthError('Brak uprawnień.', 403);
+    if (!roles.includes('accountant')) throw new AuthError('Brak uprawnień.', 403);
     sendJson(res, 200, {
       ...identityResponseBody(identity),
       isAdmin: false,
@@ -1831,7 +1831,7 @@ async function handleAdminMembersWhoami(req: IncomingMessage, res: ServerRespons
   sendJson(res, 200, {
     ...identityResponseBody(identity),
     isAdmin,
-    ...(satisfiesRole(roles, 'accountant') ? { isHovding: !isAdmin, isAccountant: true } : {}),
+    ...(roles.includes('accountant') ? { isHovding: !isAdmin, isAccountant: true } : {}),
   });
 }
 
