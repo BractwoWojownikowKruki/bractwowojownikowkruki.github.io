@@ -4507,8 +4507,7 @@ async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerRe
   // on staff-managed rows, and to gate role-specific event controls. Mutations re-check on server.
   sendJson(res, 200, {
     canManageSkladki: await canManageSkladki(req, res, deps, identity.email),
-    canManagePeople: await isPersonStaff(req, res, deps, identity.email),
-    canQuickAddPeople: !(await isAccountantOnlyPersonStaff(req, res, deps, identity.email)),
+    canManagePeople: await isPersonManager(req, res, deps),
     // KRKG-132: permanent event delete is narrower than "staff" - admins and hovding only.
     canDeleteEvents: await canDeleteEvents(req, res, deps),
   });
@@ -5053,7 +5052,7 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
     }
     const owner = await getMember(deps.firestore, canonicalOwner);
     const isSelf = canonicalOwner.toLowerCase() === identity.email.toLowerCase();
-    if (!owner || (owner.hidden === true && !isSelf)) throw new AuthError('Nie znaleziono takiego członka.', 404);
+    if ((!owner || owner.hidden === true) && !isSelf) throw new AuthError('Nie znaleziono takiego członka.', 404);
     ownerPersonId = canonicalOwner.toLowerCase();
   }
   const personId = randomUUID();
@@ -5294,8 +5293,8 @@ async function handleListaWyjazdowaPutPersonAccount(req: IncomingMessage, res: S
 // KRKG-0087: adding a person to a trip straight from the event page. `mode='existing'` signs up an
 // already-attached accountless person; `mode='new'` creates the person (section inherited from the
 // owner, no account) and signs them up in one transaction, so a failed signup write cannot leave an
-// orphan person. The owner must be the caller unless the caller is staff, and an existing target
-// must be an accountless person attached to that owner.
+// orphan person. The owner must be the caller unless the caller is an admin or hovding, and an
+// existing target must be an accountless person attached to that owner.
 async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
@@ -5307,10 +5306,7 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
   const event = await getEvent(deps.firestore, eventId);
   if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
 
-  const staff = await isPersonStaff(req, res, deps, identity.email);
-  if (await isAccountantOnlyPersonStaff(req, res, deps, identity.email)) {
-    throw new AuthError('Brak uprawnień do szybkiego dodawania osób na wyjazd.', 403);
-  }
+  const staff = await isPersonManager(req, res, deps);
   const caller = await resolvePersonId(deps.firestore, identity.email);
   if (!staff && ownerPersonId.toLowerCase() !== caller.personId.toLowerCase()) {
     throw new AuthError('Brak uprawnień do tego opiekuna.', 403);

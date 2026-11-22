@@ -81,7 +81,6 @@ const dash = {
   viewerEmail: null,
   viewerPersonId: null,
   canSignUp: false,
-  canQuickAddPeople: true,
   roster: [],
   categories: [],
   panelSignups: [],
@@ -120,7 +119,7 @@ function renderNearestEventWidget(events) {
   const widget = document.createElement('div');
   widget.className = 'dashboard-widget';
   const canManage = dash.canSignUp;
-  const canAddCompanion = dash.canQuickAddPeople && canManage && event.viewerAttending;
+  const canAddCompanion = canManage && event.viewerAttending;
   const addCompanionHtml = canAddCompanion
     ? window.CompanionAdd.buttonHtml({ ownerPersonId: dash.viewerPersonId, eventId: event.id, expanded: dash.openPanelEventId === event.id })
     : '';
@@ -602,7 +601,6 @@ initGoogleSignIn({
       dash.viewerEmail = identity?.email ?? null;
       dash.viewerPersonId = identity?.email?.toLowerCase() ?? null;
       dash.canSignUp = canSignUp && dash.viewerPersonId !== null;
-      dash.canQuickAddPeople = role?.canQuickAddPeople !== false;
       dash.roster = [];
       dash.categories = [];
       dash.panelSignups = [];

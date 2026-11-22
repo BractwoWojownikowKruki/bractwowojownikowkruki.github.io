@@ -220,10 +220,9 @@ function confirmedEventMutation(control, execute, apply, fallbackAnchor = null, 
 // read-only text - the server re-checks the role on every mutation regardless, this only
 // controls what the UI offers.
 let canManageSkladki = false;
-// Staff capability can expose other account rows; canQuickAddPeople separately gates event signup
-// quick-add, which accountant-only users do not receive. Mutations remain server-authorized.
+// Only administrators and hovdings can quick-add for other account rows; everyone retains their
+// own companion control. Mutations remain server-authorized.
 let canManagePeople = false;
-let canQuickAddPeople = true;
 // KRKG-132: admins and hovding only (my-role's canDeleteEvents) - gates "Usuń wyjazd"; the server re-checks.
 let canDeleteEvents = false;
 let cachedEvent = null;
@@ -887,7 +886,7 @@ function renderRoster(roster, signups) {
         </button>`;
       // KRKG-0087: a person without an account cannot own a companion, so the "+" is only ever on
       // an account row - the viewer's own row for everyone, any account row for staff.
-      const canAddCompanion = canQuickAddPeople && !member.accountless && (canManagePeople || member.personId === viewerPersonId);
+      const canAddCompanion = !member.accountless && (canManagePeople || member.personId === viewerPersonId);
       const addCompanionHtml = canAddCompanion
         ? window.CompanionAdd.buttonHtml({ ownerPersonId: personIdAttr, expanded: member.personId === openAddPanelOwnerPersonId })
         : '';
@@ -1236,7 +1235,7 @@ document.addEventListener('click', (e) => {
 });
 
 async function loadAll() {
-  const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue, canManagePeople: peopleValue, canQuickAddPeople: quickAddValue, canDeleteEvents: deleteValue }, lookupLists, { items: eventEquipmentItems }] = await Promise.all([
+  const [{ events }, { roster }, { signups }, { canManageSkladki: roleValue, canManagePeople: peopleValue, canDeleteEvents: deleteValue }, lookupLists, { items: eventEquipmentItems }] = await Promise.all([
     apiFetch('/lista-wyjazdowa/events', { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/roster?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
     apiFetch(`/lista-wyjazdowa/signups?eventId=${encodeURIComponent(eventId)}`, { method: 'GET' }, showReauth, hideReauth),
@@ -1246,7 +1245,6 @@ async function loadAll() {
   ]);
   canManageSkladki = roleValue;
   canManagePeople = peopleValue === true;
-  canQuickAddPeople = quickAddValue !== false;
   canDeleteEvents = deleteValue === true;
   cachedNavEvents = events;
   renderLwNav();
