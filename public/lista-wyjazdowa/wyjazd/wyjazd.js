@@ -275,8 +275,7 @@ function normalizeSkladkaDueDate(value) {
 // A due date only ever exists alongside a fee (see updateSkladkaFeeFormState), so it is never shown
 // on its own even for legacy data that still carries an orphaned date. It sits in the section
 // header as a pill, with the days left computed against today on every render. Its colour follows
-// the viewer's own payment: paid is green (on time or late), unpaid past the deadline is red and
-// says so, anything else stays neutral.
+// the signed-in viewer's own contribution status, independent of the due date.
 function renderDeadlinePill(event) {
   const pill = document.getElementById('skladka-fee-duedate-pill');
   const fee = normalizeSkladkaFee(event.skladkaFee);
@@ -286,13 +285,12 @@ function renderDeadlinePill(event) {
   const days = daysUntil(dueDate);
   const mySignup = cachedSignups.find((s) => s.memberEmail === viewerPersonId);
   const myStatus = mySignup?.attending ? (mySignup.skladkaStatus ?? 'unpaid') : null;
-  const state = myStatus === 'paid' ? 'paid' : myStatus === 'unpaid' && days < 0 ? 'unpaid-overdue' : 'neutral';
+  const state = myStatus === 'paid' || myStatus === 'unpaid' || myStatus === 'not_applicable' ? myStatus : 'neutral';
   pill.dataset.state = state;
-  // Paid: just a green tick. Unpaid past the deadline: a red cross and two skulls. No wording - the
-  // title carries it for hover/screen readers.
+  // The mark reflects the viewer's status; the date remains visible separately.
   const marks = {
     paid: '<span class="lw-deadline-mark" title="Składka opłacona" aria-label="Składka opłacona">✓</span>',
-    'unpaid-overdue': '<span class="lw-deadline-mark" title="Składka nie zapłacona" aria-label="Składka nie zapłacona">✗ ☠☠</span>',
+    unpaid: '<span class="lw-deadline-mark" title="Składka nieopłacona" aria-label="Składka nieopłacona">✗</span>',
   };
   pill.innerHTML = `${marks[state] ?? ''}<small>termin</small> ${escapeHtml(formatDate(dueDate))} <span class="lw-deadline-days">(${escapeHtml(daysUntilLabel(days))})</span>`;
 }
@@ -304,6 +302,7 @@ function renderSkladkaFee(event) {
   const fee = normalizeSkladkaFee(event.skladkaFee);
   const dueDate = normalizeSkladkaDueDate(event.dueDate);
   display.textContent = fee || 'Nie ustalono';
+  renderContributionStatusSummary(cachedSignups);
   renderDeadlinePill(event);
   // KRKG-0102: the Edytuj toggle only exists for members who can actually save a change (server
   // re-checks anyway) - the form itself stays collapsed by default even for them, tracked by
@@ -393,6 +392,7 @@ async function toggleSkladkaStatus(personId, nextStatus, control) {
     ), () => {
       const signup = cachedSignups.find(item => item.memberEmail === personId);
       if (signup) signup.skladkaStatus = nextStatus;
+      renderContributionStatusSummary(cachedSignups);
       renderRoster(cachedRoster, cachedSignups);
       renderDeadlinePill(cachedEvent);
     }, 'toast');
@@ -403,12 +403,36 @@ async function toggleSkladkaStatus(personId, nextStatus, control) {
 
 // #summary-content (counts) is derived from the attending/roster join.
 //
+function renderContributionStatusSummary(signups) {
+  const container = document.getElementById('skladka-fee-status-summary');
+  if (!container) return;
+  const hasFee = Boolean(normalizeSkladkaFee(cachedEvent?.skladkaFee));
+  container.hidden = !hasFee;
+  if (!hasFee) return;
+
+  const counts = { paid: 0, unpaid: 0, not_applicable: 0 };
+  for (const signup of signups) {
+    if (!signup.attending) continue;
+    const status = signup.skladkaStatus ?? 'unpaid';
+    counts[Object.hasOwn(counts, status) ? status : 'unpaid'] += 1;
+  }
+  const items = [
+    ['paid', 'Opłacone'],
+    ['unpaid', 'Nieopłacone'],
+    ['not_applicable', 'Nie dotyczy'],
+  ];
+  container.innerHTML = items.map(([status, label]) =>
+    `<span class="lw-contribution-status-item"><span class="lw-skladka-icon lw-skladka-icon--summary" data-status="${status}" aria-hidden="true">💰</span><span>${label}</span><strong>${counts[status]}</strong></span>`,
+  ).join('');
+}
+
 // Wg broni counts each attendee exactly once, grouped by their *complete* weaponIds set (see
 // weaponGroupLabel/weaponGroupKey above) - unlike weaponSortLabel's roster-sort grouping (which
 // only looks at the first weaponId), someone able to use two weapons is its own distinct headcount
 // here, not folded into either single-weapon group.
 function renderSummary(roster, signups) {
   const attending = signups.filter((s) => s.attending);
+  renderContributionStatusSummary(signups);
   // KRKG-0087: the canonical row key is personId (a member's e-mail, an accountless person's UUID),
   // not e-mail - a signup's stored memberEmail is that same personId.
   const rosterByPersonId = new Map(roster.map((r) => [r.personId, r]));
@@ -969,6 +993,7 @@ async function toggleAttending(personId, nextAttending, control) {
       else cachedSignups.push(savedSignup);
       renderSummary(cachedRoster, cachedSignups);
       renderRoster(cachedRoster, cachedSignups);
+      renderDeadlinePill(cachedEvent);
     }, 'toast');
   } catch (err) {
     showError(`Nie udało się zapisać zgłoszenia: ${err.message}`);

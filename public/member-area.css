@@ -1182,6 +1182,12 @@
   line-height: 1;
 }
 
+.lw-skladka-icon--summary {
+  width: 1.35rem;
+  height: 1.35rem;
+  font-size: 11px;
+}
+
 button.lw-skladka-icon {
   cursor: pointer;
 }
@@ -2022,19 +2028,47 @@ button.lw-filter-chip {
   color: #5cc47c;
 }
 
-.lw-deadline-pill[data-state="unpaid-overdue"] {
+.lw-deadline-pill[data-state="unpaid"] {
   border-color: #c0504d;
   background: rgba(192, 80, 77, 0.12);
 }
 
-.lw-deadline-pill[data-state="unpaid-overdue"] .lw-deadline-mark,
-.lw-deadline-pill[data-state="unpaid-overdue"] .lw-deadline-days {
+.lw-deadline-pill[data-state="unpaid"] .lw-deadline-mark,
+.lw-deadline-pill[data-state="unpaid"] .lw-deadline-days {
   color: #e07a77;
   font-weight: 700;
 }
 
+.lw-deadline-pill[data-state="not_applicable"] {
+  border-color: var(--text-faint);
+}
+
+.lw-deadline-pill[data-state="not_applicable"] .lw-deadline-days {
+  color: var(--text-muted);
+}
+
 .lw-deadline-mark {
   font-weight: 700;
+}
+
+#skladka-fee-status-summary:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+  margin-top: 0.35rem;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.lw-contribution-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.lw-contribution-status-item strong {
+  color: var(--text);
 }
 
 /* Event date, right end of the title row: more prominent than the Udostępnij/Edytuj buttons. */

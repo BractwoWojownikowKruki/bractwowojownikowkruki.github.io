@@ -38,7 +38,7 @@ class Element {
 
 const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'not-found-panel', 'main-content', 'lw-error',
-  'skladka-fee-display', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
+  'skladka-fee-display', 'skladka-fee-status-summary', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
   'skladka-fee-save', 'skladka-fee-remove', 'summary-content', 'summary-panel', 'roster-panel', 'roster-table',
   'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni', 'event-title',
   'event-meta', 'event-description', 'event-edit-toggle', 'event-edit-panel', 'event-history-link',
@@ -235,17 +235,20 @@ test('Wyjazd equipment checkboxes: Zgłoszone by default, Niezgłoszone on reque
   assert.match(table.innerHTML, /Brak sprzętu dla wybranych filtrów/);
 });
 
-test('Wyjazd deadline pill: green once the viewer paid, red when unpaid past the deadline, neutral otherwise', async () => {
+test('Wyjazd deadline pill color follows the viewer contribution status regardless of deadline', async () => {
   const past = '2020-01-01';
   const paid = createHarness([], { skladkaFee: '50 zł', dueDate: past }, [{ memberEmail: 'viewer@example.com', attending: true, skladkaStatus: 'paid' }]);
   await paid.signIn();
   assert.equal(paid.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'paid');
   assert.match(paid.elements.get('skladka-fee-duedate-pill')!.innerHTML, /✓/);
   assert.doesNotMatch(paid.elements.get('skladka-fee-duedate-pill')!.innerHTML, /opłacona<\/|· opłacona/);
-  const unpaid = createHarness([], { skladkaFee: '50 zł', dueDate: past }, [{ memberEmail: 'viewer@example.com', attending: true, skladkaStatus: 'unpaid' }]);
+  const unpaid = createHarness([], { skladkaFee: '50 zł', dueDate: '2099-01-01' }, [{ memberEmail: 'viewer@example.com', attending: true, skladkaStatus: 'unpaid' }]);
   await unpaid.signIn();
-  assert.equal(unpaid.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'unpaid-overdue');
-  assert.match(unpaid.elements.get('skladka-fee-duedate-pill')!.innerHTML, /✗ ☠☠/);
+  assert.equal(unpaid.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'unpaid');
+  assert.match(unpaid.elements.get('skladka-fee-duedate-pill')!.innerHTML, /✗/);
+  const notApplicable = createHarness([], { skladkaFee: '50 zł', dueDate: '2099-01-01' }, [{ memberEmail: 'viewer@example.com', attending: true, skladkaStatus: 'not_applicable' }]);
+  await notApplicable.signIn();
+  assert.equal(notApplicable.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'not_applicable');
   const notAttending = createHarness([], { skladkaFee: '50 zł', dueDate: past });
   await notAttending.signIn();
   assert.equal(notAttending.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'neutral');

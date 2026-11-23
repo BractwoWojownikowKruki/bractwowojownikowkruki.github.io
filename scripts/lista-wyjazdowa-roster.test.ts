@@ -58,7 +58,7 @@ class Element {
 
 const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'not-found-panel', 'main-content', 'lw-error',
-  'skladka-fee-display', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
+  'skladka-fee-display', 'skladka-fee-status-summary', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
   'skladka-fee-save', 'skladka-fee-remove', 'roster-panel', 'summary-content', 'summary-panel',
   'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni',
   'event-title', 'event-meta', 'event-description',
@@ -284,6 +284,39 @@ test('the contribution filter cycles through paid, unpaid and not applicable and
   assert.match(roster.innerHTML, /other@example\.com/);
 });
 
+test('fee summary counts attending signups by status with icons, labels and numbers', async () => {
+  const harness = createHarness(event('50 zł'), {
+    signupStatusByPersonId: {
+      'viewer@example.com': 'paid',
+      'other@example.com': 'not_applicable',
+    },
+  });
+  await harness.signIn();
+
+  const summary = harness.elements.get('skladka-fee-status-summary')!;
+  assert.equal(summary.hidden, false);
+  assert.match(summary.innerHTML, /data-status="paid"[^>]*aria-hidden="true">💰<\/span><span>Opłacone<\/span><strong>1<\/strong>/);
+  assert.match(summary.innerHTML, /data-status="unpaid"[^>]*aria-hidden="true">💰<\/span><span>Nieopłacone<\/span><strong>1<\/strong>/);
+  assert.match(summary.innerHTML, /data-status="not_applicable"[^>]*aria-hidden="true">💰<\/span><span>Nie dotyczy<\/span><strong>1<\/strong>/);
+});
+
+test('fee status counts refresh when a signup contribution status changes', async () => {
+  const harness = createHarness(event('50 zł'), {
+    signupStatusByPersonId: { 'viewer@example.com': 'unpaid' },
+  });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  const control = {
+    dataset: { personId: 'viewer@example.com', status: 'unpaid' },
+    disabled: false,
+  };
+  await roster.clickWith({ closest: (selector: string) => selector === '.lw-skladka-icon' ? control : null });
+
+  const html = harness.elements.get('skladka-fee-status-summary')!.innerHTML;
+  assert.match(html, /data-status="unpaid"[^>]*>💰<\/span><span>Nieopłacone<\/span><strong>1<\/strong>/);
+  assert.match(html, /data-status="paid"[^>]*>💰<\/span><span>Opłacone<\/span><strong>1<\/strong>/);
+});
+
 test('contribution filtering excludes non-attending and no-signup rows and uses the unpaid fallback', async () => {
   const harness = createHarness(event('50 zł'), {
     withAttachedPerson: true,
@@ -378,6 +411,7 @@ test('blank fee values hide payment icons while a confirmed event update re-rend
     const harness = createHarness(event(fee));
     await harness.signIn();
     assert.doesNotMatch(harness.elements.get('roster-content')!.innerHTML, /lw-skladka-icon/);
+    assert.equal(harness.elements.get('skladka-fee-status-summary')!.hidden, true);
   }
   const harness = createHarness(event(null));
   await harness.signIn();
