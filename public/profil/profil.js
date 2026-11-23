@@ -816,7 +816,6 @@ function wireEquipmentMiniList(container, ownerId) {
 // #profile-form: these controls must not take part in the main profile submit, and their weapon
 // checkboxes deliberately use a different input name so the form's own input[name="weaponIds"]
 // query never picks them up. The server re-checks ownership on every write regardless.
-const NO_WEAPON_CATEGORY_IDS = ['niewiasta', 'bobo'];
 let viewerEmail = null;
 let ownerSectionId = null;
 let personLookupLists = { sections: [], categories: [], weapons: [] };
@@ -839,7 +838,7 @@ function personWeaponCheckboxesHtml(weapons, currentIds) {
 function updatePersonWeaponState(row) {
   const weapons = row.querySelector('.person-weapons');
   if (!weapons) return;
-  const allowed = !NO_WEAPON_CATEGORY_IDS.includes(row.querySelector('.person-category').value);
+  const allowed = window.ProfilePanel.isWeaponAllowedCategory(row.querySelector('.person-category').value);
   weapons.hidden = !allowed;
   if (!allowed) {
     for (const cb of weapons.querySelectorAll('input[name="personWeaponIds"]')) cb.checked = false;
@@ -854,7 +853,7 @@ function readPersonRow(row) {
     lastName: row.querySelector('.person-last-name').value.trim(),
     categoryId,
     sectionId: row.querySelector('.person-section').value,
-    weaponIds: NO_WEAPON_CATEGORY_IDS.includes(categoryId)
+    weaponIds: !window.ProfilePanel.isWeaponAllowedCategory(categoryId)
       ? []
       : Array.from(row.querySelectorAll('input[name="personWeaponIds"]:checked')).map((cb) => cb.value),
   };
@@ -1101,7 +1100,7 @@ async function initForm(lookupLists) {
 
   populateSectionSelect(form.sectionId, lookupLists.sections, member?.sectionId ?? null);
   const memberCategoryId = member?.categoryId ?? null;
-  const canMemberUseWeapons = !NO_WEAPON_CATEGORY_IDS.includes(memberCategoryId);
+  const canMemberUseWeapons = window.ProfilePanel.isWeaponAllowedCategory(memberCategoryId);
   document.getElementById('weapons-panel').hidden = !canMemberUseWeapons;
   populateWeaponCheckboxes(document.getElementById('weapons-checkboxes'), lookupLists.weapons, canMemberUseWeapons ? (profile?.weaponIds ?? []) : []);
 
