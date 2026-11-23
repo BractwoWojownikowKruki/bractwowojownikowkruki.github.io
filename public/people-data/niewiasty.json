@@ -170,6 +170,22 @@
     "url": "/people-photos/1cO9MQW2uF7sML_MdhMCs5CiVESb8WvCA-800-e7b348387b.jpg"
    },
    "photos": []
+  },
+  {
+   "avatar": {
+    "id": "1X1LjqXUWMTsWsoyObRSpNjEIzBjdan1L",
+    "url": "/people-photos/1X1LjqXUWMTsWsoyObRSpNjEIzBjdan1L-64-f6955c0e02.jpg"
+   },
+   "folderId": "1N1WPc9vi79ZS9rVtd78EyZ9goOs9hfRU",
+   "name": "Natalia",
+   "order": 14,
+   "description": "",
+   "inMemoriam": false,
+   "mainPhoto": {
+    "id": "1X1LjqXUWMTsWsoyObRSpNjEIzBjdan1L",
+    "url": "/people-photos/1X1LjqXUWMTsWsoyObRSpNjEIzBjdan1L-800-f6955c0e02.jpg"
+   },
+   "photos": []
   }
  ]
 }
