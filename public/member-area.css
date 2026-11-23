@@ -1629,10 +1629,8 @@ button.lw-filter-chip {
   font-weight: 600;
 }
 
-.lw-summary-chip.lw-contribution-filter[data-status="all"] {
-  background: color-mix(in srgb, var(--text-faint) 28%, var(--surface-deep));
-  border: 1px solid var(--text-faint);
-  color: var(--text-muted);
+.lw-contribution-filter-row {
+  flex: 0 0 100%;
 }
 
 .lw-summary-chip.lw-contribution-filter[data-status="paid"] {
@@ -1653,25 +1651,11 @@ button.lw-filter-chip {
   color: var(--text-muted);
 }
 
-.lw-contribution-filter[data-status="paid"],
-.lw-contribution-filter[data-status="unpaid"],
-.lw-contribution-filter[data-status="not_applicable"] {
-  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text);
-}
-
 .lw-summary-filter[data-filter-active="true"] .lw-filter-chip[aria-pressed="false"] {
   opacity: 0.45;
 }
 
-.lw-summary-filter[data-filter-active="true"] .lw-contribution-filter[data-status="all"] {
-  opacity: 0.45;
-}
-
 .lw-summary-filter[data-filter-active="true"] .lw-filter-chip[aria-pressed="false"]:hover {
-  opacity: 0.75;
-}
-
-.lw-summary-filter[data-filter-active="true"] .lw-contribution-filter[data-status="all"]:hover {
   opacity: 0.75;
 }
 
@@ -2107,14 +2091,56 @@ button.lw-date-pill[aria-expanded="true"] {
   margin-left: auto;
 }
 
+.lw-date-wrap:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .lw-date-wrap .lw-date-pill {
   margin-left: 0;
 }
 
 /* Dashboard variant: same behaviour, but a muted outline so it doesn't compete with the card. */
 .lw-date-wrap--quiet {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   margin-left: 0;
+}
+
+.lw-time-pill {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-faint) 12%, var(--surface-deep));
+  color: var(--text-muted);
+  font-size: 0.9em;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.lw-time-pill svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+}
+
+.lw-fee-unset-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-faint) 16%, var(--surface-deep));
+  color: var(--text-muted);
+  font-size: 0.88em;
+  font-weight: 600;
 }
 
 .lw-date-pill--quiet {

@@ -659,7 +659,7 @@ document.getElementById('add-event-form').addEventListener('submit', async (even
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name.value, startDate: form.startDate.value, description: form.description.value.trim() || undefined, mapUrl: form.mapUrl.value.trim() || undefined, discordUrl: form.discordUrl.value.trim() || undefined, noCampEquipment: form.noCampEquipment.checked }),
+        body: JSON.stringify({ name: form.name.value, startDate: form.startDate.value, startTime: form.startTime.value || null, description: form.description.value.trim() || undefined, mapUrl: form.mapUrl.value.trim() || undefined, discordUrl: form.discordUrl.value.trim() || undefined, noCampEquipment: form.noCampEquipment.checked }),
       },
       showReauth,
       hideReauth,

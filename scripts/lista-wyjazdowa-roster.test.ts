@@ -52,6 +52,7 @@ class Element {
   }
   setAttribute(name: string, value: string) { this.attributes.set(name, value); }
   getAttribute(name: string) { return this.attributes.get(name) ?? null; }
+  removeAttribute(name: string) { this.attributes.delete(name); }
   querySelectorAll() { return []; }
   scrollIntoView() {}
 }
@@ -64,7 +65,7 @@ const elementIds = [
   'event-title', 'event-meta', 'event-description',
   'event-edit-toggle', 'event-edit-panel', 'event-history-link', 'skladka-fee-history-link',
   'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category',
-  'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note', 'event-equipment-summary', 'equipment-controls', 'equipment-filter-niezgloszone', 'equipment-filter-zgloszone', 'event-date-pill', 'event-date-wrap', 'event-calendar-popover', 'skladka-fee-duedate-pill', 'event-description-panel', 'event-equipment-content', 'lw-nav-container',
+  'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note', 'event-equipment-summary', 'equipment-controls', 'equipment-filter-niezgloszone', 'equipment-filter-zgloszone', 'event-date-pill', 'event-time-pill', 'event-date-wrap', 'event-calendar-popover', 'skladka-fee-duedate-pill', 'event-description-panel', 'event-equipment-content', 'lw-nav-container',
   'event-share-button', 'event-share-button-text',
 ];
 
@@ -113,6 +114,12 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     window: {
       location: { search: '?eventId=e1' },
       confirm: () => true,
+      LwCalendar: {
+        mountDropdowns: () => ({ refresh() {} }),
+        timePillHtml: (value: { startTime?: string }) => value.startTime
+          ? `<span class="lw-time-pill"><span class="sr-only">Godzina rozpoczęcia: </span>${value.startTime}</span>`
+          : '',
+      },
       MutationFeedback: {
         confirmed: async ({ execute, apply, rollback }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown }) => {
           let result: unknown;
@@ -185,6 +192,14 @@ const event = (skladkaFee: unknown, dueDate: unknown = undefined) => ({
   id: 'e1', name: 'Wyjazd', startDate: '2026-10-10', status: 'active', skladkaFee, dueDate,
 });
 
+test('the event detail date shows the optional start-time pill with an accessible label', async () => {
+  const harness = createHarness({ ...event(null), startTime: '09:30' });
+  await harness.signIn();
+  const pill = harness.elements.get('event-time-pill')!;
+  assert.equal(pill.hidden, false);
+  assert.match(pill.innerHTML, /class="lw-time-pill"[^>]*><span class="sr-only">Godzina rozpoczęcia: <\/span>.*09:30<\/span>/);
+});
+
 test('the top clock links to the event-wide audit, scoping dues to /admin/audyt/ only when the viewer can manage składki', async () => {
   const privileged = createHarness(event('50 zł'));
   await privileged.signIn();
@@ -241,7 +256,7 @@ test('roster checkboxes filter locally and preserve the signed-in viewer', async
   assert.equal(harness.apiCalls.length, requestsBeforeToggle);
 });
 
-test('the contribution filter cycles through paid, unpaid and not applicable and combines with roster visibility', async () => {
+test('the separate contribution filter supports multiple statuses and combines with roster visibility', async () => {
   const harness = createHarness(event('50 zł'), {
     signupStatusByPersonId: {
       'viewer@example.com': 'paid',
@@ -251,37 +266,36 @@ test('the contribution filter cycles through paid, unpaid and not applicable and
   await harness.signIn();
   const roster = harness.elements.get('roster-content')!;
   const summary = harness.elements.get('summary-panel')!;
-  const clickContributionFilter = async () => summary.clickWith({
+  const clickContributionFilter = async (status: string) => summary.clickWith({
     closest: (selector: string) => selector === '[data-filter-group]'
-      ? { dataset: { filterGroup: 'contributionStatus', filterCycle: 'paid unpaid not_applicable' }, disabled: false, focus() {} }
+      ? { dataset: { filterGroup: 'contributionStatus', filterValue: status }, disabled: false, focus() {} }
       : null,
   });
 
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /Wszystkie/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-value="paid" aria-pressed="false">Opłacona/);
   assert.match(roster.innerHTML, /signed@example\.com/);
   assert.match(roster.innerHTML, /viewer@example\.com/);
   assert.match(roster.innerHTML, /other@example\.com/);
 
-  await clickContributionFilter();
+  await clickContributionFilter('paid');
   assert.match(roster.innerHTML, /viewer@example\.com/);
   assert.doesNotMatch(roster.innerHTML, /signed@example\.com|other@example\.com/);
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="paid"[^>]*aria-label="Filtr składki: opłacona\. Kliknij, aby zmienić"[^>]*>.*opłacona/);
-  assert.doesNotMatch(harness.elements.get('summary-content')!.innerHTML, /data-filter-group="contributionStatus"[^>]*aria-pressed/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /<h3>Filtruj wg składki<\/h3>/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-group="contributionStatus" data-filter-value="paid" aria-pressed="true">Opłacona/);
 
-  await clickContributionFilter();
-  assert.match(roster.innerHTML, /signed@example\.com/);
-  assert.doesNotMatch(roster.innerHTML, /viewer@example\.com|other@example\.com/);
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="unpaid"[^>]*aria-label="Filtr składki: nieopłacona\. Kliknij, aby zmienić"[^>]*>.*nieopłacona/);
-
-  await clickContributionFilter();
-  assert.doesNotMatch(roster.innerHTML, /signed@example\.com|viewer@example\.com/);
-  assert.match(roster.innerHTML, /other@example\.com/);
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="not_applicable"[^>]*aria-label="Filtr składki: nie dotyczy\. Kliknij, aby zmienić"[^>]*>.*nie dotyczy/);
-
-  await clickContributionFilter();
-  assert.match(roster.innerHTML, /signed@example\.com/);
+  await clickContributionFilter('not_applicable');
+  assert.doesNotMatch(roster.innerHTML, /signed@example\.com/);
   assert.match(roster.innerHTML, /viewer@example\.com/);
   assert.match(roster.innerHTML, /other@example\.com/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-group="contributionStatus" data-filter-value="not_applicable" aria-pressed="true">Nie dotyczy/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-group="contributionStatus" data-filter-value="unpaid" aria-pressed="false">Nieopłacona/);
+});
+
+test('fee-less events hide the contribution filter and render the unset fee as a grey pill', async () => {
+  const harness = createHarness(event(null));
+  await harness.signIn();
+  assert.doesNotMatch(harness.elements.get('summary-content')!.innerHTML, /Filtruj wg składki/);
+  assert.match(harness.elements.get('skladka-fee-display')!.innerHTML, /lw-fee-unset-pill[^>]*>Nie ustalono<\/span>/);
 });
 
 test('fee summary counts attending signups by status with icons, labels and numbers', async () => {
@@ -367,13 +381,12 @@ test('contribution filtering excludes non-attending and no-signup rows and uses 
   const summary = harness.elements.get('summary-panel')!;
   harness.elements.get('roster-filter-niezgloszeni')!.checked = true;
   await harness.elements.get('roster-filter-niezgloszeni')!.change();
-  const clickContributionFilter = () => summary.clickWith({
+  const clickContributionFilter = (status: string) => summary.clickWith({
     closest: (selector: string) => selector === '[data-filter-group]'
-      ? { dataset: { filterGroup: 'contributionStatus', filterCycle: 'paid unpaid not_applicable' }, disabled: false, focus() {} }
+      ? { dataset: { filterGroup: 'contributionStatus', filterValue: status }, disabled: false, focus() {} }
       : null,
   });
-  await clickContributionFilter();
-  await clickContributionFilter();
+  await clickContributionFilter('unpaid');
 
   assert.match(roster.innerHTML, /signed@example\.com/);
   assert.doesNotMatch(roster.innerHTML, /viewer@example\.com|other@example\.com|attached-uuid-1/);
@@ -383,13 +396,12 @@ test('contribution filtering excludes non-attending and no-signup rows and uses 
   });
   await missingStatusHarness.signIn();
   const unpaidFilter = missingStatusHarness.elements.get('summary-panel')!;
-  const cycleToUnpaid = () => unpaidFilter.clickWith({
+  const selectUnpaid = () => unpaidFilter.clickWith({
     closest: (selector: string) => selector === '[data-filter-group]'
-      ? { dataset: { filterGroup: 'contributionStatus', filterCycle: 'paid unpaid not_applicable' }, disabled: false, focus() {} }
+      ? { dataset: { filterGroup: 'contributionStatus', filterValue: 'unpaid' }, disabled: false, focus() {} }
       : null,
   });
-  await cycleToUnpaid();
-  await cycleToUnpaid();
+  await selectUnpaid();
   assert.match(missingStatusHarness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
 });
 
@@ -416,7 +428,8 @@ test('unknown stored contribution statuses restore as an unfiltered state', asyn
   });
   await harness.signIn();
 
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="all"[^>]*>.*Wszystkie/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-active="false"/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-value="paid" aria-pressed="false">Opłacona/);
   assert.match(harness.elements.get('roster-content')!.innerHTML, /signed@example\.com/);
   assert.match(harness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
 });
@@ -517,12 +530,12 @@ test('removing an event fee clears the active contribution filter and refreshes 
   });
   await harness.signIn();
   const summary = harness.elements.get('summary-panel')!;
-  const cycleFilter = () => summary.clickWith({
+  const selectPaid = () => summary.clickWith({
     closest: (selector: string) => selector === '[data-filter-group]'
-      ? { dataset: { filterGroup: 'contributionStatus', filterCycle: 'paid unpaid not_applicable' }, disabled: false, focus() {} }
+      ? { dataset: { filterGroup: 'contributionStatus', filterValue: 'paid' }, disabled: false, focus() {} }
       : null,
   });
-  await cycleFilter();
+  await selectPaid();
   assert.match(harness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
   assert.doesNotMatch(harness.elements.get('roster-content')!.innerHTML, /signed@example\.com/);
 

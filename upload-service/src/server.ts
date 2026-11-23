@@ -3916,6 +3916,14 @@ async function handleListaWyjazdowaLookupLists(req: IncomingMessage, res: Server
 // Lista Wyjazdowa Plan B: events & sign-up. Same authenticateWojownicyUpload gate as Plan A above
 // - every route here is still limited to the live kruki-group membership, not open to the public.
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const EVENT_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const EVENT_TIME_MESSAGE = 'Godzina rozpoczęcia musi mieć format GG:MM.';
+
+function optionalEventStartTime(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string' || !EVENT_TIME_PATTERN.test(value.trim())) throw new AuthError(EVENT_TIME_MESSAGE, 400);
+  return value.trim();
+}
 
 function optionalBoolean(value: unknown, message: string): boolean | undefined {
   if (value === undefined) return undefined;
@@ -3982,6 +3990,7 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
   const body = await readJsonBody<Record<string, unknown>>(req, deps.maxJsonBodyBytes);
   const name = requireTrimmedString(body.name, LW_MAX_NAME_LENGTH, 'Nazwa wyjazdu jest wymagana.');
   const startDate = requireDateString(body.startDate, 'Data rozpoczęcia jest wymagana (RRRR-MM-DD).');
+  const startTime = optionalEventStartTime(body.startTime);
   const description = optionalTrimmedString(body.description, LW_MAX_EVENT_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 2000 znaków.');
   const noCampEquipment = optionalBoolean(body.noCampEquipment, 'Pole „bez sprzętu obozowego” musi być wartością logiczną.') ?? false;
   const mapUrl = optionalHttpUrl(body.mapUrl, LW_MAP_URL_MESSAGE);
@@ -4002,6 +4011,7 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
       changes: [
         { field: 'name', after: name },
         { field: 'startDate', after: startDate },
+        ...(startTime !== null ? [{ field: 'startTime', after: startTime }] : []),
         { field: 'status', after: 'active' },
         ...(description !== null ? [{ field: 'description', after: description }] : []),
         ...(noCampEquipment ? [{ field: 'noCampEquipment', after: true }] : []),
@@ -4009,7 +4019,7 @@ async function handleListaWyjazdowaPostEvent(req: IncomingMessage, res: ServerRe
         ...(discordUrl !== null ? [{ field: 'discordUrl', after: discordUrl }] : []),
       ],
     },
-    tx => createEventUniqueSlug(tx, { name, startDate, description, noCampEquipment, mapUrl, discordUrl }, identity.email, eventId)
+    tx => createEventUniqueSlug(tx, { name, startDate, startTime, description, noCampEquipment, mapUrl, discordUrl }, identity.email, eventId)
       .catch(rethrowSlugConflict),
   );
   await notifyActiveMembersOfNewEvent(deps, event);
@@ -4024,6 +4034,7 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
   const fields: EventWritableFields = {};
   if (body.name !== undefined) fields.name = requireTrimmedString(body.name, LW_MAX_NAME_LENGTH, 'Nazwa wyjazdu nie może być pusta.');
   if (body.startDate !== undefined) fields.startDate = requireDateString(body.startDate, 'Data rozpoczęcia jest nieprawidłowa (RRRR-MM-DD).');
+  if (body.startTime !== undefined) fields.startTime = optionalEventStartTime(body.startTime);
   if (body.description !== undefined) {
     fields.description = body.description === null ? null : optionalTrimmedString(body.description, LW_MAX_EVENT_DESCRIPTION_LENGTH, 'Opis może mieć najwyżej 2000 znaków.');
   }
@@ -4044,7 +4055,7 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
     await requireSkladkiAccess(req, res, deps, identity.email);
     fields.dueDate = body.dueDate === null ? null : requireDateString(body.dueDate, 'Nieprawidłowy termin płatności (RRRR-MM-DD).');
   }
-  const eventFieldCount = Number(fields.name !== undefined) + Number(fields.startDate !== undefined) + Number(fields.status !== undefined) + Number(fields.description !== undefined) + Number(fields.noCampEquipment !== undefined) + Number(fields.mapUrl !== undefined) + Number(fields.discordUrl !== undefined);
+  const eventFieldCount = Number(fields.name !== undefined) + Number(fields.startDate !== undefined) + Number(fields.startTime !== undefined) + Number(fields.status !== undefined) + Number(fields.description !== undefined) + Number(fields.noCampEquipment !== undefined) + Number(fields.mapUrl !== undefined) + Number(fields.discordUrl !== undefined);
   const feeFieldCount = Number(fields.skladkaFee !== undefined) + Number(fields.dueDate !== undefined);
   if (eventFieldCount === 0 && feeFieldCount === 0) {
     throw new AuthError('Podaj co najmniej jedno pole wyjazdu do zmiany.', 400);
@@ -4082,6 +4093,7 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
         changes: [
           ...(fields.name !== undefined ? [{ field: 'name', before: existing.name, after: fields.name }] : []),
           ...(fields.startDate !== undefined ? [{ field: 'startDate', before: existing.startDate, after: fields.startDate }] : []),
+          ...(fields.startTime !== undefined ? [{ field: 'startTime', before: existing.startTime ?? null, after: fields.startTime }] : []),
           ...(fields.status !== undefined ? [{ field: 'status', before: existing.status, after: fields.status }] : []),
           ...(fields.description !== undefined ? [{ field: 'description', before: existing.description ?? null, after: fields.description }] : []),
           ...(fields.noCampEquipment !== undefined ? [{ field: 'noCampEquipment', before: existing.noCampEquipment ?? false, after: fields.noCampEquipment }] : []),

@@ -49,11 +49,12 @@ class Element {
 class FormElement extends Element {
   name = { value: '' };
   startDate = { value: '' };
+  startTime = { value: '' };
   description = { value: '' };
   mapUrl = { value: '' };
   discordUrl = { value: '' };
   noCampEquipment = { checked: false };
-  reset() { this.name.value = ''; this.startDate.value = ''; this.description.value = ''; }
+  reset() { this.name.value = ''; this.startDate.value = ''; this.startTime.value = ''; this.description.value = ''; }
   readonly submitButton = new Element('submit-btn');
   querySelector(selector: string) { return selector === 'button[type="submit"]' ? this.submitButton : null; }
 }
@@ -189,6 +190,13 @@ test('the events list shows the add-companion control next to the toggle only wh
   const notAttending = createHarness({ viewerAttending: false });
   await notAttending.signIn();
   assert.doesNotMatch(notAttending.elements.get('events-list')!.innerHTML, /lw-add-companion/);
+});
+
+test('the event list shows the optional start-time pill next to the date', async () => {
+  const harness = createHarness({ events: [{ id: 'e1', name: 'Trening', startDate: '2027-05-01', startTime: '09:30', status: 'active', viewerAttending: true, attendingCount: 1 }] });
+  await harness.signIn();
+  assert.match(harness.elements.get('events-list')!.innerHTML, /lw-time-pill[^>]*><span class="sr-only">Godzina rozpoczęcia: <\/span>/);
+  assert.match(harness.elements.get('events-list')!.innerHTML, />09:30<\/span>/);
 });
 
 test('a hidden member gets no add-companion control even while attending', async () => {
@@ -406,6 +414,22 @@ test('clicking the standalone "+ Dodaj wyjazd" button reveals the inline form in
   assert.equal(form.hidden, false);
   assert.equal(title.textContent, 'Dodaj wyjazd');
   assert.equal(harness.elements.get('events-list')!.hidden, true);
+});
+
+test('the add-event form labels its optional time and submits the chosen startTime', async () => {
+  assert.match(page, /<label for="new-event-time">Godzina rozpoczęcia \(np\. w przypadku treningu\)<\/label>\s*<input type="time" id="new-event-time" name="startTime"\s*\/>/);
+  const harness = createHarness();
+  await harness.signIn();
+  harness.setMutationResult(CREATED_EVENT);
+  const form = harness.elements.get('add-event-form') as unknown as FormElement;
+  form.name.value = 'Trening';
+  form.startDate.value = '2027-09-01';
+  form.startTime.value = '09:30';
+  await form.dispatch('submit');
+  const post = harness.apiCalls.find((call) => call.options.method === 'POST');
+  assert.deepEqual(JSON.parse(String(post?.options.body)), {
+    name: 'Trening', startDate: '2027-09-01', startTime: '09:30', noCampEquipment: false,
+  });
 });
 
 // KRKG-132: a slow create used to be submittable twice, creating two identical events.

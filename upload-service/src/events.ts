@@ -10,9 +10,14 @@ import type { FirestoreLikeClient } from './firestore.ts';
 type FirestoreWriteContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc'>;
 type FirestoreSlugContext = Pick<FirestoreLikeClient, 'getDoc' | 'setDoc' | 'deleteDoc'>;
 
+/**
+ * Persisted trip event shape shared by event CRUD, roster pages and notifications.
+ * startTime is optional for legacy records and stores a local wall-clock time when supplied.
+ */
 export interface EventDoc {
   name: string;
   startDate: string; // YYYY-MM-DD
+  startTime?: string | null; // HH:mm local wall-clock time; legacy events may omit it
   status: 'active' | 'cancelled';
   createdBy: string;
   createdAt: string;
@@ -28,9 +33,11 @@ export interface EventWithId extends EventDoc {
   id: string;
 }
 
+/** Fields accepted by audited event updates and fee-management operations. */
 export interface EventWritableFields {
   name?: string;
   startDate?: string;
+  startTime?: string | null;
   status?: 'active' | 'cancelled';
   description?: string | null;
   skladkaFee?: string | null;
@@ -54,13 +61,14 @@ export async function getEvent(client: FirestoreLikeClient, eventId: string): Pr
 
 export async function createEvent(
   client: FirestoreWriteContext,
-  fields: { name: string; startDate: string; description?: string | null; noCampEquipment?: boolean; mapUrl?: string | null; discordUrl?: string | null },
+  fields: { name: string; startDate: string; startTime?: string | null; description?: string | null; noCampEquipment?: boolean; mapUrl?: string | null; discordUrl?: string | null },
   createdBy: string,
   id: string = randomUUID(),
 ): Promise<EventWithId> {
   const doc: EventDoc = {
     name: fields.name,
     startDate: fields.startDate,
+    startTime: fields.startTime ?? null,
     status: 'active',
     createdBy,
     createdAt: new Date().toISOString(),

@@ -269,7 +269,7 @@ function eventFriendlyPath(event: Pick<EventWithId, 'name' | 'startDate'>): stri
 /** Builds a member-facing e-mail with the details submitted for a new Lista Wyjazdowa event. */
 export function eventAddedMessage(
   to: string,
-  event: Pick<EventWithId, 'name' | 'startDate' | 'description' | 'discordUrl' | 'mapUrl' | 'noCampEquipment'>,
+  event: Pick<EventWithId, 'name' | 'startDate' | 'startTime' | 'description' | 'discordUrl' | 'mapUrl' | 'noCampEquipment'>,
   siteUrl: string,
 ): MailMessage {
   const eventUrl = `${siteUrl}${eventFriendlyPath(event)}`;
@@ -284,7 +284,7 @@ export function eventAddedMessage(
     subject: `Nowy wyjazd: ${event.name}`,
     text:
       `Dodano nowy wyjazd do Listy Wyjazdowej:\n\n` +
-      `${event.name}\nData rozpoczęcia: ${event.startDate}\n\n` +
+      `${event.name}\nData rozpoczęcia: ${event.startDate}${event.startTime ? ` · godz. ${event.startTime}` : ''}\n\n` +
       (optionalDetails.length > 0 ? `${optionalDetails.join('\n\n')}\n\n` : '') +
       `Szczegóły wyjazdu: ${eventUrl}` +
       SIGNATURE,
@@ -292,10 +292,10 @@ export function eventAddedMessage(
 }
 
 /** Builds a push notification for a newly created Lista Wyjazdowa event. */
-export function eventAddedPush(event: Pick<EventWithId, 'name' | 'startDate'>): PushMessage {
+export function eventAddedPush(event: Pick<EventWithId, 'name' | 'startDate' | 'startTime'>): PushMessage {
   return {
     title: 'Nowy wyjazd',
-    body: `${event.name} · ${event.startDate}`,
+    body: `${event.name} · ${event.startDate}${event.startTime ? ` · godz. ${event.startTime}` : ''}`,
     url: eventFriendlyPath(event),
   };
 }

@@ -20,6 +20,9 @@ function loadLwNav(now: string): { html: (params: { events: unknown[]; currentEv
       LwFriendlyUrl: {
         eventUrl: (event: { name: string; startDate: string }) => `https://www.kruki.org/lista-wyjazdowa/wyjazd/?do=${event.startDate}-${event.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
       },
+      LwCalendar: {
+        timePillHtml: (event: { startTime?: string }) => event.startTime ? `<span class="lw-time-pill">${event.startTime}</span>` : '',
+      },
     },
   };
   vm.runInNewContext(source, context, { filename: 'lw-nav.js' });
@@ -100,4 +103,18 @@ test('trip links use the friendly ?do= format from LwFriendlyUrl.eventUrl()', ()
   const menu = html({ events, currentEventId: null, open: true });
   assert.match(menu, /href="https:\/\/www\.kruki\.org\/lista-wyjazdowa\/wyjazd\/\?do=2026-07-01-/);
   assert.doesNotMatch(menu, /eventId=/);
+});
+
+test('trip dropdown shows the optional start time pill and omits it when unset', () => {
+  const { html } = loadLwNav('2026-06-15');
+  const menu = html({
+    events: [
+      { id: 'timed', name: 'Trening', startDate: '2026-07-01', status: 'active', startTime: '09:30' },
+      { id: 'untimed', name: 'Wyjazd', startDate: '2026-07-02', status: 'active' },
+    ],
+    currentEventId: null,
+    open: true,
+  });
+  assert.match(menu, /<span class="lw-time-pill">09:30<\/span>/);
+  assert.equal((menu.match(/lw-time-pill/g) ?? []).length, 1);
 });
