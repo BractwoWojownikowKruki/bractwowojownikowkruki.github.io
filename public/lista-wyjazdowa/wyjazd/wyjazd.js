@@ -265,6 +265,10 @@ function normalizeSkladkaFee(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeSkladkaStatus(status) {
+  return status === 'paid' || status === 'not_applicable' ? status : 'unpaid';
+}
+
 function normalizeSkladkaDueDate(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
@@ -284,8 +288,8 @@ function renderDeadlinePill(event) {
   if (pill.hidden) return;
   const days = daysUntil(dueDate);
   const mySignup = cachedSignups.find((s) => s.memberEmail === viewerPersonId);
-  const myStatus = mySignup?.attending ? (mySignup.skladkaStatus ?? 'unpaid') : null;
-  const state = myStatus === 'paid' || myStatus === 'unpaid' || myStatus === 'not_applicable' ? myStatus : 'neutral';
+  const myStatus = mySignup?.attending ? normalizeSkladkaStatus(mySignup.skladkaStatus) : null;
+  const state = myStatus ?? 'neutral';
   pill.dataset.state = state;
   // The mark reflects the viewer's status; the date remains visible separately.
   const marks = {
@@ -412,8 +416,7 @@ function renderContributionStatusSummary(signups) {
   const counts = { paid: 0, unpaid: 0, not_applicable: 0 };
   for (const signup of signups) {
     if (!signup.attending) continue;
-    const status = signup.skladkaStatus ?? 'unpaid';
-    counts[Object.hasOwn(counts, status) ? status : 'unpaid'] += 1;
+    counts[normalizeSkladkaStatus(signup.skladkaStatus)] += 1;
   }
   const items = [
     ['paid', 'Opłacone'],
@@ -623,7 +626,7 @@ wireSummaryFilter(document.getElementById('summary-panel'), rosterFilter, () => 
 function rosterFilterMatches(member, signup) {
   // Only an attending member with a configured event fee has the coin/status shown in their row.
   const contributionStatus = signup?.attending && normalizeSkladkaFee(cachedEvent?.skladkaFee)
-    ? signup.skladkaStatus ?? 'unpaid'
+    ? normalizeSkladkaStatus(signup.skladkaStatus)
     : undefined;
   return summaryFilterMatches(rosterFilter, {
     section: member.sectionId,
@@ -953,7 +956,7 @@ function renderRoster(roster, signups) {
           <span class="lw-attend-toggle-track" aria-hidden="true"></span>
           ${attending ? 'Jadę' : 'Nie jadę'}
         </button>
-        ${attending && normalizeSkladkaFee(cachedEvent?.skladkaFee) ? renderSkladkaIcon(personIdAttr, signup?.skladkaStatus ?? 'unpaid') : ''}`}
+        ${attending && normalizeSkladkaFee(cachedEvent?.skladkaFee) ? renderSkladkaIcon(personIdAttr, normalizeSkladkaStatus(signup?.skladkaStatus)) : ''}`}
       </td>
       <td class="${member.weaponIds.length ? '' : 'czl-empty'}">${member.weaponIds.length ? weaponHtml : EMPTY}</td>
       <td class="lw-status-changed-cell">${escapeHtml(formatStatusChangedAt(signup?.statusChangedAt))}</td>

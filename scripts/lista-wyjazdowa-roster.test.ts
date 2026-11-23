@@ -300,6 +300,17 @@ test('fee summary counts attending signups by status with icons, labels and numb
   assert.match(summary.innerHTML, /data-status="not_applicable"[^>]*aria-hidden="true">💰<\/span><span>Nie dotyczy<\/span><strong>1<\/strong>/);
 });
 
+test('unknown contribution statuses use the unpaid color, pill and count fallback', async () => {
+  const harness = createHarness(event('50 zł', '2026-10-20'), {
+    signupStatusByPersonId: { 'viewer@example.com': 'unexpected' },
+  });
+  await harness.signIn();
+
+  assert.equal(harness.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'unpaid');
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /data-status="unpaid"/);
+  assert.match(harness.elements.get('skladka-fee-status-summary')!.innerHTML, /data-status="unpaid"[^>]*>💰<\/span><span>Nieopłacone<\/span><strong>2<\/strong>/);
+});
+
 test('fee status counts refresh when a signup contribution status changes', async () => {
   const harness = createHarness(event('50 zł'), {
     signupStatusByPersonId: { 'viewer@example.com': 'unpaid' },
@@ -518,6 +529,7 @@ test('removing an event fee clears the active contribution filter and refreshes 
   harness.setMutationResult({ event: event(null, null) });
   await harness.elements.get('skladka-fee-remove')!.click();
 
+  assert.equal(harness.elements.get('skladka-fee-status-summary')!.hidden, true);
   assert.doesNotMatch(harness.elements.get('summary-content')!.innerHTML, /lw-contribution-filter/);
   assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-active="false"/);
   assert.match(harness.elements.get('roster-content')!.innerHTML, /signed@example\.com/);
