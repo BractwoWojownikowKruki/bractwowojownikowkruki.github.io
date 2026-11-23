@@ -243,3 +243,42 @@ test('accountless summary filter preserves loading and error rows until the tabl
   harness.triggerSummaryFilters();
   assert.match(harness.getEl('accountless-list').innerHTML, /Błąd: network down/);
 });
+
+test('accountless table load preserves in-progress form and creation-options refresh respects load state', async () => {
+  let resolvePersons!: (val: unknown) => void;
+  const optionsResolvers: Array<(val: unknown) => void> = [];
+  const harness = createZarzadzanieHarness({
+    apiFetch: async (url) => {
+      if (url === '/lista-wyjazdowa/persons') {
+        return new Promise((resolve) => { resolvePersons = resolve; });
+      }
+      if (url === '/lista-wyjazdowa/sections') {
+        return new Promise((resolve) => { optionsResolvers.push(resolve); });
+      }
+      if (url === '/lista-wyjazdowa/categories') return { categories: [{ id: 'woj', label: 'Woj' }] };
+      if (url === '/lista-wyjazdowa/weapons') return { weapons: [] };
+      if (url === '/lista-wyjazdowa/roster') return { roster: [] };
+      return {};
+    },
+  });
+
+  // Start both loadAccountless() and loadAccountlessCreationOptions().
+  const loadPromise = harness.context.loadAccountless();
+  const optionsPromise = harness.context.loadAccountlessCreationOptions();
+
+  // While persons table is still loading, creation options finishing must not overwrite the loading row.
+  for (const resolve of optionsResolvers) resolve({ sections: [{ id: 'sec1', label: 'Drużyna' }] });
+  await optionsPromise;
+  assert.match(harness.getEl('accountless-list').innerHTML, /Ładowanie\.\.\./);
+
+  // Set in-progress form value before loadAccountless() finishes; reloading the table must not reset it.
+  harness.getEl('accountless-first-name').value = 'InProgressName';
+  resolvePersons({
+    persons: [
+      { personId: 'p1', firstName: 'Jan', lastName: 'Kowalski', sectionId: 'sec1', categoryId: 'woj', weaponIds: [], deleted: false },
+    ],
+  });
+  await loadPromise;
+  assert.equal(harness.getEl('accountless-first-name').value, 'InProgressName');
+  assert.match(harness.getEl('accountless-list').innerHTML, /Kowalski/);
+});

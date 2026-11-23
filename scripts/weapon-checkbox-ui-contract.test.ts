@@ -7,6 +7,7 @@ const styles = readFileSync(new URL('../public/style.css', import.meta.url), 'ut
 const adminScript = readFileSync(new URL('../public/admin/zarzadzanie-ludzmi/zarzadzanie-ludzmi.js', import.meta.url), 'utf8');
 const profileScript = readFileSync(new URL('../public/profil/profil.js', import.meta.url), 'utf8');
 const profilePanel = readFileSync(new URL('../public/shared/profile-panel.js', import.meta.url), 'utf8');
+const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
 
 function makeStubElement(id = '') {
   const listeners = new Map<string, Array<(e: any) => unknown>>();
@@ -147,6 +148,82 @@ test('accountless and member weapon controls are hidden for non-combat categorie
   await profileSignedIn!({ email: 'test@kruki.pl' });
   assert.equal(getProfileEl('weapons-panel').hidden, false);
   assert.equal(profileWeaponCheckboxes[0].checked, true);
+
+  // 3. profile-panel.js: shared drawer editor hides weapons form for niewiasta/bobo and renders it for woj
+  for (const [categoryId, expectWeapons] of [['niewiasta', false], ['bobo', false], ['woj', true]] as const) {
+    const contentEl = makeStubElement('content');
+    const closeEl = makeStubElement('close');
+    const statusEl = makeStubElement('status');
+    const backdropEl = makeStubElement('backdrop');
+    const drawerEl = makeStubElement('drawer');
+    drawerEl.querySelector = (sel: string) => {
+      if (sel === '.profile-drawer-content') return contentEl;
+      if (sel === '.profile-drawer-close') return closeEl;
+      if (sel === '.profile-drawer-status') return statusEl;
+      if (sel === '.profile-drawer-backdrop') return backdropEl;
+      return null;
+    };
+    const wrapperEl = { innerHTML: '', firstElementChild: drawerEl };
+    const docClickListeners: Array<(e: any) => unknown> = [];
+    const panelCtx = vm.createContext({
+      window: { location: { search: '' }, addEventListener: () => {} },
+      document: {
+        activeElement: null,
+        body: { append: () => {} },
+        createElement: () => wrapperEl,
+        getElementById: () => null,
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        addEventListener: (type: string, fn: (e: any) => unknown) => {
+          if (type === 'click') docClickListeners.push(fn);
+        },
+      },
+      console,
+      URLSearchParams,
+      apiFetch: async (url: string) => {
+        if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [{ id: 's1', label: 'S1' }], categories: [{ id: categoryId, label: categoryId }], weapons };
+        return {
+          email: 'a@b.pl',
+          firstName: 'A',
+          lastName: 'B',
+          sectionId: 's1',
+          categoryId,
+          weaponIds: ['tarczownik'],
+          weapons: ['Tarcza'],
+          photos: [],
+          pendingPhotos: [],
+          equipment: [],
+          editor: {
+            canEditIdentity: true,
+            canEditWeapons: true,
+            canEditDues: false,
+            lookupLists: { sections: [{ id: 's1', label: 'S1' }], categories: [{ id: categoryId, label: categoryId }], weapons },
+          },
+        };
+      },
+      escapeHtml: (s: unknown) => String(s ?? ''),
+      escapeAttr: (s: unknown) => String(s ?? ''),
+      displayName: (p: { firstName?: string }) => p.firstName ?? '',
+      duesStatusLabel: (s: string) => s,
+      duesStatusBadgeHtml: (s: string) => s,
+    });
+    vm.runInContext(duesStatusSource, panelCtx);
+    vm.runInContext(profilePanel, panelCtx);
+    await panelCtx.window.ProfilePanel.open('a@b.pl');
+    for (const fn of docClickListeners) {
+      await fn({
+        target: {
+          closest: (sel: string) => (sel === '[data-profile-edit="editor"]' ? { dataset: { profileEdit: 'editor' } } : null),
+        },
+      });
+    }
+    if (expectWeapons) {
+      assert.match(contentEl.innerHTML, /profile-weapons-form/);
+      assert.match(contentEl.innerHTML, /value="tarczownik" checked/);
+    } else {
+      assert.doesNotMatch(contentEl.innerHTML, /profile-weapons-form/);
+    }
+  }
 });
 
 test('accountless form validates the fields required by the person API', async () => {
@@ -157,7 +234,7 @@ test('accountless form validates the fields required by the person API', async (
   };
   let postCalled = false;
   const ctx = vm.createContext({
-    window: { confirm: () => true, alert: () => {}, location: { search: '' }, addEventListener: () => {} },
+    window: { confirm: () => true, alert: () => {}, location: { search: '' }, addEventListener: () => {}, MutationFeedback: { confirmed: async ({ execute }: { execute: () => Promise<unknown> }) => execute() } },
     document: { body: { append: () => {} }, getElementById: getEl, querySelector: () => null, querySelectorAll: () => [], addEventListener: () => {} },
     console,
     URLSearchParams,
@@ -185,14 +262,23 @@ test('accountless form validates the fields required by the person API', async (
   vm.runInContext(profilePanel, ctx);
   vm.runInContext(adminScript, ctx);
 
-  // Missing required fields must show validation error and avoid POSTing.
-  getEl('accountless-first-name').value = 'Jan';
-  getEl('accountless-last-name').value = '';
-  getEl('accountless-category').value = 'woj';
-  getEl('accountless-section-select').value = 's1';
-  await ctx.submitAccountlessForm();
+  // Each required field missing independently must show validation error and avoid POSTing.
+  const requiredDefaults: Record<string, string> = {
+    'accountless-first-name': 'Jan',
+    'accountless-last-name': 'Kowalski',
+    'accountless-category': 'woj',
+    'accountless-section-select': 's1',
+  };
+  for (const missingId of Object.keys(requiredDefaults)) {
+    for (const [id, val] of Object.entries(requiredDefaults)) {
+      getEl(id).value = id === missingId ? '' : val;
+    }
+    getEl('accountless-error').hidden = true;
+    getEl('accountless-error').textContent = '';
+    await ctx.submitAccountlessForm();
 
-  assert.equal(postCalled, false);
-  assert.equal(getEl('accountless-error').hidden, false);
-  assert.equal(getEl('accountless-error').textContent, 'Imię, nazwisko, kategoria i sekcja są wymagane.');
+    assert.equal(postCalled, false, `POST should not fire when ${missingId} is missing`);
+    assert.equal(getEl('accountless-error').hidden, false);
+    assert.equal(getEl('accountless-error').textContent, 'Imię, nazwisko, kategoria i sekcja są wymagane.');
+  }
 });
