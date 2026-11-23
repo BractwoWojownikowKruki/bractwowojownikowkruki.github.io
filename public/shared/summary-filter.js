@@ -114,8 +114,8 @@ function summaryFilterChipHtml(filter, group, value, { className = '', attrs = '
 function summaryFilterBlockHtml(filter, columns) {
   const active = summaryFilterActive(filter);
   const clear = `<button type="button" class="equipment-filter-clear lw-filter-clear" data-filter-clear${active ? '' : ' disabled'}>Wyczyść filtr</button>`;
-  const groups = columns.map(({ heading, chipsHtml }) => `
-      <div role="group" aria-label="${summaryFilterEscape(heading)}"><h3>${summaryFilterEscape(heading)}</h3><div class="lw-summary-chips">${chipsHtml}</div></div>`).join('');
+  const groups = columns.map(({ heading, chipsHtml, className = '' }) => `
+      <div${className ? ` class="${summaryFilterEscape(className)}"` : ''} role="group" aria-label="${summaryFilterEscape(heading)}"><h3>${summaryFilterEscape(heading)}</h3><div class="lw-summary-chips">${chipsHtml}</div></div>`).join('');
   return `<div class="lw-summary-filter" data-filter-active="${active}">
     <div class="lw-summary-columns">${groups}
     </div>

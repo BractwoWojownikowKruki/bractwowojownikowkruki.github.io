@@ -5,10 +5,11 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/shared/lw-calendar.js', import.meta.url), 'utf8');
 
-type Ev = { id: string; name: string; startDate: string; status: string; description?: string };
+type Ev = { id: string; name: string; startDate: string; startTime?: string | null; status: string; description?: string };
 type Cell = { iso: string; day: number; inMonth: boolean; events: Ev[] };
 type Cal = {
   googleUrl: (e: Ev) => string;
+  timePillHtml: (e: Ev) => string;
   icsContent: (e: Ev) => string;
   icsFilename: (e: Ev) => string;
   monthGrid: (y: number, m: number, events: Ev[]) => Cell[][];
@@ -36,6 +37,20 @@ test('google link is an all-day entry with exclusive end date across a month bou
   assert.equal(url.searchParams.get('action'), 'TEMPLATE');
   assert.equal(url.searchParams.get('text'), wolin.name);
   assert.equal(url.searchParams.get('dates'), '20260731/20260801');
+});
+
+test('calendar export keeps the trip all-day and includes its optional start time in the details', () => {
+  const timed = { ...wolin, startTime: '09:30' };
+  assert.match(new URL(cal.googleUrl(timed)).searchParams.get('details') ?? '', /Godzina rozpoczęcia: 09:30/);
+  const ics = cal.icsContent(timed);
+  assert.match(ics, /DTSTART;VALUE=DATE:20260731\r\n/);
+  assert.match(ics, /DESCRIPTION:Godzina rozpoczęcia: 09:30\\n/);
+});
+
+test('time pill is accessible, and absent for events without a start time', () => {
+  assert.match(cal.timePillHtml({ ...wolin, startTime: '09:30' }), /aria-label="Godzina rozpoczęcia: 09:30"/);
+  assert.match(cal.timePillHtml({ ...wolin, startTime: '09:30' }), />09:30<\/span>/);
+  assert.equal(cal.timePillHtml(wolin), '');
 });
 
 test('ics is an escaped all-day VEVENT with a stable UID', () => {

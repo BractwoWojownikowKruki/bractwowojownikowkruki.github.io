@@ -48,6 +48,24 @@ test('createEvent defaults skladkaFee to null', async () => {
   assert.equal(event.skladkaFee, null);
 });
 
+test('createEvent stores an optional startTime, defaulting it to null for older callers', async () => {
+  const client = createInMemoryFirestoreClient();
+  const bare = await createEvent(client, { name: 'Zjazd', startDate: '2027-05-01' }, 'organizer@example.test');
+  const timed = await createEvent(client, { name: 'Trening', startDate: '2027-05-02', startTime: '09:30' }, 'organizer@example.test');
+  assert.equal(bare.startTime, null);
+  assert.equal(timed.startTime, '09:30');
+});
+
+test('updateEvent can set and clear startTime without changing other fields', async () => {
+  const client = createInMemoryFirestoreClient();
+  const created = await createEvent(client, { name: 'Trening', startDate: '2027-05-01' }, 'organizer@example.test');
+  const timed = await updateEvent(client, created.id, { startTime: '18:05' });
+  assert.equal(timed?.startTime, '18:05');
+  assert.equal(timed?.name, 'Trening');
+  const cleared = await updateEvent(client, created.id, { startTime: null });
+  assert.equal(cleared?.startTime, null);
+});
+
 test('createEvent defaults description to null, or stores it when given', async () => {
   const client = createInMemoryFirestoreClient();
   const bare = await createEvent(client, { name: 'Zjazd', startDate: '2027-05-01' }, 'organizer@example.test');

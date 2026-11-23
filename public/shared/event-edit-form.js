@@ -74,7 +74,7 @@
    * wyjazd button whose label and target status follow the event's current status. `idPrefix` keeps
    * multiple instances (one per list row, plus the detail page's own) from colliding on element ids.
    *
-   * @param {{id: string, name: string, startDate: string, description?: string|null, status: string}} event
+   * @param {{id: string, name: string, startDate: string, startTime?: string|null, description?: string|null, status: string}} event
    * @param {{idPrefix: string, canDelete?: boolean}} opts `canDelete` (staff) adds "Usuń wyjazd", KRKG-132.
    */
   function panelHtml(event, { idPrefix, canDelete = false }) {
@@ -91,6 +91,10 @@
       <div class="field">
         <label for="${idPrefix}-date">Data rozpoczęcia</label>
         <input type="date" id="${idPrefix}-date" value="${escapeHtml(event.startDate)}">
+      </div>
+      <div class="field">
+        <label for="${idPrefix}-time">Godzina rozpoczęcia (np. w przypadku treningu)</label>
+        <input type="time" id="${idPrefix}-time" value="${escapeHtml(event.startTime ?? '')}">
       </div>
       <p class="lw-event-edit-url-warning" id="${idPrefix}-url-warning" hidden>⚠️ Zmiana nazwy lub daty zmieni link do wyjazdu — stare linki (np. już udostępnione) przestaną działać.</p>
       <div class="field">
@@ -128,6 +132,7 @@
     return {
       name: document.getElementById(`${idPrefix}-name`).value,
       startDate: document.getElementById(`${idPrefix}-date`).value,
+      startTime: document.getElementById(`${idPrefix}-time`).value,
       description: document.getElementById(`${idPrefix}-description`).value,
       mapUrl: document.getElementById(`${idPrefix}-map-url`).value,
       discordUrl: document.getElementById(`${idPrefix}-discord-url`).value,
@@ -161,14 +166,16 @@
    * "send only what changed" contract as wyjazd.js's saveSkladkaFee. An empty description is sent
    * as null (clears it) rather than an empty string, matching the backend's optionalTrimmedString.
    *
-   * @param {{name: string, startDate: string, description?: string|null}} event
-   * @param {{name: string, startDate: string, description: string}} formValues
+   * @param {{name: string, startDate: string, startTime?: string|null, description?: string|null}} event
+   * @param {{name: string, startDate: string, startTime: string, description: string}} formValues
    */
   function buildUpdateBody(event, formValues) {
     const body = {};
     const name = formValues.name.trim();
     if (name && name !== event.name) body.name = name;
     if (formValues.startDate && formValues.startDate !== event.startDate) body.startDate = formValues.startDate;
+    const startTime = formValues.startTime || null;
+    if (startTime !== (event.startTime ?? null)) body.startTime = startTime;
     const description = formValues.description.trim();
     const currentDescription = event.description ?? '';
     if (description !== currentDescription) body.description = description || null;

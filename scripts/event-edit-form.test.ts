@@ -58,6 +58,24 @@ test('panelHtml includes a hidden URL-change warning between Data and Opis', () 
   assert.ok(dateIdx < warningIdx && warningIdx < descriptionIdx);
 });
 
+test('panelHtml includes the optional start time field with the approved label and value', () => {
+  const { EventEditForm } = loadHarness('event-edit', { name: 'Trening', startDate: '2027-01-01' });
+  const html = EventEditForm.panelHtml(
+    { id: 'e1', name: 'Trening', startDate: '2027-01-01', startTime: '09:30', description: null, status: 'active' },
+    { idPrefix: 'event-edit' },
+  );
+  assert.match(html, /<label for="event-edit-time">Godzina rozpoczęcia \(np\. w przypadku treningu\)<\/label>/);
+  assert.match(html, /<input type="time" id="event-edit-time" value="09:30">/);
+});
+
+test('buildUpdateBody sends changed startTime and null when cleared', () => {
+  const { EventEditForm } = loadHarness('event-edit', { name: 'Trening', startDate: '2027-01-01' });
+  const event = { name: 'Trening', startDate: '2027-01-01', startTime: '09:00', description: null };
+  const form = { name: 'Trening', startDate: '2027-01-01', startTime: '09:30', description: '', noCampEquipment: false };
+  assert.deepEqual({ ...EventEditForm.buildUpdateBody(event, form) }, { startTime: '09:30' });
+  assert.deepEqual({ ...EventEditForm.buildUpdateBody(event, { ...form, startTime: '' }) }, { startTime: null });
+});
+
 test('wireUrlWarning shows the warning once the name differs from the event', () => {
   const event = { name: 'Wolin', startDate: '2027-01-01' };
   const { EventEditForm, nameInput, warning } = loadHarness('event-edit', event);

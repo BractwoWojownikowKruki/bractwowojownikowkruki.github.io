@@ -54,7 +54,7 @@
       text: event.name,
       dates: `${compact(event.startDate)}/${compact(addDays(event.startDate, 1))}`,
     });
-    const details = [event.description, eventLink(event)].filter(Boolean).join('\n\n');
+    const details = [event.description, event.startTime ? `Godzina rozpoczęcia: ${event.startTime}` : null, eventLink(event)].filter(Boolean).join('\n\n');
     if (details) params.set('details', details);
     return `https://calendar.google.com/calendar/render?${params.toString()}`;
   }
@@ -74,7 +74,7 @@
   function icsContent(event) {
     const now = new Date();
     const stamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
-    const details = [event.description, eventLink(event)].filter(Boolean).join('\n\n');
+    const details = [event.description, event.startTime ? `Godzina rozpoczęcia: ${event.startTime}` : null, eventLink(event)].filter(Boolean).join('\n\n');
     const lines = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
@@ -284,13 +284,22 @@
     const classes = `lw-date-pill lw-date-pill--quiet${options.iconOnly ? ' lw-date-pill--icon' : ''}`;
     return `<span class="lw-date-wrap lw-date-wrap--quiet" data-lw-cal-key="${escapeHtml(key)}" data-lw-cal-event="${escapeHtml(event.id)}">
     <button type="button" class="${classes}" data-lw-cal-toggle aria-haspopup="true" aria-expanded="false" title="${title}"${options.iconOnly ? ` aria-label="${title}"` : ''}>${icon}${text}</button>
+    ${timePillHtml(event)}
     <div class="lw-cal-popover lw-cal-popover--${popoverSide}" hidden></div>
   </span>`;
+  }
+
+  /** An accessible compact pill shown next to an event date only when a start time is set. */
+  function timePillHtml(event) {
+    if (typeof event.startTime !== 'string' || !event.startTime) return '';
+    const time = escapeHtml(event.startTime);
+    return `<span class="lw-time-pill" aria-label="Godzina rozpoczęcia: ${time}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>${time}</span>`;
   }
 
   window.LwCalendar = {
     mountDropdowns,
     datePillHtml,
+    timePillHtml,
     googleUrl,
     icsContent,
     icsFilename,

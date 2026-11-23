@@ -48,6 +48,7 @@ const membershipFields = { targetEmail: 'roleRestricted', status: 'roleRestricte
 const eventFields = {
   name: 'memberVisible',
   startDate: 'memberVisible',
+  startTime: 'memberVisible',
   endDate: 'memberVisible',
   status: 'memberVisible',
   description: 'memberVisible',

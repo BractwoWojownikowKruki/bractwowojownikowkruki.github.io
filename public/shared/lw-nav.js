@@ -64,7 +64,7 @@
     const itemsHtml = upcomingEvents(events)
       .map((e) => {
         const active = e.id === currentEventId;
-        return `<a href="${window.LwFriendlyUrl.eventUrl(e)}" class="lw-nav-item${active ? ' lw-nav-item--active' : ''}" role="menuitem"><span class="lw-nav-item-date">${escapeHtml(formatDate(e.startDate))}</span><span class="lw-nav-item-name">${escapeHtml(e.name)}</span></a>`;
+        return `<a href="${window.LwFriendlyUrl.eventUrl(e)}" class="lw-nav-item${active ? ' lw-nav-item--active' : ''}" role="menuitem"><span class="lw-nav-item-date">${escapeHtml(formatDate(e.startDate))}</span>${window.LwCalendar?.timePillHtml?.(e) ?? ''}<span class="lw-nav-item-name">${escapeHtml(e.name)}</span></a>`;
       })
       .join('');
     return `

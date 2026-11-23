@@ -7235,6 +7235,17 @@ test('POST /lista-wyjazdowa/events creates an active event', async () => {
   });
 });
 
+test('POST /lista-wyjazdowa/events stores an optional startTime and rejects an invalid time', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const created = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Trening', startDate: '2027-05-01', startTime: '09:30' });
+    assert.equal(created.status, 200);
+    assert.equal((await created.json()).event.startTime, '09:30');
+    const invalid = await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Inny trening', startDate: '2027-05-02', startTime: '25:90' });
+    assert.equal(invalid.status, 400);
+  });
+});
+
 test('POST /lista-wyjazdowa/events notifies active members through their enabled channels and devices only', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   firestore.seed('members', 'both@example.com', seedMemberDoc({ email: 'both@example.com', status: 'active' }));
@@ -7426,6 +7437,18 @@ test('PUT /lista-wyjazdowa/events?eventId= updates only the given fields', async
     const body = await res.json();
     assert.equal(body.event.status, 'cancelled');
     assert.equal(body.event.name, 'Zjazd');
+  });
+});
+
+test('PUT /lista-wyjazdowa/events can update and clear startTime', async () => {
+  const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
+  await withServer(deps, async baseUrl => {
+    const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Trening', startDate: '2027-05-01', startTime: '09:00' })).json();
+    const path = `/lista-wyjazdowa/events?eventId=${created.event.id}`;
+    const updated = await putListaWyjazdowa(baseUrl, path, { startTime: '18:15' });
+    assert.equal((await updated.json()).event.startTime, '18:15');
+    const cleared = await putListaWyjazdowa(baseUrl, path, { startTime: null });
+    assert.equal((await cleared.json()).event.startTime, null);
   });
 });
 
