@@ -1400,6 +1400,8 @@ async function saveEventDetails(control) {
       hideReauth,
     ), (result) => {
       cachedEvent = result.event;
+      cachedNavEvents = cachedNavEvents.map((event) => event.id === cachedEvent.id ? cachedEvent : event);
+      renderLwNav();
       document.getElementById('event-title').textContent = cachedEvent.name;
       renderEventDateAndStatus(cachedEvent);
       renderEventDescription(cachedEvent);

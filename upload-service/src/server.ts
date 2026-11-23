@@ -3920,7 +3920,7 @@ const EVENT_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const EVENT_TIME_MESSAGE = 'Godzina rozpoczęcia musi mieć format GG:MM.';
 
 function optionalEventStartTime(value: unknown): string | null {
-  if (value === undefined || value === null) return null;
+  if (value === undefined || value === null || value === '') return null;
   if (typeof value !== 'string' || !EVENT_TIME_PATTERN.test(value.trim())) throw new AuthError(EVENT_TIME_MESSAGE, 400);
   return value.trim();
 }

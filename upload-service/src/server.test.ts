@@ -7445,8 +7445,13 @@ test('PUT /lista-wyjazdowa/events can update and clear startTime', async () => {
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Trening', startDate: '2027-05-01', startTime: '09:00' })).json();
     const path = `/lista-wyjazdowa/events?eventId=${created.event.id}`;
+    const renamed = await putListaWyjazdowa(baseUrl, path, { name: 'Trening poranny' });
+    assert.equal((await renamed.json()).event.startTime, '09:00');
     const updated = await putListaWyjazdowa(baseUrl, path, { startTime: '18:15' });
     assert.equal((await updated.json()).event.startTime, '18:15');
+    const clearedWithEmptyString = await putListaWyjazdowa(baseUrl, path, { startTime: '' });
+    assert.equal((await clearedWithEmptyString.json()).event.startTime, null);
+    await putListaWyjazdowa(baseUrl, path, { startTime: '18:15' });
     const cleared = await putListaWyjazdowa(baseUrl, path, { startTime: null });
     assert.equal((await cleared.json()).event.startTime, null);
   });

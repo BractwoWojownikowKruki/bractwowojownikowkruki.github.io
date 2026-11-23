@@ -2091,6 +2091,12 @@ button.lw-date-pill[aria-expanded="true"] {
   margin-left: auto;
 }
 
+.lw-date-wrap:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .lw-date-wrap .lw-date-pill {
   margin-left: 0;
 }
