@@ -167,10 +167,14 @@ function renderEvents() {
         <div class="lw-event-row" data-event-id="${escapeAttr(e.id)}">
           <a href="${escapeAttr(window.LwFriendlyUrl.eventUrl(e))}" class="lw-event-name">${escapeHtml(e.name)}</a>
           ${window.EventEditForm.statusPillHtml(e)}
-          <span class="lw-event-meta">
+          <span class="lw-event-meta${typeof e.startTime === 'string' && e.startTime ? ' lw-event-meta--timed' : ''}">
+            <span class="lw-event-meta-date">
             ${window.LwCalendar.datePillHtml(e, `list-${e.id}`, 'start')}
+            </span>
+            <span class="lw-event-meta-icons">
             <span class="attendee-badge" title="Zgłoszone osoby: ${e.attendingCount ?? 0}" aria-label="Zgłoszone osoby: ${e.attendingCount ?? 0}"><img class="attendee-badge-icon" src="/icons/attendees-badge.png" alt="" aria-hidden="true"> <span class="attendee-badge-count">${e.attendingCount ?? 0}</span></span>
             ${window.EventLinkActions.html(e)}
+            </span>
           </span>
           <div class="lw-event-actions">
             <button type="button" class="lw-attend-toggle" data-event-id="${e.id}" data-attending="${e.viewerAttending}" aria-pressed="${e.viewerAttending}">

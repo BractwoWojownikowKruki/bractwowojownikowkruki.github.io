@@ -509,7 +509,7 @@ function renderSummary(roster, signups) {
     ? CONTRIBUTION_STATUSES.map((status) => summaryFilterChipHtml(rosterFilter, 'contributionStatus', status, {
       className: 'lw-contribution-filter',
       attrs: `data-status="${status}" aria-label="Filtruj wg składki: ${contributionLabels[status]}"`,
-      content: escapeHtml(contributionLabels[status]),
+      content: `<span aria-hidden="true">💰</span>${escapeHtml(contributionLabels[status])}`,
     })).join('')
     : '';
 

@@ -272,7 +272,10 @@ test('the separate contribution filter supports multiple statuses and combines w
       : null,
   });
 
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-value="paid" aria-pressed="false">Opłacona/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-value="paid" aria-pressed="false">.*<span aria-hidden="true">💰<\/span>Opłacona/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /aria-label="Filtruj wg składki: Opłacona"[^>]*>.*<span aria-hidden="true">💰<\/span>Opłacona<\/button>/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /aria-label="Filtruj wg składki: Nieopłacona"[^>]*>.*<span aria-hidden="true">💰<\/span>Nieopłacona<\/button>/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /aria-label="Filtruj wg składki: Nie dotyczy"[^>]*>.*<span aria-hidden="true">💰<\/span>Nie dotyczy<\/button>/);
   assert.match(roster.innerHTML, /signed@example\.com/);
   assert.match(roster.innerHTML, /viewer@example\.com/);
   assert.match(roster.innerHTML, /other@example\.com/);
@@ -281,14 +284,14 @@ test('the separate contribution filter supports multiple statuses and combines w
   assert.match(roster.innerHTML, /viewer@example\.com/);
   assert.doesNotMatch(roster.innerHTML, /signed@example\.com|other@example\.com/);
   assert.match(harness.elements.get('summary-content')!.innerHTML, /<h3>Filtruj wg składki<\/h3>/);
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-group="contributionStatus" data-filter-value="paid" aria-pressed="true">Opłacona/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-group="contributionStatus" data-filter-value="paid" aria-pressed="true">.*<span aria-hidden="true">💰<\/span>Opłacona/);
 
   await clickContributionFilter('not_applicable');
   assert.doesNotMatch(roster.innerHTML, /signed@example\.com/);
   assert.match(roster.innerHTML, /viewer@example\.com/);
   assert.match(roster.innerHTML, /other@example\.com/);
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-group="contributionStatus" data-filter-value="not_applicable" aria-pressed="true">Nie dotyczy/);
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-group="contributionStatus" data-filter-value="unpaid" aria-pressed="false">Nieopłacona/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-group="contributionStatus" data-filter-value="not_applicable" aria-pressed="true">.*<span aria-hidden="true">💰<\/span>Nie dotyczy/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-group="contributionStatus" data-filter-value="unpaid" aria-pressed="false">.*<span aria-hidden="true">💰<\/span>Nieopłacona/);
 });
 
 test('fee-less events hide the contribution filter and render the unset fee as a grey pill', async () => {
@@ -429,7 +432,7 @@ test('unknown stored contribution statuses restore as an unfiltered state', asyn
   await harness.signIn();
 
   assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-active="false"/);
-  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-value="paid" aria-pressed="false">Opłacona/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-value="paid" aria-pressed="false">.*<span aria-hidden="true">💰<\/span>Opłacona/);
   assert.match(harness.elements.get('roster-content')!.innerHTML, /signed@example\.com/);
   assert.match(harness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
 });
