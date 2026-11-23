@@ -195,7 +195,7 @@ test('the events list shows the add-companion control next to the toggle only wh
 test('the event list shows the optional start-time pill next to the date', async () => {
   const harness = createHarness({ events: [{ id: 'e1', name: 'Trening', startDate: '2027-05-01', startTime: '09:30', status: 'active', viewerAttending: true, attendingCount: 1 }] });
   await harness.signIn();
-  assert.match(harness.elements.get('events-list')!.innerHTML, /lw-time-pill[^>]*aria-label="Godzina rozpoczęcia: 09:30"/);
+  assert.match(harness.elements.get('events-list')!.innerHTML, /lw-time-pill[^>]*><span class="sr-only">Godzina rozpoczęcia: <\/span>/);
   assert.match(harness.elements.get('events-list')!.innerHTML, />09:30<\/span>/);
 });
 
