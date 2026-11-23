@@ -293,7 +293,7 @@
   function timePillHtml(event) {
     if (typeof event.startTime !== 'string' || !event.startTime) return '';
     const time = escapeHtml(event.startTime);
-    return `<span class="lw-time-pill" aria-label="Godzina rozpoczęcia: ${time}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>${time}</span>`;
+    return `<span class="lw-time-pill"><span class="sr-only">Godzina rozpoczęcia: </span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>${time}</span>`;
   }
 
   window.LwCalendar = {

@@ -91,7 +91,7 @@ test('new event e-mail and push include an optional start time', () => {
   const event = { name: 'Trening', startDate: '2027-05-01', startTime: '09:30', description: null, discordUrl: null, mapUrl: null, noCampEquipment: false };
   const message = eventAddedMessage('member@example.com', event, 'https://example.test');
   assert.match(message.text, /Data rozpoczęcia: 2027-05-01 · godz\. 09:30/);
-  assert.equal(eventAddedPush(event).body, 'Trening · 2027-05-01 · 09:30');
+  assert.equal(eventAddedPush(event).body, 'Trening · 2027-05-01 · godz. 09:30');
 });
 
 test('new event notifications omit the time when startTime is absent', () => {

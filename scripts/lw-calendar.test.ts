@@ -48,7 +48,7 @@ test('calendar export keeps the trip all-day and includes its optional start tim
 });
 
 test('time pill is accessible, and absent for events without a start time', () => {
-  assert.match(cal.timePillHtml({ ...wolin, startTime: '09:30' }), /aria-label="Godzina rozpoczęcia: 09:30"/);
+  assert.match(cal.timePillHtml({ ...wolin, startTime: '09:30' }), /class="sr-only">Godzina rozpoczęcia: <\/span>/);
   assert.match(cal.timePillHtml({ ...wolin, startTime: '09:30' }), />09:30<\/span>/);
   assert.equal(cal.timePillHtml(wolin), '');
 });

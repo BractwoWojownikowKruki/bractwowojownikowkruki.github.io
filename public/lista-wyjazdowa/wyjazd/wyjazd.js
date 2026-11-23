@@ -144,14 +144,7 @@ function renderEventDateAndStatus(event) {
   pill.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${escapeHtml(formatDate(event.startDate))}`;
   const timePill = document.getElementById('event-time-pill');
   timePill.hidden = !(typeof event.startTime === 'string' && event.startTime);
-  if (!timePill.hidden) {
-    const time = escapeHtml(event.startTime);
-    timePill.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>${time}`;
-    timePill.setAttribute('aria-label', `Godzina rozpoczęcia: ${time}`);
-  } else {
-    timePill.innerHTML = '';
-    timePill.removeAttribute('aria-label');
-  }
+  timePill.innerHTML = timePill.hidden ? '' : window.LwCalendar.timePillHtml(event);
   document.getElementById('event-date-wrap').hidden = false;
   calendarDropdowns?.refresh();
   document.getElementById('event-meta').innerHTML = window.EventEditForm.statusPillHtml(event);
@@ -478,7 +471,7 @@ function renderSummary(roster, signups) {
     section: bySection.keys(),
     weapon: byWeaponGroup.keys(),
     category: byCategory.keys(),
-    contributionStatus: hasContributionFee ? CONTRIBUTION_STATUS_CYCLE : [],
+    contributionStatus: hasContributionFee ? CONTRIBUTION_STATUSES : [],
   });
 
   // Chips (pill + count badge), not a line-per-group list - "Sekcja: N" per line took far more
@@ -513,7 +506,7 @@ function renderSummary(roster, signups) {
 
   const contributionLabels = { paid: 'Opłacona', unpaid: 'Nieopłacona', not_applicable: 'Nie dotyczy' };
   const contributionStatusChips = hasContributionFee
-    ? CONTRIBUTION_STATUS_CYCLE.map((status) => summaryFilterChipHtml(rosterFilter, 'contributionStatus', status, {
+    ? CONTRIBUTION_STATUSES.map((status) => summaryFilterChipHtml(rosterFilter, 'contributionStatus', status, {
       className: 'lw-contribution-filter',
       attrs: `data-status="${status}" aria-label="Filtruj wg składki: ${contributionLabels[status]}"`,
       content: escapeHtml(contributionLabels[status]),
@@ -616,7 +609,7 @@ let cachedEventEquipment = [];
 // weapon set the "Filtruj wg broni" pills count by.
 // Pressed pills are saved per page type, not per event (KRKG-116): one key for every trip page.
 const rosterFilter = createSummaryFilter(['section', 'weapon', 'category', 'contributionStatus'], { key: LIST_PREFERENCE_KEYS.wyjazdSummaryFilter, slot: 'roster' });
-const CONTRIBUTION_STATUS_CYCLE = ['paid', 'unpaid', 'not_applicable'];
+const CONTRIBUTION_STATUSES = ['paid', 'unpaid', 'not_applicable'];
 // The per-category pills above the equipment table filter that table on their own, separate from
 // the roster/section pills in Podsumowanie.
 const equipmentFilter = createSummaryFilter(['equipmentCategory'], { key: LIST_PREFERENCE_KEYS.wyjazdSummaryFilter, slot: 'equipment' });

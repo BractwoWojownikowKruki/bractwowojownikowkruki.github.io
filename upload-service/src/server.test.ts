@@ -7445,6 +7445,9 @@ test('PUT /lista-wyjazdowa/events can update and clear startTime', async () => {
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Trening', startDate: '2027-05-01', startTime: '09:00' })).json();
     const path = `/lista-wyjazdowa/events?eventId=${created.event.id}`;
+    const invalid = await putListaWyjazdowa(baseUrl, path, { startTime: '25:90' });
+    assert.equal(invalid.status, 400);
+    assert.match((await invalid.json()).error, /Godzina rozpoczęcia musi mieć format GG:MM/);
     const renamed = await putListaWyjazdowa(baseUrl, path, { name: 'Trening poranny' });
     assert.equal((await renamed.json()).event.startTime, '09:00');
     const updated = await putListaWyjazdowa(baseUrl, path, { startTime: '18:15' });

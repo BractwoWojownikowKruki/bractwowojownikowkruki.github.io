@@ -295,7 +295,7 @@ export function eventAddedMessage(
 export function eventAddedPush(event: Pick<EventWithId, 'name' | 'startDate' | 'startTime'>): PushMessage {
   return {
     title: 'Nowy wyjazd',
-    body: `${event.name} · ${event.startDate}${event.startTime ? ` · ${event.startTime}` : ''}`,
+    body: `${event.name} · ${event.startDate}${event.startTime ? ` · godz. ${event.startTime}` : ''}`,
     url: eventFriendlyPath(event),
   };
 }

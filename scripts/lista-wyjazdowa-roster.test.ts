@@ -114,6 +114,12 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     window: {
       location: { search: '?eventId=e1' },
       confirm: () => true,
+      LwCalendar: {
+        mountDropdowns: () => ({ refresh() {} }),
+        timePillHtml: (value: { startTime?: string }) => value.startTime
+          ? `<span class="lw-time-pill"><span class="sr-only">Godzina rozpoczęcia: </span>${value.startTime}</span>`
+          : '',
+      },
       MutationFeedback: {
         confirmed: async ({ execute, apply, rollback }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown }) => {
           let result: unknown;
@@ -191,8 +197,7 @@ test('the event detail date shows the optional start-time pill with an accessibl
   await harness.signIn();
   const pill = harness.elements.get('event-time-pill')!;
   assert.equal(pill.hidden, false);
-  assert.match(pill.innerHTML, />09:30$/);
-  assert.equal(pill.getAttribute('aria-label'), 'Godzina rozpoczęcia: 09:30');
+  assert.match(pill.innerHTML, /class="lw-time-pill"[^>]*><span class="sr-only">Godzina rozpoczęcia: <\/span>.*09:30<\/span>/);
 });
 
 test('the top clock links to the event-wide audit, scoping dues to /admin/audyt/ only when the viewer can manage składki', async () => {
