@@ -4132,7 +4132,7 @@ async function handleListaWyjazdowaPutEvent(req: IncomingMessage, res: ServerRes
 // events are never removed, so the delete stays traceable via event.deleted.
 async function handleListaWyjazdowaDeleteEvent(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  if (!(await canDeleteEvents(req, res, deps))) throw new AuthError('Brak uprawnień do usunięcia wyjazdu.', 403);
+  if (!(await isPersonManager(req, res, deps))) throw new AuthError('Brak uprawnień do usunięcia wyjazdu.', 403);
   const eventId = url.searchParams.get('eventId');
   if (!eventId) throw new AuthError('Brak identyfikatora wyjazdu.', 400);
   const existing = await getEvent(deps.firestore, eventId);
@@ -4556,24 +4556,13 @@ async function handleListaWyjazdowaGetMyRole(req: IncomingMessage, res: ServerRe
   const identity = await deps.authenticateWojownicyUpload(req, res);
   // The roster uses these separate capabilities to show event quick-add on the viewer's own row,
   // on staff-managed rows, and to gate role-specific event controls. Mutations re-check on server.
+  const { isManager, isStaff } = await resolvePersonRoleFlags(req, res, deps, identity.email);
   sendJson(res, 200, {
-    canManageSkladki: await canManageSkladki(req, res, deps, identity.email),
-    canManagePeople: await isPersonStaff(req, res, deps, identity.email),
+    canManageSkladki: isManager ? await canManageSkladki(req, res, deps, identity.email) : isStaff,
+    canManagePeople: isStaff,
     // KRKG-132: permanent event delete is narrower than "staff" - admins and hovding only.
-    canDeleteEvents: await canDeleteEvents(req, res, deps),
+    canDeleteEvents: isManager,
   });
-}
-
-// KRKG-132: who may permanently delete an event: administrators and hovding (moderators). Accountants
-// and plain members cannot (any member may still cancel an event).
-async function canDeleteEvents(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<boolean> {
-  try {
-    await deps.authenticateAdminOrHovding(req, res);
-    return true;
-  } catch (err) {
-    if (err instanceof AuthError) return false;
-    throw err;
-  }
 }
 
 // Wpisowe and a trip's składka take the same three-state body as PUT /dues ({ status }). The old
@@ -5010,23 +4999,6 @@ async function handleListaWyjazdowaPutPaymentInfo(req: IncomingMessage, res: Ser
 // detach only their own "osoba towarzysząca". Merging a person with a real account is admin-only.
 // ---------------------------------------------------------------------------------------------
 
-/** Person creation and event quick-add include accountants; person-record management requires admin or hovding. */
-async function isPersonStaff(req: IncomingMessage, res: ServerResponse, deps: ServerDeps, email: string): Promise<boolean> {
-  try {
-    await requireSkladkiAccess(req, res, deps, email);
-    return true;
-  } catch (err) {
-    if (!(err instanceof AuthError)) throw err;
-  }
-  try {
-    await deps.authenticateAdminOrHovding(req, res);
-    return true;
-  } catch (err) {
-    if (!(err instanceof AuthError)) throw err;
-    return false;
-  }
-}
-
 /** Administrators and hovdings may manage other people's accountless-person records. */
 async function isPersonManager(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<boolean> {
   try {
@@ -5038,15 +5010,33 @@ async function isPersonManager(req: IncomingMessage, res: ServerResponse, deps: 
   }
 }
 
-/** True only for an accountant who does not also have administrator or hovding privileges. */
-async function isAccountantOnlyPersonStaff(
+/**
+ * Resolves person-management role flags in a single pass so auth and role lookups run at most once
+ * per request: `isManager` (admin/hovding), `isStaff` (manager, accountant, or admin), and
+ * `isAccountantOnly` (accountant without manager privileges).
+ */
+async function resolvePersonRoleFlags(
   req: IncomingMessage,
   res: ServerResponse,
   deps: ServerDeps,
   email: string,
-): Promise<boolean> {
-  if (!(await getEffectiveRoles(deps.firestore, email)).includes('accountant')) return false;
-  return !(await isPersonManager(req, res, deps));
+): Promise<{ isManager: boolean; isStaff: boolean; isAccountantOnly: boolean }> {
+  const isManager = await isPersonManager(req, res, deps);
+  if (isManager) {
+    return { isManager: true, isStaff: true, isAccountantOnly: false };
+  }
+  const granted = await getEffectiveRoles(deps.firestore, email);
+  const isAccountantOnly = granted.includes('accountant');
+  if (satisfiesRole(granted, 'accountant')) {
+    return { isManager: false, isStaff: true, isAccountantOnly };
+  }
+  try {
+    await deps.authenticateAdmin(req, res);
+    return { isManager: false, isStaff: true, isAccountantOnly };
+  } catch (err) {
+    if (!(err instanceof AuthError)) throw err;
+    return { isManager: false, isStaff: false, isAccountantOnly };
+  }
 }
 
 /** A member may act on a person only when that person is attached to them (their own personId is their e-mail). */
@@ -5091,8 +5081,7 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
   const fields = readPersonWritableFields(body);
   const persistedWeaponIds = applyWeaponCategoryRule(fields).weaponIds;
   let ownerPersonId = readOwnerPersonId(body.ownerPersonId);
-  const staff = await isPersonStaff(req, res, deps, identity.email);
-  const accountantOnly = await isAccountantOnlyPersonStaff(req, res, deps, identity.email);
+  const { isStaff: staff, isAccountantOnly: accountantOnly } = await resolvePersonRoleFlags(req, res, deps, identity.email);
   if (!staff && (!ownerPersonId || ownerPersonId.toLowerCase() !== identity.email.toLowerCase())) {
     throw new AuthError('Brak uprawnień do utworzenia takiej osoby.', 403);
   }
@@ -5201,8 +5190,7 @@ async function handleListaWyjazdowaDeletePerson(req: IncomingMessage, res: Serve
 // read-only, with owner identities redacted when hidden or no longer resolvable.
 async function handleListaWyjazdowaGetPersons(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  const isManager = await isPersonManager(req, res, deps);
-  const isAccountantOnly = !isManager && (await getEffectiveRoles(deps.firestore, identity.email)).includes('accountant');
+  const { isManager, isAccountantOnly } = await resolvePersonRoleFlags(req, res, deps, identity.email);
   if (!isManager && !isAccountantOnly) throw new AuthError('Brak uprawnień do tej osoby.', 403);
   const [persons, members] = await Promise.all([
     listPersons(deps.firestore, { includeDeleted: true }),
@@ -5366,7 +5354,7 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
   const event = await getEvent(deps.firestore, eventId);
   if (!event) throw new AuthError('Nie znaleziono wyjazdu.', 404);
 
-  const staff = await isPersonStaff(req, res, deps, identity.email);
+  const { isStaff: staff, isAccountantOnly: accountantOnly } = await resolvePersonRoleFlags(req, res, deps, identity.email);
   const caller = await resolvePersonId(deps.firestore, identity.email);
   if (!staff && ownerPersonId.toLowerCase() !== caller.personId.toLowerCase()) {
     throw new AuthError('Brak uprawnień do tego opiekuna.', 403);
@@ -5377,7 +5365,6 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
   const ownerKey = owner.personId;
   const allowedEmails = await deps.listMemberEmails();
   if (!allowedEmails.includes(ownerKey)) throw new AuthError('Nie znaleziono takiego członka.', 404);
-  const accountantOnly = await isAccountantOnlyPersonStaff(req, res, deps, identity.email);
   if (accountantOnly && ownerKey.toLowerCase() !== identity.email.toLowerCase()) {
     const member = await getMember(deps.firestore, ownerKey);
     if (!member || member.hidden === true) throw new AuthError('Nie znaleziono takiego członka.', 404);
