@@ -42,6 +42,10 @@ function captureContainer() {
       const chip = { dataset: { filterGroup: group, filterValue: value }, disabled: false, focus() {} };
       handler!({ target: { closest: (sel: string) => (sel === '[data-filter-group]' ? chip : null) } });
     },
+    cycle(group: string, states: string) {
+      const chip = { dataset: { filterGroup: group, filterCycle: states }, disabled: false, focus() {} };
+      handler!({ target: { closest: (sel: string) => (sel === '[data-filter-group]' ? chip : null) } });
+    },
     clear() {
       const clearButton = { dataset: { filterClear: '' }, disabled: false, focus() {} };
       handler!({ target: { closest: (sel: string) => (sel === '[data-filter-clear]' ? clearButton : null) } });
@@ -91,6 +95,39 @@ test('clearing the filter saves the empty selection', () => {
   ui.clear();
   const restored = h.createSummaryFilter(['section'], { key, slot: 'directory' });
   assert.deepEqual(values(restored.selected.section), []);
+});
+
+test('a three-state cycle advances through each value and returns to an unfiltered state', () => {
+  const h = load(undefined);
+  const filter = h.createSummaryFilter(['contribution']);
+  const ui = captureContainer();
+  h.wireSummaryFilter(ui.container, filter, () => {});
+
+  ui.cycle('contribution', 'paid unpaid not_applicable');
+  assert.deepEqual(values(filter.selected.contribution), ['paid']);
+  ui.cycle('contribution', 'paid unpaid not_applicable');
+  assert.deepEqual(values(filter.selected.contribution), ['unpaid']);
+  ui.cycle('contribution', 'paid unpaid not_applicable');
+  assert.deepEqual(values(filter.selected.contribution), ['not_applicable']);
+  ui.cycle('contribution', 'paid unpaid not_applicable');
+  assert.deepEqual(values(filter.selected.contribution), []);
+});
+
+test('a cycled contribution filter persists and combines with other roster groups', () => {
+  const storage = memoryStorage();
+  const h = load(storage);
+  const preference = { key: h.LIST_PREFERENCE_KEYS.wyjazdSummaryFilter as string, slot: 'roster' };
+  const filter = h.createSummaryFilter(['section', 'contributionStatus'], preference);
+  const ui = captureContainer();
+  h.wireSummaryFilter(ui.container, filter, () => {});
+  ui.click('section', 'krakow');
+  ui.cycle('contributionStatus', 'paid unpaid not_applicable');
+
+  const restored = h.createSummaryFilter(['section', 'contributionStatus'], preference);
+  assert.deepEqual(values(restored.selected.contributionStatus), ['paid']);
+  assert.equal(h.summaryFilterMatches(restored, { section: 'krakow', contributionStatus: 'paid' }), true);
+  assert.equal(h.summaryFilterMatches(restored, { section: 'krakow', contributionStatus: 'unpaid' }), false);
+  assert.equal(h.summaryFilterMatches(restored, { section: 'poznan', contributionStatus: 'paid' }), false);
 });
 
 test('several slots under one page-type key keep each other (event roster and equipment)', () => {
@@ -157,7 +194,7 @@ test('a throwing or missing storage never breaks clicking a pill', () => {
 test('the three page types opt in with their own slots', () => {
   assert.match(czlonkowieSource, /createSummaryFilter\(\['section', 'category'\], \{ key: LIST_PREFERENCE_KEYS\.spisSummaryFilter, slot: 'directory' \}\)/);
   assert.match(skladkiSource, /createSummaryFilter\(\['section', 'category'\], \{ key: LIST_PREFERENCE_KEYS\.skladkiSummaryFilter, slot: 'summary' \}\)/);
-  assert.match(wyjazdSource, /createSummaryFilter\(\['section', 'weapon', 'category'\], \{ key: LIST_PREFERENCE_KEYS\.wyjazdSummaryFilter, slot: 'roster' \}\)/);
+  assert.match(wyjazdSource, /createSummaryFilter\(\['section', 'weapon', 'category', 'contributionStatus'\], \{ key: LIST_PREFERENCE_KEYS\.wyjazdSummaryFilter, slot: 'roster' \}\)/);
   assert.match(wyjazdSource, /createSummaryFilter\(\['equipmentCategory'\], \{ key: LIST_PREFERENCE_KEYS\.wyjazdSummaryFilter, slot: 'equipment' \}\)/);
 });
 

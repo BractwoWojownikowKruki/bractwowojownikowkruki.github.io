@@ -52,12 +52,13 @@ class Element {
   }
   setAttribute(name: string, value: string) { this.attributes.set(name, value); }
   getAttribute(name: string) { return this.attributes.get(name) ?? null; }
+  querySelectorAll() { return []; }
   scrollIntoView() {}
 }
 
 const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'not-found-panel', 'main-content', 'lw-error',
-  'skladka-fee-display', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
+  'skladka-fee-display', 'skladka-fee-status-summary', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
   'skladka-fee-save', 'skladka-fee-remove', 'roster-panel', 'summary-content', 'summary-panel',
   'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni',
   'event-title', 'event-meta', 'event-description',
@@ -67,13 +68,14 @@ const elementIds = [
   'event-share-button', 'event-share-button-text',
 ];
 
-function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]> } = {}) {
+function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]>; signupStatusByPersonId?: Record<string, string | undefined>; signupAttendingByPersonId?: Record<string, boolean>; initialStorage?: Record<string, string> } = {}) {
   const canManageSkladki = options.canManageSkladki ?? true;
   const canManagePeople = options.canManagePeople ?? false;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
   // Mirrors index.html's default: "Zgłoszeni + ja" starts checked, "Niezgłoszeni" unchecked.
   elements.get('roster-filter-zgloszeni')!.checked = true;
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
+  const localStore = new Map(Object.entries(options.initialStorage ?? {}));
   let mutationResult: unknown = null;
   let mutationError: Error | null = null;
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
@@ -93,6 +95,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   const eventRoster = options.withRemovedPerson ? [...currentRoster, removedPerson] : currentRoster;
   const signups = [
     { memberEmail: 'signed@example.com', attending: true, skladkaStatus: 'unpaid' },
+    ...Object.entries(options.signupStatusByPersonId ?? {}).map(([memberEmail, skladkaStatus]) => ({ memberEmail, attending: options.signupAttendingByPersonId?.[memberEmail] ?? true, skladkaStatus })),
     ...(options.withRemovedPerson ? [{ memberEmail: 'gone-uuid-1', attending: true, skladkaStatus: 'unpaid' }] : []),
     // KRKG-0089: an attached person already marked "nie jadę" (a signup with attending:false) must
     // still be offered in the add panel so they can be added back.
@@ -127,6 +130,10 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
       getElementById: (id: string) => elements.get(id) ?? null,
       querySelectorAll: () => [],
       addEventListener: () => {},
+    },
+    localStorage: {
+      getItem: (key: string) => localStore.get(key) ?? null,
+      setItem: (key: string, value: string) => { localStore.set(key, value); },
     },
     initSortableTable: () => ({ key: 'section', dir: 'asc' }),
     compareValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
@@ -234,6 +241,186 @@ test('roster checkboxes filter locally and preserve the signed-in viewer', async
   assert.equal(harness.apiCalls.length, requestsBeforeToggle);
 });
 
+test('the contribution filter cycles through paid, unpaid and not applicable and combines with roster visibility', async () => {
+  const harness = createHarness(event('50 zł'), {
+    signupStatusByPersonId: {
+      'viewer@example.com': 'paid',
+      'other@example.com': 'not_applicable',
+    },
+  });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  const summary = harness.elements.get('summary-panel')!;
+  const clickContributionFilter = async () => summary.clickWith({
+    closest: (selector: string) => selector === '[data-filter-group]'
+      ? { dataset: { filterGroup: 'contributionStatus', filterCycle: 'paid unpaid not_applicable' }, disabled: false, focus() {} }
+      : null,
+  });
+
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /Wszystkie/);
+  assert.match(roster.innerHTML, /signed@example\.com/);
+  assert.match(roster.innerHTML, /viewer@example\.com/);
+  assert.match(roster.innerHTML, /other@example\.com/);
+
+  await clickContributionFilter();
+  assert.match(roster.innerHTML, /viewer@example\.com/);
+  assert.doesNotMatch(roster.innerHTML, /signed@example\.com|other@example\.com/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="paid"[^>]*aria-label="Filtr składki: opłacona\. Kliknij, aby zmienić"[^>]*>.*opłacona/);
+  assert.doesNotMatch(harness.elements.get('summary-content')!.innerHTML, /data-filter-group="contributionStatus"[^>]*aria-pressed/);
+
+  await clickContributionFilter();
+  assert.match(roster.innerHTML, /signed@example\.com/);
+  assert.doesNotMatch(roster.innerHTML, /viewer@example\.com|other@example\.com/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="unpaid"[^>]*aria-label="Filtr składki: nieopłacona\. Kliknij, aby zmienić"[^>]*>.*nieopłacona/);
+
+  await clickContributionFilter();
+  assert.doesNotMatch(roster.innerHTML, /signed@example\.com|viewer@example\.com/);
+  assert.match(roster.innerHTML, /other@example\.com/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="not_applicable"[^>]*aria-label="Filtr składki: nie dotyczy\. Kliknij, aby zmienić"[^>]*>.*nie dotyczy/);
+
+  await clickContributionFilter();
+  assert.match(roster.innerHTML, /signed@example\.com/);
+  assert.match(roster.innerHTML, /viewer@example\.com/);
+  assert.match(roster.innerHTML, /other@example\.com/);
+});
+
+test('fee summary counts attending signups by status with icons, labels and numbers', async () => {
+  const harness = createHarness(event('50 zł'), {
+    signupStatusByPersonId: {
+      'viewer@example.com': 'paid',
+      'other@example.com': 'not_applicable',
+    },
+  });
+  await harness.signIn();
+
+  const summary = harness.elements.get('skladka-fee-status-summary')!;
+  assert.equal(summary.hidden, false);
+  assert.match(summary.innerHTML, /data-status="paid"[^>]*aria-hidden="true">💰<\/span><span>Opłacone<\/span><strong>1<\/strong>/);
+  assert.match(summary.innerHTML, /data-status="unpaid"[^>]*aria-hidden="true">💰<\/span><span>Nieopłacone<\/span><strong>1<\/strong>/);
+  assert.match(summary.innerHTML, /data-status="not_applicable"[^>]*aria-hidden="true">💰<\/span><span>Nie dotyczy<\/span><strong>1<\/strong>/);
+});
+
+test('unknown contribution statuses use the unpaid color, pill and count fallback', async () => {
+  const harness = createHarness(event('50 zł', '2026-10-20'), {
+    signupStatusByPersonId: { 'viewer@example.com': 'unexpected' },
+  });
+  await harness.signIn();
+
+  assert.equal(harness.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'unpaid');
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /data-status="unpaid"/);
+  assert.match(harness.elements.get('skladka-fee-status-summary')!.innerHTML, /data-status="unpaid"[^>]*>💰<\/span><span>Nieopłacone<\/span><strong>2<\/strong>/);
+});
+
+test('fee status counts refresh when a signup contribution status changes', async () => {
+  const harness = createHarness(event('50 zł'), {
+    signupStatusByPersonId: { 'viewer@example.com': 'unpaid' },
+  });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  const control = {
+    dataset: { personId: 'viewer@example.com', status: 'unpaid' },
+    disabled: false,
+  };
+  await roster.clickWith({ closest: (selector: string) => selector === '.lw-skladka-icon' ? control : null });
+
+  const html = harness.elements.get('skladka-fee-status-summary')!.innerHTML;
+  assert.match(html, /data-status="unpaid"[^>]*>💰<\/span><span>Nieopłacone<\/span><strong>1<\/strong>/);
+  assert.match(html, /data-status="paid"[^>]*>💰<\/span><span>Opłacone<\/span><strong>1<\/strong>/);
+});
+
+test('attendance changes refresh fee counts and the viewer deadline pill', async () => {
+  const harness = createHarness(event('50 zł', '2026-10-20'), {
+    signupStatusByPersonId: { 'viewer@example.com': 'paid' },
+  });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  const toggleAttendance = async (attending: boolean) => {
+    harness.setMutationResult({ signup: { memberEmail: 'viewer@example.com', attending, skladkaStatus: 'paid' } });
+    await roster.clickWith({
+      closest: (selector: string) => selector === '.lw-attend-toggle'
+        ? { dataset: { personId: 'viewer@example.com', attending: String(!attending) }, disabled: false }
+        : null,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+
+  await toggleAttendance(false);
+  assert.match(harness.elements.get('skladka-fee-status-summary')!.innerHTML, /data-status="paid"[^>]*>💰<\/span><span>Opłacone<\/span><strong>0<\/strong>/);
+  assert.equal(harness.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'neutral');
+
+  await toggleAttendance(true);
+  assert.match(harness.elements.get('skladka-fee-status-summary')!.innerHTML, /data-status="paid"[^>]*>💰<\/span><span>Opłacone<\/span><strong>1<\/strong>/);
+  assert.equal(harness.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'paid');
+});
+
+test('contribution filtering excludes non-attending and no-signup rows and uses the unpaid fallback', async () => {
+  const harness = createHarness(event('50 zł'), {
+    withAttachedPerson: true,
+    signupStatusByPersonId: {
+      'viewer@example.com': 'paid',
+      'other@example.com': 'unpaid',
+    },
+    signupAttendingByPersonId: { 'other@example.com': false },
+  });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  const summary = harness.elements.get('summary-panel')!;
+  harness.elements.get('roster-filter-niezgloszeni')!.checked = true;
+  await harness.elements.get('roster-filter-niezgloszeni')!.change();
+  const clickContributionFilter = () => summary.clickWith({
+    closest: (selector: string) => selector === '[data-filter-group]'
+      ? { dataset: { filterGroup: 'contributionStatus', filterCycle: 'paid unpaid not_applicable' }, disabled: false, focus() {} }
+      : null,
+  });
+  await clickContributionFilter();
+  await clickContributionFilter();
+
+  assert.match(roster.innerHTML, /signed@example\.com/);
+  assert.doesNotMatch(roster.innerHTML, /viewer@example\.com|other@example\.com|attached-uuid-1/);
+
+  const missingStatusHarness = createHarness(event('50 zł'), {
+    signupStatusByPersonId: { 'viewer@example.com': undefined },
+  });
+  await missingStatusHarness.signIn();
+  const unpaidFilter = missingStatusHarness.elements.get('summary-panel')!;
+  const cycleToUnpaid = () => unpaidFilter.clickWith({
+    closest: (selector: string) => selector === '[data-filter-group]'
+      ? { dataset: { filterGroup: 'contributionStatus', filterCycle: 'paid unpaid not_applicable' }, disabled: false, focus() {} }
+      : null,
+  });
+  await cycleToUnpaid();
+  await cycleToUnpaid();
+  assert.match(missingStatusHarness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
+});
+
+test('the contribution filter is hidden and cleared when the event has no fee', async () => {
+  const harness = createHarness(event(null), {
+    withAttachedPerson: true,
+    initialStorage: {
+      'kruki_pref_wyjazd_summary_filter': JSON.stringify({ v: 1, value: { roster: { contributionStatus: ['paid'] } } }),
+    },
+  });
+  await harness.signIn();
+
+  assert.doesNotMatch(harness.elements.get('summary-content')!.innerHTML, /lw-contribution-filter/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-active="false"/);
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /signed@example\.com/);
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
+});
+
+test('unknown stored contribution statuses restore as an unfiltered state', async () => {
+  const harness = createHarness(event('50 zł'), {
+    initialStorage: {
+      'kruki_pref_wyjazd_summary_filter': JSON.stringify({ v: 1, value: { roster: { contributionStatus: ['unexpected'] } } }),
+    },
+  });
+  await harness.signIn();
+
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-status="all"[^>]*>.*Wszystkie/);
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /signed@example\.com/);
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
+});
+
 test('roster shows one combo icon and a T/W/D letter caption for multi-weapon members', async () => {
   const harness = createHarness(event(null), {
     memberWeapons: {
@@ -260,6 +447,7 @@ test('blank fee values hide payment icons while a confirmed event update re-rend
     const harness = createHarness(event(fee));
     await harness.signIn();
     assert.doesNotMatch(harness.elements.get('roster-content')!.innerHTML, /lw-skladka-icon/);
+    assert.equal(harness.elements.get('skladka-fee-status-summary')!.hidden, true);
   }
   const harness = createHarness(event(null));
   await harness.signIn();
@@ -321,6 +509,31 @@ test('removing the fee clears both fields, sends nulls and hides payment icons',
   assert.equal(harness.elements.get('skladka-fee-duedate-input')!.disabled, true);
   assert.equal(harness.elements.get('skladka-fee-remove')!.disabled, true);
   assert.doesNotMatch(roster.innerHTML, /lw-skladka-icon/);
+});
+
+test('removing an event fee clears the active contribution filter and refreshes the summary', async () => {
+  const harness = createHarness(event('50 zł'), {
+    signupStatusByPersonId: { 'viewer@example.com': 'paid' },
+  });
+  await harness.signIn();
+  const summary = harness.elements.get('summary-panel')!;
+  const cycleFilter = () => summary.clickWith({
+    closest: (selector: string) => selector === '[data-filter-group]'
+      ? { dataset: { filterGroup: 'contributionStatus', filterCycle: 'paid unpaid not_applicable' }, disabled: false, focus() {} }
+      : null,
+  });
+  await cycleFilter();
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
+  assert.doesNotMatch(harness.elements.get('roster-content')!.innerHTML, /signed@example\.com/);
+
+  harness.setMutationResult({ event: event(null, null) });
+  await harness.elements.get('skladka-fee-remove')!.click();
+
+  assert.equal(harness.elements.get('skladka-fee-status-summary')!.hidden, true);
+  assert.doesNotMatch(harness.elements.get('summary-content')!.innerHTML, /lw-contribution-filter/);
+  assert.match(harness.elements.get('summary-content')!.innerHTML, /data-filter-active="false"/);
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /signed@example\.com/);
+  assert.match(harness.elements.get('roster-content')!.innerHTML, /viewer@example\.com/);
 });
 
 test('an empty fee disables and clears the due-date field and never sends a date', async () => {

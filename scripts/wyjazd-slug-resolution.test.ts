@@ -31,7 +31,7 @@ class Element {
 
 const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'not-found-panel', 'main-content', 'lw-error',
-  'skladka-fee-display', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
+  'skladka-fee-display', 'skladka-fee-status-summary', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
   'skladka-fee-save', 'skladka-fee-remove', 'summary-content', 'summary-panel', 'roster-panel', 'roster-table',
   'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni', 'event-title',
   'event-meta', 'event-description', 'event-edit-toggle', 'event-edit-panel', 'event-history-link',
