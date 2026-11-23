@@ -28,7 +28,7 @@ test('Mój profil renders attached people from the roster and writes them throug
 });
 
 test('Mój profil person rows carry identity fields and clear/hide weapons for Niewiasta/Bobo', () => {
-  assert.match(script, /const NO_WEAPON_CATEGORY_IDS = \['niewiasta', 'bobo'\]/);
+  assert.match(script, /ProfilePanel\.isWeaponAllowedCategory/);
   assert.match(script, /name="personWeaponIds"/);
   assert.doesNotMatch(script, /relacja/);
   for (const cls of ['person-ksywka', 'person-first-name', 'person-last-name', 'person-category', 'person-section']) {

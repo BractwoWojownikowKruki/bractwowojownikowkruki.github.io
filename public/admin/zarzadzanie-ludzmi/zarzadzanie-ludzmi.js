@@ -446,7 +446,7 @@ function inactiveRolesHintHtml(status, roles) {
 // sectionOptions/categoryOptions above) stays offered here if this member currently has it
 // checked, otherwise drops out of new selection - mirrors profil.js's selectableLookupItems.
 function weaponCheckboxesHtml(email, weapons, currentWeaponIds, categoryId) {
-  if (ACCOUNT_NO_WEAPON_CATEGORY_IDS.includes(categoryId)) return '';
+  if (!window.ProfilePanel.isWeaponAllowedCategory(categoryId)) return '';
   const current = new Set(currentWeaponIds ?? []);
   return weapons
     .filter(w => !w.retired || current.has(w.id))
@@ -594,7 +594,7 @@ async function saveMemberProfileField(row, email, control) {
           member.nickname = nickname || null;
           member.sectionId = sectionId;
           member.categoryId = categoryId;
-          if (ACCOUNT_NO_WEAPON_CATEGORY_IDS.includes(categoryId)) member.weaponIds = [];
+          if (!window.ProfilePanel.isWeaponAllowedCategory(categoryId)) member.weaponIds = [];
         }
         const weaponCell = row.querySelector('.member-weapons-cell');
         weaponCell.innerHTML = weaponCheckboxesHtml(email, membershipMembersCache.weapons, member?.weaponIds ?? [], categoryId);
@@ -867,7 +867,6 @@ document.getElementById('membership-members-list').addEventListener('click', asy
 // writes go through the same /lista-wyjazdowa/persons routes Mój profil uses (POST/PUT/DELETE
 // /persons, PUT /persons/owner to detach), with the merge being administrator-only
 // (PUT /persons/account). The server re-checks the staff role on every write.
-const ACCOUNT_NO_WEAPON_CATEGORY_IDS = ['niewiasta', 'bobo'];
 let accountlessCache = { persons: [], sections: [], categories: [], weapons: [] };
 let editingAccountlessPersonId = null;
 
@@ -889,7 +888,7 @@ function accountlessWeaponCheckboxesHtml(weapons, currentIds) {
 // Niewiasta/Bobo never carry a weapon (server: persons.ts's weaponAllowedForCategory) - clear and
 // hide the weapon group so the form can't offer a combination the save would reject.
 function updateAccountlessWeaponState() {
-  const allowed = !ACCOUNT_NO_WEAPON_CATEGORY_IDS.includes(document.getElementById('accountless-category').value);
+  const allowed = window.ProfilePanel.isWeaponAllowedCategory(document.getElementById('accountless-category').value);
   const weapons = document.getElementById('accountless-weapons');
   document.getElementById('accountless-weapon-field').hidden = !allowed;
   if (!allowed) {
@@ -941,7 +940,7 @@ wireSummaryFilter(document.getElementById('accountless-summary-filter'), account
 
 function renderAccountless(persons) {
   accountlessCache.persons = persons;
-  document.getElementById('accountless-summary-filter').innerHTML = persons.length
+  const filterHtml = persons.length
     ? summaryFilterColumns(accountlessFilter, persons, accountlessCache.sections, accountlessCache.categories)
     : '';
   const shown = persons.filter((person) => summaryFilterMatches(accountlessFilter, personFilterValues(person)));
@@ -949,12 +948,13 @@ function renderAccountless(persons) {
   const categoryLabelById = new Map(accountlessCache.categories.map((c) => [c.id, c.label]));
   const weaponLabelById = new Map(accountlessCache.weapons.map((w) => [w.id, w.label]));
   const tbody = document.getElementById('accountless-list');
+  let rowsHtml;
   if (shown.length === 0) {
-    tbody.innerHTML = persons.length
+    rowsHtml = persons.length
       ? '<tr><td colspan="7" class="czl-empty">Brak osób dla wybranych filtrów.</td></tr>'
       : '<tr><td colspan="7" class="czl-empty">Brak osób bez konta.</td></tr>';
   } else {
-    tbody.innerHTML = shown.map((person) => {
+    rowsHtml = shown.map((person) => {
       const categoryLabel = person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : null;
       const namePill = personPillHtml({ name: accountlessDisplayName(person), categoryId: person.categoryId, categoryLabel, accountless: true, subline: personSubline(person) });
       // A deactivated person's drawer 404s, so their pill is plain text; an active one opens it.
@@ -974,12 +974,15 @@ function renderAccountless(persons) {
     </tr>`;
     }).join('');
   }
-  document.getElementById('accountless-merge-person').innerHTML =
+  const mergeOptionsHtml =
     '<option value="">— wybierz osobę —</option>' +
     persons
       .filter((person) => !person.deleted)
       .map((person) => `<option value="${escapeAttr(person.personId)}">${escapeHtml(accountlessDisplayName(person))}</option>`)
       .join('');
+  document.getElementById('accountless-summary-filter').innerHTML = filterHtml;
+  tbody.innerHTML = rowsHtml;
+  document.getElementById('accountless-merge-person').innerHTML = mergeOptionsHtml;
 }
 
 function accountlessActionsHtml(person) {
@@ -1013,7 +1016,6 @@ async function loadAccountless() {
     renderAccountless(persons);
   } catch (err) {
     accountlessTableLoaded = false;
-    document.getElementById('accountless-summary-filter').innerHTML = '';
     tbody.innerHTML = `<tr><td colspan="7" class="czl-empty">Błąd: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
@@ -1076,7 +1078,7 @@ async function submitAccountlessForm() {
     lastName: document.getElementById('accountless-last-name').value.trim(),
     categoryId,
     sectionId: document.getElementById('accountless-section-select').value,
-    weaponIds: ACCOUNT_NO_WEAPON_CATEGORY_IDS.includes(categoryId)
+    weaponIds: !window.ProfilePanel.isWeaponAllowedCategory(categoryId)
       ? []
       : Array.from(document.querySelectorAll('#accountless-weapons .accountless-weapon-checkbox:checked')).map((cb) => cb.value),
   };
