@@ -317,6 +317,31 @@ test('fee status counts refresh when a signup contribution status changes', asyn
   assert.match(html, /data-status="paid"[^>]*>💰<\/span><span>Opłacone<\/span><strong>1<\/strong>/);
 });
 
+test('attendance changes refresh fee counts and the viewer deadline pill', async () => {
+  const harness = createHarness(event('50 zł', '2026-10-20'), {
+    signupStatusByPersonId: { 'viewer@example.com': 'paid' },
+  });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  const toggleAttendance = async (attending: boolean) => {
+    harness.setMutationResult({ signup: { memberEmail: 'viewer@example.com', attending, skladkaStatus: 'paid' } });
+    await roster.clickWith({
+      closest: (selector: string) => selector === '.lw-attend-toggle'
+        ? { dataset: { personId: 'viewer@example.com', attending: String(!attending) }, disabled: false }
+        : null,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+
+  await toggleAttendance(false);
+  assert.match(harness.elements.get('skladka-fee-status-summary')!.innerHTML, /data-status="paid"[^>]*>💰<\/span><span>Opłacone<\/span><strong>0<\/strong>/);
+  assert.equal(harness.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'neutral');
+
+  await toggleAttendance(true);
+  assert.match(harness.elements.get('skladka-fee-status-summary')!.innerHTML, /data-status="paid"[^>]*>💰<\/span><span>Opłacone<\/span><strong>1<\/strong>/);
+  assert.equal(harness.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'paid');
+});
+
 test('contribution filtering excludes non-attending and no-signup rows and uses the unpaid fallback', async () => {
   const harness = createHarness(event('50 zł'), {
     withAttachedPerson: true,

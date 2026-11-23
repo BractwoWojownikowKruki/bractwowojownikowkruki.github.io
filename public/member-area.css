@@ -2047,6 +2047,10 @@ button.lw-filter-chip {
   color: var(--text-muted);
 }
 
+.lw-deadline-pill[data-state="not_applicable"] .lw-deadline-mark {
+  color: var(--text-faint);
+}
+
 .lw-deadline-mark {
   font-weight: 700;
 }

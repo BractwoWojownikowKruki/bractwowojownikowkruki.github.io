@@ -291,6 +291,7 @@ function renderDeadlinePill(event) {
   const marks = {
     paid: '<span class="lw-deadline-mark" title="Składka opłacona" aria-label="Składka opłacona">✓</span>',
     unpaid: '<span class="lw-deadline-mark" title="Składka nieopłacona" aria-label="Składka nieopłacona">✗</span>',
+    not_applicable: '<span class="lw-deadline-mark" title="Składka nie dotyczy" aria-label="Składka nie dotyczy">○</span>',
   };
   pill.innerHTML = `${marks[state] ?? ''}<small>termin</small> ${escapeHtml(formatDate(dueDate))} <span class="lw-deadline-days">(${escapeHtml(daysUntilLabel(days))})</span>`;
 }
@@ -302,7 +303,6 @@ function renderSkladkaFee(event) {
   const fee = normalizeSkladkaFee(event.skladkaFee);
   const dueDate = normalizeSkladkaDueDate(event.dueDate);
   display.textContent = fee || 'Nie ustalono';
-  renderContributionStatusSummary(cachedSignups);
   renderDeadlinePill(event);
   // KRKG-0102: the Edytuj toggle only exists for members who can actually save a change (server
   // re-checks anyway) - the form itself stays collapsed by default even for them, tracked by
@@ -401,8 +401,7 @@ async function toggleSkladkaStatus(personId, nextStatus, control) {
   }
 }
 
-// #summary-content (counts) is derived from the attending/roster join.
-//
+// Renders the three fee-status totals for attending participants beside the event fee.
 function renderContributionStatusSummary(signups) {
   const container = document.getElementById('skladka-fee-status-summary');
   if (!container) return;
@@ -426,6 +425,8 @@ function renderContributionStatusSummary(signups) {
   ).join('');
 }
 
+// #summary-content (counts) is derived from the attending/roster join.
+//
 // Wg broni counts each attendee exactly once, grouped by their *complete* weaponIds set (see
 // weaponGroupLabel/weaponGroupKey above) - unlike weaponSortLabel's roster-sort grouping (which
 // only looks at the first weaponId), someone able to use two weapons is its own distinct headcount

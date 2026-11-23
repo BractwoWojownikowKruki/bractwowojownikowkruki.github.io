@@ -249,6 +249,7 @@ test('Wyjazd deadline pill color follows the viewer contribution status regardle
   const notApplicable = createHarness([], { skladkaFee: '50 zł', dueDate: '2099-01-01' }, [{ memberEmail: 'viewer@example.com', attending: true, skladkaStatus: 'not_applicable' }]);
   await notApplicable.signIn();
   assert.equal(notApplicable.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'not_applicable');
+  assert.match(notApplicable.elements.get('skladka-fee-duedate-pill')!.innerHTML, /aria-label="Składka nie dotyczy">○/);
   const notAttending = createHarness([], { skladkaFee: '50 zł', dueDate: past });
   await notAttending.signIn();
   assert.equal(notAttending.elements.get('skladka-fee-duedate-pill')!.dataset.state, 'neutral');
