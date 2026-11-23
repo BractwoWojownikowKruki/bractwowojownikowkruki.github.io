@@ -199,7 +199,15 @@ test('the event list shows the optional start-time pill next to the date', async
   const listHtml = harness.elements.get('events-list')!.innerHTML;
   assert.match(listHtml, /class="lw-event-meta lw-event-meta--timed"/);
   assert.match(listHtml, /class="lw-event-meta-date">[\s\S]*?lw-time-pill[^>]*><span class="sr-only">Godzina rozpoczęcia: <\/span>[\s\S]*?09:30/);
-  assert.match(listHtml, /class="lw-event-meta-icons">.*attendee-badge.*lw-event-card-links/s);
+  assert.match(listHtml, /class="lw-event-meta-icons">[\s\S]*?attendee-badge[\s\S]*?lw-event-card-links/);
+});
+
+test('an event without a start time keeps its date and secondary icons in the compact row', async () => {
+  const harness = createHarness({ events: [{ id: 'e1', name: 'Wyjazd', startDate: '2027-05-01', status: 'active', viewerAttending: true, attendingCount: 1 }] });
+  await harness.signIn();
+  const listHtml = harness.elements.get('events-list')!.innerHTML;
+  assert.match(listHtml, /class="lw-event-meta">[\s\S]*?class="lw-event-meta-date">[\s\S]*?lw-date-pill[\s\S]*?class="lw-event-meta-icons">[\s\S]*?attendee-badge[\s\S]*?lw-event-card-links[\s\S]*?<\/span>/);
+  assert.doesNotMatch(listHtml, /lw-event-meta--timed|lw-time-pill/);
 });
 
 test('a hidden member gets no add-companion control even while attending', async () => {

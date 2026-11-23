@@ -990,9 +990,7 @@
 /* Trip-card metadata keeps date/time together and groups the secondary attendee/map/Discord icons. */
 .lw-event-meta { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: nowrap; }
 .lw-event-meta-date,
-.lw-event-meta-icons { display: inline-flex; align-items: center; gap: 0.6rem; }
-.lw-event-meta-date { flex: 0 0 auto; }
-.lw-event-meta-icons { flex: 0 0 auto; }
+.lw-event-meta-icons { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 0.6rem; }
 
 .lw-event-card-links {
   display: inline-flex;
@@ -2621,6 +2619,7 @@ button.skladki-charge-btn.lw-filter-chip[aria-pressed="true"] {
 
   .lw-event-meta--timed .lw-event-meta-icons {
     max-width: 100%;
+    flex-wrap: wrap;
   }
 
   /* Member tables (KRKG-0053) - .content-section already borders the whole page section, so
