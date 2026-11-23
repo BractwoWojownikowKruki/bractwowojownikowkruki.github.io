@@ -940,7 +940,7 @@ wireSummaryFilter(document.getElementById('accountless-summary-filter'), account
 
 function renderAccountless(persons) {
   accountlessCache.persons = persons;
-  document.getElementById('accountless-summary-filter').innerHTML = persons.length
+  const filterHtml = persons.length
     ? summaryFilterColumns(accountlessFilter, persons, accountlessCache.sections, accountlessCache.categories)
     : '';
   const shown = persons.filter((person) => summaryFilterMatches(accountlessFilter, personFilterValues(person)));
@@ -948,12 +948,13 @@ function renderAccountless(persons) {
   const categoryLabelById = new Map(accountlessCache.categories.map((c) => [c.id, c.label]));
   const weaponLabelById = new Map(accountlessCache.weapons.map((w) => [w.id, w.label]));
   const tbody = document.getElementById('accountless-list');
+  let rowsHtml;
   if (shown.length === 0) {
-    tbody.innerHTML = persons.length
+    rowsHtml = persons.length
       ? '<tr><td colspan="7" class="czl-empty">Brak osób dla wybranych filtrów.</td></tr>'
       : '<tr><td colspan="7" class="czl-empty">Brak osób bez konta.</td></tr>';
   } else {
-    tbody.innerHTML = shown.map((person) => {
+    rowsHtml = shown.map((person) => {
       const categoryLabel = person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : null;
       const namePill = personPillHtml({ name: accountlessDisplayName(person), categoryId: person.categoryId, categoryLabel, accountless: true, subline: personSubline(person) });
       // A deactivated person's drawer 404s, so their pill is plain text; an active one opens it.
@@ -973,12 +974,15 @@ function renderAccountless(persons) {
     </tr>`;
     }).join('');
   }
-  document.getElementById('accountless-merge-person').innerHTML =
+  const mergeOptionsHtml =
     '<option value="">— wybierz osobę —</option>' +
     persons
       .filter((person) => !person.deleted)
       .map((person) => `<option value="${escapeAttr(person.personId)}">${escapeHtml(accountlessDisplayName(person))}</option>`)
       .join('');
+  document.getElementById('accountless-summary-filter').innerHTML = filterHtml;
+  tbody.innerHTML = rowsHtml;
+  document.getElementById('accountless-merge-person').innerHTML = mergeOptionsHtml;
 }
 
 function accountlessActionsHtml(person) {
