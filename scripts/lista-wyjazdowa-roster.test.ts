@@ -157,7 +157,13 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     },
     document: {
       getElementById: (id: string) => elements.get(id) ?? null,
-      querySelector: (selector: string) => { const target = { selector, focused: false, focus() { this.focused = true; } }; focusTargets.push(target); return target; },
+      querySelector: (selector: string) => {
+        const filteredToNonAttending = elements.get('roster-filter-zgloszeni')?.checked === false;
+        if (filteredToNonAttending && (selector.includes('.lw-attend-toggle') || selector.includes('.lw-add-companion'))) return null;
+        const target = { selector, focused: false, focus() { this.focused = true; } };
+        focusTargets.push(target);
+        return target;
+      },
       querySelectorAll: () => [],
       addEventListener: () => {},
     },
@@ -203,6 +209,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   vm.runInNewContext(listPreferencesSource, context, { filename: 'list-preferences.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   return {
+    context,
     elements,
     apiCalls,
     async signIn() { await signIn?.({ email: 'viewer@example.com' }); },
@@ -839,6 +846,27 @@ test('confirming a duplicate quick-add on the event detail page retries once wit
   assert.equal(requests.length, 2);
   assert.equal(JSON.parse(String(requests[0].options.body)).duplicateConfirmed, undefined);
   assert.equal(JSON.parse(String(requests[1].options.body)).duplicateConfirmed, true);
+});
+
+test('trip detail falls back to its roster filter when the newly attending person is not rendered', async () => {
+  const harness = createHarness(event(null), { withAttachedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Kowalski';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Jan';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  harness.elements.get('roster-filter-zgloszeni')!.checked = false;
+  vm.runInContext('showSignedUpAndMe = false', harness.context);
+  harness.setMutationResult({
+    person: { personId: 'new-uuid-1', firstName: 'Jan', lastName: 'Kowalski', nickname: 'Nowy', categoryId: 'kandydat' },
+    signup: { memberEmail: 'new-uuid-1', attending: true, skladkaStatus: 'unpaid' },
+  });
+
+  await roster.clickWith(clickTarget('.lw-inline-add-new'));
+
+  assert.equal(harness.elements.get('roster-filter-zgloszeni')!.focused, true);
 });
 
 test('the old lw-subnav pill row is gone, replaced by the shared top bar (non-sticky on this page)', () => {

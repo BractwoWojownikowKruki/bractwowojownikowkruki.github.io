@@ -153,3 +153,59 @@ test('profile person registration ignores a second submit while the first reques
   await firstSubmit;
   assert.equal(control.disabled, false);
 });
+
+test('profile person registration ignores a second submit while the confirmed retry is in flight', async () => {
+  let finishRetry!: (value: unknown) => void;
+  const postBodies: Array<Record<string, unknown>> = [];
+  const { context } = loadProfil();
+  context.apiFetch = async (_url?: string, init?: Record<string, unknown>) => {
+    if (init?.method === 'POST') {
+      const body = JSON.parse(String(init.body));
+      postBodies.push(body);
+      if (!body.duplicateConfirmed) throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ nickname: 'Wilk' }] });
+      return new Promise((resolve) => { finishRetry = resolve; });
+    }
+    if (_url === '/lista-wyjazdowa/roster') return { roster: [] };
+    return {};
+  };
+  (context as any).window.PersonRegistrationPrompt = {
+    run: async (execute: (confirmed: boolean) => Promise<unknown>) => {
+      try { return await execute(false); } catch (error: any) {
+        if (!Array.isArray(error?.duplicateMatches)) throw error;
+        return execute(true);
+      }
+    },
+    wasCancelled: () => false,
+  };
+  vm.runInContext("viewerEmail = 'owner@example.test'", context);
+  const control = { disabled: false };
+  const fields = { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' };
+  const firstSubmit = (context.createPerson as (fields: Record<string, string>, control: unknown) => Promise<void>)(fields, control);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(postBodies.length, 2);
+  await (context.createPerson as (fields: Record<string, string>, control: unknown) => Promise<void>)(fields, control);
+  assert.equal(postBodies.length, 2);
+  finishRetry({ person: { personId: 'new-person' } });
+  await firstSubmit;
+  assert.equal(control.disabled, false);
+});
+
+test('profile deactivation focuses the persistent add button after its row disappears', async () => {
+  const { context, elements } = loadProfil(async (url?: string) => url === '/lista-wyjazdowa/roster' ? { roster: [] } : { ok: true });
+  const focusTarget = (context as any).document.getElementById('add-person-row') as StubElement & { focusCount?: number; focus?: () => void };
+  focusTarget.focusCount = 0;
+  focusTarget.focus = () => { focusTarget.focusCount = (focusTarget.focusCount ?? 0) + 1; };
+  (context as any).document.querySelector = () => null;
+  (context as any).window.PersonRegistrationPrompt = { wasCancelled: () => false };
+  (context as any).window.MutationFeedback.confirmed = async ({ execute, apply, skipApplyWhen, focusAfterApply }: any) => {
+    const result = await execute();
+    if (skipApplyWhen?.(result)) return result;
+    await apply?.(result);
+    focusAfterApply?.(result)?.focus?.();
+    return result;
+  };
+
+  await (context.deletePerson as (personId: string, control: unknown) => Promise<void>)('gone-person', { disabled: false });
+
+  assert.equal(focusTarget.focusCount, 1);
+});

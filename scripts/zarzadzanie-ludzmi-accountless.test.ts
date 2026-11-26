@@ -476,6 +476,41 @@ test('admin accountless registration ignores a second submit while the first req
   assert.equal(harness.getEl('accountless-save').disabled, false);
 });
 
+test('admin accountless registration ignores a second submit while the confirmed retry is in flight', async () => {
+  let finishRetry!: (value: unknown) => void;
+  const posts: Array<Record<string, unknown>> = [];
+  const harness = createZarzadzanieHarness({
+    apiFetch: async (url, init = {}) => {
+      if (url === '/lista-wyjazdowa/persons' && init.method === 'POST') {
+        const body = JSON.parse(String(init.body));
+        posts.push(body);
+        if (!body.duplicateConfirmed) throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Anna', lastName: 'Nowak' }] });
+        return new Promise((resolve) => { finishRetry = resolve; });
+      }
+      if (url === '/lista-wyjazdowa/persons') return { persons: [] };
+      if (url === '/lista-wyjazdowa/sections') return { sections: [{ id: 'sec1', label: 'Drużyna' }] };
+      if (url === '/lista-wyjazdowa/categories') return { categories: [{ id: 'woj', label: 'Woj' }] };
+      if (url === '/lista-wyjazdowa/weapons') return { weapons: [] };
+      return {};
+    },
+  });
+  await harness.signIn({ email: 'admin@kruki.pl', isAccountant: true, isAdmin: true, isHovding: false });
+  await harness.getEl('accountless-add-toggle').dispatch('click');
+  harness.getEl('accountless-first-name').value = 'Anna';
+  harness.getEl('accountless-last-name').value = 'Nowak';
+  harness.getEl('accountless-category').value = 'woj';
+  harness.getEl('accountless-section-select').value = 'sec1';
+
+  const firstSubmit = (harness.context.submitAccountlessForm as () => Promise<void>)();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(posts.length, 2);
+  await (harness.context.submitAccountlessForm as () => Promise<void>)();
+  assert.equal(posts.length, 2);
+  finishRetry({ person: { personId: 'new-person' } });
+  await firstSubmit;
+  assert.equal(harness.getEl('accountless-save').disabled, false);
+});
+
 test('accountless summary filter preserves loading and error rows until the table has loaded', async () => {
   let rejectPersons!: (err: Error) => void;
   const harness = createZarzadzanieHarness({
