@@ -113,6 +113,7 @@ import {
   type PersonDoc,
   type PersonMergeApplyResult,
   type PersonWritableFields,
+  validatePersonFields,
 } from './persons.ts';
 import {
   getAllLookupLists,
@@ -5101,7 +5102,7 @@ async function getPersonRegistrationDuplicateMatches(
       firstName: person.firstName,
       lastName: person.lastName,
       nickname: person.ksywka || null,
-      section: sectionLabelById.get(person.sectionId) ?? person.sectionId,
+      section: sectionLabelById.get(person.sectionId) ?? '—',
       owner: ownerName,
     };
   });
@@ -5145,6 +5146,7 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
     if ((!owner || owner.hidden === true) && !isSelf) throw new AuthError('Nie znaleziono takiego członka.', 404);
     ownerPersonId = canonicalOwner.toLowerCase();
   }
+  validatePersonFields(fields);
   const duplicateMatches = await getPersonRegistrationDuplicateMatches(deps, fields, identity.email);
   if (sendPersonDuplicatePromptIfNeeded(res, body, duplicateMatches)) return;
   const personId = randomUUID();

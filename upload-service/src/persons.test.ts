@@ -6,6 +6,7 @@ import {
   applyWeaponCategoryRule,
   createPerson,
   detachPerson,
+  findDuplicateAccountlessPersons,
   getPerson,
   listPersons,
   mergePersonIntoAccount,
@@ -112,15 +113,14 @@ test('findDuplicateAccountlessPersons matches nickname or full name case-insensi
     lastName: 'Żółć',
   }, 'opiekun@example.test', 'admin@example.test');
   await softDeletePerson(client, deletedMatch.personId, 'admin@example.test');
+  await createPerson(client, {
+    ...baseFields,
+    ksywka: 'Sokół',
+    firstName: 'Jan Maria',
+    lastName: 'Kowalski',
+  }, null, 'admin@example.test');
 
-  const personsModule = await import('./persons.ts') as unknown as {
-    findDuplicateAccountlessPersons: (
-      firestore: ReturnType<typeof createInMemoryFirestoreClient>,
-      fields: { ksywka: string; firstName: string; lastName: string },
-    ) => Promise<Array<{ personId: string }>>;
-  };
-  assert.equal(typeof personsModule.findDuplicateAccountlessPersons, 'function');
-  const matches = await personsModule.findDuplicateAccountlessPersons(client, {
+  const matches = await findDuplicateAccountlessPersons(client, {
     ...baseFields,
     ksywka: 'cień',
     firstName: ' michAł Jan ',
@@ -128,6 +128,13 @@ test('findDuplicateAccountlessPersons matches nickname or full name case-insensi
   });
 
   assert.deepEqual(matches.map((person) => person.personId).sort(), [nicknameMatch.personId, nameMatch.personId].sort());
+  const ambiguousNameMatches = await findDuplicateAccountlessPersons(client, {
+    ...baseFields,
+    ksywka: 'Different nickname',
+    firstName: 'Jan',
+    lastName: 'Maria Kowalski',
+  });
+  assert.equal(ambiguousNameMatches.length, 0, 'first and last names must match their own fields');
 });
 
 test('weapon rule: Niewiasta and Bobo never keep a weapon list', async () => {
