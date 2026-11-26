@@ -100,6 +100,7 @@ function filterEquipmentBySections(items, selectedSectionIds, sectionOf) {
 }
 
 let equipment = [];
+let canViewAccountAudit = false;
 // Sekcja ids picked in the "Filtry" row, remembered on this device across visits (KRKG-116).
 let selectedSectionIds = restoreSectionFilterPreference();
 
@@ -502,6 +503,12 @@ function wireOwnerModeToggle() {
 // section, same as the table.
 function equipmentPanelView(item) {
   const sectionId = itemFilterSectionId(item);
+  const owner = personById.get(item.belongsToPersonId);
+  const auditTarget = item.belongsToPersonId
+    ? (owner?.accountless || !item.belongsToPersonId.includes('@')
+      ? { personId: item.belongsToPersonId }
+      : { email: item.belongsToPersonId })
+    : null;
   return {
     description: item.description,
     photos: item.photos ?? [],
@@ -510,6 +517,8 @@ function equipmentPanelView(item) {
     sectionId,
     sectionLabel: sectionLabelById.get(sectionId) ?? sectionId,
     ownerHtml: item.belongsToPersonId === null ? null : ownerCellHtml(item.belongsToPersonId),
+    auditTarget,
+    canViewAccountAudit: item.canViewAccountAudit === true,
     onEdit: item.canEdit ? () => startEditing(item) : null,
   };
 }
@@ -581,7 +590,7 @@ function renderCurrentPhotos(item) {
 
 function replaceEquipmentItem(saved) {
   // POST/PUT responses carry no canEdit/canDelete - see the apply() comment in wireAddForm.
-  const withPermissions = { ...saved, canEdit: true, canDelete: true };
+  const withPermissions = { ...saved, canEdit: true, canDelete: true, canViewAccountAudit };
   const idx = equipment.findIndex(i => i.id === withPermissions.id);
   if (idx === -1) equipment.push(withPermissions);
   else equipment[idx] = withPermissions;
@@ -866,7 +875,7 @@ function wireAddForm() {
           // both on item.canEdit/canDelete), and editing an existing item would wholesale replace
           // its entry - dropping the canEdit/canDelete it already had from the GET response - and
           // lose its buttons the same way.
-          const withPermissions = { ...saved, canEdit: true, canDelete: true };
+          const withPermissions = { ...saved, canEdit: true, canDelete: true, canViewAccountAudit };
           const idx = equipment.findIndex(i => i.id === withPermissions.id);
           if (idx === -1) equipment.push(withPermissions);
           else equipment[idx] = withPermissions;
@@ -933,7 +942,9 @@ function wireTableActions() {
 }
 
 async function loadEquipment() {
-  const { equipment: items } = await apiFetch('/equipment', { method: 'GET' });
+  const result = await apiFetch('/equipment', { method: 'GET' });
+  const { equipment: items } = result;
+  canViewAccountAudit = result.canViewAccountAudit === true;
   equipment = items;
   renderBothTables();
 }
@@ -954,12 +965,15 @@ initGoogleSignIn({
       // unions members + accountless persons into one list (same source czlonkowie.js's own
       // personById union uses), which is exactly what the owner picker and the private table's
       // Właściciel column need.
-      const [{ equipment: items }, { members }, { roster }, lookupLists] = await Promise.all([
+      const [equipmentResult, { members }, { roster }, lookupLists] = await Promise.all([
         apiFetch('/equipment', { method: 'GET' }),
         apiFetch('/members/directory', { method: 'GET' }),
         apiFetch('/lista-wyjazdowa/roster', { method: 'GET' }),
         apiFetch('/lista-wyjazdowa/lookup-lists', { method: 'GET' }),
       ]);
+      canViewAccountAudit = equipmentResult.canViewAccountAudit === true;
+      const items = equipmentResult.equipment;
+      equipment = items;
       applyLookupLists(lookupLists);
 
       const memberRows = members.map(m => ({

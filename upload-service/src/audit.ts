@@ -954,7 +954,8 @@ export type AuditPrimarySelector =
   | { kind: 'actor'; email: string }
   | { kind: 'resourceKey'; key: string }
   | { kind: 'event'; eventId: string }
-  | { kind: 'search'; term: string };
+  | { kind: 'search'; term: string }
+  | { kind: 'account'; reference: string; referenceKind: 'email' | 'personId' };
 
 export interface AuditQueryOptions {
   selector: AuditPrimarySelector;
@@ -1010,6 +1011,8 @@ function buildFirestoreFilter(selector: AuditPrimarySelector): FirestoreQueryFil
       return { field: 'eventId', op: '==', value: selector.eventId };
     case 'search':
       return { field: 'searchTokens', op: 'array-contains', value: normalizeSearchTerm(selector.term) };
+    case 'account':
+      throw new AuditQueryError('Historia konta wymaga zapytania dedykowanego.');
     default: {
       const exhaustive: never = selector;
       throw new AuditQueryError(`Nieobsługiwany selektor: ${JSON.stringify(exhaustive)}`);
@@ -1104,6 +1107,9 @@ export async function queryAuditEvents(
   options: AuditQueryOptions,
   viewer: AuditViewer,
 ): Promise<AuditQueryPage> {
+  if (options.selector.kind === 'account') {
+    return queryAccountAuditEvents(firestore, { ...options, selector: options.selector }, viewer);
+  }
   if (options.from !== undefined && !isIsoTimestamp(options.from)) throw new AuditQueryError('Nieprawidłowa data początkowa.');
   if (options.to !== undefined && !isIsoTimestamp(options.to)) throw new AuditQueryError('Nieprawidłowa data końcowa.');
   const limit = Math.min(Math.max(options.limit ?? MAX_LIST_LIMIT, 1), MAX_LIST_LIMIT);
@@ -1156,6 +1162,158 @@ export async function queryAuditEvents(
     rows: page,
     nextCursor: page.length === limit && !exhausted ? encodeAuditCursor(cursor!) : undefined,
   };
+}
+
+/**
+ * Holds independent positions for the exact account-resource and related-person audit queries.
+ * The account history endpoint merges both ordered streams and encodes this cursor between pages.
+ */
+interface AccountAuditCursor {
+  memberCursor?: FirestoreQueryCursor;
+  relatedCursor?: FirestoreQueryCursor;
+  memberDone: boolean;
+  relatedDone: boolean;
+}
+
+function decodeAccountAuditCursor(value: string | undefined, relatedEnabled: boolean): AccountAuditCursor {
+  if (!value) return { memberDone: false, relatedDone: !relatedEnabled };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+  } catch {
+    throw new AuditQueryError('Nieprawidłowy kursor.');
+  }
+  if (!parsed || typeof parsed !== 'object') throw new AuditQueryError('Nieprawidłowy kursor.');
+  const cursor = parsed as AccountAuditCursor;
+  const validPosition = (position: FirestoreQueryCursor | undefined) => position === undefined ||
+    (typeof position.timestamp === 'string' && isIsoTimestamp(position.timestamp) && typeof position.id === 'string');
+  if (typeof cursor.memberDone !== 'boolean' || typeof cursor.relatedDone !== 'boolean' ||
+      !validPosition(cursor.memberCursor) || !validPosition(cursor.relatedCursor)) {
+    throw new AuditQueryError('Nieprawidłowy kursor.');
+  }
+  return cursor;
+}
+
+function encodeAccountAuditCursor(cursor: AccountAuditCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
+function accountAuditEventMatches(event: CanonicalAuditEvent, reference: string, referenceKind: 'email' | 'personId'): boolean {
+  if (referenceKind === 'personId') return event.resource.key === `person:${reference}` && event.action.startsWith('person.');
+  const email = reference.toLowerCase();
+  if (event.resource.key.toLowerCase() === `member:${email}`) {
+    if (event.action.startsWith('role.') || event.action === 'membership.application.submitted' || event.action.startsWith('membership.status.') || event.action === 'profile.drive_folder.changed') return true;
+    return event.action === 'profile.member.updated' && event.actor.email.trim().toLowerCase() !== email;
+  }
+  const companionActions = new Set(['person.created', 'person.detached', 'person.merged']);
+  if (!companionActions.has(event.action)) return false;
+  const accountLinkFields = new Set(['ownerPersonId', 'accountEmail', 'mergedInto']);
+  return event.changes.some(change => accountLinkFields.has(change.field) &&
+    [change.before, change.after].some(value => typeof value === 'string' && value.trim().toLowerCase() === email));
+}
+
+async function queryAccountAuditEvents(
+  firestore: FirestoreLikeClient,
+  options: AuditQueryOptions & { selector: Extract<AuditPrimarySelector, { kind: 'account' }> },
+  viewer: AuditViewer,
+): Promise<AuditQueryPage> {
+  const reference = options.selector.reference.trim();
+  if (!reference) throw new AuditQueryError('Brak identyfikatora konta.');
+  const email = options.selector.referenceKind === 'email';
+  const normalizedReference = email ? reference.toLowerCase() : reference;
+  const localPartWords = email ? foldedWords(normalizedReference.split('@', 1)[0]) : [];
+  const token = email
+    ? [...localPartWords].sort((a, b) => b.length - a.length)[0] ?? foldedWords(normalizedReference).sort((a, b) => b.length - a.length)[0]
+    : undefined;
+  const limit = Math.min(Math.max(options.limit ?? MAX_LIST_LIMIT, 1), MAX_LIST_LIMIT);
+  const cursor = decodeAccountAuditCursor(options.cursor, Boolean(token));
+  const chunkSize = 100;
+  const readBudget = 1000;
+  let reads = 0;
+  let memberDocs: Array<{ id: string; data: CanonicalAuditEvent }> = [];
+  let relatedDocs: Array<{ id: string; data: CanonicalAuditEvent }> = [];
+  let memberIndex = 0;
+  let relatedIndex = 0;
+  let memberReadCursor = cursor.memberCursor;
+  let relatedReadCursor = cursor.relatedCursor;
+  let memberReadDone = cursor.memberDone;
+  let relatedReadDone = cursor.relatedDone || !token;
+  let memberConsumedCursor = cursor.memberCursor;
+  let relatedConsumedCursor = cursor.relatedCursor;
+
+  const compareNewestFirst = (a: { timestamp: string; id: string }, b: { timestamp: string; id: string }) => {
+    if (a.timestamp !== b.timestamp) return a.timestamp > b.timestamp ? -1 : 1;
+    if (a.id !== b.id) return a.id > b.id ? -1 : 1;
+    return 0;
+  };
+  const refillMember = async () => {
+    if (memberReadDone || reads >= readBudget) return;
+    const requestLimit = Math.min(chunkSize, readBudget - reads);
+    memberDocs = await firestore.queryDocs<CanonicalAuditEvent>('auditEvents', {
+      filter: { field: 'resource.key', op: '==', value: `${email ? 'member' : 'person'}:${normalizedReference}` },
+      timestampField: 'timestamp', timestampGte: options.from, timestampLte: options.to,
+      startAfter: memberReadCursor, limit: requestLimit,
+    });
+    reads += memberDocs.length;
+    memberIndex = 0;
+    if (!memberDocs.length) memberReadDone = true;
+    else {
+      const last = memberDocs.at(-1)!;
+      memberReadCursor = { timestamp: last.data.timestamp, id: last.id };
+      if (memberDocs.length < requestLimit) memberReadDone = true;
+    }
+  };
+  const refillRelated = async () => {
+    if (relatedReadDone || reads >= readBudget) return;
+    const requestLimit = Math.min(chunkSize, readBudget - reads);
+    relatedDocs = await firestore.queryDocs<CanonicalAuditEvent>('auditEvents', {
+      filter: { field: 'searchTokens', op: 'array-contains', value: token!.slice(0, MAX_SEARCH_TOKEN_LENGTH) },
+      timestampField: 'timestamp', timestampGte: options.from, timestampLte: options.to,
+      startAfter: relatedReadCursor, limit: requestLimit,
+    });
+    reads += relatedDocs.length;
+    relatedIndex = 0;
+    if (!relatedDocs.length) relatedReadDone = true;
+    else {
+      const last = relatedDocs.at(-1)!;
+      relatedReadCursor = { timestamp: last.data.timestamp, id: last.id };
+      if (relatedDocs.length < requestLimit) relatedReadDone = true;
+    }
+  };
+  await Promise.all([refillMember(), refillRelated()]);
+  const rows: AuditEventRow[] = [];
+  while (true) {
+    if (reads >= readBudget &&
+        ((memberIndex >= memberDocs.length && !memberReadDone) || (relatedIndex >= relatedDocs.length && !relatedReadDone))) break;
+    if (reads < readBudget && memberIndex >= memberDocs.length && !memberReadDone) await refillMember();
+    if (reads < readBudget && relatedIndex >= relatedDocs.length && !relatedReadDone) await refillRelated();
+    const member = memberDocs[memberIndex];
+    const related = relatedDocs[relatedIndex];
+    if (!member && !related) break;
+    const takeMember = member && (!related || compareNewestFirst(member.data, related.data) <= 0);
+    const doc = takeMember ? member! : related!;
+    const fromRelated = !takeMember;
+    const isMemberResource = email && doc.data.resource.key.toLowerCase() === `member:${normalizedReference}`;
+    const isMatch = accountAuditEventMatches(doc.data, normalizedReference, options.selector.referenceKind) && !(fromRelated && isMemberResource);
+    const projected = isMatch ? projectAuditEvent(doc.data, viewer) : null;
+    if (rows.length >= limit && projected) break;
+    if (takeMember) {
+      memberIndex += 1;
+      memberConsumedCursor = { timestamp: doc.data.timestamp, id: doc.id };
+    } else {
+      relatedIndex += 1;
+      relatedConsumedCursor = { timestamp: doc.data.timestamp, id: doc.id };
+    }
+    if (projected) rows.push(projected);
+  }
+  const next: AccountAuditCursor = {
+    memberCursor: memberConsumedCursor,
+    relatedCursor: relatedConsumedCursor,
+    memberDone: memberReadDone && memberIndex >= memberDocs.length,
+    relatedDone: relatedReadDone && relatedIndex >= relatedDocs.length,
+  };
+  const hasMore = !next.memberDone || !next.relatedDone;
+  return { rows, nextCursor: hasMore ? encodeAccountAuditCursor(next) : undefined };
 }
 
 /** Fetches and projects exactly one event for the detail endpoint - `null` if it doesn't exist

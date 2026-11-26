@@ -7504,8 +7504,10 @@ test('GET /lista-wyjazdowa/event-equipment joins all equipment with per-event go
     description: '', createdAt: '2026-01-02T00:00:00.000Z', createdBy: 'ala@example.test',
   });
   const deps = makeDeps({ firestore });
+  let eventId = '';
   await withServer(deps, async baseUrl => {
     const created = await (await postListaWyjazdowa(baseUrl, '/lista-wyjazdowa/events', { name: 'Zjazd', startDate: '2027-05-01' })).json();
+    eventId = created.event.id;
     const write = await putListaWyjazdowa(
       baseUrl,
       `/lista-wyjazdowa/event-equipment?eventId=${created.event.id}&equipmentId=tent-1`,
@@ -7517,6 +7519,7 @@ test('GET /lista-wyjazdowa/event-equipment joins all equipment with per-event go
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.items.length, 2);
+    assert.equal(body.items[0]?.canViewAccountAudit, true);
     assert.equal(body.items.find((item: { id: string }) => item.id === 'tent-1').going, true);
     assert.equal(body.items.find((item: { id: string }) => item.id === 'shelter-1').going, false);
 
@@ -7524,6 +7527,17 @@ test('GET /lista-wyjazdowa/event-equipment joins all equipment with per-event go
     const toggleAudit = evidence.find(entry => entry.data.action === 'equipment.event_going.changed');
     assert.equal(toggleAudit?.data.eventId, created.event.id);
     assert.equal(toggleAudit?.data.resource.key, `eventEquipment:${created.event.id}:tent-1`);
+  });
+  const memberDeps = makeDeps({
+    firestore,
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'member@example.test' }),
+  });
+  await withServer(memberDeps, async baseUrl => {
+    const response = await fetch(`${baseUrl}/lista-wyjazdowa/event-equipment?eventId=${eventId}`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.items[0]?.canViewAccountAudit, false);
   });
 });
 
@@ -7748,15 +7762,17 @@ test('GET profile endpoints expose editor capabilities and lookup lists only for
   seedPerson(personFirestore, 'accountant-owned-person', 'staff@example.test');
   personFirestore.seed('userRoles', 'staff@example.test', { roles: ['accountant'] });
   personFirestore.seed('members', 'staff@example.test', { email: 'staff@example.test', status: 'active' });
-  const personCases: Array<{ name: string; deps: ServerDeps; expected: { canEditIdentity: boolean; canEditWeapons: boolean; canEditDues: boolean } }> = [
-    { name: 'accountless owner', deps: memberDeps(personFirestore, 'owner@example.test'), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: false } },
-    { name: 'accountant can edit dues but not other members’ identity or weapons', deps: makeDeps({ firestore: personFirestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'staff@example.test' }) }), expected: { canEditIdentity: false, canEditWeapons: false, canEditDues: true } },
+  const personCases: Array<{ name: string; deps: ServerDeps; expected: { canEditIdentity: boolean; canEditWeapons: boolean; canEditDues: boolean }; audit: boolean }> = [
+    { name: 'accountless owner', deps: memberDeps(personFirestore, 'owner@example.test'), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: false }, audit: false },
+    { name: 'accountant can edit dues but not other members’ identity or weapons', deps: makeDeps({ firestore: personFirestore, authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'staff@example.test' }) }), expected: { canEditIdentity: false, canEditWeapons: false, canEditDues: true }, audit: false },
+    { name: 'administrator', deps: makeDeps({ firestore: personFirestore, authenticateAdminOrHovding: async () => fakeSessionClaims({ email: 'admin@example.test' }), authenticateWojownicyUpload: async () => fakeSessionClaims({ email: 'admin@example.test' }) }), expected: { canEditIdentity: true, canEditWeapons: true, canEditDues: true }, audit: true },
   ];
   for (const role of personCases) await withServer(role.deps, async baseUrl => {
     const response = await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=person-capabilities`);
     assert.equal(response.status, 200, role.name);
     const body = await response.json();
     assert.deepEqual({ canEditIdentity: body.profile.editor?.canEditIdentity, canEditWeapons: body.profile.editor?.canEditWeapons, canEditDues: body.profile.editor?.canEditDues }, role.expected, role.name);
+    assert.equal(body.profile.canViewAccountAudit, role.audit, role.name);
     assert.ok(body.profile.editor?.lookupLists, `${role.name} receives lookup lists for the editable target`);
   });
   await withServer(personCases[1].deps, async baseUrl => {
@@ -7776,6 +7792,7 @@ test('GET profile endpoints expose editor capabilities and lookup lists only for
     assert.equal(response.status, 200, 'an authenticated viewer can read the accountless profile');
     const body = await response.json();
     assert.equal('editor' in body.profile, false, 'a non-owner, non-staff viewer receives no edit capability');
+    assert.equal(body.profile.canViewAccountAudit, false, 'ordinary members cannot see account audit actions');
   });
 
   const unauthorizedViewer = makeDeps({ firestore: memberFirestore, authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); }, authenticateWojownicyUpload: async () => { throw new AuthError('Brak uprawnień.', 403); } });
@@ -9633,6 +9650,156 @@ test('GET /admin/audyt/events lists events for an admin viewer and rejects two p
   });
 });
 
+test('GET /admin/members/account-audit returns events about the account and rejects non-staff', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'membership.status.approved', actor: { email: 'admin@gmail.com' },
+    resource: { kind: 'member', key: 'member:maja@example.test', display: 'member' },
+    changes: [{ field: 'status', after: 'approved' }],
+  }, async () => {}, { createId: () => 'account-approved', now: () => new Date('2026-01-02T00:00:00.000Z') });
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'role.granted', actor: { email: 'admin@gmail.com' },
+    resource: { kind: 'member', key: 'member:maja@example.test', display: 'target' },
+    changes: [{ field: 'roles', before: 'Brak', after: 'Admin' }],
+  }, async () => {}, { createId: () => 'account-role', now: () => new Date('2026-01-02T12:00:00.000Z') });
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'person.created', actor: { email: 'admin@gmail.com' },
+    resource: { kind: 'person', key: 'person:companion-1', display: 'Antek' },
+    changes: [{ field: 'ownerPersonId', after: 'maja@example.test' }, { field: 'nickname', after: 'Antek' }],
+  }, async () => {}, { createId: () => 'companion-connected', now: () => new Date('2026-01-03T00:00:00.000Z') });
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'profile.notifications.updated', actor: { email: 'maja@example.test' },
+    resource: { kind: 'member', key: 'member:maja@example.test', display: 'Maja' },
+    changes: [{ field: 'emailNotifications', before: true, after: false }],
+  }, async () => {}, { createId: () => 'self-notification', now: () => new Date('2026-01-03T12:00:00.000Z') });
+  await seedAuditEvent(firestore, 'actor-only', '2026-01-04T00:00:00.000Z');
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    let res = await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test&limit=1`);
+    assert.equal(res.status, 200);
+    const ids: string[] = [];
+    let body = await res.json();
+    ids.push(...body.rows.map((row: { id: string }) => row.id));
+    while (body.nextCursor) {
+      res = await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test&limit=1&cursor=${encodeURIComponent(body.nextCursor)}`);
+      assert.equal(res.status, 200);
+      body = await res.json();
+      ids.push(...body.rows.map((row: { id: string }) => row.id));
+    }
+    assert.deepEqual(ids, ['companion-connected', 'account-role', 'account-approved']);
+    assert.equal((await fetch(`${baseUrl}/admin/members/account-audit`)).status, 400);
+    assert.equal((await fetch(`${baseUrl}/admin/members/account-audit?email=not-an-email`)).status, 400);
+    assert.equal((await fetch(`${baseUrl}/admin/members/account-audit?personId=maja%40example.test`)).status, 400);
+    assert.equal((await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test&personId=person-1`)).status, 400);
+    assert.equal((await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test&limit=101`)).status, 400);
+    assert.equal((await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test&cursor=invalid`)).status, 400);
+  });
+
+  const nonStaffDeps = makeDeps({
+    firestore,
+    authenticateAdminOrHovding: async () => { throw new AuthError('Forbidden', 403); },
+  });
+  await withServer(nonStaffDeps, async baseUrl => {
+    assert.equal((await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test`)).status, 403);
+  });
+
+  const accountantFirestore = createInMemoryFirestoreClient();
+  accountantFirestore.seed('members', 'accountant@example.test', { email: 'accountant@example.test', status: 'active' });
+  accountantFirestore.seed('userRoles', 'accountant@example.test', { roles: ['accountant'] });
+  const accountantDeps = makeDeps({
+    firestore: accountantFirestore,
+    authenticateAdmin: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticateAdminOrHovding: async () => { throw new AuthError('Brak uprawnień.', 403); },
+    authenticate: async () => fakeSessionClaims({ email: 'accountant@example.test' }),
+  });
+  await withServer(accountantDeps, async baseUrl => {
+    assert.equal((await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test`)).status, 403);
+  });
+});
+
+test('GET /admin/members/account-audit finds accountless person history by exact person ID', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'person.updated', actor: { email: 'staff@example.test' },
+    resource: { kind: 'person', key: 'person:person-42', display: 'Antek' },
+    changes: [{ field: 'nickname', before: 'Antoś', after: 'Antek' }],
+  }, async () => {}, { createId: () => 'person-history', now: () => new Date('2026-01-02T00:00:00.000Z') });
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/account-audit?personId=person-42`);
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).rows.map((row: { id: string }) => row.id), ['person-history']);
+  });
+});
+
+test('GET /admin/members/account-audit accepts short email segments and finds linked companion events', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'person.created', actor: { email: 'staff@example.test' },
+    resource: { kind: 'person', key: 'person:companion-short-mail', display: 'Ola' },
+    changes: [{ field: 'ownerPersonId', after: 'j.k@o2.pl' }, { field: 'nickname', after: 'Ola' }],
+  }, async () => {}, { createId: () => 'short-mail-companion', now: () => new Date('2026-01-02T00:00:00.000Z') });
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/account-audit?email=j.k%40o2.pl`);
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).rows.map((row: { id: string }) => row.id), ['short-mail-companion']);
+  });
+});
+
+test('GET /admin/members/account-audit refills noisy related-event pages without losing global chronology', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  for (let index = 0; index < 205; index += 1) {
+    await seedAuditEvent(firestore, `noise-${String(index).padStart(3, '0')}`, new Date(Date.UTC(2026, 3, 1, 0, 0, index)).toISOString());
+  }
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'person.created', actor: { email: 'staff@example.test' },
+    resource: { kind: 'person', key: 'person:companion-noisy', display: 'Olek' },
+    changes: [{ field: 'ownerPersonId', after: 'maja@example.test' }, { field: 'nickname', after: 'Olek' }],
+  }, async () => {}, { createId: () => 'companion-after-noise', now: () => new Date('2026-01-02T00:00:00.000Z') });
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'role.granted', actor: { email: 'admin@example.test' },
+    resource: { kind: 'member', key: 'member:maja@example.test', display: 'target' },
+    changes: [{ field: 'roles', before: 'Brak', after: 'Hovding' }],
+  }, async () => {}, { createId: () => 'role-before-noise', now: () => new Date('2026-01-01T00:00:00.000Z') });
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    let cursor: string | undefined;
+    const ids: string[] = [];
+    do {
+      const query = new URLSearchParams({ email: 'maja@example.test', limit: '1' });
+      if (cursor) query.set('cursor', cursor);
+      const res = await fetch(`${baseUrl}/admin/members/account-audit?${query}`);
+      assert.equal(res.status, 200);
+      const page = await res.json();
+      ids.push(...page.rows.map((row: { id: string }) => row.id));
+      cursor = page.nextCursor;
+    } while (cursor);
+    assert.deepEqual(ids, ['companion-after-noise', 'role-before-noise']);
+  });
+});
+
+test('GET /admin/members/account-audit follows Firestore ID tie order and omits an empty trailing page', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  for (const id of ['Z', 'a']) {
+    await executeAuditedFirestoreMutation(firestore, {
+      action: 'role.granted', actor: { email: 'staff@example.test' },
+      resource: { kind: 'member', key: 'member:maja@example.test', display: 'target' },
+      changes: [{ field: 'roles', after: id }],
+    }, async () => {}, { createId: () => id, now: () => new Date('2026-01-02T00:00:00.000Z') });
+  }
+  await seedAuditEvent(firestore, 'unrelated-tail', '2026-01-01T00:00:00.000Z');
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const first = await (await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test&limit=1`)).json();
+    assert.deepEqual(first.rows.map((row: { id: string }) => row.id), ['a']);
+    assert.ok(first.nextCursor);
+    const second = await (await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test&limit=1&cursor=${encodeURIComponent(first.nextCursor)}`)).json();
+    assert.deepEqual(second.rows.map((row: { id: string }) => row.id), ['Z']);
+    assert.equal(second.nextCursor, undefined, 'unrelated actor events are drained in the preceding page');
+  });
+});
+
 test('GET /admin/audyt/events: action without category is a deterministic 400, and every single supported selector (category, category+action, actorEmail, resourceKey, q) is individually accepted', async () => {
   const firestore = createInMemoryFirestoreClient();
   await seedAuditEvent(firestore, 'evt-a', '2026-01-01T00:00:00.000Z');
@@ -10434,6 +10601,30 @@ test('GET /equipment rejects an unauthenticated caller', async () => {
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/equipment`);
     assert.equal(res.status, 401);
+  });
+});
+
+test('GET /equipment exposes account-audit capability only to managers', async () => {
+  const firestore = makeEquipmentFirestore();
+  firestore.seed('equipment', 'gear-1', {
+    id: 'gear-1', categoryId: 'namiot', sectionId: null, belongsToPersonId: 'maja@example.test',
+    description: 'Namiot', createdAt: '2026-01-01T00:00:00.000Z', createdBy: 'maja@example.test',
+  });
+  const staff = makeDeps({ firestore });
+  await withServer(staff, async baseUrl => {
+    const { equipment, canViewAccountAudit } = await (await fetch(`${baseUrl}/equipment`)).json();
+    assert.equal(equipment[0]?.canViewAccountAudit, true);
+    assert.equal(canViewAccountAudit, true);
+  });
+  const member = makeDeps({
+    firestore,
+    authenticateAdminOrHovding: async () => { throw new AuthError('Forbidden', 403); },
+    authenticateAdmin: async () => { throw new AuthError('Forbidden', 403); },
+  });
+  await withServer(member, async baseUrl => {
+    const { equipment, canViewAccountAudit } = await (await fetch(`${baseUrl}/equipment`)).json();
+    assert.equal(equipment[0]?.canViewAccountAudit, false);
+    assert.equal(canViewAccountAudit, false);
   });
 });
 

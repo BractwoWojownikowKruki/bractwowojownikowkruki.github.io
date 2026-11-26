@@ -91,6 +91,8 @@
   let lightboxEls = null;
   let currentPhotos = [];
   let lightboxPhotoIndex = -1;
+  let currentEquipmentView = null;
+  const accountAuditState = { target: null, open: false, loading: false, error: false, rows: [], nextCursor: null, requestId: 0 };
   // The drawer has one independent draft per editable section (identity/weapons/entryFee/
   // annualDues), so a successful save of one never discards another's unsaved work. All of them
   // still share a single "Edytuj" toggle (editorOpen) - the three forms are collapsed behind one
@@ -257,6 +259,94 @@
     </div>`;
   }
 
+  const ACCOUNT_AUDIT_ACTION_LABELS = {
+    'role.granted': 'Nadanie roli', 'role.revoked': 'Odebranie roli', 'role.replaced': 'Zmiana roli',
+    'membership.application.submitted': 'Rejestracja konta', 'membership.status.approved': 'Zatwierdzenie konta',
+    'membership.status.rejected': 'Odrzucenie rejestracji', 'membership.status.suspended': 'Zawieszenie konta',
+    'membership.status.reactivated': 'Przywrócenie konta', 'membership.status.removed': 'Usunięcie konta',
+    'profile.member.updated': 'Zmiana profilu konta', 'profile.drive_folder.changed': 'Zmiana folderu na Dysku',
+    'person.created': 'Dodanie osoby towarzyszącej',
+    'person.updated': 'Zmiana osoby towarzyszącej', 'person.deleted': 'Usunięcie osoby towarzyszącej',
+    'person.detached': 'Odłączenie osoby towarzyszącej', 'person.merged': 'Połączenie z kontem',
+    'person.purged': 'Usunięcie osoby towarzyszącej',
+  };
+
+  function accountAuditHtml(canView) {
+    if (!canView) return '';
+    const button = '<button type="button" class="lw-edit-toggle profile-account-audit-toggle" data-account-audit-toggle>Historia konta</button>';
+    if (!accountAuditState.open) return `<div class="profile-editor-toggle-row">${button}</div>`;
+    let content;
+    if (!accountAuditState.rows.length && !accountAuditState.loading && !accountAuditState.nextCursor) content = accountAuditState.error
+      ? '<p role="alert">Nie udało się wczytać historii konta. Spróbuj ponownie.</p>'
+      : '<p>Brak historii konta.</p>';
+    else content = accountAuditState.rows.map(row => {
+      const label = ACCOUNT_AUDIT_ACTION_LABELS[row.action] ?? row.action;
+      const changes = (row.changes ?? []).map(change => {
+        const before = change.before === undefined ? '' : String(change.before);
+        const after = change.after === undefined ? '' : String(change.after);
+        const hasBefore = change.before !== undefined;
+        const hasAfter = change.after !== undefined;
+        const beforeText = hasBefore ? (before || '—') : '';
+        const afterText = hasAfter ? (after || '—') : '';
+        return `<li>${escapeHtml(change.field)}: ${escapeHtml(beforeText)}${hasBefore && hasAfter ? ' → ' : ''}${escapeHtml(afterText)}</li>`;
+      }).join('');
+      const date = new Date(row.timestamp);
+      const when = Number.isNaN(date.getTime()) ? row.timestamp : date.toLocaleString('pl-PL');
+      return `<article class="profile-account-audit-entry"><strong>${escapeHtml(label)}</strong><time>${escapeHtml(when)}</time><span>${escapeHtml(row.actor?.name || row.actor?.email || '')}</span>${changes ? `<ul>${changes}</ul>` : ''}</article>`;
+    }).join('') +
+      (accountAuditState.error ? '<p role="alert">Nie udało się wczytać historii konta. Spróbuj ponownie.</p>' : '') +
+      (accountAuditState.loading ? '<p role="status">Ładowanie historii…</p>' : '') +
+      (accountAuditState.nextCursor ? '<button type="button" class="profile-account-audit-more" data-account-audit-more>Pokaż starsze zdarzenia</button>' : '');
+    return `<div class="profile-account-audit"><div class="profile-editor-toggle-row">${button}</div><section aria-label="Historia konta"><h4>Historia konta</h4>${content}</section></div>`;
+  }
+
+  async function loadAccountAuditHistory() {
+    const target = accountAuditState.target;
+    if (!target || accountAuditState.loading || (!accountAuditState.nextCursor && accountAuditState.rows.length)) return;
+    const requestId = accountAuditState.requestId;
+    accountAuditState.open = true;
+    accountAuditState.loading = true;
+    accountAuditState.error = false;
+    renderAccountAuditPreservingScroll();
+    try {
+      const query = new URLSearchParams(target);
+      query.set('limit', '100');
+      if (accountAuditState.nextCursor) query.set('cursor', accountAuditState.nextCursor);
+      const page = await apiFetch(`/admin/members/account-audit?${query}`, { method: 'GET' }, drawerShowReauth, drawerHideReauth);
+      if (requestId !== accountAuditState.requestId) return;
+      accountAuditState.rows.push(...(page.rows ?? []));
+      accountAuditState.nextCursor = page.nextCursor ?? null;
+      accountAuditState.loading = false;
+    } catch {
+      if (requestId !== accountAuditState.requestId) return;
+      accountAuditState.loading = false;
+      accountAuditState.error = true;
+    }
+    renderAccountAuditPreservingScroll();
+  }
+
+  function renderAccountAuditPreservingScroll() {
+    const scrollTop = els?.content.querySelector('.profile-account-audit section')?.scrollTop ?? 0;
+    const activeElement = document.activeElement;
+    const restoreSelector = activeElement?.closest?.('[data-account-audit-more]')
+      ? '[data-account-audit-more]'
+      : activeElement?.closest?.('[data-account-audit-toggle]') ? '[data-account-audit-toggle]' : null;
+    renderProfileDrawer();
+    const section = els?.content.querySelector('.profile-account-audit section');
+    if (section) section.scrollTop = scrollTop;
+    if (restoreSelector) els?.content.querySelector(restoreSelector)?.focus();
+  }
+
+  function resetAccountAuditTarget(target) {
+    accountAuditState.requestId += 1;
+    accountAuditState.target = target;
+    accountAuditState.open = false;
+    accountAuditState.loading = false;
+    accountAuditState.error = false;
+    accountAuditState.rows = [];
+    accountAuditState.nextCursor = null;
+  }
+
   function ensureDrawer() {
     if (els) return els;
     const wrapper = document.createElement('div');
@@ -293,6 +383,8 @@
 
   function closeDrawer() {
     if (!els || els.drawer.hidden) return;
+    accountAuditState.requestId += 1;
+    accountAuditState.loading = false;
     els.drawer.hidden = true;
     if (lastFocused && typeof lastFocused.focus === 'function') lastFocused.focus();
     lastFocused = null;
@@ -463,13 +555,16 @@
       ${revealable(fieldsHtml)}
       ${descriptionHtml}
       ${pendingHtml}
+      ${accountAuditHtml(Boolean(profile.accountless ? profile.canViewAccountAudit : profile.editor?.canEditIdentity))}
       ${profileEditorHtml(profile)}
     `;
   }
 
   function renderProfileDrawer() {
-    if (!els || !editorState.profile) return;
-    els.content.innerHTML = renderProfile(editorState.profile);
+    if (!els) return;
+    if (editorState.profile) els.content.innerHTML = renderProfile(editorState.profile);
+    else if (currentEquipmentView) els.content.innerHTML = renderEquipment(currentEquipmentView);
+    else return;
     revealNewBlocks = false;
   }
 
@@ -634,7 +729,9 @@
     drawer.hidden = false;
     close.focus();
     try {
+      currentEquipmentView = null;
       editorState.target = { kind: 'member', email, staticPerson: findStaticPerson(folderId) };
+      resetAccountAuditTarget({ email });
       editorState.drafts = {};
       editorState.errors = {};
       editorState.editorOpen = false;
@@ -658,7 +755,9 @@
     drawer.hidden = false;
     close.focus();
     try {
+      currentEquipmentView = null;
       editorState.target = { kind: 'person', personId };
+      resetAccountAuditTarget({ personId });
       editorState.drafts = {};
       editorState.errors = {};
       editorState.editorOpen = false;
@@ -843,6 +942,28 @@
   }
 
   document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-account-audit-toggle]')) {
+      if (accountAuditState.open) {
+        accountAuditState.requestId += 1;
+        accountAuditState.loading = false;
+        accountAuditState.open = false;
+        renderAccountAuditPreservingScroll();
+      } else {
+        if (accountAuditState.rows.length) {
+          accountAuditState.open = true;
+          renderAccountAuditPreservingScroll();
+        } else {
+          void loadAccountAuditHistory();
+        }
+      }
+      return;
+    }
+
+    if (e.target.closest('[data-account-audit-more]')) {
+      void loadAccountAuditHistory();
+      return;
+    }
+
     const editorEdit = e.target.closest('[data-profile-edit="editor"]');
     if (editorEdit) {
       editorState.editorOpen = true;
@@ -986,6 +1107,7 @@
         ${view.categoryLabel ? `<dt>Kategoria</dt><dd>${escapeHtml(view.categoryLabel)}</dd>` : ''}
         ${view.sectionLabel ? `<dt>Sekcja</dt><dd><span class="section-pill" data-section="${escapeHtml(view.sectionId ?? '')}">${escapeHtml(view.sectionLabel)}</span></dd>` : ''}
       </dl>
+      ${accountAuditHtml(Boolean(view.canViewAccountAudit && (view.auditTarget || view.auditEmail)))}
       ${editHtml ? `<div class="profile-editor-toggle-row">${editHtml}</div>` : ''}
     `;
   }
@@ -996,6 +1118,8 @@
     // A person profile may have been open before - its editor state must not apply here.
     editorState.profile = null;
     editorState.target = null;
+    currentEquipmentView = view;
+    resetAccountAuditTarget(view.auditTarget ?? (view.auditEmail ? { email: view.auditEmail } : null));
     currentPhotos = view.photos ?? [];
     equipmentEditHandler = view.onEdit ?? null;
     content.innerHTML = renderEquipment(view);

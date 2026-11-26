@@ -664,6 +664,7 @@ function wireWeaponCheckboxes(container) {
 // staged and submitted together with "Zapisz profil" - a deliberate UX difference, confirmed in
 // the plan (see task-3-brief.md Step 3).
 let equipmentItems = [];
+let canViewAccountAudit = false;
 let equipmentCategories = [];
 let equipmentCategoryLabelById = new Map();
 let equipmentGroupLabelByCategoryId = new Map();
@@ -746,7 +747,7 @@ async function addPersonEquipmentItem(container, ownerId, control) {
       // handler synthesizes them, server.ts's handleListEquipment - always true on every item, see
       // its own comment). Without this, a freshly-added item would render with no delete button
       // until the page reloads, since equipmentItemHtml gates the button on item.canDelete.
-      equipmentItems.push({ ...saved, canEdit: true, canDelete: true });
+      equipmentItems.push({ ...saved, canEdit: true, canDelete: true, canViewAccountAudit });
       renderPersonEquipment(container, ownerId);
     },
     refreshFragment: async () => renderPersonEquipment(container, ownerId),
@@ -771,6 +772,11 @@ async function deletePersonEquipmentItem(container, ownerId, itemId, control) {
 function equipmentPanelView(item) {
   const owner = equipmentOwnerById.get(item.belongsToPersonId);
   const sectionId = owner?.sectionId ?? item.sectionId;
+  const auditTarget = item.belongsToPersonId
+    ? (owner?.accountless || !item.belongsToPersonId.includes('@')
+      ? { personId: item.belongsToPersonId }
+      : { email: item.belongsToPersonId })
+    : null;
   return {
     description: item.description,
     photos: item.photos ?? [],
@@ -779,6 +785,8 @@ function equipmentPanelView(item) {
     sectionId,
     sectionLabel: equipmentSectionLabelById.get(sectionId) ?? sectionId,
     ownerHtml: escapeHtml(owner ? displayName(owner) : item.belongsToPersonId),
+    auditTarget,
+    canViewAccountAudit: item.canViewAccountAudit === true,
     editHref: `/sprzet-obozowy/?edit=${encodeURIComponent(item.id)}`,
   };
 }
@@ -1089,6 +1097,7 @@ async function initForm(lookupLists) {
     wpisoweStatus = duesResponse.wpisoweStatus ?? 'unpaid';
     roster = rosterResponse.roster;
     equipmentOwnerById = new Map(roster.map((person) => [person.personId, person]));
+    canViewAccountAudit = equipmentResponse.canViewAccountAudit === true;
     equipmentItems = equipmentResponse.equipment;
   } catch (err) {
     loadError = err;
