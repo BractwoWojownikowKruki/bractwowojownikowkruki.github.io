@@ -264,7 +264,8 @@
     'membership.application.submitted': 'Rejestracja konta', 'membership.status.approved': 'Zatwierdzenie konta',
     'membership.status.rejected': 'Odrzucenie rejestracji', 'membership.status.suspended': 'Zawieszenie konta',
     'membership.status.reactivated': 'Przywrócenie konta', 'membership.status.removed': 'Usunięcie konta',
-    'profile.member.updated': 'Zmiana profilu konta', 'person.created': 'Dodanie osoby towarzyszącej',
+    'profile.member.updated': 'Zmiana profilu konta', 'profile.drive_folder.changed': 'Zmiana folderu na Dysku',
+    'person.created': 'Dodanie osoby towarzyszącej',
     'person.updated': 'Zmiana osoby towarzyszącej', 'person.deleted': 'Usunięcie osoby towarzyszącej',
     'person.detached': 'Odłączenie osoby towarzyszącej', 'person.merged': 'Połączenie z kontem',
     'person.purged': 'Usunięcie osoby towarzyszącej',
@@ -275,19 +276,27 @@
     const button = '<button type="button" class="lw-edit-toggle profile-account-audit-toggle" data-account-audit-toggle>Historia konta</button>';
     if (!accountAuditState.open) return `<div class="profile-editor-toggle-row">${button}</div>`;
     let content;
-    if (accountAuditState.error && !accountAuditState.rows.length) content = '<p role="alert">Nie udało się wczytać historii konta. Spróbuj ponownie.</p>';
-    else if (!accountAuditState.rows.length && !accountAuditState.loading) content = '<p>Brak historii konta.</p>';
+    if (!accountAuditState.rows.length && !accountAuditState.loading && !accountAuditState.nextCursor) content = accountAuditState.error
+      ? '<p role="alert">Nie udało się wczytać historii konta. Spróbuj ponownie.</p>'
+      : '<p>Brak historii konta.</p>';
     else content = accountAuditState.rows.map(row => {
       const label = ACCOUNT_AUDIT_ACTION_LABELS[row.action] ?? row.action;
       const changes = (row.changes ?? []).map(change => {
         const before = change.before === undefined ? '' : String(change.before);
         const after = change.after === undefined ? '' : String(change.after);
-        return `<li>${escapeHtml(change.field)}: ${escapeHtml(before)}${before && after ? ' → ' : ''}${escapeHtml(after)}</li>`;
+        const hasBefore = change.before !== undefined;
+        const hasAfter = change.after !== undefined;
+        const beforeText = hasBefore ? (before || '—') : '';
+        const afterText = hasAfter ? (after || '—') : '';
+        return `<li>${escapeHtml(change.field)}: ${escapeHtml(beforeText)}${hasBefore && hasAfter ? ' → ' : ''}${escapeHtml(afterText)}</li>`;
       }).join('');
       const date = new Date(row.timestamp);
       const when = Number.isNaN(date.getTime()) ? row.timestamp : date.toLocaleString('pl-PL');
       return `<article class="profile-account-audit-entry"><strong>${escapeHtml(label)}</strong><time>${escapeHtml(when)}</time><span>${escapeHtml(row.actor?.name || row.actor?.email || '')}</span>${changes ? `<ul>${changes}</ul>` : ''}</article>`;
-    }).join('') + (accountAuditState.loading ? '<p role="status">Ładowanie historii…</p>' : '');
+    }).join('') +
+      (accountAuditState.error ? '<p role="alert">Nie udało się wczytać historii konta. Spróbuj ponownie.</p>' : '') +
+      (accountAuditState.loading ? '<p role="status">Ładowanie historii…</p>' : '') +
+      (accountAuditState.nextCursor ? '<button type="button" class="profile-account-audit-more" data-account-audit-more>Pokaż starsze zdarzenia</button>' : '');
     return `<div class="profile-account-audit"><div class="profile-editor-toggle-row">${button}</div><section aria-label="Historia konta"><h4>Historia konta</h4>${content}</section></div>`;
   }
 
@@ -298,7 +307,7 @@
     accountAuditState.open = true;
     accountAuditState.loading = true;
     accountAuditState.error = false;
-    renderProfileDrawer();
+    renderAccountAuditPreservingScroll();
     try {
       const query = new URLSearchParams(target);
       query.set('limit', '100');
@@ -313,7 +322,19 @@
       accountAuditState.loading = false;
       accountAuditState.error = true;
     }
+    renderAccountAuditPreservingScroll();
+  }
+
+  function renderAccountAuditPreservingScroll() {
+    const scrollTop = els?.content.querySelector('.profile-account-audit section')?.scrollTop ?? 0;
+    const activeElement = document.activeElement;
+    const restoreSelector = activeElement?.closest?.('[data-account-audit-more]')
+      ? '[data-account-audit-more]'
+      : activeElement?.closest?.('[data-account-audit-toggle]') ? '[data-account-audit-toggle]' : null;
     renderProfileDrawer();
+    const section = els?.content.querySelector('.profile-account-audit section');
+    if (section) section.scrollTop = scrollTop;
+    if (restoreSelector) els?.content.querySelector(restoreSelector)?.focus();
   }
 
   function resetAccountAuditTarget(target) {
@@ -362,6 +383,8 @@
 
   function closeDrawer() {
     if (!els || els.drawer.hidden) return;
+    accountAuditState.requestId += 1;
+    accountAuditState.loading = false;
     els.drawer.hidden = true;
     if (lastFocused && typeof lastFocused.focus === 'function') lastFocused.focus();
     lastFocused = null;
@@ -926,8 +949,18 @@
         accountAuditState.open = false;
         renderProfileDrawer();
       } else {
-        void loadAccountAuditHistory();
+        if (accountAuditState.rows.length) {
+          accountAuditState.open = true;
+          renderProfileDrawer();
+        } else {
+          void loadAccountAuditHistory();
+        }
       }
+      return;
+    }
+
+    if (e.target.closest('[data-account-audit-more]')) {
+      void loadAccountAuditHistory();
       return;
     }
 
@@ -1081,7 +1114,7 @@
         ${view.categoryLabel ? `<dt>Kategoria</dt><dd>${escapeHtml(view.categoryLabel)}</dd>` : ''}
         ${view.sectionLabel ? `<dt>Sekcja</dt><dd><span class="section-pill" data-section="${escapeHtml(view.sectionId ?? '')}">${escapeHtml(view.sectionLabel)}</span></dd>` : ''}
       </dl>
-      ${accountAuditHtml(Boolean(view.canViewAccountAudit && view.auditEmail))}
+      ${accountAuditHtml(Boolean(view.canViewAccountAudit && (view.auditTarget || view.auditEmail)))}
       ${editHtml ? `<div class="profile-editor-toggle-row">${editHtml}</div>` : ''}
     `;
   }
@@ -1093,7 +1126,7 @@
     editorState.profile = null;
     editorState.target = null;
     currentEquipmentView = view;
-    resetAccountAuditTarget(view.auditEmail ? { email: view.auditEmail } : null);
+    resetAccountAuditTarget(view.auditTarget ?? (view.auditEmail ? { email: view.auditEmail } : null));
     currentPhotos = view.photos ?? [];
     equipmentEditHandler = view.onEdit ?? null;
     content.innerHTML = renderEquipment(view);

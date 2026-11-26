@@ -17,6 +17,9 @@ class FakeElement {
   disabled = false;
   checked = false;
   value = '';
+  scrollTop = 0;
+  clientHeight = 0;
+  scrollHeight = 0;
   dataset: Record<string, string> = {};
   classList = new FakeClassList();
   parent: FakeElement | null = null;
@@ -34,6 +37,9 @@ class FakeElement {
   set innerHTML(value: string) {
     this.html = value;
     this.children.clear();
+    if (value.includes('data-account-audit-toggle')) this.addChild('[data-account-audit-toggle]', new FakeElement('[data-account-audit-toggle]'));
+    if (value.includes('data-account-audit-more')) this.addChild('[data-account-audit-more]', new FakeElement('[data-account-audit-more]'));
+    if (value.includes('<section aria-label="Historia konta">')) this.addChild('.profile-account-audit section', new FakeElement('.profile-account-audit section'));
     if (value.includes('profile-drawer-content')) {
       this.addChild('.profile-drawer', new FakeElement('.profile-drawer'));
       const drawer = this.children.get('.profile-drawer')!;
@@ -163,6 +169,7 @@ function createHarness(harnessOptions: {
     Map,
     Object,
     JSON,
+    URLSearchParams,
   };
   vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
   vm.runInNewContext(source, context, { filename: 'profile-panel.js' });
@@ -196,6 +203,61 @@ test('identity-capable profile drawer submits the edited member identity through
     email: 'jan@example.test', firstName: 'Janusz', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik',
   });
   assert.equal(harness.apiCalls.filter((call) => call.url.startsWith('/member-profile?')).length, 2, 'a successful PUT refreshes the open drawer');
+});
+
+test('account audit drawer can collapse and reopen after a one-page history load', async () => {
+  const harness = createHarness({ apiFetch: async (url) => url.startsWith('/admin/members/account-audit?')
+    ? { rows: [{ id: 'role-1', timestamp: '2026-01-01T00:00:00.000Z', action: 'role.granted', actor: { email: 'staff@example.test' }, changes: [] }] }
+    : { firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', photos: [], weapons: [], weaponIds: [], editor: { canEditIdentity: true } } });
+  await harness.window.ProfilePanel.open('jan@example.test');
+  const getToggle = () => harness.drawer?.querySelector('[data-account-audit-toggle]') as FakeElement;
+  await harness.document.dispatch('click', getToggle());
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(harness.drawer?.querySelector('.profile-drawer-content')?.innerHTML ?? '', /Nadanie roli/);
+
+  await harness.document.dispatch('click', getToggle());
+  assert.doesNotMatch(harness.drawer?.querySelector('.profile-drawer-content')?.innerHTML ?? '', /Nadanie roli/);
+  await harness.document.dispatch('click', getToggle());
+  assert.match(harness.drawer?.querySelector('.profile-drawer-content')?.innerHTML ?? '', /Nadanie roli/);
+  assert.equal(harness.apiCalls.filter(call => call.url.startsWith('/admin/members/account-audit?')).length, 1);
+});
+
+test('account audit loads older pages on demand and preserves the history scroll position', async () => {
+  let page = 0;
+  const harness = createHarness({ apiFetch: async (url) => {
+    if (!url.startsWith('/admin/members/account-audit?')) return { firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', photos: [], weapons: [], weaponIds: [], editor: { canEditIdentity: true } };
+    page += 1;
+    return { rows: [{ id: `role-${page}`, timestamp: `2026-01-0${page}T00:00:00.000Z`, action: 'role.granted', actor: { email: 'staff@example.test' }, changes: [{ field: 'role', after: `Role ${page}` }] }], nextCursor: page === 1 ? 'next-page' : undefined };
+  } });
+  await harness.window.ProfilePanel.open('jan@example.test');
+  await harness.document.dispatch('click', harness.drawer?.querySelector('[data-account-audit-toggle]') as FakeElement);
+  await new Promise((resolve) => setImmediate(resolve));
+  const section = harness.drawer?.querySelector('.profile-account-audit section') as FakeElement;
+  section.scrollTop = 42;
+  await harness.document.dispatch('click', harness.drawer?.querySelector('[data-account-audit-more]') as FakeElement);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(harness.drawer?.querySelector('.profile-drawer-content')?.innerHTML ?? '', /Role 2/);
+  assert.equal(harness.drawer?.querySelector('.profile-account-audit section')?.scrollTop, 42);
+  assert.equal(page, 2);
+});
+
+test('account audit displays a later-page error while retaining loaded history and a retry action', async () => {
+  let calls = 0;
+  const harness = createHarness({ apiFetch: async (url) => {
+    if (!url.startsWith('/admin/members/account-audit?')) return { firstName: 'Jan', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik', photos: [], weapons: [], weaponIds: [], editor: { canEditIdentity: true } };
+    calls += 1;
+    if (calls > 1) throw new Error('temporary failure');
+    return { rows: [{ id: 'role-1', timestamp: '2026-01-01T00:00:00.000Z', action: 'role.granted', actor: { email: 'staff@example.test' }, changes: [] }], nextCursor: 'next-page' };
+  } });
+  await harness.window.ProfilePanel.open('jan@example.test');
+  await harness.document.dispatch('click', harness.drawer?.querySelector('[data-account-audit-toggle]') as FakeElement);
+  await new Promise((resolve) => setImmediate(resolve));
+  await harness.document.dispatch('click', harness.drawer?.querySelector('[data-account-audit-more]') as FakeElement);
+  await new Promise((resolve) => setImmediate(resolve));
+  const html = harness.drawer?.querySelector('.profile-drawer-content')?.innerHTML ?? '';
+  assert.match(html, /Nadanie roli/);
+  assert.match(html, /Nie udało się wczytać historii konta/);
+  assert.match(html, /data-account-audit-more/);
 });
 
 test('shared member drawer uses the first non-public photo as the ordinary main photo and keeps photo indexes aligned', async () => {

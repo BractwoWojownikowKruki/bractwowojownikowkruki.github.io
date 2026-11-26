@@ -503,6 +503,12 @@ function wireOwnerModeToggle() {
 // section, same as the table.
 function equipmentPanelView(item) {
   const sectionId = itemFilterSectionId(item);
+  const owner = personById.get(item.belongsToPersonId);
+  const auditTarget = item.belongsToPersonId
+    ? (owner?.accountless || !item.belongsToPersonId.includes('@')
+      ? { personId: item.belongsToPersonId }
+      : { email: item.belongsToPersonId })
+    : null;
   return {
     description: item.description,
     photos: item.photos ?? [],
@@ -511,7 +517,7 @@ function equipmentPanelView(item) {
     sectionId,
     sectionLabel: sectionLabelById.get(sectionId) ?? sectionId,
     ownerHtml: item.belongsToPersonId === null ? null : ownerCellHtml(item.belongsToPersonId),
-    auditEmail: item.belongsToPersonId ?? null,
+    auditTarget,
     canViewAccountAudit: item.canViewAccountAudit === true,
     onEdit: item.canEdit ? () => startEditing(item) : null,
   };

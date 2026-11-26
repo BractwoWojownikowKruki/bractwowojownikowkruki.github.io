@@ -593,6 +593,9 @@ function computeSearchTokens(resource: AuditResource, actor: AuditActor, changes
     for (const word of foldedWords(text)) {
       for (const token of tokensForWord(word)) tokens.add(token);
     }
+    for (const match of text.matchAll(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+/gi)) {
+      tokens.add(foldDiacritics(match[0]).toLowerCase().slice(0, MAX_SEARCH_TOKEN_LENGTH));
+    }
   }
   return Array.from(tokens);
 }
@@ -955,7 +958,7 @@ export type AuditPrimarySelector =
   | { kind: 'resourceKey'; key: string }
   | { kind: 'event'; eventId: string }
   | { kind: 'search'; term: string }
-  | { kind: 'account'; reference: string };
+  | { kind: 'account'; reference: string; referenceKind: 'email' | 'personId' };
 
 export interface AuditQueryOptions {
   selector: AuditPrimarySelector;
@@ -1164,6 +1167,10 @@ export async function queryAuditEvents(
   };
 }
 
+/**
+ * Holds independent positions for the exact account-resource and related-person audit queries.
+ * The account history endpoint merges both ordered streams and encodes this cursor between pages.
+ */
 interface AccountAuditCursor {
   memberCursor?: FirestoreQueryCursor;
   relatedCursor?: FirestoreQueryCursor;
@@ -1194,14 +1201,14 @@ function encodeAccountAuditCursor(cursor: AccountAuditCursor): string {
   return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
 }
 
-function accountAuditEventMatches(event: CanonicalAuditEvent, reference: string): boolean {
-  if (!reference.includes('@')) return event.resource.key === `person:${reference}` && event.action.startsWith('person.');
+function accountAuditEventMatches(event: CanonicalAuditEvent, reference: string, referenceKind: 'email' | 'personId'): boolean {
+  if (referenceKind === 'personId') return event.resource.key === `person:${reference}` && event.action.startsWith('person.');
   const email = reference.toLowerCase();
   if (event.resource.key.toLowerCase() === `member:${email}`) {
     if (event.action.startsWith('role.') || event.action === 'membership.application.submitted' || event.action.startsWith('membership.status.')) return true;
     return (event.action === 'profile.member.updated' || event.action === 'profile.drive_folder.changed') && event.actor.email !== email;
   }
-  const companionActions = new Set(['person.created', 'person.updated', 'person.deleted', 'person.detached', 'person.purged', 'person.merged']);
+  const companionActions = new Set(['person.created', 'person.detached', 'person.merged']);
   if (!companionActions.has(event.action)) return false;
   const accountLinkFields = new Set(['ownerPersonId', 'accountEmail', 'mergedInto']);
   return event.changes.some(change => accountLinkFields.has(change.field) &&
@@ -1215,36 +1222,58 @@ async function queryAccountAuditEvents(
 ): Promise<AuditQueryPage> {
   const reference = options.selector.reference.trim();
   if (!reference) throw new AuditQueryError('Brak identyfikatora konta.');
-  const email = reference.includes('@');
+  const email = options.selector.referenceKind === 'email';
   const normalizedReference = email ? reference.toLowerCase() : reference;
+  const localPartWords = email ? foldedWords(normalizedReference.split('@', 1)[0]) : [];
   const token = email
-    ? foldedWords(normalizedReference).find(word => word.length >= MIN_SEARCH_TOKEN_LENGTH)
+    ? [...localPartWords].sort((a, b) => b.length - a.length)[0] ?? foldedWords(normalizedReference).sort((a, b) => b.length - a.length)[0]
     : undefined;
-  if (email && !token) throw new AuditQueryError('Nie można wyszukać historii tego konta.');
   const limit = Math.min(Math.max(options.limit ?? MAX_LIST_LIMIT, 1), MAX_LIST_LIMIT);
   const cursor = decodeAccountAuditCursor(options.cursor, Boolean(token));
-  const fetchLimit = Math.min(Math.max(limit * 2, 100), 200);
-  const [memberDocs, relatedDocs] = await Promise.all([
+  let fetchLimit = Math.min(Math.max(limit * 2, 100), 200);
+  const fetchStreams = async (pageSize: number) => Promise.all([
     cursor.memberDone ? Promise.resolve([]) : firestore.queryDocs<CanonicalAuditEvent>('auditEvents', {
       filter: { field: 'resource.key', op: '==', value: `${email ? 'member' : 'person'}:${normalizedReference}` },
       timestampField: 'timestamp', timestampGte: options.from, timestampLte: options.to,
-      startAfter: cursor.memberCursor, limit: fetchLimit,
+      startAfter: cursor.memberCursor, limit: pageSize,
     }),
     !token || cursor.relatedDone ? Promise.resolve([]) : firestore.queryDocs<CanonicalAuditEvent>('auditEvents', {
       filter: { field: 'searchTokens', op: 'array-contains', value: token.slice(0, MAX_SEARCH_TOKEN_LENGTH) },
       timestampField: 'timestamp', timestampGte: options.from, timestampLte: options.to,
-      startAfter: cursor.relatedCursor, limit: fetchLimit,
+      startAfter: cursor.relatedCursor, limit: pageSize,
     }),
   ]);
-  const candidates = new Map<string, { id: string; data: CanonicalAuditEvent; member: boolean; related: boolean }>();
-  for (const doc of memberDocs) candidates.set(doc.id, { ...doc, member: true, related: false });
-  for (const doc of relatedDocs) {
-    const existing = candidates.get(doc.id);
-    if (existing) existing.related = true;
-    else candidates.set(doc.id, { ...doc, member: false, related: true });
+  let [memberDocs, relatedDocs] = await fetchStreams(fetchLimit);
+  const isDone = (docs: Array<{ id: string; data: CanonicalAuditEvent }>, streamDone: boolean) => streamDone || docs.length < fetchLimit;
+  const compareNewestFirst = (a: { timestamp: string; id: string }, b: { timestamp: string; id: string }) =>
+    b.timestamp.localeCompare(a.timestamp) || b.id.localeCompare(a.id);
+  const candidates = () => {
+    const merged = new Map<string, { id: string; data: CanonicalAuditEvent; member: boolean; related: boolean }>();
+    for (const doc of memberDocs) merged.set(doc.id, { ...doc, member: true, related: false });
+    for (const doc of relatedDocs) {
+      const existing = merged.get(doc.id);
+      if (existing) existing.related = true;
+      else merged.set(doc.id, { ...doc, member: false, related: true });
+    }
+    return [...merged.values()].sort((a, b) => compareNewestFirst(a.data, b.data));
+  };
+  const isSafe = (candidate: { data: CanonicalAuditEvent }) => {
+    const memberTail = memberDocs.at(-1)?.data;
+    const relatedTail = relatedDocs.at(-1)?.data;
+    return (isDone(memberDocs, cursor.memberDone) || !memberTail || compareNewestFirst(candidate.data, memberTail) <= 0) &&
+      (isDone(relatedDocs, cursor.relatedDone) || !relatedTail || compareNewestFirst(candidate.data, relatedTail) <= 0);
+  };
+  let safeCandidates = candidates().filter(isSafe);
+  // Refill the streams until a complete page is safe to emit in global timestamp order, or both
+  // streams are exhausted. A short-token query can contain unrelated actor events, so a bounded
+  // expanding lookahead prevents one stream's unseen newer rows from being returned on a later page.
+  while (safeCandidates.filter(candidate => accountAuditEventMatches(candidate.data, normalizedReference, options.selector.referenceKind)).length < limit &&
+      (!isDone(memberDocs, cursor.memberDone) || !isDone(relatedDocs, cursor.relatedDone)) && fetchLimit < 5000) {
+    fetchLimit = Math.min(fetchLimit * 2, 5000);
+    [memberDocs, relatedDocs] = await fetchStreams(fetchLimit);
+    safeCandidates = candidates().filter(isSafe);
   }
-  const ordered = [...candidates.values()].sort((a, b) =>
-    b.data.timestamp.localeCompare(a.data.timestamp) || b.id.localeCompare(a.id));
+  const ordered = safeCandidates;
   const rows: AuditEventRow[] = [];
   let memberConsumed = 0;
   let relatedConsumed = 0;
@@ -1258,7 +1287,7 @@ async function queryAccountAuditEvents(
       relatedConsumed += 1;
       next.relatedCursor = { timestamp: candidate.data.timestamp, id: candidate.id };
     }
-    if (accountAuditEventMatches(candidate.data, normalizedReference)) {
+    if (accountAuditEventMatches(candidate.data, normalizedReference, options.selector.referenceKind)) {
       const row = projectAuditEvent(candidate.data, viewer);
       if (row) rows.push(row);
     }

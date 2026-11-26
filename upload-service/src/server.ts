@@ -6129,21 +6129,25 @@ async function handleAdminAuditEventsList(req: IncomingMessage, res: ServerRespo
 }
 
 async function handleAdminMemberAccountAudit(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
-  await deps.authenticateAdminOrHovding(req, res);
+  const auth = await resolveAdminAuditAuth(req, res, deps);
+  if (!auth.isAdmin && !auth.isHovding) throw new AuthError('Brak uprawnień do przeglądania historii konta.', 403);
   const email = url.searchParams.get('email')?.trim().toLowerCase();
   const personId = url.searchParams.get('personId')?.trim();
   if ((email ? 1 : 0) + (personId ? 1 : 0) !== 1) throw new AuthError('Wymagany jest identyfikator konta.', 400);
+  if ((email && (!email.includes('@') || email.startsWith('@') || email.endsWith('@'))) || (personId && personId.includes('@'))) {
+    throw new AuthError('Nieprawidłowy identyfikator konta.', 400);
+  }
   const reference = email || personId!;
   const limitParam = url.searchParams.get('limit');
   const limit = limitParam === null ? 100 : Number(limitParam);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new AuthError('Nieprawidłowy limit.', 400);
-  const viewer = await resolveAdminAuditViewer(req, res, deps);
+  const viewer: AuditViewer = { scope: 'admin', isAdmin: auth.isAdmin, isHovding: auth.isHovding, isAccountant: auth.isAccountant };
   const page = await queryAuditEvents(deps.firestore, {
-    selector: { kind: 'account', reference },
+    selector: { kind: 'account', reference, referenceKind: email ? 'email' : 'personId' },
     cursor: url.searchParams.get('cursor') ?? undefined,
     limit,
   }, viewer);
-  sendJson(res, 200, page);
+  sendJson(res, 200, { ...page, rows: await withActorNames(deps, page.rows) });
 }
 
 async function handleAdminAuditEventDetail(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
