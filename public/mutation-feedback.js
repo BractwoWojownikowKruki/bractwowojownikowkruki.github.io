@@ -144,7 +144,7 @@
   //  - `fallbackAnchor`         -> used only when apply() removed that element: an element or a
   //    function (evaluated after apply()) returning one, e.g. the freshly rendered twin of the
   //    control. If it is 'toast', or resolves to nothing connected, the toast is shown instead.
-  async function confirmed({ execute, apply, refreshFragment, control, anchor, fallbackAnchor, toast, rollback, shouldShowCheck, viewRoot }) {
+  async function confirmed({ execute, apply, refreshFragment, control, anchor, fallbackAnchor, toast, rollback, shouldShowCheck, skipApplyWhen, focusAfterApply, viewRoot }) {
     let feedbackAnchor = anchor || control;
     removeExistingChecks(feedbackAnchor);
     let result;
@@ -162,8 +162,16 @@
       throw error;
     }
 
+    if (skipApplyWhen?.(result)) return result;
+
     try {
       await apply(result);
+      try {
+        const focusTarget = await focusAfterApply?.(result);
+        focusTarget?.focus?.({ preventScroll: true });
+      } catch (_) {
+        // Focus is best-effort; a lookup failure must not report a failed save after apply succeeded.
+      }
       if (shouldShowCheck?.(result) === false) return result;
     } catch (error) {
       showRefreshError(connectedErrorAnchor(feedbackAnchor), refreshFragment, viewRoot || feedbackAnchor);

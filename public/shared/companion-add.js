@@ -5,6 +5,9 @@
 // shared/person-pill.js, so this file only depends on the global displayName() from
 // shared/display-name.js, which every page that includes this script must load first.
 (function () {
+  const PRIORITY_CATEGORY_IDS = Object.freeze(['niewiasta', 'bobo', 'inne']);
+  const PRIORITY_CATEGORY_ID_SET = new Set(PRIORITY_CATEGORY_IDS);
+
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
       '&': '&amp;',
@@ -37,6 +40,34 @@
   }
 
   /**
+   * Order companion categories for registration forms while preserving the lookup order of the
+   * remaining categories; categoryOptionsHtml renders the native separator after the priority group.
+   * @param {Array<{id: string, label: string}>} categories
+   */
+  function orderedCategories(categories) {
+    const byId = new Map((categories ?? []).map((category) => [category.id, category]));
+    return [
+      ...PRIORITY_CATEGORY_IDS.map((id) => byId.get(id)).filter(Boolean),
+      ...(categories ?? []).filter((category) => !PRIORITY_CATEGORY_ID_SET.has(category.id)),
+    ];
+  }
+
+  /**
+   * Render registration categories with retired choices retained only when already selected.
+   * The lower-priority group stays in its existing lookup order.
+   * @param {Array<{id: string, label: string, retired?: boolean}>} categories
+   * @param {string|null} selectedId
+   */
+  function categoryOptionsHtml(categories, selectedId = null) {
+    const available = (categories ?? []).filter((category) => !category.retired || category.id === selectedId);
+    const ordered = orderedCategories(available);
+    const priority = ordered.filter((category) => PRIORITY_CATEGORY_ID_SET.has(category.id));
+    const option = (category) => `<option value="${escapeHtml(category.id)}"${category.id === selectedId ? ' selected' : ''}>${escapeHtml(category.label)}${category.retired ? ' (wycofany status)' : ''}</option>`;
+    const remaining = ordered.filter((category) => !PRIORITY_CATEGORY_ID_SET.has(category.id));
+    return `${priority.map(option).join('')}${priority.length && remaining.length ? `<hr>${remaining.map(option).join('')}` : remaining.map(option).join('')}`;
+  }
+
+  /**
    * The panel body (the .lw-inline-form-inner block). Fixed control ids are safe because only one
    * panel is open at a time on either page.
    *
@@ -49,9 +80,7 @@
     const existingOptions = attached
       .map((person) => `<option value="${escapeHtml(person.personId)}">${escapeHtml(displayName(person))}</option>`)
       .join('');
-    const categorySelectOptions = (categories ?? [])
-      .map((category) => `<option value="${escapeHtml(category.id)}">${escapeHtml(category.label)}</option>`)
-      .join('');
+    const categorySelectOptions = categoryOptionsHtml(categories);
     return `
     <div class="lw-inline-form-inner">
       <p class="lw-inline-title">Osoby towarzyszące: ${escapeHtml(displayName(member))}</p>
@@ -92,5 +121,5 @@
     return `<button type="button" class="lw-add-companion" data-owner-person-id="${escapeHtml(ownerPersonId)}"${eventAttr} aria-expanded="${expanded ? 'true' : 'false'}" aria-label="Dodaj osobę towarzyszącą" title="Dodaj osobę towarzyszącą"><span class="lw-add-companion-plus" aria-hidden="true">+</span><svg class="lw-add-companion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5.5" r="2.6"/><path d="M12 8.5v6.5"/><path d="M8.2 11h7.6"/><path d="M9.2 22l2.8-7 2.8 7"/></svg><span class="lw-add-companion-label">osoba towarzysząca</span></button>`;
   }
 
-  window.CompanionAdd = { candidates, panelHtml, buttonHtml };
+  window.CompanionAdd = { candidates, orderedCategories, categoryOptionsHtml, panelHtml, buttonHtml };
 }());

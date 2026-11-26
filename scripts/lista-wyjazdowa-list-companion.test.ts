@@ -24,6 +24,9 @@ class Element {
   disabled = false;
   checked = false;
   dataset: Record<string, string> = {};
+  focused = false;
+  lastQuerySelector = '';
+  lastQueryTarget: Element | null = null;
   classList = { toggle: () => {} };
   private listeners = new Map<string, Array<(event: any) => unknown>>();
 
@@ -40,6 +43,12 @@ class Element {
   async dispatch(type: string, event: Record<string, unknown> = {}) {
     await Promise.all((this.listeners.get(type) ?? []).map((listener) => listener({ preventDefault: () => {}, target: this, ...event })));
   }
+  querySelector(selector: string) {
+    this.lastQuerySelector = selector;
+    this.lastQueryTarget = new Element(selector);
+    return this.lastQueryTarget;
+  }
+  focus() { this.focused = true; }
   scrollIntoView() {}
 }
 
@@ -89,6 +98,8 @@ function createHarness(options: HarnessOptions = {}) {
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   let mutationResult: unknown = null;
   let mutationError: Error | null = null;
+  let cancelDuplicatePrompt = false;
+  const cancelledDuplicatePrompt = Object.freeze({ cancelled: true });
   let mutationGate: Promise<void> | null = null;
   const busy = { shown: [] as string[], active: 0 };
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
@@ -112,16 +123,35 @@ function createHarness(options: HarnessOptions = {}) {
     Array,
     JSON,
     Date,
+    CSS: { escape: (value: string) => value },
     encodeURIComponent,
     window: {
       location: { search: '' },
+      PersonRegistrationPrompt: {
+        run: async (execute: (confirmed: boolean) => Promise<unknown>, promptOptions: { fallbackFocus?: () => { focus(): void } | null } = {}) => {
+          try { return await execute(false); } catch (error: any) {
+            if (!Array.isArray(error?.duplicateMatches)) throw error;
+            if (cancelDuplicatePrompt) {
+              promptOptions.fallbackFocus?.()?.focus();
+              return cancelledDuplicatePrompt;
+            }
+            return execute(true);
+          }
+        },
+        confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
+          ...options,
+          execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
+          skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result) || options.skipApplyWhen?.(result),
+        }),
+        wasCancelled: (result: unknown) => result === cancelledDuplicatePrompt,
+      },
       MutationFeedback: {
         showBusy: (message: string) => {
           busy.shown.push(message);
           busy.active += 1;
           return () => { busy.active -= 1; };
         },
-        confirmed: async ({ execute, apply, rollback }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown }) => {
+        confirmed: async ({ execute, apply, rollback, skipApplyWhen, focusAfterApply }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => Element | null }) => {
           let result: unknown;
           try {
             result = await execute();
@@ -129,7 +159,9 @@ function createHarness(options: HarnessOptions = {}) {
             if (rollback) await rollback(error);
             throw error;
           }
+          if (skipApplyWhen?.(result)) return result;
           apply(result);
+          focusAfterApply?.(result)?.focus();
         },
       },
     },
@@ -143,7 +175,10 @@ function createHarness(options: HarnessOptions = {}) {
       apiCalls.push({ url, options });
       if (options.method === 'PUT' || options.method === 'POST' || options.method === 'DELETE') {
         if (mutationGate) await mutationGate;
-        if (mutationError) throw mutationError;
+        if (mutationError) {
+          const requestBody = JSON.parse(String(options.body ?? '{}'));
+          if (!requestBody.duplicateConfirmed || !Array.isArray((mutationError as any).duplicateMatches)) throw mutationError;
+        }
         return mutationResult;
       }
       if (url === '/lista-wyjazdowa/events') return { events };
@@ -172,6 +207,7 @@ function createHarness(options: HarnessOptions = {}) {
     async signIn() { await signIn?.({ email: 'viewer@example.com' }); },
     setMutationResult(result: unknown) { mutationResult = result; mutationError = null; },
     setMutationError(error: Error) { mutationError = error; },
+    cancelDuplicatePrompt() { cancelDuplicatePrompt = true; },
     busy,
     window: context.window as Record<string, unknown>,
     holdMutations() { let release!: () => void; mutationGate = new Promise<void>((resolve) => { release = resolve; }); return () => { mutationGate = null; release(); }; },
@@ -236,6 +272,42 @@ test('tapping + lazy-loads the roster/categories/signups and opens the shared pa
   assert.match(list.innerHTML, /Kandydat/);
 });
 
+test('new companion categories put Niewiasta, Bobo and Inne first, then an hr separator', () => {
+  const context = { window: {}, displayName: (person: any) => person.nickname ?? 'Osoba' };
+  vm.runInNewContext(companionAddSource, context);
+  const html = context.window.CompanionAdd.panelHtml(
+    { personId: 'owner', nickname: 'Opiekun' },
+    {
+      roster: [], signups: [],
+      categories: [
+        { id: 'inna', label: 'Inna' },
+        { id: 'brokul', label: 'Brokuł' },
+        { id: 'niewiasta', label: 'Niewiasta' },
+        { id: 'bobo', label: 'Bobo' },
+        { id: 'inne', label: 'Inne' },
+        { id: 'retired', label: 'Wycofany status', retired: true },
+      ],
+    },
+  );
+  const options = html.slice(html.indexOf('id="lw-inline-new-category"'));
+  const positions = ['value="niewiasta"', 'value="bobo"', 'value="inne"', '<hr>', 'value="inna"', 'value="brokul"'].map((value) => options.indexOf(value));
+  assert.ok(positions.every((position) => position >= 0));
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+  assert.doesNotMatch(options, /Wycofany status/);
+  const editOptions = context.window.CompanionAdd.categoryOptionsHtml([
+    { id: 'niewiasta', label: 'Niewiasta' },
+    { id: 'retired', label: 'Gość', retired: true },
+  ], 'retired');
+  assert.match(editOptions, /<hr><option value="retired" selected>Gość \(wycofany status\)/);
+  const retiredPriorityOptions = context.window.CompanionAdd.categoryOptionsHtml([
+    { id: 'bobo', label: 'Bobo' },
+    { id: 'niewiasta', label: 'Niewiasta', retired: true },
+  ], 'niewiasta');
+  assert.match(retiredPriorityOptions, /^<option value="niewiasta" selected>Niewiasta \(wycofany status\)<\/option><option value="bobo">Bobo<\/option>$/);
+  assert.doesNotMatch(context.window.CompanionAdd.categoryOptionsHtml([{ id: 'niewiasta', label: 'Niewiasta' }]), /<hr>/);
+  assert.doesNotMatch(options, /<option disabled/);
+});
+
 test('adding an existing companion posts quick-add, closes the panel and bumps the count', async () => {
   const harness = createHarness({ withAttachedPerson: true });
   await harness.signIn();
@@ -298,6 +370,53 @@ test('adding a new companion posts quick-add with ksywka+lastName+firstName+cate
   });
   assert.doesNotMatch(list.innerHTML, /lw-inline-form/);
   assert.match(list.innerHTML, /attendee-badge-count">3</);
+});
+
+test('a matching quick-add asks the shared prompt and retries with duplicateConfirmed', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const list = harness.elements.get('events-list')!;
+  await list.clickWith(clickTarget('.lw-add-companion', { eventId: 'e1', ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Kowalski';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Jan';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  harness.setMutationResult({
+    person: { personId: 'new-uuid-1', ksywka: 'Nowy', lastName: 'Kowalski', firstName: 'Jan', categoryId: 'kandydat', sectionId: null, weaponIds: [], ownerPersonId: 'viewer@example.com' },
+    signup: { memberEmail: 'new-uuid-1', attending: true, skladkaStatus: 'unpaid' },
+  });
+  harness.setMutationError(Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Jan', lastName: 'Kowalski' }] }));
+
+  await list.clickWith(clickTarget('.lw-inline-add-new'));
+
+  const posts = harness.apiCalls.filter((call) => call.url === '/lista-wyjazdowa/signups/quick-add');
+  assert.equal(posts.length, 2);
+  assert.equal(JSON.parse(String(posts[0].options.body)).duplicateConfirmed, undefined);
+  assert.equal(JSON.parse(String(posts[1].options.body)).duplicateConfirmed, true);
+  const eventList = harness.elements.get('events-list')!;
+  assert.match(eventList.lastQuerySelector, /\.lw-attend-toggle\[data-event-id="e1"\]/);
+  assert.equal(eventList.lastQueryTarget?.focused, true);
+});
+
+test('cancelling a duplicate quick-add on the events list keeps the panel open and sends no retry', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const list = harness.elements.get('events-list')!;
+  await list.clickWith(clickTarget('.lw-add-companion', { eventId: 'e1', ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Kowalski';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Jan';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  const formBefore = list.innerHTML;
+  harness.setMutationError(Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Jan', lastName: 'Kowalski' }] }));
+  harness.cancelDuplicatePrompt();
+
+  await list.clickWith(clickTarget('.lw-inline-add-new'));
+
+  assert.equal(harness.apiCalls.filter((call) => call.url === '/lista-wyjazdowa/signups/quick-add').length, 1);
+  assert.equal(list.innerHTML, formBefore);
+  assert.equal(harness.elements.get('events-error')!.hidden, true);
+  assert.equal(harness.elements.get('lw-inline-new-name')!.focused, true);
 });
 
 test('a failed quick-add keeps the panel open and reports the error', async () => {

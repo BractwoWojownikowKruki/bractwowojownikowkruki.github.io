@@ -83,6 +83,7 @@ const dash = {
   canSignUp: false,
   roster: [],
   categories: [],
+  sections: [],
   panelSignups: [],
   openPanelEventId: null,
   companionPromise: null,
@@ -401,6 +402,7 @@ function ensureDashCompanionData() {
     ]).then(([rosterResult, lookup]) => {
       dash.roster = rosterResult.roster;
       dash.categories = lookup.categories ?? [];
+      dash.sections = lookup.sections ?? [];
     }).catch((err) => {
       dash.companionPromise = null;
       throw err;
@@ -454,26 +456,34 @@ async function quickAddDashCompanion(body, control) {
   showDashboardError('');
   control.disabled = true;
   try {
-    await window.MutationFeedback.confirmed({
+    await window.PersonRegistrationPrompt.confirmed({
       control,
       fallbackAnchor: dashEventAnchor(body.eventId),
-      execute: () => apiFetch(
+      busyMessage: body.mode === 'new' ? undefined : null,
+      fallbackFocus: () => document.getElementById(body.mode === 'new' ? 'lw-inline-new-name' : 'lw-inline-existing-select'),
+      execute: (duplicateConfirmed) => apiFetch(
         '/lista-wyjazdowa/signups/quick-add',
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
         showReauth,
         hideReauth,
       ),
-      apply: (result) => {
+      apply: async (result) => {
         const event = dash.events.find((item) => item.id === body.eventId);
         if (event && result?.signup?.attending) event.attendingCount = (event.attendingCount ?? 0) + 1;
         // A brand-new companion must be offered as an existing person next time, so drop the cache.
         dash.companionPromise = null;
         dash.openPanelEventId = null;
         renderDashboardWidgets();
-        refreshDuesPanel();
+        await refreshDuesPanel();
       },
+      focusAfterApply: () => dashEventAnchor(body.eventId)(),
       viewRoot: panels.panel,
       refreshFragment: reloadDashboardEvents,
+      successDetails: (result) => body.mode === 'new' ? {
+        person: result?.person,
+        statusLabel: dash.categories.find((category) => category.id === result?.person?.categoryId)?.label,
+        sectionLabel: dash.sections.find((section) => section.id === result?.person?.sectionId)?.label,
+      } : null,
     });
   } catch (err) {
     showDashboardError(`Nie udało się dodać osoby: ${err.message}`);
@@ -602,6 +612,7 @@ initGoogleSignIn({
       dash.canSignUp = canSignUp && dash.viewerPersonId !== null;
       dash.roster = [];
       dash.categories = [];
+      dash.sections = [];
       dash.panelSignups = [];
       dash.openPanelEventId = null;
       dash.companionPromise = null;

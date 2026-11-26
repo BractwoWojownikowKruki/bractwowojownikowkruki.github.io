@@ -15,16 +15,18 @@ const css = readFileSync(new URL('../public/member-area.css', import.meta.url), 
 // first (matching the real <script> order in app/index.html) since eventDetailHref() now calls
 // window.LwFriendlyUrl.eventUrl().
 function loadApp(): Record<string, unknown> {
-  const elements = new Map<string, { id: string; hidden: boolean }>();
+  const elements = new Map<string, { id: string; hidden: boolean; disabled?: boolean; focusCount: number; focus(): void; addEventListener?: () => void; querySelector?: () => null }>();
   const context: Record<string, unknown> = {
     window: {},
     sessionStorage: { getItem: () => null, removeItem: () => {} },
     document: {
       getElementById: (id: string) => {
-        if (!elements.has(id)) elements.set(id, { id, hidden: false });
+        if (!elements.has(id)) elements.set(id, { id, hidden: false, disabled: false, focusCount: 0, focus() { this.focusCount += 1; }, addEventListener: () => {}, querySelector: () => null });
         return elements.get(id);
       },
+      querySelector: () => null,
     },
+    CSS: { escape: (value: string) => value },
     initGoogleSignIn: () => {},
   };
   vm.runInNewContext(lwFriendlyUrlSource, context, { filename: 'lw-friendly-url.js' });
@@ -33,6 +35,89 @@ function loadApp(): Record<string, unknown> {
   vm.runInNewContext(appSource, context, { filename: 'app.js' });
   return context;
 }
+
+test('dashboard companion registration confirms a possible duplicate before retrying', async () => {
+  const context = loadApp() as any;
+  const requests: Array<Record<string, unknown>> = [];
+  let applied = 0;
+  context.window.MutationFeedback = {
+    confirmed: async ({ execute, apply, skipApplyWhen }: any) => {
+      const result = await execute();
+      if (!skipApplyWhen(result)) apply(result);
+    },
+  };
+  context.window.PersonRegistrationPrompt = {
+    run: async (execute: (confirmed: boolean) => Promise<unknown>) => {
+      try { return await execute(false); } catch (error: any) {
+        if (!Array.isArray(error?.duplicateMatches)) throw error;
+        return execute(true);
+      }
+    },
+    wasCancelled: () => false,
+    confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
+      ...options,
+      execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
+      skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result),
+    }),
+  };
+  context.apiFetch = async (_url: string, init: Record<string, unknown>) => {
+    requests.push(init);
+    if (requests.length === 1) throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Iga' }] });
+    return { signup: { attending: true } };
+  };
+  context.renderDashboardWidgets = () => { applied += 1; };
+  context.refreshDuesPanel = () => {};
+  vm.runInNewContext("dash.events = [{ id: 'trip-1', attendingCount: 2 }]", context);
+
+  await context.quickAddDashCompanion({ eventId: 'trip-1', ownerPersonId: 'owner@example.test', mode: 'new', ksywka: 'Wilk' }, { disabled: false });
+
+  assert.equal(requests.length, 2);
+  assert.equal(JSON.parse(String(requests[1].body)).duplicateConfirmed, true);
+  assert.equal(applied, 1);
+});
+
+test('dashboard companion duplicate cancellation keeps the panel and focuses its form field', async () => {
+  const context = loadApp() as any;
+  const requests: Array<Record<string, unknown>> = [];
+  const control = { disabled: false };
+  let applied = 0;
+  const cancelled = Object.freeze({ cancelled: true });
+  context.window.MutationFeedback = {
+    confirmed: async ({ execute, apply, skipApplyWhen }: any) => {
+      const result = await execute();
+      if (!skipApplyWhen(result)) apply(result);
+    },
+  };
+  context.window.PersonRegistrationPrompt = {
+    run: async (execute: (confirmed: boolean) => Promise<unknown>, options: { fallbackFocus?: () => any } = {}) => {
+      try { return await execute(false); } catch (error: any) {
+        if (!Array.isArray(error?.duplicateMatches)) throw error;
+        options.fallbackFocus?.()?.focus();
+        return cancelled;
+      }
+    },
+    wasCancelled: (result: unknown) => result === cancelled,
+    confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
+      ...options,
+      execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
+      skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result),
+    }),
+  };
+  context.apiFetch = async (_url: string, init: Record<string, unknown>) => {
+    requests.push(init);
+    throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ nickname: 'Wilk' }] });
+  };
+  context.renderDashboardWidgets = () => { applied += 1; };
+  context.refreshDuesPanel = () => {};
+  vm.runInNewContext("dash.events = [{ id: 'trip-1', attendingCount: 2 }]", context);
+
+  await context.quickAddDashCompanion({ eventId: 'trip-1', ownerPersonId: 'owner@example.test', mode: 'new', ksywka: 'Wilk' }, control);
+
+  assert.equal(requests.length, 1);
+  assert.equal(applied, 0);
+  assert.equal(context.document.getElementById('lw-inline-new-name').focusCount, 1);
+  assert.equal(control.disabled, false);
+});
 
 test('eventDetailHref builds the friendly ?do= trip detail URL', () => {
   const context = loadApp();

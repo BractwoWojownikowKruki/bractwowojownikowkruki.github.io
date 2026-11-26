@@ -896,12 +896,12 @@ function updateAccountlessWeaponState() {
   }
 }
 
-function resetAccountlessForm() {
+function resetAccountlessForm(selectedCategoryId = null) {
   editingAccountlessPersonId = null;
   document.getElementById('accountless-ksywka').value = '';
   document.getElementById('accountless-first-name').value = '';
   document.getElementById('accountless-last-name').value = '';
-  document.getElementById('accountless-category').innerHTML = accountlessOptionsHtml(accountlessCache.categories, null);
+  document.getElementById('accountless-category').innerHTML = window.CompanionAdd.categoryOptionsHtml(accountlessCache.categories, selectedCategoryId);
   document.getElementById('accountless-section-select').innerHTML = accountlessOptionsHtml(accountlessCache.sections, null);
   document.getElementById('accountless-weapons').innerHTML = accountlessWeaponCheckboxesHtml(accountlessCache.weapons, []);
   document.getElementById('accountless-owner').value = '';
@@ -911,14 +911,17 @@ function resetAccountlessForm() {
 }
 
 function openAccountlessForm(person) {
-  resetAccountlessForm();
+  resetAccountlessForm(person?.categoryId ?? null);
   document.getElementById('accountless-owner-field').hidden = !isAccountantOnlyCaller || Boolean(person);
   if (person) {
     editingAccountlessPersonId = person.personId;
     document.getElementById('accountless-ksywka').value = person.ksywka ?? person.nickname ?? '';
     document.getElementById('accountless-first-name').value = person.firstName ?? '';
     document.getElementById('accountless-last-name').value = person.lastName ?? '';
-    if (person.categoryId) document.getElementById('accountless-category').value = person.categoryId;
+    if (person.categoryId) {
+      const category = document.getElementById('accountless-category');
+      category.value = person.categoryId;
+    }
     if (person.sectionId) document.getElementById('accountless-section-select').value = person.sectionId;
     document.getElementById('accountless-weapons').innerHTML = accountlessWeaponCheckboxesHtml(accountlessCache.weapons, person.weaponIds ?? []);
     updateAccountlessWeaponState();
@@ -1080,21 +1083,42 @@ async function loadAccountlessCreationOptions() {
   }
 }
 
-async function runAccountlessMutation(control, execute, refreshRecords = true) {
+async function runAccountlessMutation(
+  control,
+  execute,
+  refreshRecords = true,
+  focusAfterApply = () => control?.isConnected ? control : document.getElementById('accountless-add-toggle'),
+  registrationOptions = null,
+) {
   const refreshFragment = refreshRecords ? loadAccountless : async () => {};
-  await window.MutationFeedback.confirmed({
+  const feedbackOptions = {
     control,
     fallbackAnchor: 'toast',
     toast: !refreshRecords,
     viewRoot: document.getElementById('accountless-section'),
     refreshFragment,
+    apply: () => refreshFragment(),
+    focusAfterApply,
+  };
+  if (registrationOptions) {
+    return window.PersonRegistrationPrompt.confirmed({
+      ...feedbackOptions,
+      execute,
+      fallbackFocus: registrationOptions.fallbackFocus,
+      successDetails: registrationOptions.successDetails,
+    });
+  }
+  return window.MutationFeedback.confirmed({
+    ...feedbackOptions,
     execute,
-    apply: refreshFragment,
+    skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
   });
 }
 
 async function submitAccountlessForm() {
   const errorEl = document.getElementById('accountless-error');
+  const saveButton = document.getElementById('accountless-save');
+  if (saveButton.disabled) return;
   errorEl.hidden = true;
   const categoryId = document.getElementById('accountless-category').value;
   const fields = {
@@ -1113,23 +1137,54 @@ async function submitAccountlessForm() {
     errorEl.hidden = false;
     return;
   }
+  saveButton.disabled = true;
   const editing = editingAccountlessPersonId;
   try {
-    await runAccountlessMutation(document.getElementById('accountless-save'), () => apiFetch(
-      '/lista-wyjazdowa/persons',
-      {
-        method: editing ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editing ? { personId: editing, ...fields } : { ...fields, ...(isAccountantOnlyCaller ? { ownerPersonId } : {}) }),
-      },
-      showReauth,
-      hideReauth,
-    ));
-    document.getElementById('accountless-form-panel').hidden = true;
-    resetAccountlessForm();
+    const focusAfterApply = () => document.getElementById('accountless-add-toggle');
+    const result = editing
+      ? await runAccountlessMutation(saveButton, () => apiFetch(
+        '/lista-wyjazdowa/persons',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personId: editing, ...fields }) },
+        showReauth,
+        hideReauth,
+      ))
+      : await runAccountlessMutation(
+        saveButton,
+        (duplicateConfirmed) => apiFetch(
+          '/lista-wyjazdowa/persons',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...fields, ...(isAccountantOnlyCaller ? { ownerPersonId } : {}), ...(duplicateConfirmed ? { duplicateConfirmed: true } : {}) }),
+          },
+          showReauth,
+          hideReauth,
+        ),
+        true,
+        focusAfterApply,
+        {
+          fallbackFocus: () => document.getElementById('accountless-ksywka'),
+          successDetails: (created) => {
+            document.getElementById('accountless-form-panel').hidden = true;
+            resetAccountlessForm();
+            return {
+              person: created?.person,
+              statusLabel: accountlessCache.categories.find((category) => category.id === created?.person?.categoryId)?.label,
+              sectionLabel: accountlessCache.sections.find((section) => section.id === created?.person?.sectionId)?.label,
+            };
+          },
+        },
+      );
+    if (!editing && window.PersonRegistrationPrompt.wasCancelled(result)) return;
+    if (editing) {
+      document.getElementById('accountless-form-panel').hidden = true;
+      resetAccountlessForm();
+    }
   } catch (err) {
     errorEl.textContent = `Nie udało się zapisać osoby: ${err.message}`;
     errorEl.hidden = false;
+  } finally {
+    saveButton.disabled = false;
   }
 }
 

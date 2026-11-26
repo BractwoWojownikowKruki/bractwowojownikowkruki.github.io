@@ -118,6 +118,43 @@ export async function listPersons(
   return options.includeDeleted ? docs : docs.filter((d) => !d.data.deletedAt);
 }
 
+function normalizePersonComparison(value: string | null | undefined): string {
+  return (value ?? '').normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('pl-PL');
+}
+
+/**
+ * Finds active accountless people that may be the person a caller is about to register. The
+ * returned canonical person records let the HTTP layer add section and owner labels before the
+ * registration endpoint returns a confirmation prompt; records with an account or a tombstone
+ * are excluded.
+ */
+export async function findDuplicateAccountlessPersons(
+  client: FirestoreLikeClient,
+  fields: Pick<PersonWritableFields, 'ksywka' | 'firstName' | 'lastName'>,
+): Promise<PersonDoc[]> {
+  const nickname = normalizePersonComparison(fields.ksywka);
+  const firstName = normalizePersonComparison(fields.firstName);
+  const lastName = normalizePersonComparison(fields.lastName);
+  const people = await listPersons(client);
+  return people
+    .map(({ data }) => data)
+    .filter((person) => {
+      if (person.email || person.mergedInto) return false;
+      const nicknameMatches = nickname !== '' && normalizePersonComparison(person.ksywka) === nickname;
+      const fullNameMatches = firstName !== '' && lastName !== ''
+        && normalizePersonComparison(person.firstName) === firstName
+        && normalizePersonComparison(person.lastName) === lastName;
+      return nicknameMatches || fullNameMatches;
+    })
+    .sort((left, right) => {
+      const leftFullName = normalizePersonComparison(`${left.firstName ?? ''} ${left.lastName ?? ''}`);
+      const rightFullName = normalizePersonComparison(`${right.firstName ?? ''} ${right.lastName ?? ''}`);
+      return leftFullName.localeCompare(rightFullName, 'pl', { sensitivity: 'base' })
+        || normalizePersonComparison(left.ksywka).localeCompare(normalizePersonComparison(right.ksywka), 'pl', { sensitivity: 'base' })
+        || (left.personId < right.personId ? -1 : left.personId > right.personId ? 1 : 0);
+    });
+}
+
 /**
  * The result of keying an incoming value. Deliberately a discriminated union so a caller cannot
  * accidentally treat an account as an accountless person or the other way round.

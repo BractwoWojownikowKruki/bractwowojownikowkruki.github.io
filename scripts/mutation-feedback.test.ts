@@ -138,6 +138,56 @@ test('shows a bare accessible check only after execute and apply resolve in orde
   assert.equal(check.attributes.get('aria-label'), 'Zapisano');
 });
 
+test('a mutation can stop after execute for a cancelled informational prompt', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  const control = new FakeElement('button');
+  let applied = false;
+  let checked = false;
+  const result = await feedback.confirmed({
+    control,
+    execute: async () => ({ cancelled: true }),
+    apply: async () => { applied = true; },
+    skipApplyWhen: (value: { cancelled: boolean }) => value.cancelled,
+    shouldShowCheck: () => { checked = true; return true; },
+  });
+  assert.deepEqual(result, { cancelled: true });
+  assert.equal(applied, false);
+  assert.equal(checked, false);
+  assert.equal(control.insertedAfter.length, 0);
+});
+
+test('focusAfterApply moves focus to the replacement control after the view updates', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  const replacement = new FakeElement('button');
+  const order: string[] = [];
+  await feedback.confirmed({
+    execute: async () => ({ saved: true }),
+    apply: async () => { order.push('apply'); },
+    focusAfterApply: () => { order.push('focus-target'); return replacement; },
+    anchor: new FakeElement('button'),
+    shouldShowCheck: () => false,
+  });
+  assert.deepEqual(order, ['apply', 'focus-target']);
+  assert.equal((replacement.focusedWith as { preventScroll: boolean }).preventScroll, true);
+});
+
+test('a focus lookup failure does not turn a successful save into a refresh error', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  let applied = false;
+  const result = await feedback.confirmed({
+    execute: async () => 'saved',
+    apply: async () => { applied = true; },
+    focusAfterApply: () => { throw new Error('focus lookup failed'); },
+    shouldShowCheck: () => false,
+  });
+  assert.equal(result, 'saved');
+  assert.equal(applied, true);
+  assert.equal(harness.created.some((element) => element.className === 'mutation-feedback-error'), false);
+});
+
 test('replaces a previous check instead of stacking a new one on repeated saves', async () => {
   const harness = createHarness();
   const feedback = await loadMutationFeedback(harness);

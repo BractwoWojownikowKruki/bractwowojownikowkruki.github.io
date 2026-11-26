@@ -7965,7 +7965,7 @@ test('POST /lista-wyjazdowa/persons audits normalized weapon counts for Niewiast
   await withServer(deps, async baseUrl => {
     for (const categoryId of ['niewiasta', 'bobo']) {
       const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', {
-        ...personBody, categoryId, weaponIds: ['tarczownik'],
+        ...personBody, categoryId, weaponIds: ['tarczownik'], duplicateConfirmed: true,
       });
       assert.equal(res.status, 201);
       const { person } = await res.json();
@@ -7993,6 +7993,113 @@ test('POST /lista-wyjazdowa/persons lets a member create their own person but no
       'a member may not attach a person to someone else',
     );
     assert.equal((await firestore.listDocs('persons')).length, 1, 'the denied requests must not have created anything');
+  });
+});
+
+test('POST /lista-wyjazdowa/persons returns possible duplicates and creates only after explicit confirmation', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const listedCollections: string[] = [];
+  const originalListDocs = firestore.listDocs.bind(firestore);
+  firestore.listDocs = <T>(collection: string) => {
+    listedCollections.push(collection);
+    return originalListDocs<T>(collection);
+  };
+  seedPerson(firestore, 'existing-person', 'owner@example.test');
+  firestore.seed('members', 'owner@example.test', {
+    email: 'owner@example.test', firstName: 'Anna', lastName: 'Opiekun', nickname: 'A', sectionId: 'krakow', hidden: false,
+  });
+  const body = { ...personBody, ownerPersonId: 'wojownik@gmail.com' };
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const warning = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', body);
+    assert.equal(warning.status, 409);
+    const warningBody = await warning.json();
+    assert.deepEqual(warningBody.duplicateMatches, [{
+      firstName: 'Jan', lastName: 'Kowalski', nickname: 'Wilk', section: 'Kraków', owner: 'A',
+    }]);
+    assert.equal((await firestore.listDocs('persons')).length, 1, 'the warning must not create a person');
+    listedCollections.length = 0;
+
+    const confirmed = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...body, duplicateConfirmed: true });
+    assert.equal(confirmed.status, 201);
+    assert.equal(listedCollections.includes('persons'), false, 'a confirmed retry skips the full persons scan');
+    assert.equal(listedCollections.includes('members'), false, 'a confirmed retry skips the full members scan');
+    assert.equal((await firestore.listDocs('persons')).length, 2);
+  });
+});
+
+test('POST /lista-wyjazdowa/persons omits a whitespace-only legacy nickname from duplicate details', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'legacy-person', 'owner@example.test');
+  await firestore.setDoc('persons', 'legacy-person', { ksywka: '   ' });
+
+  await withServer(memberDeps(firestore, 'viewer@example.test'), async baseUrl => {
+    const warning = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', {
+      ...personBody, ksywka: 'Different nickname', ownerPersonId: 'viewer@example.test',
+    });
+
+    assert.equal(warning.status, 409);
+    assert.equal((await warning.json()).duplicateMatches[0].nickname, null);
+  });
+});
+
+test('POST /lista-wyjazdowa/persons redacts hidden or missing owners but lets an owner recognize themselves', async () => {
+  const cases = [
+    { label: 'another hidden owner', viewer: 'viewer@example.test', owner: 'hidden@example.test', hidden: true, ownerNickname: 'Wilk', expected: null, expectedSection: 'Kraków' },
+    { label: 'the hidden owner themselves', viewer: 'viewer@example.test', owner: 'viewer@example.test', hidden: true, ownerNickname: 'Wilk', expected: 'Wilk', expectedSection: 'Kraków' },
+    { label: 'whitespace nickname falls back to the owner name', viewer: 'viewer@example.test', owner: 'owner@example.test', hidden: false, ownerNickname: '   ', expected: 'Jan Opiekun', expectedSection: 'Kraków' },
+    { label: 'no owner or known section', viewer: 'viewer@example.test', owner: null, hidden: false, ownerNickname: 'Wilk', expected: null, expectedSection: '—' },
+  ] as const;
+
+  for (const scenario of cases) {
+    const firestore = makeListaWyjazdowaFirestore();
+    seedPerson(firestore, 'existing-person', scenario.owner);
+    if (scenario.expectedSection === '—') {
+      await firestore.setDoc('persons', 'existing-person', { sectionId: 'unknown-section' });
+    }
+    if (scenario.owner) {
+      firestore.seed('members', scenario.owner, {
+        email: scenario.owner, firstName: 'Jan', lastName: 'Opiekun', nickname: scenario.ownerNickname,
+        sectionId: 'krakow', hidden: scenario.hidden,
+      });
+    }
+    const deps = memberDeps(firestore, scenario.viewer);
+    await withServer(deps, async baseUrl => {
+      const warning = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', {
+        ...personBody, ownerPersonId: scenario.viewer,
+      });
+      assert.equal(warning.status, 409, scenario.label);
+      const match = (await warning.json()).duplicateMatches[0];
+      assert.equal(match.owner, scenario.expected, scenario.label);
+      assert.equal(match.section, scenario.expectedSection, scenario.label);
+    });
+  }
+});
+
+test('POST /lista-wyjazdowa/persons validates required names before returning a duplicate prompt', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'existing-person', 'viewer@example.test');
+  await withServer(memberDeps(firestore, 'viewer@example.test'), async baseUrl => {
+    const { firstName: _omitted, ...bodyWithoutFirstName } = personBody;
+    const invalid = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', {
+      ...bodyWithoutFirstName, ownerPersonId: 'viewer@example.test',
+    });
+    assert.equal(invalid.status, 400);
+  });
+});
+
+test('POST /lista-wyjazdowa/persons does not prompt for account-linked or deactivated matches', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'account-linked-person', 'other@example.test');
+  await firestore.setDoc('persons', 'account-linked-person', { email: 'registered@example.test' });
+  seedPerson(firestore, 'deactivated-person', 'other@example.test');
+  await firestore.setDoc('persons', 'deactivated-person', { deletedAt: '2026-01-01T00:00:00.000Z' });
+
+  await withServer(memberDeps(firestore, 'viewer@example.test'), async baseUrl => {
+    const created = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', {
+      ...personBody, ownerPersonId: 'viewer@example.test',
+    });
+    assert.equal(created.status, 201);
+    assert.equal((await firestore.listDocs('persons')).length, 3);
   });
 });
 
@@ -8375,7 +8482,7 @@ test('an accountant can create a person but cannot manage other accountless-pers
     listMemberEmails: async () => ['ksiegowa@example.com', 'wojownik@gmail.com', 'ukryty@example.test'],
   });
   await withServer(deps, async baseUrl => {
-    const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'wojownik@gmail.com' });
+    const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'wojownik@gmail.com', duplicateConfirmed: true });
     assert.equal(res.status, 201, 'an accountant may create a person for an active member');
     assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'nieaktywny@example.test' })).status, 404);
     const peopleBeforeHiddenRequest = (await firestore.listDocs('persons')).length;
@@ -8436,7 +8543,7 @@ test('an accountant retains editing, deletion, detach and event quick-add for th
     assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons', { personId: 'own-delete' })).status, 200);
     assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/owner', { personId: 'own-detach', ownerPersonId: null })).status, 200);
     assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', {
-      eventId: 'event-own', ownerPersonId: 'ksiegowa@example.test', mode: 'new', ...personBody,
+      eventId: 'event-own', ownerPersonId: 'ksiegowa@example.test', mode: 'new', ...personBody, duplicateConfirmed: true,
     })).status, 201);
   });
 });
@@ -8501,6 +8608,39 @@ test('POST /lista-wyjazdowa/signups/quick-add mode=new creates an attached perso
     const events = await firestore.listDocs<{ action?: string }>('auditEvents');
     assert.ok(events.some((d) => d.data.action === 'person.created'));
     assert.ok(events.some((d) => d.data.action === 'signup.created'));
+  });
+});
+
+test('POST /lista-wyjazdowa/signups/quick-add mode=new warns before creating a matching person or signup', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  const listedCollections: string[] = [];
+  const originalListDocs = firestore.listDocs.bind(firestore);
+  firestore.listDocs = <T>(collection: string) => {
+    listedCollections.push(collection);
+    return originalListDocs<T>(collection);
+  };
+  seedMember(firestore, 'wojownik@gmail.com');
+  seedPerson(firestore, 'existing-person', 'other-owner@example.test');
+  seedMember(firestore, 'other-owner@example.test');
+  seedEvent(firestore, 'event-1');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const body = {
+      eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'new',
+      ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski', categoryId: 'thing',
+    };
+    const warning = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', body);
+    assert.equal(warning.status, 409);
+    assert.equal((await warning.json()).duplicateMatches[0].section, 'Kraków');
+    assert.equal((await firestore.listDocs('persons')).length, 1);
+    assert.equal((await firestore.listDocs('signups')).length, 0, 'the warning must not sign up or create anyone');
+    listedCollections.length = 0;
+
+    const confirmed = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', { ...body, duplicateConfirmed: true });
+    assert.equal(confirmed.status, 201);
+    assert.equal(listedCollections.includes('persons'), false, 'a confirmed retry skips the full persons scan');
+    assert.equal(listedCollections.includes('members'), false, 'a confirmed retry skips the full members scan');
+    assert.equal((await firestore.listDocs('persons')).length, 2);
+    assert.equal((await firestore.listDocs('signups')).length, 1);
   });
 });
 
@@ -8622,7 +8762,7 @@ test('POST /lista-wyjazdowa/signups/quick-add lets staff quick-add for someone e
   seedEvent(firestore, 'event-1');
   firestore.seed('userRoles', 'ksiegowa@example.com', { roles: ['accountant'] });
   firestore.seed('members', 'ksiegowa@example.com', { email: 'ksiegowa@example.com', status: 'active' });
-  const request = { eventId: 'event-1', ownerPersonId: 'ktos@gmail.com', mode: 'new', ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski', categoryId: 'thing' };
+  const request = { eventId: 'event-1', ownerPersonId: 'ktos@gmail.com', mode: 'new', ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski', categoryId: 'thing', duplicateConfirmed: true };
   const run = (deps: ServerDeps) => withServer(deps, async baseUrl => {
     assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', request)).status, 201);
   });

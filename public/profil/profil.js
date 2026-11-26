@@ -834,6 +834,10 @@ function personOptionsHtml(items, selectedId) {
     .join('');
 }
 
+function personCategoryOptionsHtml(items, selectedId) {
+  return window.CompanionAdd.categoryOptionsHtml(items, selectedId);
+}
+
 function personWeaponCheckboxesHtml(weapons, currentIds) {
   return selectableLookupItems(weapons, currentIds)
     .map((w) => `<label><input type="checkbox" name="personWeaponIds" value="${escapeAttr(w.id)}"${currentIds.includes(w.id) ? ' checked' : ''} /><span>${escapeHtml(w.label)}</span></label>`)
@@ -890,7 +894,7 @@ function addPersonRow(container, person = null) {
       <input type="text" class="person-ksywka" placeholder="Ksywka (opcjonalnie)" value="${escapeAttr(person?.nickname ?? '')}" aria-label="Ksywka (opcjonalnie)" />
       <input type="text" class="person-first-name" placeholder="Imię" value="${escapeAttr(person?.firstName ?? '')}" aria-label="Imię" />
       <input type="text" class="person-last-name" placeholder="Nazwisko" value="${escapeAttr(person?.lastName ?? '')}" aria-label="Nazwisko" />
-      <select class="person-category" aria-label="Kategoria">${personOptionsHtml(personLookupLists.categories, person?.categoryId ?? null)}</select>
+      <select class="person-category" aria-label="Kategoria">${personCategoryOptionsHtml(personLookupLists.categories, person?.categoryId ?? null)}</select>
       <select class="person-section" aria-label="Sekcja">${personOptionsHtml(personLookupLists.sections, person?.sectionId ?? ownerSectionId)}</select>
     </div>
     <div class="person-weapons lw-checkbox-grid">${personWeaponCheckboxesHtml(personLookupLists.weapons, person?.weaponIds ?? [])}</div>
@@ -944,25 +948,52 @@ async function loadPersons() {
 
 // Every person write goes through the shared confirmed-mutation helper: the list is only re-read
 // after the server confirms the write, and a failure leaves the form untouched and reports it.
-async function runPersonMutation(control, execute) {
+async function runPersonMutation(control, execute, registrationOptions = null) {
+  if (control?.disabled) return;
+  if (control) control.disabled = true;
   const panel = document.getElementById('persons-panel');
-  await window.MutationFeedback.confirmed({
-    control,
-    fallbackAnchor: 'toast',
-    viewRoot: panel,
-    refreshFragment: loadPersons,
-    execute,
-    apply: () => loadPersons(),
-  });
+  try {
+    const feedbackOptions = {
+      control,
+      fallbackAnchor: 'toast',
+      viewRoot: panel,
+      refreshFragment: loadPersons,
+      apply: () => loadPersons(),
+      focusAfterApply: (result) => {
+        const personId = result?.person?.personId;
+        return (personId ? document.querySelector(`.person-row[data-person-id="${CSS.escape(String(personId))}"] .person-first-name`) : null)
+          ?? document.getElementById('add-person-row');
+      },
+    };
+    if (registrationOptions) {
+      await window.PersonRegistrationPrompt.confirmed({
+        ...feedbackOptions,
+        execute,
+        fallbackFocus: registrationOptions.fallbackFocus,
+        successDetails: registrationOptions.successDetails,
+      });
+    } else {
+      await window.MutationFeedback.confirmed({ ...feedbackOptions, execute });
+    }
+  } finally {
+    if (control) control.disabled = false;
+  }
 }
 
 async function createPerson(fields, control) {
   try {
-    await runPersonMutation(control, () => apiFetch('/lista-wyjazdowa/persons', {
+    await runPersonMutation(control, (duplicateConfirmed) => apiFetch('/lista-wyjazdowa/persons', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...fields, ownerPersonId: viewerEmail.toLowerCase() }),
-    }, showReauth, hideReauth));
+      body: JSON.stringify({ ...fields, ownerPersonId: viewerEmail.toLowerCase(), ...(duplicateConfirmed ? { duplicateConfirmed: true } : {}) }),
+    }, showReauth, hideReauth), {
+      fallbackFocus: () => control?.closest?.('.person-row')?.querySelector('.person-first-name') ?? null,
+      successDetails: (result) => ({
+        person: result?.person,
+        statusLabel: personLookupLists.categories.find((category) => category.id === result?.person?.categoryId)?.label,
+        sectionLabel: personLookupLists.sections.find((section) => section.id === result?.person?.sectionId)?.label,
+      }),
+    });
   } catch (err) {
     showPersonsError(`Nie udało się dodać osoby: ${err.message}`);
   }

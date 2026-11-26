@@ -1082,12 +1082,32 @@ async function toggleEventEquipment(equipmentId, nextGoing, control) {
 async function quickAddCompanion(body, control) {
   clearError();
   try {
-    await confirmedEventMutation(control, () => apiFetch(
+    await window.PersonRegistrationPrompt.confirmed({
+      control,
+      fallbackAnchor: 'toast',
+      busyMessage: body.mode === 'new' ? undefined : null,
+      fallbackFocus: () => document.getElementById(body.mode === 'new' ? 'lw-inline-new-name' : 'lw-inline-existing-select'),
+      execute: (duplicateConfirmed) => apiFetch(
       '/lista-wyjazdowa/signups/quick-add',
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
       showReauth,
       hideReauth,
-    ), (result) => applyQuickAdd(result), 'toast');
+      ),
+      apply: (result) => applyQuickAdd(result),
+      focusAfterApply: (result) => {
+        const personId = result?.person?.personId ?? result?.signup?.memberEmail;
+        return (personId ? document.querySelector(`#roster-content .lw-attend-toggle[data-person-id="${CSS.escape(String(personId))}"]`) : null)
+          ?? document.querySelector(`.lw-add-companion[data-owner-person-id="${CSS.escape(String(body.ownerPersonId))}"]`)
+          ?? document.getElementById('roster-filter-zgloszeni');
+      },
+      viewRoot: document.getElementById('main-content'),
+      refreshFragment: loadAll,
+      successDetails: (result) => body.mode === 'new' ? {
+        person: result?.person,
+        statusLabel: categoryLabelById.get(result?.person?.categoryId),
+        sectionLabel: sectionLabelById.get(result?.person?.sectionId),
+      } : null,
+    });
   } catch (err) {
     showError(`Nie udało się dodać osoby: ${err.message}`);
   }

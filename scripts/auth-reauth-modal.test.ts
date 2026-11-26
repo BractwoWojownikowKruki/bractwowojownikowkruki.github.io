@@ -126,3 +126,18 @@ test('a 401 without reauth handlers rejects straight away, with no modal', async
   await assert.rejects(context.apiFetch('/gallery-photos/uploaders', { method: 'GET' }), { status: 401 });
   assert.equal(modal(), undefined);
 });
+
+test('apiFetch exposes duplicateMatches from a 409 response to registration forms', async () => {
+  const { context } = await loadAuth({});
+  const duplicateMatches = [{ firstName: 'Iga', lastName: 'Kruk' }];
+  context.fetch = async () => ({
+    ok: false,
+    status: 409,
+    json: async () => ({ error: 'duplicate', duplicateMatches }),
+  });
+  await assert.rejects(context.apiFetch('/lista-wyjazdowa/persons', { method: 'POST' }), (error: any) => {
+    assert.equal(error.status, 409);
+    assert.deepEqual(error.duplicateMatches, duplicateMatches);
+    return true;
+  });
+});

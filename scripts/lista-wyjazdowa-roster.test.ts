@@ -30,6 +30,7 @@ class Element {
   href = '';
   disabled = false;
   checked = false;
+  focused = false;
   dataset: Record<string, string> = {};
   private attributes = new Map<string, string>();
   private listeners = new Map<string, Array<(event: any) => unknown>>();
@@ -53,6 +54,7 @@ class Element {
   setAttribute(name: string, value: string) { this.attributes.set(name, value); }
   getAttribute(name: string) { return this.attributes.get(name) ?? null; }
   removeAttribute(name: string) { this.attributes.delete(name); }
+  focus() { this.focused = true; }
   querySelectorAll() { return []; }
   scrollIntoView() {}
 }
@@ -73,12 +75,15 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   const canManageSkladki = options.canManageSkladki ?? true;
   const canManagePeople = options.canManagePeople ?? false;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
+  const focusTargets: Array<{ selector: string; focused: boolean }> = [];
   // Mirrors index.html's default: "Zgłoszeni + ja" starts checked, "Niezgłoszeni" unchecked.
   elements.get('roster-filter-zgloszeni')!.checked = true;
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   const localStore = new Map(Object.entries(options.initialStorage ?? {}));
   let mutationResult: unknown = null;
   let mutationError: Error | null = null;
+  let cancelDuplicatePrompt = false;
+  const cancelledDuplicatePrompt = Object.freeze({ cancelled: true });
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
   const roster = [
     { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, lastName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
@@ -110,9 +115,28 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     Array,
     JSON,
     Date: FixedDate,
+    CSS: { escape: (value: string) => value },
     encodeURIComponent,
     window: {
       location: { search: '?eventId=e1' },
+      PersonRegistrationPrompt: {
+        run: async (execute: (confirmed: boolean) => Promise<unknown>, options: { fallbackFocus?: () => Element | null } = {}) => {
+          try { return await execute(false); } catch (error: any) {
+            if (!Array.isArray(error?.duplicateMatches)) throw error;
+            if (cancelDuplicatePrompt) {
+              options.fallbackFocus?.()?.focus();
+              return cancelledDuplicatePrompt;
+            }
+            return execute(true);
+          }
+        },
+        confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
+          ...options,
+          execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
+          skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result) || options.skipApplyWhen?.(result),
+        }),
+        wasCancelled: (result: unknown) => result === cancelledDuplicatePrompt,
+      },
       confirm: () => true,
       LwCalendar: {
         mountDropdowns: () => ({ refresh() {} }),
@@ -121,7 +145,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
           : '',
       },
       MutationFeedback: {
-        confirmed: async ({ execute, apply, rollback }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown }) => {
+        confirmed: async ({ execute, apply, rollback, skipApplyWhen, focusAfterApply }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => { focus(): void } | null }) => {
           let result: unknown;
           try {
             result = await execute();
@@ -129,12 +153,22 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
             if (rollback) await rollback(error);
             throw error;
           }
+          if (skipApplyWhen?.(result)) return result;
           apply(result);
+          focusAfterApply?.(result)?.focus();
+          return result;
         },
       },
     },
     document: {
       getElementById: (id: string) => elements.get(id) ?? null,
+      querySelector: (selector: string) => {
+        const filteredToNonAttending = elements.get('roster-filter-zgloszeni')?.checked === false;
+        if (filteredToNonAttending && (selector.includes('.lw-attend-toggle') || selector.includes('.lw-add-companion'))) return null;
+        const target = { selector, focused: false, focus() { this.focused = true; } };
+        focusTargets.push(target);
+        return target;
+      },
       querySelectorAll: () => [],
       addEventListener: () => {},
     },
@@ -180,11 +214,14 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   vm.runInNewContext(listPreferencesSource, context, { filename: 'list-preferences.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   return {
+    context,
     elements,
     apiCalls,
     async signIn() { await signIn?.({ email: 'viewer@example.com' }); },
     setMutationResult(result: unknown) { mutationResult = result; mutationError = null; },
     setMutationError(error: Error) { mutationError = error; },
+    cancelNextDuplicatePrompt() { cancelDuplicatePrompt = true; },
+    focusTargets,
   };
 }
 
@@ -751,6 +788,8 @@ test('adding a new person posts quick-add with ksywka+lastName+firstName+categor
   assert.match(roster.innerHTML, /data-person-id="new-uuid-1"/);
   assert.match(roster.innerHTML, /person-pill-icon/);
   assert.doesNotMatch(roster.innerHTML, /class="lw-inline-form"/);
+  assert.match(harness.focusTargets[0]?.selector ?? '', /data-person-id="new-uuid-1"/);
+  assert.equal(harness.focusTargets[0]?.focused, true);
 });
 
 test('a failed quick-add changes nothing and reports the error', async () => {
@@ -766,6 +805,73 @@ test('a failed quick-add changes nothing and reports the error', async () => {
 
   assert.equal(roster.innerHTML, before);
   assert.match(harness.elements.get('lw-error')!.textContent, /Nie udało się dodać osoby/);
+});
+
+test('cancelling the duplicate prompt on the event detail page leaves the companion form unchanged', async () => {
+  const harness = createHarness(event(null), { withAttachedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Kowalski';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Jan';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  const formBefore = roster.innerHTML;
+  harness.setMutationError(Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Jan', lastName: 'Kowalski' }] }));
+  harness.cancelNextDuplicatePrompt();
+
+  await roster.clickWith(clickTarget('.lw-inline-add-new'));
+
+  assert.equal(roster.innerHTML, formBefore);
+  const requests = harness.apiCalls.filter((call) => call.url === '/lista-wyjazdowa/signups/quick-add');
+  assert.equal(requests.length, 1, 'the initial request finds the match; cancellation skips only the confirmed retry');
+  assert.equal(JSON.parse(String(requests[0].options.body)).duplicateConfirmed, undefined);
+  assert.equal(harness.elements.get('lw-error')!.hidden, true);
+  assert.equal(harness.elements.get('lw-inline-new-name')!.focused, true);
+});
+
+test('confirming a duplicate quick-add on the event detail page retries once with duplicateConfirmed', async () => {
+  const harness = createHarness(event(null), { withAttachedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Kowalski';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Jan';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  harness.setMutationResult({
+    person: { personId: 'new-uuid-1', firstName: 'Jan', lastName: 'Kowalski', nickname: 'Nowy', categoryId: 'kandydat' },
+    signup: { memberEmail: 'new-uuid-1', attending: true, skladkaStatus: 'unpaid' },
+  });
+  harness.setMutationError(Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Jan', lastName: 'Kowalski' }] }));
+
+  await roster.clickWith(clickTarget('.lw-inline-add-new'));
+
+  const requests = harness.apiCalls.filter((call) => call.url === '/lista-wyjazdowa/signups/quick-add');
+  assert.equal(requests.length, 2);
+  assert.equal(JSON.parse(String(requests[0].options.body)).duplicateConfirmed, undefined);
+  assert.equal(JSON.parse(String(requests[1].options.body)).duplicateConfirmed, true);
+});
+
+test('trip detail falls back to its roster filter when the newly attending person is not rendered', async () => {
+  const harness = createHarness(event(null), { withAttachedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Kowalski';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Jan';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  harness.elements.get('roster-filter-zgloszeni')!.checked = false;
+  vm.runInContext('showSignedUpAndMe = false', harness.context);
+  harness.setMutationResult({
+    person: { personId: 'new-uuid-1', firstName: 'Jan', lastName: 'Kowalski', nickname: 'Nowy', categoryId: 'kandydat' },
+    signup: { memberEmail: 'new-uuid-1', attending: true, skladkaStatus: 'unpaid' },
+  });
+
+  await roster.clickWith(clickTarget('.lw-inline-add-new'));
+
+  assert.equal(harness.elements.get('roster-filter-zgloszeni')!.focused, true);
 });
 
 test('the old lw-subnav pill row is gone, replaced by the shared top bar (non-sticky on this page)', () => {
