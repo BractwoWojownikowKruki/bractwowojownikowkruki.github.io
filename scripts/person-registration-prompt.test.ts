@@ -66,7 +66,10 @@ function load(action: 'confirm' | 'cancel' | 'escape' | 'close') {
   return { prompt: context.window.PersonRegistrationPrompt, dialogs, trigger };
 }
 
-const matches = [{ firstName: 'Iga', lastName: 'Kruk', nickname: '<Wilk>', section: 'Sekcja A', owner: 'Właściciel' }];
+const matches = [
+  { firstName: 'Iga', lastName: 'Kruk', nickname: '<Wilk>', section: 'Sekcja A', owner: 'Właściciel' },
+  { firstName: 'Jan', lastName: 'Nowak', nickname: null, section: '—', owner: null },
+];
 
 test('a match opens an informational prompt and retries only after explicit confirmation', async () => {
   const { prompt, dialogs, trigger } = load('confirm');
@@ -82,6 +85,9 @@ test('a match opens an informational prompt and retries only after explicit conf
   assert.match(dialogs[0].innerHTML, /Tak, zarejestruj, to zupełnie inna osoba\./);
   assert.match(dialogs[0].innerHTML, /Właściciel: Właściciel/);
   assert.match(dialogs[0].innerHTML, /&lt;Wilk&gt;/);
+  assert.match(dialogs[0].innerHTML, /Sekcja: —/);
+  assert.match(dialogs[0].innerHTML, /Właściciel: —/);
+  assert.equal((dialogs[0].innerHTML.match(/Ksywka:/g) ?? []).length, 1, 'a missing nickname is omitted');
   assert.doesNotMatch(dialogs[0].innerHTML, /<button[^>]*>Iga Kruk/);
   assert.equal(trigger.focusCount, 1);
 });
