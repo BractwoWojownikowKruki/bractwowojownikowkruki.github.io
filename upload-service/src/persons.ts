@@ -151,7 +151,7 @@ export async function findDuplicateAccountlessPersons(
       const rightFullName = `${right.firstName ?? ''} ${right.lastName ?? ''}`.trim();
       return leftFullName.localeCompare(rightFullName, 'pl', { sensitivity: 'base' })
         || (left.ksywka ?? '').localeCompare(right.ksywka ?? '', 'pl', { sensitivity: 'base' })
-        || left.personId.localeCompare(right.personId);
+        || (left.personId < right.personId ? -1 : left.personId > right.personId ? 1 : 0);
     });
 }
 
