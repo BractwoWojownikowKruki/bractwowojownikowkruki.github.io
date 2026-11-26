@@ -62,7 +62,7 @@
     const available = (categories ?? []).filter((category) => !category.retired || category.id === selectedId);
     const ordered = orderedCategories(available);
     const priority = ordered.filter((category) => PRIORITY_CATEGORY_ID_SET.has(category.id));
-    const option = (category) => `<option value="${escapeHtml(category.id)}"${category.id === selectedId ? ' selected' : ''}>${escapeHtml(category.label)}</option>`;
+    const option = (category) => `<option value="${escapeHtml(category.id)}"${category.id === selectedId ? ' selected' : ''}>${escapeHtml(category.label)}${category.retired ? ' (wycofany status)' : ''}</option>`;
     const remaining = ordered.filter((category) => !PRIORITY_CATEGORY_ID_SET.has(category.id));
     return `${priority.map(option).join('')}${priority.length && remaining.length ? `<hr>${remaining.map(option).join('')}` : remaining.map(option).join('')}`;
   }

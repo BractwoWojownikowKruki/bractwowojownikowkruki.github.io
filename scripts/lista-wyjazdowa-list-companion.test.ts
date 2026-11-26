@@ -291,9 +291,9 @@ test('new companion categories put Niewiasta, Bobo and Inne first, then an hr se
   assert.doesNotMatch(options, /Wycofany status/);
   const editOptions = context.window.CompanionAdd.categoryOptionsHtml([
     { id: 'niewiasta', label: 'Niewiasta' },
-    { id: 'retired', label: 'Wycofany status', retired: true },
+    { id: 'retired', label: 'Gość', retired: true },
   ], 'retired');
-  assert.match(editOptions, /<hr><option value="retired" selected>Wycofany status/);
+  assert.match(editOptions, /<hr><option value="retired" selected>Gość \(wycofany status\)/);
   assert.doesNotMatch(context.window.CompanionAdd.categoryOptionsHtml([{ id: 'niewiasta', label: 'Niewiasta' }]), /<hr>/);
   assert.doesNotMatch(options, /<option disabled/);
 });

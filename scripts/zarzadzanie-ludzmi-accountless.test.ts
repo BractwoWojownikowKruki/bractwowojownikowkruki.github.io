@@ -83,6 +83,21 @@ test('Osoby bez konta writes go through the persons routes and the admin-only me
   assert.match(script, /accountless-merge-section'\)\.hidden = !isAdminCaller/);
 });
 
+test('editing an accountless person keeps and labels its retired category in the form', async () => {
+  const harness = createZarzadzanieHarness({
+    apiFetch: async (url) => {
+      if (url === '/lista-wyjazdowa/persons') return { persons: [] };
+      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [{ id: 'retired', label: 'Gość', retired: true }], weapons: [] };
+      if (url === '/admin/person-owners') return { owners: [] };
+      return {};
+    },
+  });
+  await harness.signIn({ email: 'ksiegowy@kruki.pl', isAccountant: true, isAdmin: false, isHovding: false });
+  (harness.context.openAccountlessForm as (person: Record<string, unknown>) => void)({ personId: 'p1', categoryId: 'retired' });
+  assert.equal(harness.getEl('accountless-category').value, 'retired');
+  assert.match(harness.getEl('accountless-category').innerHTML, /Gość \(wycofany status\)/);
+});
+
 interface ZarzadzanieHarnessOptions {
   apiFetch: (url: string, init?: Record<string, unknown>) => Promise<unknown>;
   whoamiPayload?: Record<string, unknown>;

@@ -918,7 +918,11 @@ function openAccountlessForm(person) {
     document.getElementById('accountless-ksywka').value = person.ksywka ?? person.nickname ?? '';
     document.getElementById('accountless-first-name').value = person.firstName ?? '';
     document.getElementById('accountless-last-name').value = person.lastName ?? '';
-    if (person.categoryId) document.getElementById('accountless-category').value = person.categoryId;
+    if (person.categoryId) {
+      const category = document.getElementById('accountless-category');
+      category.innerHTML = window.CompanionAdd.categoryOptionsHtml(accountlessCache.categories, person.categoryId);
+      category.value = person.categoryId;
+    }
     if (person.sectionId) document.getElementById('accountless-section-select').value = person.sectionId;
     document.getElementById('accountless-weapons').innerHTML = accountlessWeaponCheckboxesHtml(accountlessCache.weapons, person.weaponIds ?? []);
     updateAccountlessWeaponState();
