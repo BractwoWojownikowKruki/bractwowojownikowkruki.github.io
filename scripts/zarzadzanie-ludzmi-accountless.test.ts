@@ -106,6 +106,7 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
       value: '',
       innerHTML: '',
       textContent: '',
+      focusCount: 0,
       dataset: {} as Record<string, string>,
       classList: { add: () => {}, remove: () => {}, toggle: () => {} },
       closest: () => makeElement(`${id}__closest`),
@@ -119,7 +120,7 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
           await fn({ preventDefault: () => {}, target: el, ...event });
         }
       },
-      focus: () => {},
+      focus: () => { el.focusCount += 1; },
       scrollIntoView: () => {},
     };
     return el;
@@ -133,10 +134,14 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
   const windowObj: any = {
     confirm: () => true,
     PersonRegistrationPrompt: {
-      run: async (execute: (confirmed: boolean) => Promise<unknown>) => {
+      run: async (execute: (confirmed: boolean) => Promise<unknown>, promptOptions: { fallbackFocus?: () => any } = {}) => {
         try { return await execute(false); } catch (error: any) {
           if (!Array.isArray(error?.duplicateMatches)) throw error;
-          return duplicatePromptMode === 'cancel' ? cancelledDuplicate : execute(true);
+          if (duplicatePromptMode === 'cancel') {
+            promptOptions.fallbackFocus?.()?.focus();
+            return cancelledDuplicate;
+          }
+          return execute(true);
         }
       },
       wasCancelled: (result: unknown) => result === cancelledDuplicate,
@@ -148,7 +153,7 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
       const result = await execute();
       if (skipApplyWhen?.(result)) return result;
       await apply?.(result);
-      focusAfterApply?.(result);
+      focusAfterApply?.(result)?.focus?.();
       return result;
     } },
   };
@@ -393,6 +398,18 @@ test('admin accountless registration cancels without a second request or losing 
   assert.equal(harness.getEl('accountless-form-panel').hidden, false);
   assert.equal(harness.getEl('accountless-first-name').value, 'Anna');
   assert.equal(harness.getEl('accountless-error').hidden, true);
+  assert.equal(harness.getEl('accountless-ksywka').focusCount, 1);
+});
+
+test('accountless row mutations restore focus to a surviving control after the row is re-rendered', async () => {
+  const harness = createZarzadzanieHarness({ apiFetch: async () => ({}) });
+  const detachedRowAction = { isConnected: false, focusCount: 0, focus() { this.focusCount += 1; } };
+  await (harness.context.runAccountlessMutation as (control: unknown, execute: () => Promise<unknown>, refresh: boolean) => Promise<unknown>)(
+    detachedRowAction,
+    async () => ({}),
+    false,
+  );
+  assert.equal(harness.getEl('accountless-add-toggle').focusCount, 1);
 });
 
 test('admin accountless registration retries with duplicateConfirmed after the prompt confirmation', async () => {

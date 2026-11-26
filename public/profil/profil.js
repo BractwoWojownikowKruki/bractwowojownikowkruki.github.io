@@ -971,7 +971,9 @@ async function createPerson(fields, control) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...fields, ownerPersonId: viewerEmail.toLowerCase(), ...(duplicateConfirmed ? { duplicateConfirmed: true } : {}) }),
-    }, showReauth, hideReauth)));
+    }, showReauth, hideReauth), {
+      fallbackFocus: () => control?.closest?.('.person-row')?.querySelector('.person-first-name') ?? null,
+    }));
   } catch (err) {
     showPersonsError(`Nie udało się dodać osoby: ${err.message}`);
   }

@@ -101,3 +101,31 @@ test('profile person registration retries with duplicateConfirmed after explicit
   assert.equal(JSON.parse(String(requests[1].body)).duplicateConfirmed, true);
   assert.equal((context as any).document.getElementById('persons-error').hidden, true);
 });
+
+test('profile duplicate cancellation restores focus to the companion form field', async () => {
+  let requestCount = 0;
+  let focused = 0;
+  const { context } = loadProfil(async () => {
+    requestCount += 1;
+    throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Anna', lastName: 'Nowak' }] });
+  });
+  (context as any).window.PersonRegistrationPrompt = {
+    run: async (execute: (confirmed: boolean) => Promise<unknown>, options: { fallbackFocus?: () => { focus: () => void } | null }) => {
+      try { return await execute(false); } catch (error: any) {
+        if (!Array.isArray(error?.duplicateMatches)) throw error;
+        options.fallbackFocus?.()?.focus();
+        return Object.freeze({ cancelled: true });
+      }
+    },
+    wasCancelled: (result: unknown) => (result as { cancelled?: boolean })?.cancelled === true,
+  };
+  const field = { focus: () => { focused += 1; } };
+  const control = { closest: (selector: string) => selector === '.person-row' ? { querySelector: () => field } : null };
+  vm.runInContext("viewerEmail = 'owner@example.test'", context);
+  await (context.createPerson as (fields: Record<string, string>, control: unknown) => Promise<void>)(
+    { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' },
+    control,
+  );
+  assert.equal(requestCount, 1);
+  assert.equal(focused, 1);
+});

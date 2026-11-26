@@ -1080,7 +1080,12 @@ async function loadAccountlessCreationOptions() {
   }
 }
 
-async function runAccountlessMutation(control, execute, refreshRecords = true, focusAfterApply = null) {
+async function runAccountlessMutation(
+  control,
+  execute,
+  refreshRecords = true,
+  focusAfterApply = () => control?.isConnected ? control : document.getElementById('accountless-add-toggle'),
+) {
   const refreshFragment = refreshRecords ? loadAccountless : async () => {};
   return window.MutationFeedback.confirmed({
     control,
@@ -1133,7 +1138,9 @@ async function submitAccountlessForm() {
       },
       showReauth,
       hideReauth,
-    )), true, () => document.getElementById('accountless-add-toggle'));
+    ), {
+      fallbackFocus: () => document.getElementById('accountless-ksywka'),
+    }), true, () => document.getElementById('accountless-add-toggle'));
     if (!editing && window.PersonRegistrationPrompt.wasCancelled(result)) return;
     document.getElementById('accountless-form-panel').hidden = true;
     resetAccountlessForm();
