@@ -5101,7 +5101,7 @@ async function getPersonRegistrationDuplicateMatches(
     return {
       firstName: person.firstName,
       lastName: person.lastName,
-      nickname: person.ksywka || null,
+      nickname: person.ksywka?.trim() || null,
       section: sectionLabelById.get(person.sectionId) ?? '—',
       owner: ownerName,
     };

@@ -8027,6 +8027,21 @@ test('POST /lista-wyjazdowa/persons returns possible duplicates and creates only
   });
 });
 
+test('POST /lista-wyjazdowa/persons omits a whitespace-only legacy nickname from duplicate details', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'legacy-person', 'owner@example.test');
+  await firestore.setDoc('persons', 'legacy-person', { ksywka: '   ' });
+
+  await withServer(memberDeps(firestore, 'viewer@example.test'), async baseUrl => {
+    const warning = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', {
+      ...personBody, ksywka: 'Different nickname', ownerPersonId: 'viewer@example.test',
+    });
+
+    assert.equal(warning.status, 409);
+    assert.equal((await warning.json()).duplicateMatches[0].nickname, null);
+  });
+});
+
 test('POST /lista-wyjazdowa/persons redacts hidden or missing owners but lets an owner recognize themselves', async () => {
   const cases = [
     { label: 'another hidden owner', viewer: 'viewer@example.test', owner: 'hidden@example.test', hidden: true, expected: null, expectedSection: 'Kraków' },
