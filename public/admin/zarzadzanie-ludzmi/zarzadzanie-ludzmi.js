@@ -938,6 +938,13 @@ wireSummaryFilter(document.getElementById('accountless-summary-filter'), account
   if (accountlessTableLoaded) renderAccountless(accountlessCache.persons);
 });
 
+const accountlessSortState = initSortableTable(document.getElementById('accountless-table'), {
+  defaultKey: 'section',
+  onChange: () => {
+    if (accountlessTableLoaded) renderAccountless(accountlessCache.persons);
+  },
+});
+
 function renderAccountless(persons) {
   accountlessCache.persons = persons;
   const filterHtml = persons.length
@@ -954,7 +961,25 @@ function renderAccountless(persons) {
       ? '<tr><td colspan="7" class="czl-empty">Brak osób dla wybranych filtrów.</td></tr>'
       : '<tr><td colspan="7" class="czl-empty">Brak osób bez konta.</td></tr>';
   } else {
-    rowsHtml = shown.map((person) => {
+    const sorted = [...shown].sort((a, b) => {
+      const sortValue = (person) => {
+        const categoryLabel = person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : '—';
+        const weaponsLabel = (person.weaponIds ?? []).map((id) => weaponLabelById.get(id) ?? id).join(', ') || '—';
+        switch (accountlessSortState.key) {
+          case 'name': return accountlessDisplayName(person);
+          case 'status': return categoryLabel;
+          case 'weapons': return weaponsLabel;
+          case 'owner': return person.ownerPersonId ? (person.ownerName ?? person.ownerPersonId) : '—';
+          case 'account': return person.deleted ? 'deaktywowana' : 'bez konta';
+          default: return person.sectionId ? (sectionLabelById.get(person.sectionId) ?? person.sectionId) : '—';
+        }
+      };
+      const cmp = compareValues(sortValue(a), sortValue(b), accountlessSortState.dir);
+      if (cmp !== 0) return cmp;
+      const nameCmp = compareValues(accountlessDisplayName(a), accountlessDisplayName(b), 'asc');
+      return nameCmp || compareValues(a.personId, b.personId, 'asc');
+    });
+    rowsHtml = sorted.map((person) => {
       const categoryLabel = person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : null;
       const namePill = personPillHtml({ name: accountlessDisplayName(person), categoryId: person.categoryId, categoryLabel, accountless: true, subline: personSubline(person) });
       // A deactivated person's drawer 404s, so their pill is plain text; an active one opens it.
