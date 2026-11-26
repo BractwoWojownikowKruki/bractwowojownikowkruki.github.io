@@ -192,7 +192,7 @@ test('findDuplicateAccountlessPersons normalizes decomposed Polish Unicode and e
   } as never);
 
   const matches = await findDuplicateAccountlessPersons(client, {
-    ksywka: 'kropka', firstName: 'Żaneta', lastName: 'Nowak',
+    ksywka: 'different', firstName: 'Żaneta', lastName: 'Nowak',
   });
 
   assert.deepEqual(matches.map((person) => person.personId), ['nfd-name']);
