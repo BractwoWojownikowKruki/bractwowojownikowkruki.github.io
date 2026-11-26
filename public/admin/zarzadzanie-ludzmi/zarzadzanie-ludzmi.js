@@ -877,14 +877,6 @@ function accountlessOptionsHtml(items, selectedId) {
     .join('');
 }
 
-function accountlessCategoryOptionsHtml(items, selectedId) {
-  const available = items.filter((item) => !item.retired || item.id === selectedId);
-  const categories = window.CompanionAdd.orderedCategories(available);
-  const priorityIds = new Set(['niewiasta', 'bobo', 'inne']);
-  const priorityCount = categories.filter((category) => priorityIds.has(category.id)).length;
-  return categories.map((item, index) => `${index === priorityCount && priorityCount > 0 && categories.length > priorityCount ? '<option disabled>────────</option>' : ''}<option value="${escapeAttr(item.id)}"${item.id === selectedId ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('');
-}
-
 function accountlessWeaponCheckboxesHtml(weapons, currentIds) {
   const current = new Set(currentIds ?? []);
   return weapons
@@ -909,7 +901,7 @@ function resetAccountlessForm() {
   document.getElementById('accountless-ksywka').value = '';
   document.getElementById('accountless-first-name').value = '';
   document.getElementById('accountless-last-name').value = '';
-  document.getElementById('accountless-category').innerHTML = accountlessCategoryOptionsHtml(accountlessCache.categories, null);
+  document.getElementById('accountless-category').innerHTML = window.CompanionAdd.categoryOptionsHtml(accountlessCache.categories);
   document.getElementById('accountless-section-select').innerHTML = accountlessOptionsHtml(accountlessCache.sections, null);
   document.getElementById('accountless-weapons').innerHTML = accountlessWeaponCheckboxesHtml(accountlessCache.weapons, []);
   document.getElementById('accountless-owner').value = '';
@@ -1097,8 +1089,8 @@ async function runAccountlessMutation(control, execute, refreshRecords = true) {
     viewRoot: document.getElementById('accountless-section'),
     refreshFragment,
     execute,
-    apply: (result) => window.PersonRegistrationPrompt.wasCancelled(result) ? undefined : refreshFragment(),
-    shouldShowCheck: (result) => !window.PersonRegistrationPrompt.wasCancelled(result),
+    apply: () => refreshFragment(),
+    skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
   });
 }
 

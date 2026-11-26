@@ -138,6 +138,25 @@ test('shows a bare accessible check only after execute and apply resolve in orde
   assert.equal(check.attributes.get('aria-label'), 'Zapisano');
 });
 
+test('a mutation can stop after execute for a cancelled informational prompt', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  const control = new FakeElement('button');
+  let applied = false;
+  let checked = false;
+  const result = await feedback.confirmed({
+    control,
+    execute: async () => ({ cancelled: true }),
+    apply: async () => { applied = true; },
+    skipApplyWhen: (value: { cancelled: boolean }) => value.cancelled,
+    shouldShowCheck: () => { checked = true; return true; },
+  });
+  assert.deepEqual(result, { cancelled: true });
+  assert.equal(applied, false);
+  assert.equal(checked, false);
+  assert.equal(control.insertedAfter.length, 0);
+});
+
 test('replaces a previous check instead of stacking a new one on repeated saves', async () => {
   const harness = createHarness();
   const feedback = await loadMutationFeedback(harness);

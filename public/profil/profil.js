@@ -835,10 +835,7 @@ function personOptionsHtml(items, selectedId) {
 }
 
 function personCategoryOptionsHtml(items, selectedId) {
-  const categories = window.CompanionAdd.orderedCategories(selectableLookupItems(items, selectedId ? [selectedId] : []));
-  const priorityIds = new Set(['niewiasta', 'bobo', 'inne']);
-  const priorityCount = categories.filter((category) => priorityIds.has(category.id)).length;
-  return categories.map((item, index) => `${index === priorityCount && priorityCount > 0 && categories.length > priorityCount ? '<option disabled>────────</option>' : ''}<option value="${escapeAttr(item.id)}"${item.id === selectedId ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('');
+  return window.CompanionAdd.categoryOptionsHtml(items, selectedId);
 }
 
 function personWeaponCheckboxesHtml(weapons, currentIds) {
@@ -959,8 +956,8 @@ async function runPersonMutation(control, execute) {
     viewRoot: panel,
     refreshFragment: loadPersons,
     execute,
-    apply: (result) => window.PersonRegistrationPrompt.wasCancelled(result) ? undefined : loadPersons(),
-    shouldShowCheck: (result) => !window.PersonRegistrationPrompt.wasCancelled(result),
+    apply: () => loadPersons(),
+    skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
   });
 }
 

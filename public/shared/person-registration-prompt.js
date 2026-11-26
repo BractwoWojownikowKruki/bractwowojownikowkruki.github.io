@@ -3,6 +3,7 @@
 // confirmation, and cancellation prevents the write. Candidate fields are rendered as text.
 (function () {
   const CANCELLED = Object.freeze({ cancelledDuplicateRegistration: true });
+  let dialogSequence = 0;
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -21,14 +22,18 @@
   }
 
   function show(matches) {
+    const returnFocus = document.activeElement;
     const dialog = document.createElement('dialog');
+    const titleId = `person-registration-title-${++dialogSequence}`;
+    const descriptionId = `person-registration-description-${dialogSequence}`;
     dialog.className = 'person-registration-dialog';
-    dialog.setAttribute('aria-labelledby', 'person-registration-title');
+    dialog.setAttribute('aria-labelledby', titleId);
+    dialog.setAttribute('aria-describedby', descriptionId);
     dialog.innerHTML = `
       <div class="person-registration-dialog__content">
-        <h2 id="person-registration-title">Czy ta osoba już istnieje?</h2>
-        <p>Znaleźliśmy osoby bez konta o takim samym pseudonimie lub imieniu i nazwisku. Sprawdź poniższe dane. Jeśli to inna osoba, możesz kontynuować rejestrację w apce.</p>
-        <ul class="person-registration-dialog__matches">${matches.map(candidateHtml).join('')}</ul>
+        <h2 id="${titleId}">Czy ta osoba już istnieje?</h2>
+        <p id="${descriptionId}">Znaleźliśmy osoby bez konta o takim samym pseudonimie lub imieniu i nazwisku. Sprawdź poniższe dane. Jeśli to inna osoba, możesz kontynuować rejestrację w apce.</p>
+        <ul class="person-registration-dialog__matches" aria-label="Czy ta osoba już istnieje?" tabindex="0">${matches.map(candidateHtml).join('')}</ul>
         <div class="person-registration-dialog__actions">
           <button type="button" class="person-registration-dialog__confirm">Tak, zarejestruj, to zupełnie inna osoba.</button>
           <button type="button" class="person-registration-dialog__cancel">Anuluj</button>
@@ -36,9 +41,13 @@
       </div>`;
     document.body.append(dialog);
     return new Promise((resolve) => {
+      let finished = false;
       const finish = (confirmed) => {
+        if (finished) return;
+        finished = true;
         dialog.close();
         dialog.remove();
+        if (returnFocus?.isConnected) returnFocus.focus();
         resolve(confirmed);
       };
       dialog.querySelector('.person-registration-dialog__confirm').addEventListener('click', () => finish(true));
@@ -48,7 +57,7 @@
         finish(false);
       }, { once: true });
       dialog.showModal();
-      dialog.querySelector('.person-registration-dialog__confirm').focus();
+      dialog.querySelector('.person-registration-dialog__cancel').focus();
     });
   }
 

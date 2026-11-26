@@ -27,16 +27,20 @@ class FakeElement {
   selector = '';
   focus() {}
   showModal() {
+    if (this.nextAction === 'escape') {
+      for (const listener of this.listeners.cancel ?? []) listener({ preventDefault() {} });
+      return;
+    }
     const button = this.nextAction === 'confirm' ? '.person-registration-dialog__confirm' : '.person-registration-dialog__cancel';
     for (const listener of this.childListeners[button] ?? []) listener();
   }
   childListeners: Record<string, Array<() => void>> = {};
   close() {}
   remove() { this.removed = true; }
-  nextAction: 'confirm' | 'cancel' = 'confirm';
+  nextAction: 'confirm' | 'cancel' | 'escape' = 'confirm';
 }
 
-function load(action: 'confirm' | 'cancel') {
+function load(action: 'confirm' | 'cancel' | 'escape') {
   const dialogs: FakeElement[] = [];
   const context: Record<string, any> = {
     window: {},
@@ -81,6 +85,28 @@ test('cancelling a duplicate prompt does not retry registration', async () => {
   assert.equal(prompt.wasCancelled(result), true);
 });
 
+test('Escape cancels the prompt and does not retry registration', async () => {
+  const { prompt } = load('escape');
+  let calls = 0;
+  const result = await prompt.run(async () => {
+    calls += 1;
+    throw Object.assign(new Error('duplicate'), { duplicateMatches: matches });
+  });
+  assert.equal(calls, 1);
+  assert.equal(prompt.wasCancelled(result), true);
+});
+
+test('a duplicate response after confirmation is surfaced without opening another prompt', async () => {
+  const { prompt, dialogs } = load('confirm');
+  let calls = 0;
+  await assert.rejects(prompt.run(async () => {
+    calls += 1;
+    throw Object.assign(new Error('still duplicate'), { duplicateMatches: matches });
+  }), /still duplicate/);
+  assert.equal(calls, 2);
+  assert.equal(dialogs.length, 1);
+});
+
 test('ordinary registration errors pass through without showing a prompt', async () => {
   const { prompt, dialogs } = load('confirm');
   await assert.rejects(prompt.run(async () => { throw new Error('validation'); }), /validation/);
@@ -93,5 +119,9 @@ test('every person registration page loads the shared prompt and invokes it from
     const pageScript = readFileSync(new URL(scriptPath, import.meta.url), 'utf8');
     assert.ok(page.includes(`src="${promptPath}"`), `${pagePath} must load the shared prompt`);
     assert.match(pageScript, /PersonRegistrationPrompt\.run\(/, `${scriptPath} must invoke the shared prompt`);
+    assert.match(pageScript, /duplicateConfirmed: true/, `${scriptPath} must confirm the retry to the server`);
+    if (scriptPath.includes('/profil/') || scriptPath.includes('/zarzadzanie-ludzmi/')) {
+      assert.match(pageScript, /CompanionAdd\.categoryOptionsHtml\(/, `${scriptPath} must use the shared category option renderer`);
+    }
   }
 });

@@ -115,7 +115,15 @@ function createHarness(options: HarnessOptions = {}) {
     encodeURIComponent,
     window: {
       location: { search: '' },
-      PersonRegistrationPrompt: { run: (execute: (confirmed: boolean) => Promise<unknown>) => execute(false), wasCancelled: () => false },
+      PersonRegistrationPrompt: {
+        run: async (execute: (confirmed: boolean) => Promise<unknown>) => {
+          try { return await execute(false); } catch (error: any) {
+            if (!Array.isArray(error?.duplicateMatches)) throw error;
+            return execute(true);
+          }
+        },
+        wasCancelled: () => false,
+      },
       MutationFeedback: {
         showBusy: (message: string) => {
           busy.shown.push(message);
@@ -144,7 +152,10 @@ function createHarness(options: HarnessOptions = {}) {
       apiCalls.push({ url, options });
       if (options.method === 'PUT' || options.method === 'POST' || options.method === 'DELETE') {
         if (mutationGate) await mutationGate;
-        if (mutationError) throw mutationError;
+        if (mutationError) {
+          const requestBody = JSON.parse(String(options.body ?? '{}'));
+          if (!requestBody.duplicateConfirmed || !Array.isArray((mutationError as any).duplicateMatches)) throw mutationError;
+        }
         return mutationResult;
       }
       if (url === '/lista-wyjazdowa/events') return { events };
@@ -254,9 +265,10 @@ test('new companion categories put Niewiasta, Bobo and Inne first, then a disabl
     },
   );
   const options = html.slice(html.indexOf('id="lw-inline-new-category"'));
-  const positions = ['value="niewiasta"', 'value="bobo"', 'value="inne"', '<option disabled', 'value="brokul"'].map((value) => options.indexOf(value));
+  const positions = ['value="niewiasta"', 'value="bobo"', 'value="inne"', '<optgroup label=" ">', 'value="brokul"'].map((value) => options.indexOf(value));
   assert.ok(positions.every((position) => position >= 0));
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+  assert.doesNotMatch(options, /<option disabled/);
 });
 
 test('adding an existing companion posts quick-add, closes the panel and bumps the count', async () => {
@@ -321,6 +333,29 @@ test('adding a new companion posts quick-add with ksywka+lastName+firstName+cate
   });
   assert.doesNotMatch(list.innerHTML, /lw-inline-form/);
   assert.match(list.innerHTML, /attendee-badge-count">3</);
+});
+
+test('a matching quick-add asks the shared prompt and retries with duplicateConfirmed', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const list = harness.elements.get('events-list')!;
+  await list.clickWith(clickTarget('.lw-add-companion', { eventId: 'e1', ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Kowalski';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Jan';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  harness.setMutationResult({
+    person: { personId: 'new-uuid-1', ksywka: 'Nowy', lastName: 'Kowalski', firstName: 'Jan', categoryId: 'kandydat', sectionId: null, weaponIds: [], ownerPersonId: 'viewer@example.com' },
+    signup: { memberEmail: 'new-uuid-1', attending: true, skladkaStatus: 'unpaid' },
+  });
+  harness.setMutationError(Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Jan', lastName: 'Kowalski' }] }));
+
+  await list.clickWith(clickTarget('.lw-inline-add-new'));
+
+  const posts = harness.apiCalls.filter((call) => call.url === '/lista-wyjazdowa/signups/quick-add');
+  assert.equal(posts.length, 2);
+  assert.equal(JSON.parse(String(posts[0].options.body)).duplicateConfirmed, undefined);
+  assert.equal(JSON.parse(String(posts[1].options.body)).duplicateConfirmed, true);
 });
 
 test('a failed quick-add keeps the panel open and reports the error', async () => {

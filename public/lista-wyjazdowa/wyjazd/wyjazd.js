@@ -206,14 +206,13 @@ function clearError() {
   document.getElementById('lw-error').hidden = true;
 }
 
-function confirmedEventMutation(control, execute, apply, fallbackAnchor = null, rollback) {
-  const wasCancelled = (result) => window.PersonRegistrationPrompt?.wasCancelled?.(result) === true;
+function confirmedEventMutation(control, execute, apply, fallbackAnchor = null, rollback, skipApplyWhen = null) {
   return window.MutationFeedback.confirmed({
     control,
     fallbackAnchor,
     execute,
-    apply: (result) => wasCancelled(result) ? undefined : apply(result),
-    shouldShowCheck: (result) => !wasCancelled(result),
+    apply,
+    skipApplyWhen,
     rollback,
     viewRoot: document.getElementById('main-content'),
     refreshFragment: loadAll,
@@ -1089,7 +1088,7 @@ async function quickAddCompanion(body, control) {
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
       showReauth,
       hideReauth,
-    )), (result) => applyQuickAdd(result), 'toast');
+    )), (result) => applyQuickAdd(result), 'toast', undefined, (result) => window.PersonRegistrationPrompt.wasCancelled(result));
   } catch (err) {
     showError(`Nie udało się dodać osoby: ${err.message}`);
   }

@@ -1162,6 +1162,7 @@
   width: min(92vw, 34rem);
   max-height: min(85vh, 42rem);
   padding: 0;
+  color-scheme: dark;
   color: var(--text, #f4f0e6);
   background: var(--surface, #1c211e);
   border: 1px solid var(--border, #536057);
@@ -1226,8 +1227,19 @@
 }
 
 .person-registration-dialog__confirm {
-  border-color: var(--gold, #d7b75c) !important;
-  background: color-mix(in srgb, var(--gold, #d7b75c) 20%, var(--surface-deep, #111613)) !important;
+  border-color: var(--gold, #d7b75c);
+  background: color-mix(in srgb, var(--gold, #d7b75c) 20%, var(--surface-deep, #111613));
+}
+
+@media (max-width: 400px) {
+  .person-registration-dialog__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .person-registration-dialog__actions button {
+    width: 100%;
+  }
 }
 
 /* KRKG-0092: the read-only status shown for a deactivated person's event row - same size/weight as

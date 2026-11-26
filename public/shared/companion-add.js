@@ -51,6 +51,22 @@
   }
 
   /**
+   * Render registration categories with retired choices retained only when already selected.
+   * The lower-priority group stays in its existing lookup order.
+   * @param {Array<{id: string, label: string, retired?: boolean}>} categories
+   * @param {string|null} selectedId
+   */
+  function categoryOptionsHtml(categories, selectedId = null) {
+    const available = (categories ?? []).filter((category) => !category.retired || category.id === selectedId);
+    const ordered = orderedCategories(available);
+    const priorityIds = new Set(['niewiasta', 'bobo', 'inne']);
+    const priority = ordered.filter((category) => priorityIds.has(category.id));
+    const option = (category) => `<option value="${escapeHtml(category.id)}"${category.id === selectedId ? ' selected' : ''}>${escapeHtml(category.label)}</option>`;
+    const remaining = ordered.filter((category) => !priorityIds.has(category.id));
+    return `${priority.map(option).join('')}${priority.length && remaining.length ? `<optgroup label=" ">${remaining.map(option).join('')}</optgroup>` : remaining.map(option).join('')}`;
+  }
+
+  /**
    * The panel body (the .lw-inline-form-inner block). Fixed control ids are safe because only one
    * panel is open at a time on either page.
    *
@@ -63,11 +79,7 @@
     const existingOptions = attached
       .map((person) => `<option value="${escapeHtml(person.personId)}">${escapeHtml(displayName(person))}</option>`)
       .join('');
-    const ordered = orderedCategories(categories);
-    const priorityCount = Math.min(ordered.length, ordered.filter((category) => ['niewiasta', 'bobo', 'inne'].includes(category.id)).length);
-    const categorySelectOptions = ordered
-      .map((category, index) => `${index === priorityCount && priorityCount > 0 && ordered.length > priorityCount ? '<option disabled>────────</option>' : ''}<option value="${escapeHtml(category.id)}">${escapeHtml(category.label)}</option>`)
-      .join('');
+    const categorySelectOptions = categoryOptionsHtml(categories);
     return `
     <div class="lw-inline-form-inner">
       <p class="lw-inline-title">Osoby towarzyszące: ${escapeHtml(displayName(member))}</p>
@@ -108,5 +120,5 @@
     return `<button type="button" class="lw-add-companion" data-owner-person-id="${escapeHtml(ownerPersonId)}"${eventAttr} aria-expanded="${expanded ? 'true' : 'false'}" aria-label="Dodaj osobę towarzyszącą" title="Dodaj osobę towarzyszącą"><span class="lw-add-companion-plus" aria-hidden="true">+</span><svg class="lw-add-companion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5.5" r="2.6"/><path d="M12 8.5v6.5"/><path d="M8.2 11h7.6"/><path d="M9.2 22l2.8-7 2.8 7"/></svg><span class="lw-add-companion-label">osoba towarzysząca</span></button>`;
   }
 
-  window.CompanionAdd = { candidates, orderedCategories, panelHtml, buttonHtml };
+  window.CompanionAdd = { candidates, orderedCategories, categoryOptionsHtml, panelHtml, buttonHtml };
 }());

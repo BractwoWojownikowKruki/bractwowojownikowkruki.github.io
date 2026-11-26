@@ -266,8 +266,8 @@ async function quickAddCompanion(body, control) {
         showReauth,
         hideReauth,
       )),
-      apply: (result) => { if (!window.PersonRegistrationPrompt.wasCancelled(result)) applyQuickAdd(result); },
-      shouldShowCheck: (result) => !window.PersonRegistrationPrompt.wasCancelled(result),
+      apply: (result) => applyQuickAdd(result),
+      skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
       viewRoot: document.getElementById('events-panel'),
       refreshFragment: loadEvents,
     });
