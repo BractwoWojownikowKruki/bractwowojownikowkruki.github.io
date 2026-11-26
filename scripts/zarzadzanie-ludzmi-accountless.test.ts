@@ -23,6 +23,13 @@ test('Zarządzanie ludźmi has an Osoby bez konta section with add form, table a
   assert.match(page, /id="accountless-merge-person"/);
 });
 
+test('accountless sortable headers use buttons and label the section button accessibly', () => {
+  for (const key of ['section', 'name', 'status', 'weapons', 'owner', 'account']) {
+    assert.match(page, new RegExp(`data-sort-key="${key}"[^>]*aria-sort="none"[^>]*><button type="button"`));
+  }
+  assert.match(page, /data-sort-key="section"[^>]*><button type="button" aria-label="Sekcja">S<\/button>/);
+});
+
 test('Osoby bez konta rows render from the staff persons list with edit / detach / deactivate / purge actions', () => {
   assert.match(script, /'\/lista-wyjazdowa\/persons'/);
   assert.match(script, /function renderAccountless\(persons\)/);
@@ -52,6 +59,7 @@ interface ZarzadzanieHarnessOptions {
 function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
   const elements = new Map<string, any>();
   const summaryFilterCallbacks: Array<() => void> = [];
+  const sortableTableStates = new Map<string, { set: (key: string, dir: string) => void }>();
   let signedInCallback: ((payload: Record<string, unknown>) => Promise<void>) | null = null;
 
   function makeElement(id: string) {
@@ -103,6 +111,7 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
     addEventListener: () => {},
   };
 
+  const sortableTableSource = readFileSync(new URL('../public/shared/sortable-table.js', import.meta.url), 'utf8');
   const profilePanelSource = readFileSync(new URL('../public/shared/profile-panel.js', import.meta.url), 'utf8');
   const context = vm.createContext({
     window: windowObj,
@@ -125,7 +134,6 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
     wireSummaryFilter: (_el: unknown, _filter: unknown, onChange: () => void) => {
       summaryFilterCallbacks.push(onChange);
     },
-    initSortableTable: () => ({ sortKey: null, sortDir: 'asc' }),
     LIST_PREFERENCE_KEYS: { adminSummaryFilter: 'adminSummaryFilter' },
     createSummaryFilter: () => ({}),
     renderSummaryFilter: () => '',
@@ -143,6 +151,21 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
     duesStatusBadgeHtml: (s: string) => s,
   });
 
+  vm.runInContext(sortableTableSource, context);
+  context.initSortableTable = (table: { id: string }, { defaultKey, defaultDir = 'asc', onChange }: { defaultKey: string; defaultDir?: string; onChange: () => void }) => {
+    const state = {
+      key: defaultKey,
+      dir: defaultDir,
+      set(key: string, dir: string) {
+        state.key = key;
+        state.dir = dir;
+        onChange();
+      },
+    };
+    sortableTableStates.set(table.id, state);
+    return state;
+  };
+
   vm.runInContext(profilePanelSource, context);
   vm.runInContext(script, context);
 
@@ -150,12 +173,46 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
     context,
     getEl,
     triggerSummaryFilters: () => summaryFilterCallbacks.forEach((cb) => cb()),
+    sortTable: (id: string, key: string, dir: string) => {
+      const state = sortableTableStates.get(id);
+      assert.ok(state, `sortable state for ${id} should be initialized`);
+      state.set(key, dir);
+    },
     signIn: async (payload = options.whoamiPayload ?? { email: 'ksiegowy@kruki.pl', isAccountant: true, isAdmin: false, isHovding: false }) => {
       assert.ok(signedInCallback, 'initGoogleSignIn must register onSignedIn');
       await signedInCallback(payload);
     },
   };
 }
+
+test('accountless table sorts names in both directions and breaks duplicate-name ties by person ID', async () => {
+  const harness = createZarzadzanieHarness({
+    apiFetch: async (url) => {
+      if (url === '/lista-wyjazdowa/persons') {
+        return {
+          persons: [
+            { personId: 'p2', firstName: 'Ada', lastName: 'Nowak', deleted: false },
+            { personId: 'p3', firstName: 'Zofia', lastName: 'Kowalska', deleted: false },
+            { personId: 'p1', firstName: 'Ada', lastName: 'Nowak', deleted: false },
+          ],
+        };
+      }
+      if (url === '/lista-wyjazdowa/sections') return { sections: [] };
+      if (url === '/lista-wyjazdowa/categories') return { categories: [] };
+      if (url === '/lista-wyjazdowa/weapons') return { weapons: [] };
+      return {};
+    },
+  });
+
+  await harness.context.loadAccountless();
+  const rowPersonIds = () => [...harness.getEl('accountless-list').innerHTML.matchAll(/<tr data-person-id="([^"]+)"/g)].map((match) => match[1]);
+
+  harness.sortTable('accountless-table', 'name', 'desc');
+  assert.deepEqual(rowPersonIds(), ['p3', 'p1', 'p2']);
+
+  harness.sortTable('accountless-table', 'name', 'asc');
+  assert.deepEqual(rowPersonIds(), ['p1', 'p2', 'p3']);
+});
 
 test('accountants can load the accountless table without rendering its write actions', async () => {
   const apiCalls: Array<{ url: string; method: string; body?: string }> = [];
