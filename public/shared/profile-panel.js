@@ -947,11 +947,11 @@
         accountAuditState.requestId += 1;
         accountAuditState.loading = false;
         accountAuditState.open = false;
-        renderProfileDrawer();
+        renderAccountAuditPreservingScroll();
       } else {
         if (accountAuditState.rows.length) {
           accountAuditState.open = true;
-          renderProfileDrawer();
+          renderAccountAuditPreservingScroll();
         } else {
           void loadAccountAuditHistory();
         }
@@ -1031,13 +1031,6 @@
       setLightboxIndex(Number(filmThumb.dataset.index));
     }
   });
-
-  document.addEventListener('scroll', (e) => {
-    const auditSection = e.target.closest?.('.profile-account-audit section');
-    if (auditSection && auditSection.scrollHeight - auditSection.scrollTop - auditSection.clientHeight < 80) {
-      void loadAccountAuditHistory();
-    }
-  }, true);
 
   document.addEventListener('input', (e) => {
     const form = e.target.closest('.profile-identity-form');

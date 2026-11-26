@@ -593,9 +593,6 @@ function computeSearchTokens(resource: AuditResource, actor: AuditActor, changes
     for (const word of foldedWords(text)) {
       for (const token of tokensForWord(word)) tokens.add(token);
     }
-    for (const match of text.matchAll(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+/gi)) {
-      tokens.add(foldDiacritics(match[0]).toLowerCase().slice(0, MAX_SEARCH_TOKEN_LENGTH));
-    }
   }
   return Array.from(tokens);
 }
@@ -1205,8 +1202,8 @@ function accountAuditEventMatches(event: CanonicalAuditEvent, reference: string,
   if (referenceKind === 'personId') return event.resource.key === `person:${reference}` && event.action.startsWith('person.');
   const email = reference.toLowerCase();
   if (event.resource.key.toLowerCase() === `member:${email}`) {
-    if (event.action.startsWith('role.') || event.action === 'membership.application.submitted' || event.action.startsWith('membership.status.')) return true;
-    return (event.action === 'profile.member.updated' || event.action === 'profile.drive_folder.changed') && event.actor.email !== email;
+    if (event.action.startsWith('role.') || event.action === 'membership.application.submitted' || event.action.startsWith('membership.status.') || event.action === 'profile.drive_folder.changed') return true;
+    return event.action === 'profile.member.updated' && event.actor.email.trim().toLowerCase() !== email;
   }
   const companionActions = new Set(['person.created', 'person.detached', 'person.merged']);
   if (!companionActions.has(event.action)) return false;
@@ -1230,71 +1227,91 @@ async function queryAccountAuditEvents(
     : undefined;
   const limit = Math.min(Math.max(options.limit ?? MAX_LIST_LIMIT, 1), MAX_LIST_LIMIT);
   const cursor = decodeAccountAuditCursor(options.cursor, Boolean(token));
-  let fetchLimit = Math.min(Math.max(limit * 2, 100), 200);
-  const fetchStreams = async (pageSize: number) => Promise.all([
-    cursor.memberDone ? Promise.resolve([]) : firestore.queryDocs<CanonicalAuditEvent>('auditEvents', {
+  const chunkSize = 100;
+  const readBudget = 1000;
+  let reads = 0;
+  let memberDocs: Array<{ id: string; data: CanonicalAuditEvent }> = [];
+  let relatedDocs: Array<{ id: string; data: CanonicalAuditEvent }> = [];
+  let memberIndex = 0;
+  let relatedIndex = 0;
+  let memberReadCursor = cursor.memberCursor;
+  let relatedReadCursor = cursor.relatedCursor;
+  let memberReadDone = cursor.memberDone;
+  let relatedReadDone = cursor.relatedDone || !token;
+  let memberConsumedCursor = cursor.memberCursor;
+  let relatedConsumedCursor = cursor.relatedCursor;
+
+  const compareNewestFirst = (a: { timestamp: string; id: string }, b: { timestamp: string; id: string }) => {
+    if (a.timestamp !== b.timestamp) return a.timestamp > b.timestamp ? -1 : 1;
+    if (a.id !== b.id) return a.id > b.id ? -1 : 1;
+    return 0;
+  };
+  const refillMember = async () => {
+    if (memberReadDone || reads >= readBudget) return;
+    const requestLimit = Math.min(chunkSize, readBudget - reads);
+    memberDocs = await firestore.queryDocs<CanonicalAuditEvent>('auditEvents', {
       filter: { field: 'resource.key', op: '==', value: `${email ? 'member' : 'person'}:${normalizedReference}` },
       timestampField: 'timestamp', timestampGte: options.from, timestampLte: options.to,
-      startAfter: cursor.memberCursor, limit: pageSize,
-    }),
-    !token || cursor.relatedDone ? Promise.resolve([]) : firestore.queryDocs<CanonicalAuditEvent>('auditEvents', {
-      filter: { field: 'searchTokens', op: 'array-contains', value: token.slice(0, MAX_SEARCH_TOKEN_LENGTH) },
+      startAfter: memberReadCursor, limit: requestLimit,
+    });
+    reads += memberDocs.length;
+    memberIndex = 0;
+    if (!memberDocs.length) memberReadDone = true;
+    else {
+      const last = memberDocs.at(-1)!;
+      memberReadCursor = { timestamp: last.data.timestamp, id: last.id };
+      if (memberDocs.length < requestLimit) memberReadDone = true;
+    }
+  };
+  const refillRelated = async () => {
+    if (relatedReadDone || reads >= readBudget) return;
+    const requestLimit = Math.min(chunkSize, readBudget - reads);
+    relatedDocs = await firestore.queryDocs<CanonicalAuditEvent>('auditEvents', {
+      filter: { field: 'searchTokens', op: 'array-contains', value: token!.slice(0, MAX_SEARCH_TOKEN_LENGTH) },
       timestampField: 'timestamp', timestampGte: options.from, timestampLte: options.to,
-      startAfter: cursor.relatedCursor, limit: pageSize,
-    }),
-  ]);
-  let [memberDocs, relatedDocs] = await fetchStreams(fetchLimit);
-  const isDone = (docs: Array<{ id: string; data: CanonicalAuditEvent }>, streamDone: boolean) => streamDone || docs.length < fetchLimit;
-  const compareNewestFirst = (a: { timestamp: string; id: string }, b: { timestamp: string; id: string }) =>
-    b.timestamp.localeCompare(a.timestamp) || b.id.localeCompare(a.id);
-  const candidates = () => {
-    const merged = new Map<string, { id: string; data: CanonicalAuditEvent; member: boolean; related: boolean }>();
-    for (const doc of memberDocs) merged.set(doc.id, { ...doc, member: true, related: false });
-    for (const doc of relatedDocs) {
-      const existing = merged.get(doc.id);
-      if (existing) existing.related = true;
-      else merged.set(doc.id, { ...doc, member: false, related: true });
+      startAfter: relatedReadCursor, limit: requestLimit,
+    });
+    reads += relatedDocs.length;
+    relatedIndex = 0;
+    if (!relatedDocs.length) relatedReadDone = true;
+    else {
+      const last = relatedDocs.at(-1)!;
+      relatedReadCursor = { timestamp: last.data.timestamp, id: last.id };
+      if (relatedDocs.length < requestLimit) relatedReadDone = true;
     }
-    return [...merged.values()].sort((a, b) => compareNewestFirst(a.data, b.data));
   };
-  const isSafe = (candidate: { data: CanonicalAuditEvent }) => {
-    const memberTail = memberDocs.at(-1)?.data;
-    const relatedTail = relatedDocs.at(-1)?.data;
-    return (isDone(memberDocs, cursor.memberDone) || !memberTail || compareNewestFirst(candidate.data, memberTail) <= 0) &&
-      (isDone(relatedDocs, cursor.relatedDone) || !relatedTail || compareNewestFirst(candidate.data, relatedTail) <= 0);
-  };
-  let safeCandidates = candidates().filter(isSafe);
-  // Refill the streams until a complete page is safe to emit in global timestamp order, or both
-  // streams are exhausted. A short-token query can contain unrelated actor events, so a bounded
-  // expanding lookahead prevents one stream's unseen newer rows from being returned on a later page.
-  while (safeCandidates.filter(candidate => accountAuditEventMatches(candidate.data, normalizedReference, options.selector.referenceKind)).length < limit &&
-      (!isDone(memberDocs, cursor.memberDone) || !isDone(relatedDocs, cursor.relatedDone)) && fetchLimit < 5000) {
-    fetchLimit = Math.min(fetchLimit * 2, 5000);
-    [memberDocs, relatedDocs] = await fetchStreams(fetchLimit);
-    safeCandidates = candidates().filter(isSafe);
-  }
-  const ordered = safeCandidates;
+  await Promise.all([refillMember(), refillRelated()]);
   const rows: AuditEventRow[] = [];
-  let memberConsumed = 0;
-  let relatedConsumed = 0;
-  let next = { ...cursor };
-  for (const candidate of ordered) {
-    if (candidate.member) {
-      memberConsumed += 1;
-      next.memberCursor = { timestamp: candidate.data.timestamp, id: candidate.id };
+  while (true) {
+    if (reads >= readBudget &&
+        ((memberIndex >= memberDocs.length && !memberReadDone) || (relatedIndex >= relatedDocs.length && !relatedReadDone))) break;
+    if (reads < readBudget && memberIndex >= memberDocs.length && !memberReadDone) await refillMember();
+    if (reads < readBudget && relatedIndex >= relatedDocs.length && !relatedReadDone) await refillRelated();
+    const member = memberDocs[memberIndex];
+    const related = relatedDocs[relatedIndex];
+    if (!member && !related) break;
+    const takeMember = member && (!related || compareNewestFirst(member.data, related.data) <= 0);
+    const doc = takeMember ? member! : related!;
+    const fromRelated = !takeMember;
+    const isMemberResource = email && doc.data.resource.key.toLowerCase() === `member:${normalizedReference}`;
+    const isMatch = accountAuditEventMatches(doc.data, normalizedReference, options.selector.referenceKind) && !(fromRelated && isMemberResource);
+    const projected = isMatch ? projectAuditEvent(doc.data, viewer) : null;
+    if (rows.length >= limit && projected) break;
+    if (takeMember) {
+      memberIndex += 1;
+      memberConsumedCursor = { timestamp: doc.data.timestamp, id: doc.id };
+    } else {
+      relatedIndex += 1;
+      relatedConsumedCursor = { timestamp: doc.data.timestamp, id: doc.id };
     }
-    if (candidate.related) {
-      relatedConsumed += 1;
-      next.relatedCursor = { timestamp: candidate.data.timestamp, id: candidate.id };
-    }
-    if (accountAuditEventMatches(candidate.data, normalizedReference, options.selector.referenceKind)) {
-      const row = projectAuditEvent(candidate.data, viewer);
-      if (row) rows.push(row);
-    }
-    if (rows.length >= limit) break;
+    if (projected) rows.push(projected);
   }
-  if (memberConsumed === memberDocs.length && memberDocs.length < fetchLimit) next.memberDone = true;
-  if (relatedConsumed === relatedDocs.length && relatedDocs.length < fetchLimit) next.relatedDone = true;
+  const next: AccountAuditCursor = {
+    memberCursor: memberConsumedCursor,
+    relatedCursor: relatedConsumedCursor,
+    memberDone: memberReadDone && memberIndex >= memberDocs.length,
+    relatedDone: relatedReadDone && relatedIndex >= relatedDocs.length,
+  };
   const hasMore = !next.memberDone || !next.relatedDone;
   return { rows, nextCursor: hasMore ? encodeAccountAuditCursor(next) : undefined };
 }

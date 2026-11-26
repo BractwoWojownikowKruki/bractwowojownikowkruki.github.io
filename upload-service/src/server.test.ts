@@ -9779,6 +9779,27 @@ test('GET /admin/members/account-audit refills noisy related-event pages without
   });
 });
 
+test('GET /admin/members/account-audit follows Firestore ID tie order and omits an empty trailing page', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  for (const id of ['Z', 'a']) {
+    await executeAuditedFirestoreMutation(firestore, {
+      action: 'role.granted', actor: { email: 'staff@example.test' },
+      resource: { kind: 'member', key: 'member:maja@example.test', display: 'target' },
+      changes: [{ field: 'roles', after: id }],
+    }, async () => {}, { createId: () => id, now: () => new Date('2026-01-02T00:00:00.000Z') });
+  }
+  await seedAuditEvent(firestore, 'unrelated-tail', '2026-01-01T00:00:00.000Z');
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const first = await (await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test&limit=1`)).json();
+    assert.deepEqual(first.rows.map((row: { id: string }) => row.id), ['a']);
+    assert.ok(first.nextCursor);
+    const second = await (await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test&limit=1&cursor=${encodeURIComponent(first.nextCursor)}`)).json();
+    assert.deepEqual(second.rows.map((row: { id: string }) => row.id), ['Z']);
+    assert.equal(second.nextCursor, undefined, 'unrelated actor events are drained in the preceding page');
+  });
+});
+
 test('GET /admin/audyt/events: action without category is a deterministic 400, and every single supported selector (category, category+action, actorEmail, resourceKey, q) is individually accepted', async () => {
   const firestore = createInMemoryFirestoreClient();
   await seedAuditEvent(firestore, 'evt-a', '2026-01-01T00:00:00.000Z');
