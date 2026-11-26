@@ -896,12 +896,12 @@ function updateAccountlessWeaponState() {
   }
 }
 
-function resetAccountlessForm() {
+function resetAccountlessForm(selectedCategoryId = null) {
   editingAccountlessPersonId = null;
   document.getElementById('accountless-ksywka').value = '';
   document.getElementById('accountless-first-name').value = '';
   document.getElementById('accountless-last-name').value = '';
-  document.getElementById('accountless-category').innerHTML = window.CompanionAdd.categoryOptionsHtml(accountlessCache.categories);
+  document.getElementById('accountless-category').innerHTML = window.CompanionAdd.categoryOptionsHtml(accountlessCache.categories, selectedCategoryId);
   document.getElementById('accountless-section-select').innerHTML = accountlessOptionsHtml(accountlessCache.sections, null);
   document.getElementById('accountless-weapons').innerHTML = accountlessWeaponCheckboxesHtml(accountlessCache.weapons, []);
   document.getElementById('accountless-owner').value = '';
@@ -911,7 +911,7 @@ function resetAccountlessForm() {
 }
 
 function openAccountlessForm(person) {
-  resetAccountlessForm();
+  resetAccountlessForm(person?.categoryId ?? null);
   document.getElementById('accountless-owner-field').hidden = !isAccountantOnlyCaller || Boolean(person);
   if (person) {
     editingAccountlessPersonId = person.personId;
@@ -920,7 +920,6 @@ function openAccountlessForm(person) {
     document.getElementById('accountless-last-name').value = person.lastName ?? '';
     if (person.categoryId) {
       const category = document.getElementById('accountless-category');
-      category.innerHTML = window.CompanionAdd.categoryOptionsHtml(accountlessCache.categories, person.categoryId);
       category.value = person.categoryId;
     }
     if (person.sectionId) document.getElementById('accountless-section-select').value = person.sectionId;

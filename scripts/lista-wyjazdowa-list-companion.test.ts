@@ -294,6 +294,11 @@ test('new companion categories put Niewiasta, Bobo and Inne first, then an hr se
     { id: 'retired', label: 'Gość', retired: true },
   ], 'retired');
   assert.match(editOptions, /<hr><option value="retired" selected>Gość \(wycofany status\)/);
+  const retiredPriorityOptions = context.window.CompanionAdd.categoryOptionsHtml([
+    { id: 'bobo', label: 'Bobo' },
+    { id: 'niewiasta', label: 'Niewiasta', retired: true },
+  ], 'niewiasta');
+  assert.match(retiredPriorityOptions, /^<option value="niewiasta" selected>Niewiasta \(wycofany status\)<\/option><option value="bobo">Bobo<\/option>$/);
   assert.doesNotMatch(context.window.CompanionAdd.categoryOptionsHtml([{ id: 'niewiasta', label: 'Niewiasta' }]), /<hr>/);
   assert.doesNotMatch(options, /<option disabled/);
 });
