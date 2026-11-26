@@ -33,7 +33,7 @@
       <div class="person-registration-dialog__content">
         <h2 id="${titleId}">Czy ta osoba już istnieje?</h2>
         <p id="${descriptionId}">Znaleźliśmy osoby bez konta o takim samym pseudonimie lub imieniu i nazwisku. Sprawdź poniższe dane. Jeśli to inna osoba, możesz kontynuować rejestrację w apce.</p>
-        <ul class="person-registration-dialog__matches" aria-label="Czy ta osoba już istnieje?" tabindex="0">${matches.map(candidateHtml).join('')}</ul>
+        <ul class="person-registration-dialog__matches" aria-labelledby="${titleId}" tabindex="0">${matches.map(candidateHtml).join('')}</ul>
         <div class="person-registration-dialog__actions">
           <button type="button" class="person-registration-dialog__confirm">Tak, zarejestruj, to zupełnie inna osoba.</button>
           <button type="button" class="person-registration-dialog__cancel">Anuluj</button>

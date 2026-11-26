@@ -17,6 +17,8 @@ class FakeElement {
   attributes: Record<string, string> = {};
   listeners: Record<string, Array<(event?: any) => void>> = {};
   removed = false;
+  isConnected = true;
+  focusCount = 0;
   setAttribute(name: string, value: string) { this.attributes[name] = value; }
   addEventListener(type: string, listener: (event?: any) => void) { (this.listeners[type] ??= []).push(listener); }
   querySelector(selector: string) {
@@ -25,7 +27,7 @@ class FakeElement {
     return element;
   }
   selector = '';
-  focus() {}
+  focus() { this.focusCount += 1; }
   showModal() {
     if (this.nextAction === 'escape') {
       for (const listener of this.listeners.cancel ?? []) listener({ preventDefault() {} });
@@ -42,9 +44,10 @@ class FakeElement {
 
 function load(action: 'confirm' | 'cancel' | 'escape') {
   const dialogs: FakeElement[] = [];
+  const trigger = new FakeElement();
   const context: Record<string, any> = {
     window: {},
-    document: { createElement: () => { const dialog = new FakeElement(); dialog.nextAction = action; dialog.querySelector = (selector: string) => {
+    document: { activeElement: trigger, createElement: () => { const dialog = new FakeElement(); dialog.nextAction = action; dialog.querySelector = (selector: string) => {
       const button = new FakeElement();
       button.addEventListener = (type, listener) => { if (type === 'click') (dialog.childListeners[selector] ??= []).push(listener); };
       return button;
@@ -52,7 +55,7 @@ function load(action: 'confirm' | 'cancel' | 'escape') {
     Promise, Object, String, Array,
   };
   vm.runInNewContext(source, context);
-  return { prompt: context.window.PersonRegistrationPrompt, dialogs };
+  return { prompt: context.window.PersonRegistrationPrompt, dialogs, trigger };
 }
 
 const matches = [{ firstName: 'Iga', lastName: 'Kruk', nickname: '<Wilk>', section: 'Sekcja A', owner: 'Właściciel' }];
@@ -86,7 +89,7 @@ test('cancelling a duplicate prompt does not retry registration', async () => {
 });
 
 test('Escape cancels the prompt and does not retry registration', async () => {
-  const { prompt } = load('escape');
+  const { prompt, trigger } = load('escape');
   let calls = 0;
   const result = await prompt.run(async () => {
     calls += 1;
@@ -94,6 +97,7 @@ test('Escape cancels the prompt and does not retry registration', async () => {
   });
   assert.equal(calls, 1);
   assert.equal(prompt.wasCancelled(result), true);
+  assert.equal(trigger.focusCount, 1);
 });
 
 test('a duplicate response after confirmation is surfaced without opening another prompt', async () => {
@@ -120,6 +124,7 @@ test('every person registration page loads the shared prompt and invokes it from
     assert.ok(page.includes(`src="${promptPath}"`), `${pagePath} must load the shared prompt`);
     assert.match(pageScript, /PersonRegistrationPrompt\.run\(/, `${scriptPath} must invoke the shared prompt`);
     assert.match(pageScript, /duplicateConfirmed: true/, `${scriptPath} must confirm the retry to the server`);
+    assert.match(pageScript, /skipApplyWhen:/, `${scriptPath} must leave the view unchanged when the prompt is cancelled`);
     if (scriptPath.includes('/profil/') || scriptPath.includes('/zarzadzanie-ludzmi/')) {
       assert.match(pageScript, /CompanionAdd\.categoryOptionsHtml\(/, `${scriptPath} must use the shared category option renderer`);
     }

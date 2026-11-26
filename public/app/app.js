@@ -473,6 +473,7 @@ async function quickAddDashCompanion(body, control) {
         refreshDuesPanel();
       },
       skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
+      focusAfterApply: () => dashEventAnchor(body.eventId)(),
       viewRoot: panels.panel,
       refreshFragment: reloadDashboardEvents,
     });

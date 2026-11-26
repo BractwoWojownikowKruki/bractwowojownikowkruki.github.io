@@ -1083,12 +1083,24 @@ async function toggleEventEquipment(equipmentId, nextGoing, control) {
 async function quickAddCompanion(body, control) {
   clearError();
   try {
-    await confirmedEventMutation(control, () => window.PersonRegistrationPrompt.run((duplicateConfirmed) => apiFetch(
+    await window.MutationFeedback.confirmed({
+      control,
+      fallbackAnchor: 'toast',
+      execute: () => window.PersonRegistrationPrompt.run((duplicateConfirmed) => apiFetch(
       '/lista-wyjazdowa/signups/quick-add',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
       showReauth,
       hideReauth,
-    )), (result) => applyQuickAdd(result), 'toast', undefined, (result) => window.PersonRegistrationPrompt.wasCancelled(result));
+      )),
+      apply: (result) => applyQuickAdd(result),
+      skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
+      focusAfterApply: (result) => {
+        const personId = result?.person?.personId ?? result?.signup?.memberEmail;
+        return personId ? document.querySelector(`#roster-content .lw-attend-toggle[data-person-id="${CSS.escape(String(personId))}"]`) : null;
+      },
+      viewRoot: document.getElementById('main-content'),
+      refreshFragment: loadAll,
+    });
   } catch (err) {
     showError(`Nie udało się dodać osoby: ${err.message}`);
   }

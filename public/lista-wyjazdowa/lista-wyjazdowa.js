@@ -268,6 +268,7 @@ async function quickAddCompanion(body, control) {
       )),
       apply: (result) => applyQuickAdd(result),
       skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
+      focusAfterApply: () => eventRowAnchor(body.eventId)(),
       viewRoot: document.getElementById('events-panel'),
       refreshFragment: loadEvents,
     });

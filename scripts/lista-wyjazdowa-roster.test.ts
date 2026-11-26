@@ -79,6 +79,8 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   const localStore = new Map(Object.entries(options.initialStorage ?? {}));
   let mutationResult: unknown = null;
   let mutationError: Error | null = null;
+  let cancelDuplicatePrompt = false;
+  const cancelledDuplicatePrompt = Object.freeze({ cancelled: true });
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
   const roster = [
     { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, lastName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
@@ -113,7 +115,10 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     encodeURIComponent,
     window: {
       location: { search: '?eventId=e1' },
-      PersonRegistrationPrompt: { run: (execute: (confirmed: boolean) => Promise<unknown>) => execute(false), wasCancelled: () => false },
+      PersonRegistrationPrompt: {
+        run: (execute: (confirmed: boolean) => Promise<unknown>) => cancelDuplicatePrompt ? Promise.resolve(cancelledDuplicatePrompt) : execute(false),
+        wasCancelled: (result: unknown) => result === cancelledDuplicatePrompt,
+      },
       confirm: () => true,
       LwCalendar: {
         mountDropdowns: () => ({ refresh() {} }),
@@ -122,7 +127,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
           : '',
       },
       MutationFeedback: {
-        confirmed: async ({ execute, apply, rollback }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown }) => {
+        confirmed: async ({ execute, apply, rollback, skipApplyWhen }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown; skipApplyWhen?: (result: unknown) => boolean }) => {
           let result: unknown;
           try {
             result = await execute();
@@ -130,7 +135,9 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
             if (rollback) await rollback(error);
             throw error;
           }
+          if (skipApplyWhen?.(result)) return result;
           apply(result);
+          return result;
         },
       },
     },
@@ -186,6 +193,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     async signIn() { await signIn?.({ email: 'viewer@example.com' }); },
     setMutationResult(result: unknown) { mutationResult = result; mutationError = null; },
     setMutationError(error: Error) { mutationError = error; },
+    cancelNextDuplicatePrompt() { cancelDuplicatePrompt = true; },
   };
 }
 
@@ -767,6 +775,25 @@ test('a failed quick-add changes nothing and reports the error', async () => {
 
   assert.equal(roster.innerHTML, before);
   assert.match(harness.elements.get('lw-error')!.textContent, /Nie udało się dodać osoby/);
+});
+
+test('cancelling the duplicate prompt on the event detail page leaves the companion form unchanged', async () => {
+  const harness = createHarness(event(null), { withAttachedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Kowalski';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Jan';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  const formBefore = roster.innerHTML;
+  harness.cancelNextDuplicatePrompt();
+
+  await roster.clickWith(clickTarget('.lw-inline-add-new'));
+
+  assert.equal(roster.innerHTML, formBefore);
+  assert.equal(harness.apiCalls.filter((call) => call.url === '/lista-wyjazdowa/signups/quick-add').length, 0);
+  assert.equal(harness.elements.get('lw-error')!.hidden, true);
 });
 
 test('the old lw-subnav pill row is gone, replaced by the shared top bar (non-sticky on this page)', () => {

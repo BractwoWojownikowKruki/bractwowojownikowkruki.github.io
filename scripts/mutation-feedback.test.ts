@@ -157,6 +157,22 @@ test('a mutation can stop after execute for a cancelled informational prompt', a
   assert.equal(control.insertedAfter.length, 0);
 });
 
+test('focusAfterApply moves focus to the replacement control after the view updates', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  const replacement = new FakeElement('button');
+  const order: string[] = [];
+  await feedback.confirmed({
+    execute: async () => ({ saved: true }),
+    apply: async () => { order.push('apply'); },
+    focusAfterApply: () => { order.push('focus-target'); return replacement; },
+    anchor: new FakeElement('button'),
+    shouldShowCheck: () => false,
+  });
+  assert.deepEqual(order, ['apply', 'focus-target']);
+  assert.equal((replacement.focusedWith as { preventScroll: boolean }).preventScroll, true);
+});
+
 test('replaces a previous check instead of stacking a new one on repeated saves', async () => {
   const harness = createHarness();
   const feedback = await loadMutationFeedback(harness);

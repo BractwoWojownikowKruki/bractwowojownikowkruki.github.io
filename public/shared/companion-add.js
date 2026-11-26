@@ -63,7 +63,7 @@
     const priority = ordered.filter((category) => priorityIds.has(category.id));
     const option = (category) => `<option value="${escapeHtml(category.id)}"${category.id === selectedId ? ' selected' : ''}>${escapeHtml(category.label)}</option>`;
     const remaining = ordered.filter((category) => !priorityIds.has(category.id));
-    return `${priority.map(option).join('')}${priority.length && remaining.length ? `<optgroup label=" ">${remaining.map(option).join('')}</optgroup>` : remaining.map(option).join('')}`;
+    return `${priority.map(option).join('')}${priority.length && remaining.length ? `<hr>${remaining.map(option).join('')}` : remaining.map(option).join('')}`;
   }
 
   /**

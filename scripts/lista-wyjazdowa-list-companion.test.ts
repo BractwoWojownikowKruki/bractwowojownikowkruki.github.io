@@ -248,7 +248,7 @@ test('tapping + lazy-loads the roster/categories/signups and opens the shared pa
   assert.match(list.innerHTML, /Kandydat/);
 });
 
-test('new companion categories put Niewiasta, Bobo and Inne first, then a disabled separator', () => {
+test('new companion categories put Niewiasta, Bobo and Inne first, then an hr separator', () => {
   const context = { window: {}, displayName: (person: any) => person.nickname ?? 'Osoba' };
   vm.runInNewContext(companionAddSource, context);
   const html = context.window.CompanionAdd.panelHtml(
@@ -261,13 +261,21 @@ test('new companion categories put Niewiasta, Bobo and Inne first, then a disabl
         { id: 'niewiasta', label: 'Niewiasta' },
         { id: 'bobo', label: 'Bobo' },
         { id: 'inne', label: 'Inne' },
+        { id: 'retired', label: 'Wycofany status', retired: true },
       ],
     },
   );
   const options = html.slice(html.indexOf('id="lw-inline-new-category"'));
-  const positions = ['value="niewiasta"', 'value="bobo"', 'value="inne"', '<optgroup label=" ">', 'value="brokul"'].map((value) => options.indexOf(value));
+  const positions = ['value="niewiasta"', 'value="bobo"', 'value="inne"', '<hr>', 'value="inna"', 'value="brokul"'].map((value) => options.indexOf(value));
   assert.ok(positions.every((position) => position >= 0));
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+  assert.doesNotMatch(options, /Wycofany status/);
+  const editOptions = context.window.CompanionAdd.categoryOptionsHtml([
+    { id: 'niewiasta', label: 'Niewiasta' },
+    { id: 'retired', label: 'Wycofany status', retired: true },
+  ], 'retired');
+  assert.match(editOptions, /<hr><option value="retired" selected>Wycofany status/);
+  assert.doesNotMatch(context.window.CompanionAdd.categoryOptionsHtml([{ id: 'niewiasta', label: 'Niewiasta' }]), /<hr>/);
   assert.doesNotMatch(options, /<option disabled/);
 });
 

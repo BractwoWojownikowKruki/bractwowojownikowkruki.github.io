@@ -144,7 +144,7 @@
   //  - `fallbackAnchor`         -> used only when apply() removed that element: an element or a
   //    function (evaluated after apply()) returning one, e.g. the freshly rendered twin of the
   //    control. If it is 'toast', or resolves to nothing connected, the toast is shown instead.
-  async function confirmed({ execute, apply, refreshFragment, control, anchor, fallbackAnchor, toast, rollback, shouldShowCheck, skipApplyWhen, viewRoot }) {
+  async function confirmed({ execute, apply, refreshFragment, control, anchor, fallbackAnchor, toast, rollback, shouldShowCheck, skipApplyWhen, focusAfterApply, viewRoot }) {
     let feedbackAnchor = anchor || control;
     removeExistingChecks(feedbackAnchor);
     let result;
@@ -166,6 +166,8 @@
 
     try {
       await apply(result);
+      const focusTarget = await focusAfterApply?.(result);
+      focusTarget?.focus?.({ preventScroll: true });
       if (shouldShowCheck?.(result) === false) return result;
     } catch (error) {
       showRefreshError(connectedErrorAnchor(feedbackAnchor), refreshFragment, viewRoot || feedbackAnchor);

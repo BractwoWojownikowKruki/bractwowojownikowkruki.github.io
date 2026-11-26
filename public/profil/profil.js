@@ -958,6 +958,10 @@ async function runPersonMutation(control, execute) {
     execute,
     apply: () => loadPersons(),
     skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
+    focusAfterApply: (result) => {
+      const personId = result?.person?.personId;
+      return personId ? document.querySelector(`.person-row[data-person-id="${CSS.escape(String(personId))}"] .person-first-name`) : null;
+    },
   });
 }
 

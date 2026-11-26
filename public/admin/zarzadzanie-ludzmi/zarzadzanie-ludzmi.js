@@ -1091,6 +1091,7 @@ async function runAccountlessMutation(control, execute, refreshRecords = true) {
     execute,
     apply: () => refreshFragment(),
     skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
+    focusAfterApply: () => document.getElementById('accountless-add-toggle'),
   });
 }
 
