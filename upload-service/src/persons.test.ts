@@ -168,10 +168,16 @@ test('findDuplicateAccountlessPersons sorts matches by Polish full name, then ni
   await client.setDoc('persons', 'same-name-a', {
     personId: 'same-name-a', ksywka: 'Aga', firstName: 'Ewa', lastName: 'Lis', email: null, mergedInto: null,
   } as never);
+  await client.setDoc('persons', 'tie-z', {
+    personId: 'tie-z', ksywka: 'Duplikat', firstName: 'Ewa', lastName: 'Lis', email: null, mergedInto: null,
+  } as never);
+  await client.setDoc('persons', 'tie-a', {
+    personId: 'tie-a', ksywka: 'Duplikat', firstName: 'Ewa', lastName: 'Lis', email: null, mergedInto: null,
+  } as never);
 
   const matches = await findDuplicateAccountlessPersons(client, { ksywka: 'duplicate', firstName: 'Ewa', lastName: 'Lis' });
 
-  assert.deepEqual(matches.map((person) => person.personId), ['a-name', 'same-name-a', 'same-name-z', 'z-name']);
+  assert.deepEqual(matches.map((person) => person.personId), ['a-name', 'same-name-a', 'tie-a', 'tie-z', 'same-name-z', 'z-name']);
 });
 
 test('weapon rule: Niewiasta and Bobo never keep a weapon list', async () => {

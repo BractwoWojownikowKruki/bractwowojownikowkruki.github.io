@@ -149,8 +149,9 @@ export async function findDuplicateAccountlessPersons(
     .sort((left, right) => {
       const leftFullName = `${left.firstName ?? ''} ${left.lastName ?? ''}`.trim();
       const rightFullName = `${right.firstName ?? ''} ${right.lastName ?? ''}`.trim();
-      return leftFullName.localeCompare(rightFullName, 'pl-PL', { sensitivity: 'base' })
-        || (left.ksywka ?? '').localeCompare(right.ksywka ?? '', 'pl-PL', { sensitivity: 'base' });
+      return leftFullName.localeCompare(rightFullName, 'pl', { sensitivity: 'base' })
+        || (left.ksywka ?? '').localeCompare(right.ksywka ?? '', 'pl', { sensitivity: 'base' })
+        || left.personId.localeCompare(right.personId);
     });
 }
 
