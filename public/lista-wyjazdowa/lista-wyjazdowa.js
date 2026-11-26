@@ -260,13 +260,14 @@ async function quickAddCompanion(body, control) {
     await window.MutationFeedback.confirmed({
       control,
       fallbackAnchor: eventRowAnchor(body.eventId),
-      execute: () => apiFetch(
+      execute: () => window.PersonRegistrationPrompt.run((duplicateConfirmed) => apiFetch(
         '/lista-wyjazdowa/signups/quick-add',
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
         showReauth,
         hideReauth,
-      ),
-      apply: (result) => applyQuickAdd(result),
+      )),
+      apply: (result) => { if (!window.PersonRegistrationPrompt.wasCancelled(result)) applyQuickAdd(result); },
+      shouldShowCheck: (result) => !window.PersonRegistrationPrompt.wasCancelled(result),
       viewRoot: document.getElementById('events-panel'),
       refreshFragment: loadEvents,
     });

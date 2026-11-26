@@ -207,11 +207,13 @@ function clearError() {
 }
 
 function confirmedEventMutation(control, execute, apply, fallbackAnchor = null, rollback) {
+  const wasCancelled = (result) => window.PersonRegistrationPrompt?.wasCancelled?.(result) === true;
   return window.MutationFeedback.confirmed({
     control,
     fallbackAnchor,
     execute,
-    apply,
+    apply: (result) => wasCancelled(result) ? undefined : apply(result),
+    shouldShowCheck: (result) => !wasCancelled(result),
     rollback,
     viewRoot: document.getElementById('main-content'),
     refreshFragment: loadAll,
@@ -1082,12 +1084,12 @@ async function toggleEventEquipment(equipmentId, nextGoing, control) {
 async function quickAddCompanion(body, control) {
   clearError();
   try {
-    await confirmedEventMutation(control, () => apiFetch(
+    await confirmedEventMutation(control, () => window.PersonRegistrationPrompt.run((duplicateConfirmed) => apiFetch(
       '/lista-wyjazdowa/signups/quick-add',
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
       showReauth,
       hideReauth,
-    ), (result) => applyQuickAdd(result), 'toast');
+    )), (result) => applyQuickAdd(result), 'toast');
   } catch (err) {
     showError(`Nie udało się dodać osoby: ${err.message}`);
   }

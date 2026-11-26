@@ -37,6 +37,20 @@
   }
 
   /**
+   * Order companion categories for registration forms while preserving the lookup order of the
+   * remaining categories. The separator is rendered by the caller so native selects remain native.
+   * @param {Array<{id: string, label: string}>} categories
+   */
+  function orderedCategories(categories) {
+    const prioritizedIds = ['niewiasta', 'bobo', 'inne'];
+    const byId = new Map((categories ?? []).map((category) => [category.id, category]));
+    return [
+      ...prioritizedIds.map((id) => byId.get(id)).filter(Boolean),
+      ...(categories ?? []).filter((category) => !prioritizedIds.includes(category.id)),
+    ];
+  }
+
+  /**
    * The panel body (the .lw-inline-form-inner block). Fixed control ids are safe because only one
    * panel is open at a time on either page.
    *
@@ -49,8 +63,10 @@
     const existingOptions = attached
       .map((person) => `<option value="${escapeHtml(person.personId)}">${escapeHtml(displayName(person))}</option>`)
       .join('');
-    const categorySelectOptions = (categories ?? [])
-      .map((category) => `<option value="${escapeHtml(category.id)}">${escapeHtml(category.label)}</option>`)
+    const ordered = orderedCategories(categories);
+    const priorityCount = Math.min(ordered.length, ordered.filter((category) => ['niewiasta', 'bobo', 'inne'].includes(category.id)).length);
+    const categorySelectOptions = ordered
+      .map((category, index) => `${index === priorityCount && priorityCount > 0 && ordered.length > priorityCount ? '<option disabled>────────</option>' : ''}<option value="${escapeHtml(category.id)}">${escapeHtml(category.label)}</option>`)
       .join('');
     return `
     <div class="lw-inline-form-inner">
@@ -92,5 +108,5 @@
     return `<button type="button" class="lw-add-companion" data-owner-person-id="${escapeHtml(ownerPersonId)}"${eventAttr} aria-expanded="${expanded ? 'true' : 'false'}" aria-label="Dodaj osobę towarzyszącą" title="Dodaj osobę towarzyszącą"><span class="lw-add-companion-plus" aria-hidden="true">+</span><svg class="lw-add-companion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5.5" r="2.6"/><path d="M12 8.5v6.5"/><path d="M8.2 11h7.6"/><path d="M9.2 22l2.8-7 2.8 7"/></svg><span class="lw-add-companion-label">osoba towarzysząca</span></button>`;
   }
 
-  window.CompanionAdd = { candidates, panelHtml, buttonHtml };
+  window.CompanionAdd = { candidates, orderedCategories, panelHtml, buttonHtml };
 }());

@@ -128,6 +128,7 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
 
   const windowObj: any = {
     confirm: () => true,
+    PersonRegistrationPrompt: { run: (execute: (confirmed: boolean) => Promise<unknown>) => execute(false), wasCancelled: () => false },
     alert: () => {},
     location: { search: '' },
     addEventListener: () => {},

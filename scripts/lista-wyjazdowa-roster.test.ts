@@ -113,6 +113,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     encodeURIComponent,
     window: {
       location: { search: '?eventId=e1' },
+      PersonRegistrationPrompt: { run: (execute: (confirmed: boolean) => Promise<unknown>) => execute(false), wasCancelled: () => false },
       confirm: () => true,
       LwCalendar: {
         mountDropdowns: () => ({ refresh() {} }),

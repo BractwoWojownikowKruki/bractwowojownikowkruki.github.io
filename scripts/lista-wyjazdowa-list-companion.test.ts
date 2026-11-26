@@ -115,6 +115,7 @@ function createHarness(options: HarnessOptions = {}) {
     encodeURIComponent,
     window: {
       location: { search: '' },
+      PersonRegistrationPrompt: { run: (execute: (confirmed: boolean) => Promise<unknown>) => execute(false), wasCancelled: () => false },
       MutationFeedback: {
         showBusy: (message: string) => {
           busy.shown.push(message);
@@ -234,6 +235,28 @@ test('tapping + lazy-loads the roster/categories/signups and opens the shared pa
   assert.match(list.innerHTML, /value="attached-uuid-1"/);
   assert.match(list.innerHTML, /id="lw-inline-new-category"/);
   assert.match(list.innerHTML, /Kandydat/);
+});
+
+test('new companion categories put Niewiasta, Bobo and Inne first, then a disabled separator', () => {
+  const context = { window: {}, displayName: (person: any) => person.nickname ?? 'Osoba' };
+  vm.runInNewContext(companionAddSource, context);
+  const html = context.window.CompanionAdd.panelHtml(
+    { personId: 'owner', nickname: 'Opiekun' },
+    {
+      roster: [], signups: [],
+      categories: [
+        { id: 'inna', label: 'Inna' },
+        { id: 'brokul', label: 'Brokuł' },
+        { id: 'niewiasta', label: 'Niewiasta' },
+        { id: 'bobo', label: 'Bobo' },
+        { id: 'inne', label: 'Inne' },
+      ],
+    },
+  );
+  const options = html.slice(html.indexOf('id="lw-inline-new-category"'));
+  const positions = ['value="niewiasta"', 'value="bobo"', 'value="inne"', '<option disabled', 'value="brokul"'].map((value) => options.indexOf(value));
+  assert.ok(positions.every((position) => position >= 0));
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
 });
 
 test('adding an existing companion posts quick-add, closes the panel and bumps the count', async () => {

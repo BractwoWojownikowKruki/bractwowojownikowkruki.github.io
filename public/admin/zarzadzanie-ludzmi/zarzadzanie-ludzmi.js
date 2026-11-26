@@ -877,6 +877,14 @@ function accountlessOptionsHtml(items, selectedId) {
     .join('');
 }
 
+function accountlessCategoryOptionsHtml(items, selectedId) {
+  const available = items.filter((item) => !item.retired || item.id === selectedId);
+  const categories = window.CompanionAdd.orderedCategories(available);
+  const priorityIds = new Set(['niewiasta', 'bobo', 'inne']);
+  const priorityCount = categories.filter((category) => priorityIds.has(category.id)).length;
+  return categories.map((item, index) => `${index === priorityCount && priorityCount > 0 && categories.length > priorityCount ? '<option disabled>────────</option>' : ''}<option value="${escapeAttr(item.id)}"${item.id === selectedId ? ' selected' : ''}>${escapeHtml(item.label)}</option>`).join('');
+}
+
 function accountlessWeaponCheckboxesHtml(weapons, currentIds) {
   const current = new Set(currentIds ?? []);
   return weapons
@@ -901,7 +909,7 @@ function resetAccountlessForm() {
   document.getElementById('accountless-ksywka').value = '';
   document.getElementById('accountless-first-name').value = '';
   document.getElementById('accountless-last-name').value = '';
-  document.getElementById('accountless-category').innerHTML = accountlessOptionsHtml(accountlessCache.categories, null);
+  document.getElementById('accountless-category').innerHTML = accountlessCategoryOptionsHtml(accountlessCache.categories, null);
   document.getElementById('accountless-section-select').innerHTML = accountlessOptionsHtml(accountlessCache.sections, null);
   document.getElementById('accountless-weapons').innerHTML = accountlessWeaponCheckboxesHtml(accountlessCache.weapons, []);
   document.getElementById('accountless-owner').value = '';
@@ -1082,14 +1090,15 @@ async function loadAccountlessCreationOptions() {
 
 async function runAccountlessMutation(control, execute, refreshRecords = true) {
   const refreshFragment = refreshRecords ? loadAccountless : async () => {};
-  await window.MutationFeedback.confirmed({
+  return window.MutationFeedback.confirmed({
     control,
     fallbackAnchor: 'toast',
     toast: !refreshRecords,
     viewRoot: document.getElementById('accountless-section'),
     refreshFragment,
     execute,
-    apply: refreshFragment,
+    apply: (result) => window.PersonRegistrationPrompt.wasCancelled(result) ? undefined : refreshFragment(),
+    shouldShowCheck: (result) => !window.PersonRegistrationPrompt.wasCancelled(result),
   });
 }
 
@@ -1115,16 +1124,24 @@ async function submitAccountlessForm() {
   }
   const editing = editingAccountlessPersonId;
   try {
-    await runAccountlessMutation(document.getElementById('accountless-save'), () => apiFetch(
+    const result = await runAccountlessMutation(document.getElementById('accountless-save'), () => editing
+      ? apiFetch(
+        '/lista-wyjazdowa/persons',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personId: editing, ...fields }) },
+        showReauth,
+        hideReauth,
+      )
+      : window.PersonRegistrationPrompt.run((duplicateConfirmed) => apiFetch(
       '/lista-wyjazdowa/persons',
       {
-        method: editing ? 'PUT' : 'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editing ? { personId: editing, ...fields } : { ...fields, ...(isAccountantOnlyCaller ? { ownerPersonId } : {}) }),
+        body: JSON.stringify({ ...fields, ...(isAccountantOnlyCaller ? { ownerPersonId } : {}), ...(duplicateConfirmed ? { duplicateConfirmed: true } : {}) }),
       },
       showReauth,
       hideReauth,
-    ));
+    )));
+    if (!editing && window.PersonRegistrationPrompt.wasCancelled(result)) return;
     document.getElementById('accountless-form-panel').hidden = true;
     resetAccountlessForm();
   } catch (err) {

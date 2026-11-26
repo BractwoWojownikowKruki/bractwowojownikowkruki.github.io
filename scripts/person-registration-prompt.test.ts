@@ -1,0 +1,97 @@
+import { readFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import vm from 'node:vm';
+
+const source = readFileSync(new URL('../public/shared/person-registration-prompt.js', import.meta.url), 'utf8');
+const registrationRoutes = [
+  ['../public/lista-wyjazdowa/index.html', '../public/lista-wyjazdowa/lista-wyjazdowa.js', '../shared/person-registration-prompt.js'],
+  ['../public/lista-wyjazdowa/wyjazd/index.html', '../public/lista-wyjazdowa/wyjazd/wyjazd.js', '../../shared/person-registration-prompt.js'],
+  ['../public/app/index.html', '../public/app/app.js', '../shared/person-registration-prompt.js'],
+  ['../public/profil/index.html', '../public/profil/profil.js', '../shared/person-registration-prompt.js'],
+  ['../public/admin/zarzadzanie-ludzmi/index.html', '../public/admin/zarzadzanie-ludzmi/zarzadzanie-ludzmi.js', '../../shared/person-registration-prompt.js'],
+] as const;
+
+class FakeElement {
+  innerHTML = '';
+  attributes: Record<string, string> = {};
+  listeners: Record<string, Array<(event?: any) => void>> = {};
+  removed = false;
+  setAttribute(name: string, value: string) { this.attributes[name] = value; }
+  addEventListener(type: string, listener: (event?: any) => void) { (this.listeners[type] ??= []).push(listener); }
+  querySelector(selector: string) {
+    const element = new FakeElement();
+    element.selector = selector;
+    return element;
+  }
+  selector = '';
+  focus() {}
+  showModal() {
+    const button = this.nextAction === 'confirm' ? '.person-registration-dialog__confirm' : '.person-registration-dialog__cancel';
+    for (const listener of this.childListeners[button] ?? []) listener();
+  }
+  childListeners: Record<string, Array<() => void>> = {};
+  close() {}
+  remove() { this.removed = true; }
+  nextAction: 'confirm' | 'cancel' = 'confirm';
+}
+
+function load(action: 'confirm' | 'cancel') {
+  const dialogs: FakeElement[] = [];
+  const context: Record<string, any> = {
+    window: {},
+    document: { createElement: () => { const dialog = new FakeElement(); dialog.nextAction = action; dialog.querySelector = (selector: string) => {
+      const button = new FakeElement();
+      button.addEventListener = (type, listener) => { if (type === 'click') (dialog.childListeners[selector] ??= []).push(listener); };
+      return button;
+    }; dialogs.push(dialog); return dialog; }, body: { append: () => {} } },
+    Promise, Object, String, Array,
+  };
+  vm.runInNewContext(source, context);
+  return { prompt: context.window.PersonRegistrationPrompt, dialogs };
+}
+
+const matches = [{ firstName: 'Iga', lastName: 'Kruk', nickname: '<Wilk>', section: 'Sekcja A', owner: 'Właściciel' }];
+
+test('a match opens an informational prompt and retries only after explicit confirmation', async () => {
+  const { prompt, dialogs } = load('confirm');
+  const calls: boolean[] = [];
+  const result = await prompt.run(async (confirmed: boolean) => {
+    calls.push(confirmed);
+    if (!confirmed) throw Object.assign(new Error('duplicate'), { duplicateMatches: matches });
+    return 'registered';
+  });
+  assert.equal(result, 'registered');
+  assert.deepEqual(calls, [false, true]);
+  assert.match(dialogs[0].innerHTML, /Czy ta osoba już istnieje\?/);
+  assert.match(dialogs[0].innerHTML, /Tak, zarejestruj, to zupełnie inna osoba\./);
+  assert.match(dialogs[0].innerHTML, /Właściciel: Właściciel/);
+  assert.match(dialogs[0].innerHTML, /&lt;Wilk&gt;/);
+  assert.doesNotMatch(dialogs[0].innerHTML, /<button[^>]*>Iga Kruk/);
+});
+
+test('cancelling a duplicate prompt does not retry registration', async () => {
+  const { prompt } = load('cancel');
+  let calls = 0;
+  const result = await prompt.run(async () => {
+    calls += 1;
+    throw Object.assign(new Error('duplicate'), { duplicateMatches: matches });
+  });
+  assert.equal(calls, 1);
+  assert.equal(prompt.wasCancelled(result), true);
+});
+
+test('ordinary registration errors pass through without showing a prompt', async () => {
+  const { prompt, dialogs } = load('confirm');
+  await assert.rejects(prompt.run(async () => { throw new Error('validation'); }), /validation/);
+  assert.equal(dialogs.length, 0);
+});
+
+test('every person registration page loads the shared prompt and invokes it from its create flow', () => {
+  for (const [pagePath, scriptPath, promptPath] of registrationRoutes) {
+    const page = readFileSync(new URL(pagePath, import.meta.url), 'utf8');
+    const pageScript = readFileSync(new URL(scriptPath, import.meta.url), 'utf8');
+    assert.ok(page.includes(`src="${promptPath}"`), `${pagePath} must load the shared prompt`);
+    assert.match(pageScript, /PersonRegistrationPrompt\.run\(/, `${scriptPath} must invoke the shared prompt`);
+  }
+});

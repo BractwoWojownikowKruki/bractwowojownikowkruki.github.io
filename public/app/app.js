@@ -457,13 +457,14 @@ async function quickAddDashCompanion(body, control) {
     await window.MutationFeedback.confirmed({
       control,
       fallbackAnchor: dashEventAnchor(body.eventId),
-      execute: () => apiFetch(
+      execute: () => window.PersonRegistrationPrompt.run((duplicateConfirmed) => apiFetch(
         '/lista-wyjazdowa/signups/quick-add',
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
         showReauth,
         hideReauth,
-      ),
+      )),
       apply: (result) => {
+        if (window.PersonRegistrationPrompt.wasCancelled(result)) return;
         const event = dash.events.find((item) => item.id === body.eventId);
         if (event && result?.signup?.attending) event.attendingCount = (event.attendingCount ?? 0) + 1;
         // A brand-new companion must be offered as an existing person next time, so drop the cache.
@@ -472,6 +473,7 @@ async function quickAddDashCompanion(body, control) {
         renderDashboardWidgets();
         refreshDuesPanel();
       },
+      shouldShowCheck: (result) => !window.PersonRegistrationPrompt.wasCancelled(result),
       viewRoot: panels.panel,
       refreshFragment: reloadDashboardEvents,
     });
