@@ -98,6 +98,8 @@ function createHarness(options: HarnessOptions = {}) {
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
   let mutationResult: unknown = null;
   let mutationError: Error | null = null;
+  let cancelDuplicatePrompt = false;
+  const cancelledDuplicatePrompt = Object.freeze({ cancelled: true });
   let mutationGate: Promise<void> | null = null;
   const busy = { shown: [] as string[], active: 0 };
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
@@ -126,13 +128,17 @@ function createHarness(options: HarnessOptions = {}) {
     window: {
       location: { search: '' },
       PersonRegistrationPrompt: {
-        run: async (execute: (confirmed: boolean) => Promise<unknown>) => {
+        run: async (execute: (confirmed: boolean) => Promise<unknown>, promptOptions: { fallbackFocus?: () => { focus(): void } | null } = {}) => {
           try { return await execute(false); } catch (error: any) {
             if (!Array.isArray(error?.duplicateMatches)) throw error;
+            if (cancelDuplicatePrompt) {
+              promptOptions.fallbackFocus?.()?.focus();
+              return cancelledDuplicatePrompt;
+            }
             return execute(true);
           }
         },
-        wasCancelled: () => false,
+        wasCancelled: (result: unknown) => result === cancelledDuplicatePrompt,
       },
       MutationFeedback: {
         showBusy: (message: string) => {
@@ -140,7 +146,7 @@ function createHarness(options: HarnessOptions = {}) {
           busy.active += 1;
           return () => { busy.active -= 1; };
         },
-        confirmed: async ({ execute, apply, rollback, focusAfterApply }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown; focusAfterApply?: (result: unknown) => Element | null }) => {
+        confirmed: async ({ execute, apply, rollback, skipApplyWhen, focusAfterApply }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => Element | null }) => {
           let result: unknown;
           try {
             result = await execute();
@@ -148,6 +154,7 @@ function createHarness(options: HarnessOptions = {}) {
             if (rollback) await rollback(error);
             throw error;
           }
+          if (skipApplyWhen?.(result)) return result;
           apply(result);
           focusAfterApply?.(result)?.focus();
         },
@@ -195,6 +202,7 @@ function createHarness(options: HarnessOptions = {}) {
     async signIn() { await signIn?.({ email: 'viewer@example.com' }); },
     setMutationResult(result: unknown) { mutationResult = result; mutationError = null; },
     setMutationError(error: Error) { mutationError = error; },
+    cancelDuplicatePrompt() { cancelDuplicatePrompt = true; },
     busy,
     window: context.window as Record<string, unknown>,
     holdMutations() { let release!: () => void; mutationGate = new Promise<void>((resolve) => { release = resolve; }); return () => { mutationGate = null; release(); }; },
@@ -378,6 +386,27 @@ test('a matching quick-add asks the shared prompt and retries with duplicateConf
   const eventList = harness.elements.get('events-list')!;
   assert.match(eventList.lastQuerySelector, /\.lw-attend-toggle\[data-event-id="e1"\]/);
   assert.equal(eventList.lastQueryTarget?.focused, true);
+});
+
+test('cancelling a duplicate quick-add on the events list keeps the panel open and sends no retry', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const list = harness.elements.get('events-list')!;
+  await list.clickWith(clickTarget('.lw-add-companion', { eventId: 'e1', ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = 'Nowy';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Kowalski';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Jan';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  const formBefore = list.innerHTML;
+  harness.setMutationError(Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Jan', lastName: 'Kowalski' }] }));
+  harness.cancelDuplicatePrompt();
+
+  await list.clickWith(clickTarget('.lw-inline-add-new'));
+
+  assert.equal(harness.apiCalls.filter((call) => call.url === '/lista-wyjazdowa/signups/quick-add').length, 1);
+  assert.equal(list.innerHTML, formBefore);
+  assert.equal(harness.elements.get('events-error')!.hidden, true);
+  assert.equal(harness.elements.get('lw-inline-new-name')!.focused, true);
 });
 
 test('a failed quick-add keeps the panel open and reports the error', async () => {

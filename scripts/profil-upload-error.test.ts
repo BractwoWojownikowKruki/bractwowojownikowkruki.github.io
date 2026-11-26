@@ -129,3 +129,27 @@ test('profile duplicate cancellation restores focus to the companion form field'
   assert.equal(requestCount, 1);
   assert.equal(focused, 1);
 });
+
+test('profile person registration ignores a second submit while the first request is in flight', async () => {
+  let finishPost!: (value: unknown) => void;
+  const postRequests: unknown[] = [];
+  const { context } = loadProfil(async (url?: string, init?: Record<string, unknown>) => {
+    if (url === '/lista-wyjazdowa/persons' && init?.method === 'POST') {
+      postRequests.push(init);
+      return new Promise((resolve) => { finishPost = resolve; });
+    }
+    if (url === '/lista-wyjazdowa/roster') return { roster: [] };
+    return {};
+  });
+  (context as any).window.PersonRegistrationPrompt = { run: (execute: (confirmed: boolean) => Promise<unknown>) => execute(false), wasCancelled: () => false };
+  vm.runInContext("viewerEmail = 'owner@example.test'", context);
+  const control = { disabled: false };
+  const fields = { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' };
+  const firstSubmit = (context.createPerson as (fields: Record<string, string>, control: unknown) => Promise<void>)(fields, control);
+  assert.equal(control.disabled, true);
+  await (context.createPerson as (fields: Record<string, string>, control: unknown) => Promise<void>)(fields, control);
+  assert.equal(postRequests.length, 1);
+  finishPost({ person: { personId: 'new-person' } });
+  await firstSubmit;
+  assert.equal(control.disabled, false);
+});

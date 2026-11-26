@@ -5,6 +5,9 @@
 // shared/person-pill.js, so this file only depends on the global displayName() from
 // shared/display-name.js, which every page that includes this script must load first.
 (function () {
+  const PRIORITY_CATEGORY_IDS = Object.freeze(['niewiasta', 'bobo', 'inne']);
+  const PRIORITY_CATEGORY_ID_SET = new Set(PRIORITY_CATEGORY_IDS);
+
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
       '&': '&amp;',
@@ -42,11 +45,10 @@
    * @param {Array<{id: string, label: string}>} categories
    */
   function orderedCategories(categories) {
-    const prioritizedIds = ['niewiasta', 'bobo', 'inne'];
     const byId = new Map((categories ?? []).map((category) => [category.id, category]));
     return [
-      ...prioritizedIds.map((id) => byId.get(id)).filter(Boolean),
-      ...(categories ?? []).filter((category) => !prioritizedIds.includes(category.id)),
+      ...PRIORITY_CATEGORY_IDS.map((id) => byId.get(id)).filter(Boolean),
+      ...(categories ?? []).filter((category) => !PRIORITY_CATEGORY_ID_SET.has(category.id)),
     ];
   }
 
@@ -59,10 +61,9 @@
   function categoryOptionsHtml(categories, selectedId = null) {
     const available = (categories ?? []).filter((category) => !category.retired || category.id === selectedId);
     const ordered = orderedCategories(available);
-    const priorityIds = new Set(['niewiasta', 'bobo', 'inne']);
-    const priority = ordered.filter((category) => priorityIds.has(category.id));
+    const priority = ordered.filter((category) => PRIORITY_CATEGORY_ID_SET.has(category.id));
     const option = (category) => `<option value="${escapeHtml(category.id)}"${category.id === selectedId ? ' selected' : ''}>${escapeHtml(category.label)}</option>`;
-    const remaining = ordered.filter((category) => !priorityIds.has(category.id));
+    const remaining = ordered.filter((category) => !PRIORITY_CATEGORY_ID_SET.has(category.id));
     return `${priority.map(option).join('')}${priority.length && remaining.length ? `<hr>${remaining.map(option).join('')}` : remaining.map(option).join('')}`;
   }
 

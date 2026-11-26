@@ -207,13 +207,11 @@ function clearError() {
 }
 
 function confirmedEventMutation(control, execute, apply, fallbackAnchor = null, rollback) {
-  const skipApplyWhen = (result) => window.PersonRegistrationPrompt?.wasCancelled?.(result) === true;
   return window.MutationFeedback.confirmed({
     control,
     fallbackAnchor,
     execute,
     apply,
-    skipApplyWhen,
     rollback,
     viewRoot: document.getElementById('main-content'),
     refreshFragment: loadAll,
@@ -1097,7 +1095,9 @@ async function quickAddCompanion(body, control) {
       skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
       focusAfterApply: (result) => {
         const personId = result?.person?.personId ?? result?.signup?.memberEmail;
-        return personId ? document.querySelector(`#roster-content .lw-attend-toggle[data-person-id="${CSS.escape(String(personId))}"]`) : null;
+        return (personId ? document.querySelector(`#roster-content .lw-attend-toggle[data-person-id="${CSS.escape(String(personId))}"]`) : null)
+          ?? document.querySelector(`.lw-add-companion[data-owner-person-id="${CSS.escape(String(body.ownerPersonId))}"]`)
+          ?? document.getElementById('roster-filter-zgloszeni');
       },
       viewRoot: document.getElementById('main-content'),
       refreshFragment: loadAll,

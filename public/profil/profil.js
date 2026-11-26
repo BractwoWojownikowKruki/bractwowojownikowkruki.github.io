@@ -949,20 +949,27 @@ async function loadPersons() {
 // Every person write goes through the shared confirmed-mutation helper: the list is only re-read
 // after the server confirms the write, and a failure leaves the form untouched and reports it.
 async function runPersonMutation(control, execute) {
+  if (control?.disabled) return;
+  if (control) control.disabled = true;
   const panel = document.getElementById('persons-panel');
-  await window.MutationFeedback.confirmed({
-    control,
-    fallbackAnchor: 'toast',
-    viewRoot: panel,
-    refreshFragment: loadPersons,
-    execute,
-    apply: () => loadPersons(),
-    skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
-    focusAfterApply: (result) => {
-      const personId = result?.person?.personId;
-      return personId ? document.querySelector(`.person-row[data-person-id="${CSS.escape(String(personId))}"] .person-first-name`) : null;
-    },
-  });
+  try {
+    await window.MutationFeedback.confirmed({
+      control,
+      fallbackAnchor: 'toast',
+      viewRoot: panel,
+      refreshFragment: loadPersons,
+      execute,
+      apply: () => loadPersons(),
+      skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
+      focusAfterApply: (result) => {
+        const personId = result?.person?.personId;
+        return (personId ? document.querySelector(`.person-row[data-person-id="${CSS.escape(String(personId))}"] .person-first-name`) : null)
+          ?? document.getElementById('add-person-row');
+      },
+    });
+  } finally {
+    if (control) control.disabled = false;
+  }
 }
 
 async function createPerson(fields, control) {

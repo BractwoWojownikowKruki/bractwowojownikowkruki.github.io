@@ -1102,6 +1102,8 @@ async function runAccountlessMutation(
 
 async function submitAccountlessForm() {
   const errorEl = document.getElementById('accountless-error');
+  const saveButton = document.getElementById('accountless-save');
+  if (saveButton.disabled) return;
   errorEl.hidden = true;
   const categoryId = document.getElementById('accountless-category').value;
   const fields = {
@@ -1120,9 +1122,10 @@ async function submitAccountlessForm() {
     errorEl.hidden = false;
     return;
   }
+  saveButton.disabled = true;
   const editing = editingAccountlessPersonId;
   try {
-    const result = await runAccountlessMutation(document.getElementById('accountless-save'), () => editing
+    const result = await runAccountlessMutation(saveButton, () => editing
       ? apiFetch(
         '/lista-wyjazdowa/persons',
         { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personId: editing, ...fields }) },
@@ -1147,6 +1150,8 @@ async function submitAccountlessForm() {
   } catch (err) {
     errorEl.textContent = `Nie udało się zapisać osoby: ${err.message}`;
     errorEl.hidden = false;
+  } finally {
+    saveButton.disabled = false;
   }
 }
 
