@@ -118,6 +118,7 @@ async function exchangeForSession(googleIdToken) {
     const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
     const error = new Error(body.error ?? `HTTP ${res.status}`);
     error.status = res.status;
+    if (Array.isArray(body.duplicateMatches)) error.duplicateMatches = body.duplicateMatches;
     throw error;
   }
   return res.json();

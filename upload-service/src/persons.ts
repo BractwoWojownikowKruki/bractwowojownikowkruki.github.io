@@ -118,6 +118,33 @@ export async function listPersons(
   return options.includeDeleted ? docs : docs.filter((d) => !d.data.deletedAt);
 }
 
+function normalizePersonComparison(value: string | null | undefined): string {
+  return (value ?? '').normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('pl-PL');
+}
+
+/**
+ * Finds active accountless people that may be the person a caller is about to register. The
+ * returned canonical person records let the HTTP layer add section and owner labels before the
+ * registration endpoint returns a confirmation prompt; records with an account or a tombstone
+ * are excluded.
+ */
+export async function findDuplicateAccountlessPersons(
+  client: FirestoreLikeClient,
+  fields: Pick<PersonWritableFields, 'ksywka' | 'firstName' | 'lastName'>,
+): Promise<PersonDoc[]> {
+  const nickname = normalizePersonComparison(fields.ksywka);
+  const fullName = normalizePersonComparison(`${fields.firstName} ${fields.lastName}`);
+  const people = await listPersons(client);
+  return people
+    .map(({ data }) => data)
+    .filter((person) => {
+      if (person.email || person.mergedInto) return false;
+      const nicknameMatches = nickname !== '' && normalizePersonComparison(person.ksywka) === nickname;
+      const fullNameMatches = normalizePersonComparison(`${person.firstName} ${person.lastName}`) === fullName;
+      return nicknameMatches || fullNameMatches;
+    });
+}
+
 /**
  * The result of keying an incoming value. Deliberately a discriminated union so a caller cannot
  * accidentally treat an account as an accountless person or the other way round.

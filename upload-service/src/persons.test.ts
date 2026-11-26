@@ -84,6 +84,52 @@ test('createPerson and updatePerson both enforce the category/section/name rule'
   await assert.rejects(() => updatePerson(client, person.personId, { ...baseFields, categoryId: '' }, 'admin@example.test'), /Kategoria/);
 });
 
+test('findDuplicateAccountlessPersons matches nickname or full name case-insensitively and excludes retired or account-linked people', async () => {
+  const client = createInMemoryFirestoreClient();
+  const nicknameMatch = await createPerson(client, {
+    ...baseFields,
+    ksywka: '  Cień  ',
+    firstName: 'Marek',
+    lastName: 'Nowak',
+  }, 'opiekun@example.test', 'admin@example.test');
+  const nameMatch = await createPerson(client, {
+    ...baseFields,
+    ksywka: 'Orzeł',
+    firstName: 'Michał   Jan',
+    lastName: 'Żółć',
+  }, null, 'admin@example.test');
+  const accountMatch = await createPerson(client, {
+    ...baseFields,
+    ksywka: 'Cień',
+    firstName: 'Michał Jan',
+    lastName: 'Żółć',
+  }, 'opiekun@example.test', 'admin@example.test');
+  await client.setDoc('persons', accountMatch.personId, { email: 'linked@example.test' });
+  const deletedMatch = await createPerson(client, {
+    ...baseFields,
+    ksywka: 'Cień',
+    firstName: 'Michał Jan',
+    lastName: 'Żółć',
+  }, 'opiekun@example.test', 'admin@example.test');
+  await softDeletePerson(client, deletedMatch.personId, 'admin@example.test');
+
+  const personsModule = await import('./persons.ts') as unknown as {
+    findDuplicateAccountlessPersons: (
+      firestore: ReturnType<typeof createInMemoryFirestoreClient>,
+      fields: { ksywka: string; firstName: string; lastName: string },
+    ) => Promise<Array<{ personId: string }>>;
+  };
+  assert.equal(typeof personsModule.findDuplicateAccountlessPersons, 'function');
+  const matches = await personsModule.findDuplicateAccountlessPersons(client, {
+    ...baseFields,
+    ksywka: 'cień',
+    firstName: ' michAł Jan ',
+    lastName: ' ŻÓŁĆ ',
+  });
+
+  assert.deepEqual(matches.map((person) => person.personId).sort(), [nicknameMatch.personId, nameMatch.personId].sort());
+});
+
 test('weapon rule: Niewiasta and Bobo never keep a weapon list', async () => {
   assert.equal(weaponAllowedForCategory('niewiasta'), false);
   assert.equal(weaponAllowedForCategory('bobo'), false);

@@ -7965,7 +7965,7 @@ test('POST /lista-wyjazdowa/persons audits normalized weapon counts for Niewiast
   await withServer(deps, async baseUrl => {
     for (const categoryId of ['niewiasta', 'bobo']) {
       const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', {
-        ...personBody, categoryId, weaponIds: ['tarczownik'],
+        ...personBody, categoryId, weaponIds: ['tarczownik'], duplicateConfirmed: true,
       });
       assert.equal(res.status, 201);
       const { person } = await res.json();
@@ -7993,6 +7993,28 @@ test('POST /lista-wyjazdowa/persons lets a member create their own person but no
       'a member may not attach a person to someone else',
     );
     assert.equal((await firestore.listDocs('persons')).length, 1, 'the denied requests must not have created anything');
+  });
+});
+
+test('POST /lista-wyjazdowa/persons returns possible duplicates and creates only after explicit confirmation', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedPerson(firestore, 'existing-person', 'owner@example.test');
+  firestore.seed('members', 'owner@example.test', {
+    email: 'owner@example.test', firstName: 'Anna', lastName: 'Opiekun', nickname: 'A', sectionId: 'krakow', hidden: false,
+  });
+  const body = { ...personBody, ownerPersonId: 'wojownik@gmail.com' };
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const warning = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', body);
+    assert.equal(warning.status, 409);
+    const warningBody = await warning.json();
+    assert.deepEqual(warningBody.duplicateMatches, [{
+      firstName: 'Jan', lastName: 'Kowalski', nickname: 'Wilk', section: 'Kraków', owner: 'A',
+    }]);
+    assert.equal((await firestore.listDocs('persons')).length, 1, 'the warning must not create a person');
+
+    const confirmed = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...body, duplicateConfirmed: true });
+    assert.equal(confirmed.status, 201);
+    assert.equal((await firestore.listDocs('persons')).length, 2);
   });
 });
 
@@ -8375,7 +8397,7 @@ test('an accountant can create a person but cannot manage other accountless-pers
     listMemberEmails: async () => ['ksiegowa@example.com', 'wojownik@gmail.com', 'ukryty@example.test'],
   });
   await withServer(deps, async baseUrl => {
-    const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'wojownik@gmail.com' });
+    const res = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'wojownik@gmail.com', duplicateConfirmed: true });
     assert.equal(res.status, 201, 'an accountant may create a person for an active member');
     assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...personBody, ownerPersonId: 'nieaktywny@example.test' })).status, 404);
     const peopleBeforeHiddenRequest = (await firestore.listDocs('persons')).length;
@@ -8436,7 +8458,7 @@ test('an accountant retains editing, deletion, detach and event quick-add for th
     assert.equal((await jsonRequest(baseUrl, 'DELETE', '/lista-wyjazdowa/persons', { personId: 'own-delete' })).status, 200);
     assert.equal((await jsonRequest(baseUrl, 'PUT', '/lista-wyjazdowa/persons/owner', { personId: 'own-detach', ownerPersonId: null })).status, 200);
     assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', {
-      eventId: 'event-own', ownerPersonId: 'ksiegowa@example.test', mode: 'new', ...personBody,
+      eventId: 'event-own', ownerPersonId: 'ksiegowa@example.test', mode: 'new', ...personBody, duplicateConfirmed: true,
     })).status, 201);
   });
 });
@@ -8501,6 +8523,30 @@ test('POST /lista-wyjazdowa/signups/quick-add mode=new creates an attached perso
     const events = await firestore.listDocs<{ action?: string }>('auditEvents');
     assert.ok(events.some((d) => d.data.action === 'person.created'));
     assert.ok(events.some((d) => d.data.action === 'signup.created'));
+  });
+});
+
+test('POST /lista-wyjazdowa/signups/quick-add mode=new warns before creating a matching person or signup', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  seedPerson(firestore, 'existing-person', 'other-owner@example.test');
+  seedMember(firestore, 'other-owner@example.test');
+  seedEvent(firestore, 'event-1');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const body = {
+      eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'new',
+      ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski', categoryId: 'thing',
+    };
+    const warning = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', body);
+    assert.equal(warning.status, 409);
+    assert.equal((await warning.json()).duplicateMatches[0].section, 'Kraków');
+    assert.equal((await firestore.listDocs('persons')).length, 1);
+    assert.equal((await firestore.listDocs('signups')).length, 0, 'the warning must not sign up or create anyone');
+
+    const confirmed = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', { ...body, duplicateConfirmed: true });
+    assert.equal(confirmed.status, 201);
+    assert.equal((await firestore.listDocs('persons')).length, 2);
+    assert.equal((await firestore.listDocs('signups')).length, 1);
   });
 });
 
@@ -8622,7 +8668,7 @@ test('POST /lista-wyjazdowa/signups/quick-add lets staff quick-add for someone e
   seedEvent(firestore, 'event-1');
   firestore.seed('userRoles', 'ksiegowa@example.com', { roles: ['accountant'] });
   firestore.seed('members', 'ksiegowa@example.com', { email: 'ksiegowa@example.com', status: 'active' });
-  const request = { eventId: 'event-1', ownerPersonId: 'ktos@gmail.com', mode: 'new', ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski', categoryId: 'thing' };
+  const request = { eventId: 'event-1', ownerPersonId: 'ktos@gmail.com', mode: 'new', ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski', categoryId: 'thing', duplicateConfirmed: true };
   const run = (deps: ServerDeps) => withServer(deps, async baseUrl => {
     assert.equal((await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', request)).status, 201);
   });

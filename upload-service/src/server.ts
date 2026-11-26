@@ -101,6 +101,7 @@ import {
   getPerson,
   listCompanionIds,
   listPersons,
+  findDuplicateAccountlessPersons,
   moveCompanionsToSection,
   personDisplayName,
   planPersonMerge,
@@ -5075,6 +5076,48 @@ function readOwnerPersonId(value: unknown): string | null {
   return value.trim();
 }
 
+/** Builds the safe display data needed to let a member recognize a possible accountless duplicate. */
+async function getPersonRegistrationDuplicateMatches(
+  deps: ServerDeps,
+  fields: Pick<PersonWritableFields, 'ksywka' | 'firstName' | 'lastName'>,
+  viewerEmail: string,
+): Promise<Array<{ firstName: string; lastName: string; nickname: string | null; section: string; owner: string | null }>> {
+  const duplicates = await findDuplicateAccountlessPersons(deps.firestore, fields);
+  if (duplicates.length === 0) return [];
+  const [members, lookupLists] = await Promise.all([
+    listAllMembers(deps.firestore),
+    getAllLookupLists(deps.firestore),
+  ]);
+  const memberByEmail = new Map(members.map((member) => [member.email.toLowerCase(), member]));
+  const sectionLabelById = new Map(lookupLists.sections.map((section) => [section.id, section.label]));
+  return duplicates.map((person) => {
+    const owner = person.ownerPersonId ? memberByEmail.get(person.ownerPersonId.toLowerCase()) ?? null : null;
+    const isSelfOwner = person.ownerPersonId?.toLowerCase() === viewerEmail.toLowerCase();
+    const ownerHidden = shouldRedactAccountlessOwner(owner, isSelfOwner);
+    const ownerName = ownerHidden || !owner
+      ? null
+      : owner.nickname || [owner.firstName, owner.lastName].filter(Boolean).join(' ') || null;
+    return {
+      firstName: person.firstName,
+      lastName: person.lastName,
+      nickname: person.ksywka || null,
+      section: sectionLabelById.get(person.sectionId) ?? person.sectionId,
+      owner: ownerName,
+    };
+  });
+}
+
+/** Sends the candidate list without writing when explicit duplicate confirmation is still needed. */
+function sendPersonDuplicatePromptIfNeeded(
+  res: ServerResponse,
+  body: Record<string, unknown>,
+  matches: Array<{ firstName: string; lastName: string; nickname: string | null; section: string; owner: string | null }>,
+): boolean {
+  if (body.duplicateConfirmed === true || matches.length === 0) return false;
+  sendJson(res, 409, { error: 'Znaleziono możliwe dopasowania.', duplicateMatches: matches });
+  return true;
+}
+
 function personMergeError(reason: 'person_not_found' | 'person_already_merged' | 'person_deleted' | 'account_not_found'): AuthError {
   if (reason === 'person_already_merged') return new AuthError('Ta osoba jest już scalona z kontem.', 409);
   if (reason === 'person_deleted') return new AuthError('Ta osoba jest deaktywowana - nie można jej scalić.', 409);
@@ -5102,6 +5145,8 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
     if ((!owner || owner.hidden === true) && !isSelf) throw new AuthError('Nie znaleziono takiego członka.', 404);
     ownerPersonId = canonicalOwner.toLowerCase();
   }
+  const duplicateMatches = await getPersonRegistrationDuplicateMatches(deps, fields, identity.email);
+  if (sendPersonDuplicatePromptIfNeeded(res, body, duplicateMatches)) return;
   const personId = randomUUID();
   const { result: person } = await executeDeclaredAuditedMutation(
     deps,
@@ -5414,6 +5459,8 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
   const sectionId = ownerMember?.sectionId?.trim();
   if (!sectionId) throw new AuthError('Opiekun nie ma ustawionej sekcji.', 400);
   const fields: PersonWritableFields = { ksywka, firstName, lastName, categoryId, sectionId, weaponIds: [] };
+  const duplicateMatches = await getPersonRegistrationDuplicateMatches(deps, fields, identity.email);
+  if (sendPersonDuplicatePromptIfNeeded(res, body, duplicateMatches)) return;
   const personId = randomUUID();
   const { result } = await executeDeclaredAuditedMutation(
     deps,
