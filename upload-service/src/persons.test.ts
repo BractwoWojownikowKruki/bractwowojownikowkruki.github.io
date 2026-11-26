@@ -180,6 +180,40 @@ test('findDuplicateAccountlessPersons sorts matches by Polish full name, then ni
   assert.deepEqual(matches.map((person) => person.personId), ['a-name', 'same-name-a', 'tie-a', 'tie-z', 'same-name-z', 'z-name']);
 });
 
+test('findDuplicateAccountlessPersons normalizes decomposed Polish Unicode and excludes merged-only records', async () => {
+  const client = createInMemoryFirestoreClient();
+  const decomposedName = 'Z\u0307aneta';
+  await client.setDoc('persons', 'nfd-name', {
+    personId: 'nfd-name', ksywka: 'Kropka', firstName: decomposedName, lastName: 'Nowak', email: null, mergedInto: null,
+  } as never);
+  await client.setDoc('persons', 'merged-only', {
+    personId: 'merged-only', ksywka: 'Kropka', firstName: 'Żaneta', lastName: 'Nowak',
+    email: null, mergedInto: 'member@example.test', deletedAt: null,
+  } as never);
+
+  const matches = await findDuplicateAccountlessPersons(client, {
+    ksywka: 'kropka', firstName: 'Żaneta', lastName: 'Nowak',
+  });
+
+  assert.deepEqual(matches.map((person) => person.personId), ['nfd-name']);
+});
+
+test('findDuplicateAccountlessPersons sorts equivalent legacy whitespace by personId', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.setDoc('persons', 'space-z', {
+    personId: 'space-z', ksywka: ' Duplicate ', firstName: 'Ewa  ', lastName: '  Lis', email: null, mergedInto: null,
+  } as never);
+  await client.setDoc('persons', 'space-a', {
+    personId: 'space-a', ksywka: 'Duplicate', firstName: 'Ewa', lastName: 'Lis', email: null, mergedInto: null,
+  } as never);
+
+  const matches = await findDuplicateAccountlessPersons(client, {
+    ksywka: 'duplicate', firstName: 'Someone', lastName: 'Else',
+  });
+
+  assert.deepEqual(matches.map((person) => person.personId), ['space-a', 'space-z']);
+});
+
 test('weapon rule: Niewiasta and Bobo never keep a weapon list', async () => {
   assert.equal(weaponAllowedForCategory('niewiasta'), false);
   assert.equal(weaponAllowedForCategory('bobo'), false);

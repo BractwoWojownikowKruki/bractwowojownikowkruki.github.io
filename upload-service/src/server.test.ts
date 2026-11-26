@@ -8044,9 +8044,10 @@ test('POST /lista-wyjazdowa/persons omits a whitespace-only legacy nickname from
 
 test('POST /lista-wyjazdowa/persons redacts hidden or missing owners but lets an owner recognize themselves', async () => {
   const cases = [
-    { label: 'another hidden owner', viewer: 'viewer@example.test', owner: 'hidden@example.test', hidden: true, expected: null, expectedSection: 'Kraków' },
-    { label: 'the hidden owner themselves', viewer: 'viewer@example.test', owner: 'viewer@example.test', hidden: true, expected: 'Wilk', expectedSection: 'Kraków' },
-    { label: 'no owner or known section', viewer: 'viewer@example.test', owner: null, hidden: false, expected: null, expectedSection: '—' },
+    { label: 'another hidden owner', viewer: 'viewer@example.test', owner: 'hidden@example.test', hidden: true, ownerNickname: 'Wilk', expected: null, expectedSection: 'Kraków' },
+    { label: 'the hidden owner themselves', viewer: 'viewer@example.test', owner: 'viewer@example.test', hidden: true, ownerNickname: 'Wilk', expected: 'Wilk', expectedSection: 'Kraków' },
+    { label: 'whitespace nickname falls back to the owner name', viewer: 'viewer@example.test', owner: 'owner@example.test', hidden: false, ownerNickname: '   ', expected: 'Jan Opiekun', expectedSection: 'Kraków' },
+    { label: 'no owner or known section', viewer: 'viewer@example.test', owner: null, hidden: false, ownerNickname: 'Wilk', expected: null, expectedSection: '—' },
   ] as const;
 
   for (const scenario of cases) {
@@ -8057,7 +8058,7 @@ test('POST /lista-wyjazdowa/persons redacts hidden or missing owners but lets an
     }
     if (scenario.owner) {
       firestore.seed('members', scenario.owner, {
-        email: scenario.owner, firstName: 'Jan', lastName: 'Opiekun', nickname: 'Wilk',
+        email: scenario.owner, firstName: 'Jan', lastName: 'Opiekun', nickname: scenario.ownerNickname,
         sectionId: 'krakow', hidden: scenario.hidden,
       });
     }

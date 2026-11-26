@@ -5095,9 +5095,11 @@ async function getPersonRegistrationDuplicateMatches(
     const owner = person.ownerPersonId ? memberByEmail.get(person.ownerPersonId.toLowerCase()) ?? null : null;
     const isSelfOwner = person.ownerPersonId?.toLowerCase() === viewerEmail.toLowerCase();
     const ownerHidden = shouldRedactAccountlessOwner(owner, isSelfOwner);
+    const ownerNickname = owner?.nickname?.trim();
+    const ownerFullName = [owner?.firstName?.trim(), owner?.lastName?.trim()].filter(Boolean).join(' ');
     const ownerName = ownerHidden || !owner
       ? null
-      : owner.nickname || [owner.firstName, owner.lastName].filter(Boolean).join(' ') || null;
+      : ownerNickname || ownerFullName || null;
     return {
       firstName: person.firstName,
       lastName: person.lastName,

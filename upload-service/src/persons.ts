@@ -147,10 +147,10 @@ export async function findDuplicateAccountlessPersons(
       return nicknameMatches || fullNameMatches;
     })
     .sort((left, right) => {
-      const leftFullName = `${left.firstName ?? ''} ${left.lastName ?? ''}`.trim();
-      const rightFullName = `${right.firstName ?? ''} ${right.lastName ?? ''}`.trim();
+      const leftFullName = normalizePersonComparison(`${left.firstName ?? ''} ${left.lastName ?? ''}`);
+      const rightFullName = normalizePersonComparison(`${right.firstName ?? ''} ${right.lastName ?? ''}`);
       return leftFullName.localeCompare(rightFullName, 'pl', { sensitivity: 'base' })
-        || (left.ksywka ?? '').localeCompare(right.ksywka ?? '', 'pl', { sensitivity: 'base' })
+        || normalizePersonComparison(left.ksywka).localeCompare(normalizePersonComparison(right.ksywka), 'pl', { sensitivity: 'base' })
         || (left.personId < right.personId ? -1 : left.personId > right.personId ? 1 : 0);
     });
 }
