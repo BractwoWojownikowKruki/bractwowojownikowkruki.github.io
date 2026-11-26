@@ -9633,6 +9633,37 @@ test('GET /admin/audyt/events lists events for an admin viewer and rejects two p
   });
 });
 
+test('GET /admin/members/account-audit returns events about the account and rejects non-staff', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'membership.status.approved', actor: { email: 'admin@gmail.com' },
+    resource: { kind: 'member', key: 'member:maja@example.test', display: 'member' },
+    changes: [{ field: 'targetEmail', after: 'maja@example.test' }, { field: 'status', after: 'approved' }],
+  }, async () => {}, { createId: () => 'account-approved', now: () => new Date('2026-01-02T00:00:00.000Z') });
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'person.created', actor: { email: 'admin@gmail.com' },
+    resource: { kind: 'person', key: 'person:companion-1', display: 'Antek' },
+    changes: [{ field: 'ownerPersonId', after: 'maja@example.test' }, { field: 'nickname', after: 'Antek' }],
+  }, async () => {}, { createId: () => 'companion-connected', now: () => new Date('2026-01-03T00:00:00.000Z') });
+  await seedAuditEvent(firestore, 'actor-only', '2026-01-04T00:00:00.000Z');
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.rows.map((row: { id: string }) => row.id), ['companion-connected', 'account-approved']);
+    assert.equal((await fetch(`${baseUrl}/admin/members/account-audit`)).status, 400);
+  });
+
+  const nonStaffDeps = makeDeps({
+    firestore,
+    authenticateAdminOrHovding: async () => { throw new AuthError('Forbidden', 403); },
+  });
+  await withServer(nonStaffDeps, async baseUrl => {
+    assert.equal((await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test`)).status, 403);
+  });
+});
+
 test('GET /admin/audyt/events: action without category is a deterministic 400, and every single supported selector (category, category+action, actorEmail, resourceKey, q) is individually accepted', async () => {
   const firestore = createInMemoryFirestoreClient();
   await seedAuditEvent(firestore, 'evt-a', '2026-01-01T00:00:00.000Z');
@@ -10434,6 +10465,28 @@ test('GET /equipment rejects an unauthenticated caller', async () => {
   await withServer(deps, async baseUrl => {
     const res = await fetch(`${baseUrl}/equipment`);
     assert.equal(res.status, 401);
+  });
+});
+
+test('GET /equipment exposes account-audit capability only to managers', async () => {
+  const firestore = makeEquipmentFirestore();
+  firestore.seed('equipment', 'gear-1', {
+    id: 'gear-1', categoryId: 'namiot', sectionId: null, belongsToPersonId: 'maja@example.test',
+    description: 'Namiot', createdAt: '2026-01-01T00:00:00.000Z', createdBy: 'maja@example.test',
+  });
+  const staff = makeDeps({ firestore });
+  await withServer(staff, async baseUrl => {
+    const { equipment } = await (await fetch(`${baseUrl}/equipment`)).json();
+    assert.equal(equipment[0]?.canViewAccountAudit, true);
+  });
+  const member = makeDeps({
+    firestore,
+    authenticateAdminOrHovding: async () => { throw new AuthError('Forbidden', 403); },
+    authenticateAdmin: async () => { throw new AuthError('Forbidden', 403); },
+  });
+  await withServer(member, async baseUrl => {
+    const { equipment } = await (await fetch(`${baseUrl}/equipment`)).json();
+    assert.equal(equipment[0]?.canViewAccountAudit, false);
   });
 });
 

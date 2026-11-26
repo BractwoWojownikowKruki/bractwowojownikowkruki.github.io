@@ -954,7 +954,8 @@ export type AuditPrimarySelector =
   | { kind: 'actor'; email: string }
   | { kind: 'resourceKey'; key: string }
   | { kind: 'event'; eventId: string }
-  | { kind: 'search'; term: string };
+  | { kind: 'search'; term: string }
+  | { kind: 'account'; reference: string };
 
 export interface AuditQueryOptions {
   selector: AuditPrimarySelector;
@@ -1010,6 +1011,17 @@ function buildFirestoreFilter(selector: AuditPrimarySelector): FirestoreQueryFil
       return { field: 'eventId', op: '==', value: selector.eventId };
     case 'search':
       return { field: 'searchTokens', op: 'array-contains', value: normalizeSearchTerm(selector.term) };
+    case 'account': {
+      const normalized = selector.reference.trim().toLowerCase();
+      if (!normalized) throw new AuditQueryError('Brak identyfikatora konta.');
+      if (!normalized.includes('@')) return { field: 'resource.key', op: '==', value: `person:${normalized}` };
+      const words = foldedWords(normalized);
+      const token = normalized.includes('@')
+        ? words.find(word => word.length >= MIN_SEARCH_TOKEN_LENGTH)
+        : words[0];
+      if (!token) throw new AuditQueryError('Nie można wyszukać historii tego konta.');
+      return { field: 'searchTokens', op: 'array-contains', value: token.slice(0, MAX_SEARCH_TOKEN_LENGTH) };
+    }
     default: {
       const exhaustive: never = selector;
       throw new AuditQueryError(`Nieobsługiwany selektor: ${JSON.stringify(exhaustive)}`);
@@ -1137,7 +1149,8 @@ export async function queryAuditEvents(
     let consumed = 0;
     for (const doc of docs) {
       consumed += 1;
-      const projected = projectAuditEvent(doc.data, viewer);
+      const isAccountEvent = options.selector.kind !== 'account' || accountAuditEventMatches(doc.data, options.selector.reference);
+      const projected = isAccountEvent ? projectAuditEvent(doc.data, viewer) : null;
       if (projected) rows.push(projected);
       if (rows.length >= limit) break;
     }
@@ -1156,6 +1169,19 @@ export async function queryAuditEvents(
     rows: page,
     nextCursor: page.length === limit && !exhausted ? encodeAuditCursor(cursor!) : undefined,
   };
+}
+
+/** Matches events that reference the selected account as their subject, excluding events where
+ * the account appears only as the actor. Search tokens narrow Firestore reads; this exact check
+ * establishes the account-centric relationship for member resources and companion/account links.
+ */
+function accountAuditEventMatches(event: CanonicalAuditEvent, reference: string): boolean {
+  const normalized = reference.trim().toLowerCase();
+  if (event.resource.key.toLowerCase() === `member:${normalized}` || event.resource.key.toLowerCase() === `person:${normalized}`) return true;
+  if (event.resource.display.trim().toLowerCase() === normalized) return true;
+  return event.changes.some(change =>
+    [change.before, change.after].some(value => typeof value === 'string' && value.trim().toLowerCase() === normalized),
+  );
 }
 
 /** Fetches and projects exactly one event for the detail endpoint - `null` if it doesn't exist

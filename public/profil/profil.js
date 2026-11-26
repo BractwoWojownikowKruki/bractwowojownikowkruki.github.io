@@ -779,6 +779,8 @@ function equipmentPanelView(item) {
     sectionId,
     sectionLabel: equipmentSectionLabelById.get(sectionId) ?? sectionId,
     ownerHtml: escapeHtml(owner ? displayName(owner) : item.belongsToPersonId),
+    auditEmail: item.belongsToPersonId ?? null,
+    canViewAccountAudit: item.canViewAccountAudit === true,
     editHref: `/sprzet-obozowy/?edit=${encodeURIComponent(item.id)}`,
   };
 }

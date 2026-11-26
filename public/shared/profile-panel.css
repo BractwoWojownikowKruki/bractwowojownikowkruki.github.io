@@ -93,6 +93,34 @@
   margin: 0;
 }
 
+.profile-account-audit {
+  margin: 0.75rem 0;
+}
+
+.profile-account-audit section {
+  margin-top: 0.5rem;
+}
+
+.profile-account-audit-entry {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.profile-account-audit-entry time,
+.profile-account-audit-entry > span {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.profile-account-audit-entry ul {
+  margin: 0.2rem 0 0;
+  padding-left: 1rem;
+  font-size: 0.78rem;
+}
+
 /* Identity/weapons/dues are independently permissioned and independently saved, but share one
    "Edytuj" toggle (.profile-editor-toggle-row/.profile-editor-panel below) at the bottom of the
    drawer - the surrounding profile stays read-only until a capability-enabled viewer opens it. */

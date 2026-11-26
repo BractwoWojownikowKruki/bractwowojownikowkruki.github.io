@@ -964,7 +964,8 @@ async function handleDeleteFile(req: IncomingMessage, res: ServerResponse, url: 
 async function handleListEquipment(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   await deps.authenticate(req, res);
   const equipment = await listEquipment(deps.firestore);
-  sendJson(res, 200, { equipment: equipment.map((item) => ({ ...item, canEdit: true, canDelete: true })) });
+  const canViewAccountAudit = await isPersonManager(req, res, deps);
+  sendJson(res, 200, { equipment: equipment.map((item) => ({ ...item, canEdit: true, canDelete: true, canViewAccountAudit })) });
 }
 
 // Drużynowy equipment carries its own section; prywatny equipment always stores null and follows
@@ -4278,7 +4279,8 @@ async function handleListaWyjazdowaGetEventEquipment(req: IncomingMessage, res: 
     listEventEquipmentForEvent(deps.firestore, eventId),
   ]);
   const goingByEquipmentId = new Map(eventEquipment.map(item => [item.equipmentId, item.going]));
-  sendJson(res, 200, { items: equipment.map(item => ({ ...item, going: goingByEquipmentId.get(item.id) ?? false })) });
+  const canViewAccountAudit = await isPersonManager(req, res, deps);
+  sendJson(res, 200, { items: equipment.map(item => ({ ...item, going: goingByEquipmentId.get(item.id) ?? false, canViewAccountAudit })) });
 }
 
 async function handleListaWyjazdowaPutEventEquipment(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
@@ -4465,6 +4467,7 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
     profile: {
       personId: person.personId,
       accountless: true,
+      canViewAccountAudit: staff,
       ownerPersonId,
       ownerName,
       // KRKG-0103: no `fullName` here - lastName/firstName are the source of truth, matching
@@ -6122,6 +6125,24 @@ async function handleAdminAuditEventsList(req: IncomingMessage, res: ServerRespo
   sendJson(res, 200, page);
 }
 
+async function handleAdminMemberAccountAudit(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
+  await deps.authenticateAdminOrHovding(req, res);
+  const email = url.searchParams.get('email')?.trim().toLowerCase();
+  const personId = url.searchParams.get('personId')?.trim();
+  if ((email ? 1 : 0) + (personId ? 1 : 0) !== 1) throw new AuthError('Wymagany jest identyfikator konta.', 400);
+  const reference = email || personId!;
+  const limitParam = url.searchParams.get('limit');
+  const limit = limitParam === null ? 100 : Number(limitParam);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new AuthError('Nieprawidłowy limit.', 400);
+  const viewer = await resolveAdminAuditViewer(req, res, deps);
+  const page = await queryAuditEvents(deps.firestore, {
+    selector: { kind: 'account', reference },
+    cursor: url.searchParams.get('cursor') ?? undefined,
+    limit,
+  }, viewer);
+  sendJson(res, 200, page);
+}
+
 async function handleAdminAuditEventDetail(req: IncomingMessage, res: ServerResponse, url: URL, deps: ServerDeps): Promise<void> {
   const viewer = await resolveAdminAuditViewer(req, res, deps);
   const id = url.searchParams.get('id');
@@ -6517,6 +6538,8 @@ export function createRequestListener(deps: ServerDeps) {
         await handleAdminAuditWhoami(req, res, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/audyt/events') {
         await handleAdminAuditEventsList(req, res, url, deps);
+      } else if (req.method === 'GET' && url.pathname === '/admin/members/account-audit') {
+        await handleAdminMemberAccountAudit(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/audyt/event') {
         await handleAdminAuditEventDetail(req, res, url, deps);
       } else if (req.method === 'GET' && url.pathname === '/admin/audyt/diagnostics') {

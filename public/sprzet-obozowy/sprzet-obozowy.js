@@ -510,6 +510,8 @@ function equipmentPanelView(item) {
     sectionId,
     sectionLabel: sectionLabelById.get(sectionId) ?? sectionId,
     ownerHtml: item.belongsToPersonId === null ? null : ownerCellHtml(item.belongsToPersonId),
+    auditEmail: item.belongsToPersonId ?? null,
+    canViewAccountAudit: item.canViewAccountAudit === true,
     onEdit: item.canEdit ? () => startEditing(item) : null,
   };
 }
