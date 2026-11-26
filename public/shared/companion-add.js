@@ -38,7 +38,7 @@
 
   /**
    * Order companion categories for registration forms while preserving the lookup order of the
-   * remaining categories. The separator is rendered by the caller so native selects remain native.
+   * remaining categories; categoryOptionsHtml renders the native separator after the priority group.
    * @param {Array<{id: string, label: string}>} categories
    */
   function orderedCategories(categories) {

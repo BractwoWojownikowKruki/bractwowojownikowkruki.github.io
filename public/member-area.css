@@ -1204,8 +1204,14 @@
 }
 
 .person-registration-match span {
-  color: var(--muted, #bec6bd);
+  color: var(--text-muted, #a89070);
   font-size: 0.9rem;
+}
+
+.person-registration-dialog__matches:focus-visible,
+.person-registration-dialog__actions button:focus-visible {
+  outline: 2px solid var(--gold, #d7b75c);
+  outline-offset: 2px;
 }
 
 .person-registration-dialog__actions {

@@ -135,6 +135,23 @@ test('findDuplicateAccountlessPersons matches nickname or full name case-insensi
     lastName: 'Maria Kowalski',
   });
   assert.equal(ambiguousNameMatches.length, 0, 'first and last names must match their own fields');
+
+  await client.setDoc('persons', 'legacy-empty-name', {
+    personId: 'legacy-empty-name',
+    ksywka: '',
+    firstName: '',
+    lastName: '',
+    email: null,
+    mergedInto: null,
+    deletedAt: null,
+  } as never);
+  const emptyNameMatches = await findDuplicateAccountlessPersons(client, {
+    ...baseFields,
+    ksywka: 'Another nickname',
+    firstName: '',
+    lastName: '',
+  });
+  assert.equal(emptyNameMatches.length, 0, 'empty names must not match legacy records with empty names');
 });
 
 test('weapon rule: Niewiasta and Bobo never keep a weapon list', async () => {

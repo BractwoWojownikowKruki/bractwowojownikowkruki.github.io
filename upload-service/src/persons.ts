@@ -141,7 +141,8 @@ export async function findDuplicateAccountlessPersons(
     .filter((person) => {
       if (person.email || person.mergedInto) return false;
       const nicknameMatches = nickname !== '' && normalizePersonComparison(person.ksywka) === nickname;
-      const fullNameMatches = normalizePersonComparison(person.firstName) === firstName
+      const fullNameMatches = firstName !== '' && lastName !== ''
+        && normalizePersonComparison(person.firstName) === firstName
         && normalizePersonComparison(person.lastName) === lastName;
       return nicknameMatches || fullNameMatches;
     });

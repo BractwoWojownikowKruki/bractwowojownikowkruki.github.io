@@ -7998,6 +7998,12 @@ test('POST /lista-wyjazdowa/persons lets a member create their own person but no
 
 test('POST /lista-wyjazdowa/persons returns possible duplicates and creates only after explicit confirmation', async () => {
   const firestore = makeListaWyjazdowaFirestore();
+  const listedCollections: string[] = [];
+  const originalListDocs = firestore.listDocs.bind(firestore);
+  firestore.listDocs = <T>(collection: string) => {
+    listedCollections.push(collection);
+    return originalListDocs<T>(collection);
+  };
   seedPerson(firestore, 'existing-person', 'owner@example.test');
   firestore.seed('members', 'owner@example.test', {
     email: 'owner@example.test', firstName: 'Anna', lastName: 'Opiekun', nickname: 'A', sectionId: 'krakow', hidden: false,
@@ -8011,9 +8017,12 @@ test('POST /lista-wyjazdowa/persons returns possible duplicates and creates only
       firstName: 'Jan', lastName: 'Kowalski', nickname: 'Wilk', section: 'Kraków', owner: 'A',
     }]);
     assert.equal((await firestore.listDocs('persons')).length, 1, 'the warning must not create a person');
+    listedCollections.length = 0;
 
     const confirmed = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', { ...body, duplicateConfirmed: true });
     assert.equal(confirmed.status, 201);
+    assert.equal(listedCollections.includes('persons'), false, 'a confirmed retry skips the full persons scan');
+    assert.equal(listedCollections.includes('members'), false, 'a confirmed retry skips the full members scan');
     assert.equal((await firestore.listDocs('persons')).length, 2);
   });
 });
@@ -8588,6 +8597,12 @@ test('POST /lista-wyjazdowa/signups/quick-add mode=new creates an attached perso
 
 test('POST /lista-wyjazdowa/signups/quick-add mode=new warns before creating a matching person or signup', async () => {
   const firestore = makeListaWyjazdowaFirestore();
+  const listedCollections: string[] = [];
+  const originalListDocs = firestore.listDocs.bind(firestore);
+  firestore.listDocs = <T>(collection: string) => {
+    listedCollections.push(collection);
+    return originalListDocs<T>(collection);
+  };
   seedMember(firestore, 'wojownik@gmail.com');
   seedPerson(firestore, 'existing-person', 'other-owner@example.test');
   seedMember(firestore, 'other-owner@example.test');
@@ -8602,9 +8617,12 @@ test('POST /lista-wyjazdowa/signups/quick-add mode=new warns before creating a m
     assert.equal((await warning.json()).duplicateMatches[0].section, 'Kraków');
     assert.equal((await firestore.listDocs('persons')).length, 1);
     assert.equal((await firestore.listDocs('signups')).length, 0, 'the warning must not sign up or create anyone');
+    listedCollections.length = 0;
 
     const confirmed = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', { ...body, duplicateConfirmed: true });
     assert.equal(confirmed.status, 201);
+    assert.equal(listedCollections.includes('persons'), false, 'a confirmed retry skips the full persons scan');
+    assert.equal(listedCollections.includes('members'), false, 'a confirmed retry skips the full members scan');
     assert.equal((await firestore.listDocs('persons')).length, 2);
     assert.equal((await firestore.listDocs('signups')).length, 1);
   });

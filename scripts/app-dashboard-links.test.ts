@@ -15,16 +15,18 @@ const css = readFileSync(new URL('../public/member-area.css', import.meta.url), 
 // first (matching the real <script> order in app/index.html) since eventDetailHref() now calls
 // window.LwFriendlyUrl.eventUrl().
 function loadApp(): Record<string, unknown> {
-  const elements = new Map<string, { id: string; hidden: boolean }>();
+  const elements = new Map<string, { id: string; hidden: boolean; disabled?: boolean; addEventListener?: () => void; querySelector?: () => null }>();
   const context: Record<string, unknown> = {
     window: {},
     sessionStorage: { getItem: () => null, removeItem: () => {} },
     document: {
       getElementById: (id: string) => {
-        if (!elements.has(id)) elements.set(id, { id, hidden: false });
+        if (!elements.has(id)) elements.set(id, { id, hidden: false, disabled: false, addEventListener: () => {}, querySelector: () => null });
         return elements.get(id);
       },
+      querySelector: () => null,
     },
+    CSS: { escape: (value: string) => value },
     initGoogleSignIn: () => {},
   };
   vm.runInNewContext(lwFriendlyUrlSource, context, { filename: 'lw-friendly-url.js' });
@@ -33,6 +35,41 @@ function loadApp(): Record<string, unknown> {
   vm.runInNewContext(appSource, context, { filename: 'app.js' });
   return context;
 }
+
+test('dashboard companion registration confirms a possible duplicate before retrying', async () => {
+  const context = loadApp() as any;
+  const requests: Array<Record<string, unknown>> = [];
+  let applied = 0;
+  context.window.MutationFeedback = {
+    confirmed: async ({ execute, apply, skipApplyWhen }: any) => {
+      const result = await execute();
+      if (!skipApplyWhen(result)) apply(result);
+    },
+  };
+  context.window.PersonRegistrationPrompt = {
+    run: async (execute: (confirmed: boolean) => Promise<unknown>) => {
+      try { return await execute(false); } catch (error: any) {
+        if (!Array.isArray(error?.duplicateMatches)) throw error;
+        return execute(true);
+      }
+    },
+    wasCancelled: () => false,
+  };
+  context.apiFetch = async (_url: string, init: Record<string, unknown>) => {
+    requests.push(init);
+    if (requests.length === 1) throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Iga' }] });
+    return { signup: { attending: true } };
+  };
+  context.renderDashboardWidgets = () => { applied += 1; };
+  context.refreshDuesPanel = () => {};
+  vm.runInNewContext("dash.events = [{ id: 'trip-1', attendingCount: 2 }]", context);
+
+  await context.quickAddDashCompanion({ eventId: 'trip-1', ownerPersonId: 'owner@example.test', mode: 'new', nickname: 'Wilk' }, { disabled: false });
+
+  assert.equal(requests.length, 2);
+  assert.equal(JSON.parse(String(requests[1].body)).duplicateConfirmed, true);
+  assert.equal(applied, 1);
+});
 
 test('eventDetailHref builds the friendly ?do= trip detail URL', () => {
   const context = loadApp();

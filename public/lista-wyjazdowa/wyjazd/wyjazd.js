@@ -206,7 +206,8 @@ function clearError() {
   document.getElementById('lw-error').hidden = true;
 }
 
-function confirmedEventMutation(control, execute, apply, fallbackAnchor = null, rollback, skipApplyWhen = null) {
+function confirmedEventMutation(control, execute, apply, fallbackAnchor = null, rollback) {
+  const skipApplyWhen = (result) => window.PersonRegistrationPrompt?.wasCancelled?.(result) === true;
   return window.MutationFeedback.confirmed({
     control,
     fallbackAnchor,
@@ -1091,7 +1092,7 @@ async function quickAddCompanion(body, control) {
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
       showReauth,
       hideReauth,
-      )),
+      ), { fallbackFocus: () => document.getElementById(body.mode === 'new' ? 'lw-inline-new-name' : 'lw-inline-existing-select') }),
       apply: (result) => applyQuickAdd(result),
       skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
       focusAfterApply: (result) => {

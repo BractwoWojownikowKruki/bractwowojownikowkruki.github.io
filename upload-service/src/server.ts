@@ -5085,12 +5085,12 @@ async function getPersonRegistrationDuplicateMatches(
 ): Promise<Array<{ firstName: string; lastName: string; nickname: string | null; section: string; owner: string | null }>> {
   const duplicates = await findDuplicateAccountlessPersons(deps.firestore, fields);
   if (duplicates.length === 0) return [];
-  const [members, lookupLists] = await Promise.all([
+  const [members, sections] = await Promise.all([
     listAllMembers(deps.firestore),
-    getAllLookupLists(deps.firestore),
+    getLookupList(deps.firestore, 'sections'),
   ]);
   const memberByEmail = new Map(members.map((member) => [member.email.toLowerCase(), member]));
-  const sectionLabelById = new Map(lookupLists.sections.map((section) => [section.id, section.label]));
+  const sectionLabelById = new Map(sections.map((section) => [section.id, section.label]));
   return duplicates.map((person) => {
     const owner = person.ownerPersonId ? memberByEmail.get(person.ownerPersonId.toLowerCase()) ?? null : null;
     const isSelfOwner = person.ownerPersonId?.toLowerCase() === viewerEmail.toLowerCase();
@@ -5147,7 +5147,9 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
     ownerPersonId = canonicalOwner.toLowerCase();
   }
   validatePersonFields(fields);
-  const duplicateMatches = await getPersonRegistrationDuplicateMatches(deps, fields, identity.email);
+  const duplicateMatches = body.duplicateConfirmed === true
+    ? []
+    : await getPersonRegistrationDuplicateMatches(deps, fields, identity.email);
   if (sendPersonDuplicatePromptIfNeeded(res, body, duplicateMatches)) return;
   const personId = randomUUID();
   const { result: person } = await executeDeclaredAuditedMutation(
@@ -5461,7 +5463,9 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
   const sectionId = ownerMember?.sectionId?.trim();
   if (!sectionId) throw new AuthError('Opiekun nie ma ustawionej sekcji.', 400);
   const fields: PersonWritableFields = { ksywka, firstName, lastName, categoryId, sectionId, weaponIds: [] };
-  const duplicateMatches = await getPersonRegistrationDuplicateMatches(deps, fields, identity.email);
+  const duplicateMatches = body.duplicateConfirmed === true
+    ? []
+    : await getPersonRegistrationDuplicateMatches(deps, fields, identity.email);
   if (sendPersonDuplicatePromptIfNeeded(res, body, duplicateMatches)) return;
   const personId = randomUUID();
   const { result } = await executeDeclaredAuditedMutation(

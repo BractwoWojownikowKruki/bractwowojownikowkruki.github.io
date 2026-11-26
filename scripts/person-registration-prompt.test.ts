@@ -19,6 +19,8 @@ class FakeElement {
   removed = false;
   isConnected = true;
   focusCount = 0;
+  disabled = false;
+  open = false;
   setAttribute(name: string, value: string) { this.attributes[name] = value; }
   addEventListener(type: string, listener: (event?: any) => void) { (this.listeners[type] ??= []).push(listener); }
   querySelector(selector: string) {
@@ -29,6 +31,8 @@ class FakeElement {
   selector = '';
   focus() { this.focusCount += 1; }
   showModal() {
+    this.open = true;
+    if (this.nextAction === 'close') { this.close(); return; }
     if (this.nextAction === 'escape') {
       for (const listener of this.listeners.cancel ?? []) listener({ preventDefault() {} });
       return;
@@ -37,12 +41,16 @@ class FakeElement {
     for (const listener of this.childListeners[button] ?? []) listener();
   }
   childListeners: Record<string, Array<() => void>> = {};
-  close() {}
+  close() {
+    if (!this.open) return;
+    this.open = false;
+    for (const listener of this.listeners.close ?? []) listener();
+  }
   remove() { this.removed = true; }
-  nextAction: 'confirm' | 'cancel' | 'escape' = 'confirm';
+  nextAction: 'confirm' | 'cancel' | 'escape' | 'close' = 'confirm';
 }
 
-function load(action: 'confirm' | 'cancel' | 'escape') {
+function load(action: 'confirm' | 'cancel' | 'escape' | 'close') {
   const dialogs: FakeElement[] = [];
   const trigger = new FakeElement();
   const context: Record<string, any> = {
@@ -102,6 +110,29 @@ test('Escape cancels the prompt and does not retry registration', async () => {
   assert.equal(trigger.focusCount, 1);
 });
 
+test('a direct dialog close settles registration as cancelled', async () => {
+  const { prompt } = load('close');
+  let calls = 0;
+  const result = await prompt.run(async () => {
+    calls += 1;
+    throw Object.assign(new Error('duplicate'), { duplicateMatches: matches });
+  });
+  assert.equal(calls, 1);
+  assert.equal(prompt.wasCancelled(result), true);
+});
+
+test('a disabled submit button can fall back to the still-enabled form field on cancel', async () => {
+  const { prompt, trigger } = load('cancel');
+  trigger.disabled = true;
+  const field = new FakeElement();
+  const result = await prompt.run(async () => {
+    throw Object.assign(new Error('duplicate'), { duplicateMatches: matches });
+  }, { fallbackFocus: () => field });
+  assert.equal(prompt.wasCancelled(result), true);
+  assert.equal(trigger.focusCount, 0);
+  assert.equal(field.focusCount, 1);
+});
+
 test('a duplicate response after confirmation is surfaced without opening another prompt', async () => {
   const { prompt, dialogs } = load('confirm');
   let calls = 0;
@@ -127,7 +158,7 @@ test('every person registration page loads the shared prompt and invokes it from
     assert.match(pageScript, /PersonRegistrationPrompt\.run\(/, `${scriptPath} must invoke the shared prompt`);
     assert.match(pageScript, /duplicateConfirmed: true/, `${scriptPath} must confirm the retry to the server`);
     assert.match(pageScript, /skipApplyWhen:/, `${scriptPath} must leave the view unchanged when the prompt is cancelled`);
-    assert.match(pageScript, /focusAfterApply:/, `${scriptPath} must restore focus after the new view is rendered`);
+    assert.match(pageScript, scriptPath.includes('/zarzadzanie-ludzmi/') ? /focusAfterApply,/ : /focusAfterApply:/, `${scriptPath} must restore focus after the new view is rendered`);
     assert.ok(pageScript.includes(focusMarker), `${scriptPath} must target its correct post-registration control`);
     if (scriptPath.includes('/profil/') || scriptPath.includes('/zarzadzanie-ludzmi/')) {
       assert.match(pageScript, /CompanionAdd\.categoryOptionsHtml\(/, `${scriptPath} must use the shared category option renderer`);

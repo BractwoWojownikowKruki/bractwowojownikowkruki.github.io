@@ -73,3 +73,31 @@ test('uploadSelectedPhotos keeps the server message for HTTP errors', async () =
 
   assert.equal(elements.get('photos-error')!.textContent, 'Błąd: Plik przekracza maksymalny dozwolony rozmiar (10 MB).');
 });
+
+test('profile person registration retries with duplicateConfirmed after explicit confirmation', async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const { context } = loadProfil(async (_url?: string, init?: Record<string, unknown>) => {
+    requests.push(init ?? {});
+    if (requests.length === 1) {
+      throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Anna', lastName: 'Nowak' }] });
+    }
+    return { person: { personId: 'new-person' } };
+  });
+  (context as any).window.PersonRegistrationPrompt = {
+    run: async (execute: (confirmed: boolean) => Promise<unknown>) => {
+      try { return await execute(false); } catch (error: any) {
+        if (!Array.isArray(error?.duplicateMatches)) throw error;
+        return execute(true);
+      }
+    },
+    wasCancelled: () => false,
+  };
+  vm.runInContext("viewerEmail = 'owner@example.test'", context);
+  await (context.createPerson as (fields: Record<string, string>, control: unknown) => Promise<void>)(
+    { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' },
+    {},
+  );
+  assert.equal(requests.length, 2);
+  assert.equal(JSON.parse(String(requests[1].body)).duplicateConfirmed, true);
+  assert.equal((context as any).document.getElementById('persons-error').hidden, true);
+});

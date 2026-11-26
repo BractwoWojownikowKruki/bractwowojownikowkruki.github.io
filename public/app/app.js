@@ -462,7 +462,7 @@ async function quickAddDashCompanion(body, control) {
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
         showReauth,
         hideReauth,
-      )),
+      ), { fallbackFocus: () => document.getElementById(body.mode === 'new' ? 'lw-inline-new-name' : 'lw-inline-existing-select') }),
       apply: (result) => {
         const event = dash.events.find((item) => item.id === body.eventId);
         if (event && result?.signup?.attending) event.attendingCount = (event.attendingCount ?? 0) + 1;

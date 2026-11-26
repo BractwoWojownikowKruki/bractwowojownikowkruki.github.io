@@ -21,8 +21,12 @@
     </li>`;
   }
 
-  function show(matches) {
-    const returnFocus = document.activeElement;
+  function show(matches, fallbackFocus) {
+    const activeElement = document.activeElement;
+    const fallbackTarget = typeof fallbackFocus === 'function' ? fallbackFocus() : fallbackFocus;
+    const returnFocus = activeElement && activeElement !== document.body && activeElement.isConnected && !activeElement.disabled
+      ? activeElement
+      : fallbackTarget;
     const dialog = document.createElement('dialog');
     const titleId = `person-registration-title-${++dialogSequence}`;
     const descriptionId = `person-registration-description-${dialogSequence}`;
@@ -45,7 +49,7 @@
       const finish = (confirmed) => {
         if (finished) return;
         finished = true;
-        dialog.close();
+        if (dialog.open) dialog.close();
         dialog.remove();
         if (returnFocus?.isConnected) returnFocus.focus();
         resolve(confirmed);
@@ -56,6 +60,7 @@
         event.preventDefault();
         finish(false);
       }, { once: true });
+      dialog.addEventListener('close', () => finish(false), { once: true });
       dialog.showModal();
       dialog.querySelector('.person-registration-dialog__cancel').focus();
     });
@@ -64,13 +69,14 @@
   /**
    * Attempt registration and show the informational prompt only for server-confirmed matches.
    * @param {(duplicateConfirmed: boolean) => Promise<unknown>} execute
+   * @param {{fallbackFocus?: Element|(() => Element|null)}} options
    */
-  async function run(execute) {
+  async function run(execute, { fallbackFocus } = {}) {
     try {
       return await execute(false);
     } catch (error) {
       if (!Array.isArray(error?.duplicateMatches) || error.duplicateMatches.length === 0) throw error;
-      if (!await show(error.duplicateMatches)) return CANCELLED;
+      if (!await show(error.duplicateMatches, fallbackFocus)) return CANCELLED;
       return execute(true);
     }
   }

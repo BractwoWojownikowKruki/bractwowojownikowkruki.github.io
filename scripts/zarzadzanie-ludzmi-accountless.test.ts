@@ -5,6 +5,8 @@ import vm from 'node:vm';
 
 const page = readFileSync(new URL('../public/admin/zarzadzanie-ludzmi/index.html', import.meta.url), 'utf8');
 const script = readFileSync(new URL('../public/admin/zarzadzanie-ludzmi/zarzadzanie-ludzmi.js', import.meta.url), 'utf8');
+const displayNameSource = readFileSync(new URL('../public/shared/display-name.js', import.meta.url), 'utf8');
+const companionAddSource = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
 
 test('member table keeps Sekcja first and places the profile trigger in Ksywa', () => {
   assert.match(page, /<tr>\s*\n\s*<th scope="col" class="czl-section-cell"/);
@@ -91,6 +93,8 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
   const summaryFilterCallbacks: Array<() => void> = [];
   const sortableTableStates = new Map<string, { set: (key: string, dir: string) => void }>();
   let signedInCallback: ((payload: Record<string, unknown>) => Promise<void>) | null = null;
+  let duplicatePromptMode: 'confirm' | 'cancel' = 'confirm';
+  const cancelledDuplicate = Object.freeze({ cancelled: true });
 
   function makeElement(id: string) {
     const listeners = new Map<string, Array<(e: any) => unknown>>();
@@ -128,11 +132,25 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
 
   const windowObj: any = {
     confirm: () => true,
-    PersonRegistrationPrompt: { run: (execute: (confirmed: boolean) => Promise<unknown>) => execute(false), wasCancelled: () => false },
+    PersonRegistrationPrompt: {
+      run: async (execute: (confirmed: boolean) => Promise<unknown>) => {
+        try { return await execute(false); } catch (error: any) {
+          if (!Array.isArray(error?.duplicateMatches)) throw error;
+          return duplicatePromptMode === 'cancel' ? cancelledDuplicate : execute(true);
+        }
+      },
+      wasCancelled: (result: unknown) => result === cancelledDuplicate,
+    },
     alert: () => {},
     location: { search: '' },
     addEventListener: () => {},
-    MutationFeedback: { confirmed: async ({ execute }: { execute: () => Promise<unknown> }) => execute() },
+    MutationFeedback: { confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply }: { execute: () => Promise<any>; apply?: (result: any) => Promise<unknown>; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => unknown }) => {
+      const result = await execute();
+      if (skipApplyWhen?.(result)) return result;
+      await apply?.(result);
+      focusAfterApply?.(result);
+      return result;
+    } },
   };
   const documentObj: any = {
     body: { append: () => {} },
@@ -196,7 +214,8 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
     sortableTableStates.set(table.id, state);
     return state;
   };
-
+  vm.runInContext(displayNameSource, context);
+  vm.runInContext(companionAddSource, context);
   vm.runInContext(profilePanelSource, context);
   vm.runInContext(script, context);
 
@@ -209,6 +228,7 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
       assert.ok(state, `sortable state for ${id} should be initialized`);
       state.set(key, dir);
     },
+    cancelDuplicatePrompt: () => { duplicatePromptMode = 'cancel'; },
     signIn: async (payload = options.whoamiPayload ?? { email: 'ksiegowy@kruki.pl', isAccountant: true, isAdmin: false, isHovding: false }) => {
       assert.ok(signedInCallback, 'initGoogleSignIn must register onSignedIn');
       await signedInCallback(payload);
@@ -292,6 +312,7 @@ test('accountants can load the accountless table without rendering its write act
   const harness = createZarzadzanieHarness({
     apiFetch: async (url, init = {}) => {
       apiCalls.push({ url, method: String(init.method ?? 'GET'), body: init.body as string | undefined });
+      if (url === '/lista-wyjazdowa/persons' && init.method === 'POST') return { person: { personId: 'p2' } };
       if (url === '/lista-wyjazdowa/persons') {
         return {
           persons: [
@@ -314,7 +335,6 @@ test('accountants can load the accountless table without rendering its write act
       if (url === '/lista-wyjazdowa/categories') return { categories: [{ id: 'woj', label: 'Woj' }, { id: 'niewiasta', label: 'Niewiasta' }] };
       if (url === '/lista-wyjazdowa/weapons') return { weapons: [{ id: 'tarczownik', label: 'Tarcza' }] };
       if (url === '/lista-wyjazdowa/roster') return { roster: [{ personId: 'owner@kruki.pl', kind: 'account', name: 'Opiekun', email: 'owner@kruki.pl' }] };
-      if (url === '/lista-wyjazdowa/persons' && init.method === 'POST') return { person: { personId: 'p2' } };
       return {};
     },
   });
@@ -341,6 +361,70 @@ test('accountants can load the accountless table without rendering its write act
 
   const postCall = apiCalls.find((c) => c.url === '/lista-wyjazdowa/persons' && c.method === 'POST');
   assert.ok(postCall, 'accountant submission should POST to /lista-wyjazdowa/persons');
+  assert.equal(harness.getEl('accountless-error').hidden, true, 'successful creation must not hide a missing shared category helper');
+  assert.equal(harness.getEl('accountless-form-panel').hidden, true, 'successful creation closes the form');
+});
+
+test('admin accountless registration cancels without a second request or losing form values', async () => {
+  const requests: Array<{ url: string; method: string; body?: string }> = [];
+  const harness = createZarzadzanieHarness({
+    apiFetch: async (url, init = {}) => {
+      requests.push({ url, method: String(init.method ?? 'GET'), body: init.body as string | undefined });
+      if (url === '/lista-wyjazdowa/persons' && init.method === 'POST') {
+        throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Anna', lastName: 'Nowak' }] });
+      }
+      if (url === '/lista-wyjazdowa/persons') return { persons: [] };
+      if (url === '/lista-wyjazdowa/sections') return { sections: [{ id: 'sec1', label: 'Drużyna' }] };
+      if (url === '/lista-wyjazdowa/categories') return { categories: [{ id: 'woj', label: 'Woj' }] };
+      if (url === '/lista-wyjazdowa/weapons') return { weapons: [] };
+      if (url === '/lista-wyjazdowa/roster') return { roster: [] };
+      return {};
+    },
+  });
+  await harness.signIn({ email: 'admin@kruki.pl', isAccountant: true, isAdmin: true, isHovding: false });
+  await harness.getEl('accountless-add-toggle').dispatch('click');
+  harness.cancelDuplicatePrompt();
+  harness.getEl('accountless-first-name').value = 'Anna';
+  harness.getEl('accountless-last-name').value = 'Nowak';
+  harness.getEl('accountless-category').value = 'woj';
+  harness.getEl('accountless-section-select').value = 'sec1';
+  await harness.getEl('accountless-save').dispatch('click');
+  assert.equal(requests.filter((request) => request.method === 'POST').length, 1);
+  assert.equal(harness.getEl('accountless-form-panel').hidden, false);
+  assert.equal(harness.getEl('accountless-first-name').value, 'Anna');
+  assert.equal(harness.getEl('accountless-error').hidden, true);
+});
+
+test('admin accountless registration retries with duplicateConfirmed after the prompt confirmation', async () => {
+  const requests: Array<{ url: string; method: string; body?: string }> = [];
+  const harness = createZarzadzanieHarness({
+    apiFetch: async (url, init = {}) => {
+      requests.push({ url, method: String(init.method ?? 'GET'), body: init.body as string | undefined });
+      if (url === '/lista-wyjazdowa/persons' && init.method === 'POST') {
+        const body = JSON.parse(String(init.body));
+        if (!body.duplicateConfirmed) throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Anna', lastName: 'Nowak' }] });
+        return { person: { personId: 'new-person' } };
+      }
+      if (url === '/lista-wyjazdowa/persons') return { persons: [] };
+      if (url === '/lista-wyjazdowa/sections') return { sections: [{ id: 'sec1', label: 'Drużyna' }] };
+      if (url === '/lista-wyjazdowa/categories') return { categories: [{ id: 'woj', label: 'Woj' }] };
+      if (url === '/lista-wyjazdowa/weapons') return { weapons: [] };
+      if (url === '/lista-wyjazdowa/roster') return { roster: [] };
+      return {};
+    },
+  });
+  await harness.signIn({ email: 'admin@kruki.pl', isAccountant: true, isAdmin: true, isHovding: false });
+  await harness.getEl('accountless-add-toggle').dispatch('click');
+  harness.getEl('accountless-first-name').value = 'Anna';
+  harness.getEl('accountless-last-name').value = 'Nowak';
+  harness.getEl('accountless-category').value = 'woj';
+  harness.getEl('accountless-section-select').value = 'sec1';
+  await harness.getEl('accountless-save').dispatch('click');
+  const posts = requests.filter((request) => request.method === 'POST');
+  assert.equal(posts.length, 2);
+  assert.equal(JSON.parse(String(posts[1].body)).duplicateConfirmed, true);
+  assert.equal(harness.getEl('accountless-error').hidden, true);
+  assert.equal(harness.getEl('accountless-form-panel').hidden, true);
 });
 
 test('accountless summary filter preserves loading and error rows until the table has loaded', async () => {
