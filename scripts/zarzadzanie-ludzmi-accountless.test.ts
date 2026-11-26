@@ -169,10 +169,11 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
     alert: () => {},
     location: { search: '' },
     addEventListener: () => {},
-    MutationFeedback: { confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply }: { execute: () => Promise<any>; apply?: (result: any) => Promise<unknown>; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => unknown }) => {
+    MutationFeedback: { confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply, successDetails }: { execute: () => Promise<any>; apply?: (result: any) => Promise<unknown>; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => unknown; successDetails?: (result: unknown) => unknown }) => {
       const result = await execute();
       if (skipApplyWhen?.(result)) return result;
       await apply?.(result);
+      await successDetails?.(result);
       focusAfterApply?.(result)?.focus?.();
       return result;
     } },

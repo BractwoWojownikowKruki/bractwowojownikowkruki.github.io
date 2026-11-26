@@ -148,6 +148,56 @@ test('a second submission using the same control is ignored until registration f
   assert.equal(control.disabled, false);
 });
 
+test('a failed registration releases busy state, re-enables the control and restores focus', async () => {
+  const { prompt, dialogs, trigger, getBusyCount } = load('confirm');
+  const control = new FakeElement();
+  await assert.rejects(prompt.confirmed({
+    control,
+    fallbackFocus: () => trigger,
+    execute: async () => { throw new Error('network'); },
+  }), /network/);
+  assert.equal(getBusyCount(), 0);
+  assert.equal(control.disabled, false);
+  assert.equal(trigger.focusCount, 1);
+  assert.equal(dialogs.length, 0);
+});
+
+test('cancelling a duplicate prompt releases busy state and does not apply or show success', async () => {
+  const { prompt, dialogs, trigger, getBusyCount } = load('cancel');
+  const control = new FakeElement();
+  let applied = false;
+  const result = await prompt.confirmed({
+    control,
+    fallbackFocus: () => trigger,
+    execute: async () => { throw Object.assign(new Error('duplicate'), { duplicateMatches: matches }); },
+    apply: async () => { applied = true; },
+    successDetails: () => ({ person: { firstName: 'New', lastName: 'Person' } }),
+  });
+  assert.equal(prompt.wasCancelled(result), true);
+  assert.equal(applied, false);
+  assert.equal(getBusyCount(), 0);
+  assert.equal(control.disabled, false);
+  assert.equal(trigger.focusCount, 1);
+  assert.equal(dialogs.length, 1);
+});
+
+test('existing-person mutations can suppress the busy overlay and success dialog', async () => {
+  const { prompt, dialogs, getBusyCount } = load('done');
+  const control = new FakeElement();
+  let applied = false;
+  const result = await prompt.confirmed({
+    control,
+    busyMessage: null,
+    execute: async () => { assert.equal(getBusyCount(), 0); return { person: { personId: 'existing' } }; },
+    apply: async () => { applied = true; },
+    successDetails: () => null,
+  });
+  assert.equal(result.person.personId, 'existing');
+  assert.equal(applied, true);
+  assert.equal(getBusyCount(), 0);
+  assert.equal(dialogs.length, 0);
+});
+
 test('a match opens an informational prompt and retries only after explicit confirmation', async () => {
   const { prompt, dialogs, trigger } = load('confirm');
   const calls: boolean[] = [];
@@ -250,7 +300,22 @@ test('every person registration page loads the shared prompt and invokes it from
     if (scriptPath.includes('/profil/') || scriptPath.includes('/zarzadzanie-ludzmi/')) {
       assert.match(pageScript, /CompanionAdd\.categoryOptionsHtml\(/, `${scriptPath} must use the shared category option renderer`);
     }
+    if (scriptPath.includes('/lista-wyjazdowa/')) {
+      assert.match(pageScript, /busyMessage: body\.mode === 'new' \? undefined : null/);
+    }
+    if (scriptPath.includes('/lista-wyjazdowa/lista-wyjazdowa.js')) {
+      assert.match(pageScript, /categoryOptions\.find\([\s\S]*sectionOptions\.find\(/);
+    } else if (scriptPath.includes('/lista-wyjazdowa/wyjazd/')) {
+      assert.match(pageScript, /categoryLabelById\.get\([\s\S]*sectionLabelById\.get\(/);
+    } else if (scriptPath.includes('/app/')) {
+      assert.match(pageScript, /dash\.categories\.find\([\s\S]*dash\.sections\.find\(/);
+    } else if (scriptPath.includes('/profil/')) {
+      assert.match(pageScript, /personLookupLists\.categories\.find\([\s\S]*personLookupLists\.sections\.find\(/);
+    } else {
+      assert.match(pageScript, /accountlessCache\.categories\.find\([\s\S]*accountlessCache\.sections\.find\(/);
+    }
   }
+  assert.match(source, /busyMessage = BUSY_MESSAGE/);
   const styles = readFileSync(new URL('../public/member-area.css', import.meta.url), 'utf8');
   assert.match(styles, /\.person-registration-success-dialog\s*\{/);
   assert.match(styles, /\.person-registration-success-dialog__done\s*\{/);

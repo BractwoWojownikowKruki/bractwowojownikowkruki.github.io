@@ -1164,16 +1164,22 @@ async function submitAccountlessForm() {
         focusAfterApply,
         {
           fallbackFocus: () => document.getElementById('accountless-ksywka'),
-          successDetails: (created) => ({
-            person: created?.person,
-            statusLabel: accountlessCache.categories.find((category) => category.id === created?.person?.categoryId)?.label,
-            sectionLabel: accountlessCache.sections.find((section) => section.id === created?.person?.sectionId)?.label,
-          }),
+          successDetails: (created) => {
+            document.getElementById('accountless-form-panel').hidden = true;
+            resetAccountlessForm();
+            return {
+              person: created?.person,
+              statusLabel: accountlessCache.categories.find((category) => category.id === created?.person?.categoryId)?.label,
+              sectionLabel: accountlessCache.sections.find((section) => section.id === created?.person?.sectionId)?.label,
+            };
+          },
         },
       );
     if (!editing && window.PersonRegistrationPrompt.wasCancelled(result)) return;
-    document.getElementById('accountless-form-panel').hidden = true;
-    resetAccountlessForm();
+    if (editing) {
+      document.getElementById('accountless-form-panel').hidden = true;
+      resetAccountlessForm();
+    }
   } catch (err) {
     errorEl.textContent = `Nie udało się zapisać osoby: ${err.message}`;
     errorEl.hidden = false;

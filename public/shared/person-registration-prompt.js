@@ -3,6 +3,7 @@
 // confirmation, and cancellation prevents the write. Candidate fields are rendered as text.
 (function () {
   const CANCELLED = Object.freeze({ cancelledDuplicateRegistration: true });
+  const IN_FLIGHT = Object.freeze({ duplicateRegistrationAlreadyInFlight: true });
   let dialogSequence = 0;
   const inFlightControls = new WeakSet();
   const BUSY_MESSAGE = 'Rejestruję osobę w apce…';
@@ -84,7 +85,7 @@
   }
 
   function wasCancelled(result) {
-    return result === CANCELLED;
+    return result === CANCELLED || result === IN_FLIGHT;
   }
 
   function showSuccess(details, fallbackFocus) {
@@ -92,8 +93,8 @@
     if (!person) return Promise.resolve();
     const fullName = `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim();
     const nickname = person.ksywka ?? person.nickname;
-    const status = details.statusLabel ?? person.categoryLabel ?? person.categoryId;
-    const section = details.sectionLabel ?? person.sectionLabel;
+    const status = details.statusLabel ?? person.categoryLabel ?? '—';
+    const section = details.sectionLabel ?? person.sectionLabel ?? '—';
     const rows = [
       fullName ? `<p><strong>Imię i nazwisko:</strong> ${escapeHtml(fullName)}</p>` : '',
       nickname ? `<p><strong>Ksywka:</strong> ${escapeHtml(nickname)}</p>` : '',
@@ -141,7 +142,7 @@
    */
   async function confirmed({ execute, fallbackFocus, successDetails, busyMessage = BUSY_MESSAGE, apply, skipApplyWhen, ...feedbackOptions }) {
     const control = feedbackOptions.control;
-    if (control && inFlightControls.has(control)) return undefined;
+    if (control && inFlightControls.has(control)) return IN_FLIGHT;
     if (control) inFlightControls.add(control);
     const originalDisabled = control?.disabled;
     let hideBusy = null;
@@ -151,6 +152,10 @@
     };
     const unlockControl = () => {
       if (control) control.disabled = originalDisabled;
+    };
+    const focusFallback = () => {
+      const target = typeof fallbackFocus === 'function' ? fallbackFocus() : fallbackFocus;
+      if (target?.isConnected && !target.disabled) target.focus();
     };
     const executeAttempt = async (duplicateConfirmed) => {
       if (control) control.disabled = true;
@@ -164,7 +169,7 @@
       }
     };
     try {
-      return await window.MutationFeedback.confirmed({
+      const result = await window.MutationFeedback.confirmed({
         ...feedbackOptions,
         execute: async () => {
           try {
@@ -177,19 +182,29 @@
           } catch (error) {
             releaseBusy();
             unlockControl();
+            focusFallback();
             throw error;
           }
         },
         apply: async (result) => {
-          await apply?.(result);
-          releaseBusy();
-          if (!wasCancelled(result) && successDetails) {
-            const successFocus = feedbackOptions.focusAfterApply?.(result) ?? fallbackFocus;
-            await showSuccess(await successDetails(result), successFocus);
+          try {
+            await apply?.(result);
+          } finally {
+            releaseBusy();
           }
         },
         skipApplyWhen: (result) => wasCancelled(result) || skipApplyWhen?.(result),
       });
+      if (!wasCancelled(result) && successDetails) {
+        const details = await successDetails(result);
+        const successFocus = feedbackOptions.focusAfterApply?.(result) ?? fallbackFocus;
+        try {
+          await showSuccess(details, successFocus);
+        } catch (_) {
+          window.MutationFeedback.showToast('Osoba została zarejestrowana w apce');
+        }
+      }
+      return result;
     } finally {
       releaseBusy();
       unlockControl();

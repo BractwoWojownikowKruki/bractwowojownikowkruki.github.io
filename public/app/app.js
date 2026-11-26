@@ -467,14 +467,14 @@ async function quickAddDashCompanion(body, control) {
         showReauth,
         hideReauth,
       ),
-      apply: (result) => {
+      apply: async (result) => {
         const event = dash.events.find((item) => item.id === body.eventId);
         if (event && result?.signup?.attending) event.attendingCount = (event.attendingCount ?? 0) + 1;
         // A brand-new companion must be offered as an existing person next time, so drop the cache.
         dash.companionPromise = null;
         dash.openPanelEventId = null;
         renderDashboardWidgets();
-        refreshDuesPanel();
+        await refreshDuesPanel();
       },
       focusAfterApply: () => dashEventAnchor(body.eventId)(),
       viewRoot: panels.panel,
