@@ -965,7 +965,10 @@ async function handleListEquipment(req: IncomingMessage, res: ServerResponse, de
   await deps.authenticate(req, res);
   const equipment = await listEquipment(deps.firestore);
   const canViewAccountAudit = await isPersonManager(req, res, deps);
-  sendJson(res, 200, { equipment: equipment.map((item) => ({ ...item, canEdit: true, canDelete: true, canViewAccountAudit })) });
+  sendJson(res, 200, {
+    canViewAccountAudit,
+    equipment: equipment.map((item) => ({ ...item, canEdit: true, canDelete: true, canViewAccountAudit })),
+  });
 }
 
 // Drużynowy equipment carries its own section; prywatny equipment always stores null and follows

@@ -99,6 +99,9 @@
 
 .profile-account-audit section {
   margin-top: 0.5rem;
+  max-height: 60vh;
+  min-height: 2rem;
+  overflow-y: auto;
 }
 
 .profile-account-audit-entry {

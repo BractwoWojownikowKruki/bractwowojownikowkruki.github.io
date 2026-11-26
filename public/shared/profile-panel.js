@@ -92,7 +92,7 @@
   let currentPhotos = [];
   let lightboxPhotoIndex = -1;
   let currentEquipmentView = null;
-  const accountAuditState = { target: null, open: false, loading: false, error: false, rows: [] };
+  const accountAuditState = { target: null, open: false, loading: false, error: false, rows: [], nextCursor: null, requestId: 0 };
   // The drawer has one independent draft per editable section (identity/weapons/entryFee/
   // annualDues), so a successful save of one never discards another's unsaved work. All of them
   // still share a single "Edytuj" toggle (editorOpen) - the three forms are collapsed behind one
@@ -264,17 +264,10 @@
     'membership.application.submitted': 'Rejestracja konta', 'membership.status.approved': 'Zatwierdzenie konta',
     'membership.status.rejected': 'Odrzucenie rejestracji', 'membership.status.suspended': 'Zawieszenie konta',
     'membership.status.reactivated': 'Przywrócenie konta', 'membership.status.removed': 'Usunięcie konta',
-    'signup.created': 'Zgłoszenie na wyjazd', 'signup.updated': 'Zmiana zgłoszenia na wyjazd',
-    'dues.annual.changed': 'Zmiana składki rocznej', 'dues.entry_fee.changed': 'Zmiana wpisowego',
-    'dues.event_fee.changed': 'Zmiana składki wyjazdowej', 'dues.year_fee.changed': 'Zmiana opłaty rocznej',
-    'dues.charge.created': 'Dodanie opłaty', 'dues.charge.updated': 'Zmiana opłaty',
-    'dues.charge.deleted': 'Usunięcie opłaty', 'dues.extra.changed': 'Zmiana składki dodatkowej',
-    'dues.payment_info.changed': 'Zmiana informacji o płatności',
     'profile.member.updated': 'Zmiana profilu konta', 'person.created': 'Dodanie osoby towarzyszącej',
     'person.updated': 'Zmiana osoby towarzyszącej', 'person.deleted': 'Usunięcie osoby towarzyszącej',
     'person.detached': 'Odłączenie osoby towarzyszącej', 'person.merged': 'Połączenie z kontem',
-    'profile.notifications.updated': 'Zmiana ustawień powiadomień',
-    'equipment.added': 'Dodanie sprzętu', 'equipment.updated': 'Zmiana sprzętu', 'equipment.deleted': 'Usunięcie sprzętu',
+    'person.purged': 'Usunięcie osoby towarzyszącej',
   };
 
   function accountAuditHtml(canView) {
@@ -282,9 +275,8 @@
     const button = '<button type="button" class="lw-edit-toggle profile-account-audit-toggle" data-account-audit-toggle>Historia konta</button>';
     if (!accountAuditState.open) return `<div class="profile-editor-toggle-row">${button}</div>`;
     let content;
-    if (accountAuditState.loading) content = '<p role="status">Ładowanie historii…</p>';
-    else if (accountAuditState.error) content = '<p role="alert">Nie udało się wczytać historii konta. Spróbuj ponownie.</p>';
-    else if (!accountAuditState.rows.length) content = '<p>Brak historii konta.</p>';
+    if (accountAuditState.error && !accountAuditState.rows.length) content = '<p role="alert">Nie udało się wczytać historii konta. Spróbuj ponownie.</p>';
+    else if (!accountAuditState.rows.length && !accountAuditState.loading) content = '<p>Brak historii konta.</p>';
     else content = accountAuditState.rows.map(row => {
       const label = ACCOUNT_AUDIT_ACTION_LABELS[row.action] ?? row.action;
       const changes = (row.changes ?? []).map(change => {
@@ -295,34 +287,43 @@
       const date = new Date(row.timestamp);
       const when = Number.isNaN(date.getTime()) ? row.timestamp : date.toLocaleString('pl-PL');
       return `<article class="profile-account-audit-entry"><strong>${escapeHtml(label)}</strong><time>${escapeHtml(when)}</time><span>${escapeHtml(row.actor?.name || row.actor?.email || '')}</span>${changes ? `<ul>${changes}</ul>` : ''}</article>`;
-    }).join('');
+    }).join('') + (accountAuditState.loading ? '<p role="status">Ładowanie historii…</p>' : '');
     return `<div class="profile-account-audit"><div class="profile-editor-toggle-row">${button}</div><section aria-label="Historia konta"><h4>Historia konta</h4>${content}</section></div>`;
   }
 
   async function loadAccountAuditHistory() {
     const target = accountAuditState.target;
-    if (!target) return;
+    if (!target || accountAuditState.loading || (!accountAuditState.nextCursor && accountAuditState.rows.length)) return;
+    const requestId = accountAuditState.requestId;
     accountAuditState.open = true;
     accountAuditState.loading = true;
     accountAuditState.error = false;
-    accountAuditState.rows = [];
     renderProfileDrawer();
     try {
-      let cursor;
-      do {
-        const query = new URLSearchParams(target);
-        query.set('limit', '100');
-        if (cursor) query.set('cursor', cursor);
-        const page = await apiFetch(`/admin/members/account-audit?${query}`, { method: 'GET' }, drawerShowReauth, drawerHideReauth);
-        accountAuditState.rows.push(...(page.rows ?? []));
-        cursor = page.nextCursor;
-      } while (cursor);
+      const query = new URLSearchParams(target);
+      query.set('limit', '100');
+      if (accountAuditState.nextCursor) query.set('cursor', accountAuditState.nextCursor);
+      const page = await apiFetch(`/admin/members/account-audit?${query}`, { method: 'GET' }, drawerShowReauth, drawerHideReauth);
+      if (requestId !== accountAuditState.requestId) return;
+      accountAuditState.rows.push(...(page.rows ?? []));
+      accountAuditState.nextCursor = page.nextCursor ?? null;
       accountAuditState.loading = false;
     } catch {
+      if (requestId !== accountAuditState.requestId) return;
       accountAuditState.loading = false;
       accountAuditState.error = true;
     }
     renderProfileDrawer();
+  }
+
+  function resetAccountAuditTarget(target) {
+    accountAuditState.requestId += 1;
+    accountAuditState.target = target;
+    accountAuditState.open = false;
+    accountAuditState.loading = false;
+    accountAuditState.error = false;
+    accountAuditState.rows = [];
+    accountAuditState.nextCursor = null;
   }
 
   function ensureDrawer() {
@@ -707,8 +708,7 @@
     try {
       currentEquipmentView = null;
       editorState.target = { kind: 'member', email, staticPerson: findStaticPerson(folderId) };
-      accountAuditState.target = { email };
-      accountAuditState.open = false;
+      resetAccountAuditTarget({ email });
       editorState.drafts = {};
       editorState.errors = {};
       editorState.editorOpen = false;
@@ -734,8 +734,7 @@
     try {
       currentEquipmentView = null;
       editorState.target = { kind: 'person', personId };
-      accountAuditState.target = { personId };
-      accountAuditState.open = false;
+      resetAccountAuditTarget({ personId });
       editorState.drafts = {};
       editorState.errors = {};
       editorState.editorOpen = false;
@@ -922,6 +921,8 @@
   document.addEventListener('click', (e) => {
     if (e.target.closest('[data-account-audit-toggle]')) {
       if (accountAuditState.open) {
+        accountAuditState.requestId += 1;
+        accountAuditState.loading = false;
         accountAuditState.open = false;
         renderProfileDrawer();
       } else {
@@ -997,6 +998,13 @@
       setLightboxIndex(Number(filmThumb.dataset.index));
     }
   });
+
+  document.addEventListener('scroll', (e) => {
+    const auditSection = e.target.closest?.('.profile-account-audit section');
+    if (auditSection && auditSection.scrollHeight - auditSection.scrollTop - auditSection.clientHeight < 80) {
+      void loadAccountAuditHistory();
+    }
+  }, true);
 
   document.addEventListener('input', (e) => {
     const form = e.target.closest('.profile-identity-form');
@@ -1085,8 +1093,7 @@
     editorState.profile = null;
     editorState.target = null;
     currentEquipmentView = view;
-    accountAuditState.target = view.auditEmail ? { email: view.auditEmail } : null;
-    accountAuditState.open = false;
+    resetAccountAuditTarget(view.auditEmail ? { email: view.auditEmail } : null);
     currentPhotos = view.photos ?? [];
     equipmentEditHandler = view.onEdit ?? null;
     content.innerHTML = renderEquipment(view);

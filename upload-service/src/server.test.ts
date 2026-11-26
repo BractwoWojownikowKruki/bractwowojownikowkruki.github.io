@@ -9638,20 +9638,38 @@ test('GET /admin/members/account-audit returns events about the account and reje
   await executeAuditedFirestoreMutation(firestore, {
     action: 'membership.status.approved', actor: { email: 'admin@gmail.com' },
     resource: { kind: 'member', key: 'member:maja@example.test', display: 'member' },
-    changes: [{ field: 'targetEmail', after: 'maja@example.test' }, { field: 'status', after: 'approved' }],
+    changes: [{ field: 'status', after: 'approved' }],
   }, async () => {}, { createId: () => 'account-approved', now: () => new Date('2026-01-02T00:00:00.000Z') });
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'role.granted', actor: { email: 'admin@gmail.com' },
+    resource: { kind: 'member', key: 'member:maja@example.test', display: 'target' },
+    changes: [{ field: 'roles', before: 'Brak', after: 'Admin' }],
+  }, async () => {}, { createId: () => 'account-role', now: () => new Date('2026-01-02T12:00:00.000Z') });
   await executeAuditedFirestoreMutation(firestore, {
     action: 'person.created', actor: { email: 'admin@gmail.com' },
     resource: { kind: 'person', key: 'person:companion-1', display: 'Antek' },
     changes: [{ field: 'ownerPersonId', after: 'maja@example.test' }, { field: 'nickname', after: 'Antek' }],
   }, async () => {}, { createId: () => 'companion-connected', now: () => new Date('2026-01-03T00:00:00.000Z') });
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'profile.notifications.updated', actor: { email: 'maja@example.test' },
+    resource: { kind: 'member', key: 'member:maja@example.test', display: 'Maja' },
+    changes: [{ field: 'emailNotifications', before: true, after: false }],
+  }, async () => {}, { createId: () => 'self-notification', now: () => new Date('2026-01-03T12:00:00.000Z') });
   await seedAuditEvent(firestore, 'actor-only', '2026-01-04T00:00:00.000Z');
   const deps = makeDeps({ firestore });
   await withServer(deps, async baseUrl => {
-    const res = await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test`);
+    let res = await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test&limit=1`);
     assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.deepEqual(body.rows.map((row: { id: string }) => row.id), ['companion-connected', 'account-approved']);
+    const ids: string[] = [];
+    let body = await res.json();
+    ids.push(...body.rows.map((row: { id: string }) => row.id));
+    while (body.nextCursor) {
+      res = await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test&limit=1&cursor=${encodeURIComponent(body.nextCursor)}`);
+      assert.equal(res.status, 200);
+      body = await res.json();
+      ids.push(...body.rows.map((row: { id: string }) => row.id));
+    }
+    assert.deepEqual(ids, ['companion-connected', 'account-role', 'account-approved']);
     assert.equal((await fetch(`${baseUrl}/admin/members/account-audit`)).status, 400);
   });
 
@@ -9661,6 +9679,21 @@ test('GET /admin/members/account-audit returns events about the account and reje
   });
   await withServer(nonStaffDeps, async baseUrl => {
     assert.equal((await fetch(`${baseUrl}/admin/members/account-audit?email=maja%40example.test`)).status, 403);
+  });
+});
+
+test('GET /admin/members/account-audit finds accountless person history by exact person ID', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await executeAuditedFirestoreMutation(firestore, {
+    action: 'person.updated', actor: { email: 'staff@example.test' },
+    resource: { kind: 'person', key: 'person:person-42', display: 'Antek' },
+    changes: [{ field: 'nickname', before: 'Antoś', after: 'Antek' }],
+  }, async () => {}, { createId: () => 'person-history', now: () => new Date('2026-01-02T00:00:00.000Z') });
+  const deps = makeDeps({ firestore });
+  await withServer(deps, async baseUrl => {
+    const res = await fetch(`${baseUrl}/admin/members/account-audit?personId=person-42`);
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).rows.map((row: { id: string }) => row.id), ['person-history']);
   });
 });
 
@@ -10476,8 +10509,9 @@ test('GET /equipment exposes account-audit capability only to managers', async (
   });
   const staff = makeDeps({ firestore });
   await withServer(staff, async baseUrl => {
-    const { equipment } = await (await fetch(`${baseUrl}/equipment`)).json();
+    const { equipment, canViewAccountAudit } = await (await fetch(`${baseUrl}/equipment`)).json();
     assert.equal(equipment[0]?.canViewAccountAudit, true);
+    assert.equal(canViewAccountAudit, true);
   });
   const member = makeDeps({
     firestore,
@@ -10485,8 +10519,9 @@ test('GET /equipment exposes account-audit capability only to managers', async (
     authenticateAdmin: async () => { throw new AuthError('Forbidden', 403); },
   });
   await withServer(member, async baseUrl => {
-    const { equipment } = await (await fetch(`${baseUrl}/equipment`)).json();
+    const { equipment, canViewAccountAudit } = await (await fetch(`${baseUrl}/equipment`)).json();
     assert.equal(equipment[0]?.canViewAccountAudit, false);
+    assert.equal(canViewAccountAudit, false);
   });
 });
 
