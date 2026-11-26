@@ -154,6 +154,26 @@ test('findDuplicateAccountlessPersons matches nickname or full name case-insensi
   assert.equal(emptyNameMatches.length, 0, 'empty names must not match legacy records with empty names');
 });
 
+test('findDuplicateAccountlessPersons sorts matches by Polish full name, then nickname', async () => {
+  const client = createInMemoryFirestoreClient();
+  await client.setDoc('persons', 'z-name', {
+    personId: 'z-name', ksywka: 'duplicate', firstName: 'Żaneta', lastName: 'Nowak', email: null, mergedInto: null,
+  } as never);
+  await client.setDoc('persons', 'a-name', {
+    personId: 'a-name', ksywka: 'duplicate', firstName: 'Anna', lastName: 'Nowak', email: null, mergedInto: null,
+  } as never);
+  await client.setDoc('persons', 'same-name-z', {
+    personId: 'same-name-z', ksywka: 'Zorro', firstName: 'Ewa', lastName: 'Lis', email: null, mergedInto: null,
+  } as never);
+  await client.setDoc('persons', 'same-name-a', {
+    personId: 'same-name-a', ksywka: 'Aga', firstName: 'Ewa', lastName: 'Lis', email: null, mergedInto: null,
+  } as never);
+
+  const matches = await findDuplicateAccountlessPersons(client, { ksywka: 'duplicate', firstName: 'Ewa', lastName: 'Lis' });
+
+  assert.deepEqual(matches.map((person) => person.personId), ['a-name', 'same-name-a', 'same-name-z', 'z-name']);
+});
+
 test('weapon rule: Niewiasta and Bobo never keep a weapon list', async () => {
   assert.equal(weaponAllowedForCategory('niewiasta'), false);
   assert.equal(weaponAllowedForCategory('bobo'), false);

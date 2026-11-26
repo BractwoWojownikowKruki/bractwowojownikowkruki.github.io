@@ -145,6 +145,12 @@ export async function findDuplicateAccountlessPersons(
         && normalizePersonComparison(person.firstName) === firstName
         && normalizePersonComparison(person.lastName) === lastName;
       return nicknameMatches || fullNameMatches;
+    })
+    .sort((left, right) => {
+      const leftFullName = `${left.firstName ?? ''} ${left.lastName ?? ''}`.trim();
+      const rightFullName = `${right.firstName ?? ''} ${right.lastName ?? ''}`.trim();
+      return leftFullName.localeCompare(rightFullName, 'pl-PL', { sensitivity: 'base' })
+        || (left.ksywka ?? '').localeCompare(right.ksywka ?? '', 'pl-PL', { sensitivity: 'base' });
     });
 }
 
