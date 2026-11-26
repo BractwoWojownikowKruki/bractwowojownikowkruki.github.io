@@ -173,6 +173,21 @@ test('focusAfterApply moves focus to the replacement control after the view upda
   assert.equal((replacement.focusedWith as { preventScroll: boolean }).preventScroll, true);
 });
 
+test('a focus lookup failure does not turn a successful save into a refresh error', async () => {
+  const harness = createHarness();
+  const feedback = await loadMutationFeedback(harness);
+  let applied = false;
+  const result = await feedback.confirmed({
+    execute: async () => 'saved',
+    apply: async () => { applied = true; },
+    focusAfterApply: () => { throw new Error('focus lookup failed'); },
+    shouldShowCheck: () => false,
+  });
+  assert.equal(result, 'saved');
+  assert.equal(applied, true);
+  assert.equal(harness.created.some((element) => element.className === 'mutation-feedback-error'), false);
+});
+
 test('replaces a previous check instead of stacking a new one on repeated saves', async () => {
   const harness = createHarness();
   const feedback = await loadMutationFeedback(harness);

@@ -166,8 +166,12 @@
 
     try {
       await apply(result);
-      const focusTarget = await focusAfterApply?.(result);
-      focusTarget?.focus?.({ preventScroll: true });
+      try {
+        const focusTarget = await focusAfterApply?.(result);
+        focusTarget?.focus?.({ preventScroll: true });
+      } catch (_) {
+        // Focus is best-effort; a lookup failure must not report a failed save after apply succeeded.
+      }
       if (shouldShowCheck?.(result) === false) return result;
     } catch (error) {
       showRefreshError(connectedErrorAnchor(feedbackAnchor), refreshFragment, viewRoot || feedbackAnchor);

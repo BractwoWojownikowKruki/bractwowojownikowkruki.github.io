@@ -24,6 +24,9 @@ class Element {
   disabled = false;
   checked = false;
   dataset: Record<string, string> = {};
+  focused = false;
+  lastQuerySelector = '';
+  lastQueryTarget: Element | null = null;
   classList = { toggle: () => {} };
   private listeners = new Map<string, Array<(event: any) => unknown>>();
 
@@ -40,6 +43,12 @@ class Element {
   async dispatch(type: string, event: Record<string, unknown> = {}) {
     await Promise.all((this.listeners.get(type) ?? []).map((listener) => listener({ preventDefault: () => {}, target: this, ...event })));
   }
+  querySelector(selector: string) {
+    this.lastQuerySelector = selector;
+    this.lastQueryTarget = new Element(selector);
+    return this.lastQueryTarget;
+  }
+  focus() { this.focused = true; }
   scrollIntoView() {}
 }
 
@@ -112,6 +121,7 @@ function createHarness(options: HarnessOptions = {}) {
     Array,
     JSON,
     Date,
+    CSS: { escape: (value: string) => value },
     encodeURIComponent,
     window: {
       location: { search: '' },
@@ -130,7 +140,7 @@ function createHarness(options: HarnessOptions = {}) {
           busy.active += 1;
           return () => { busy.active -= 1; };
         },
-        confirmed: async ({ execute, apply, rollback }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown }) => {
+        confirmed: async ({ execute, apply, rollback, focusAfterApply }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown; focusAfterApply?: (result: unknown) => Element | null }) => {
           let result: unknown;
           try {
             result = await execute();
@@ -139,6 +149,7 @@ function createHarness(options: HarnessOptions = {}) {
             throw error;
           }
           apply(result);
+          focusAfterApply?.(result)?.focus();
         },
       },
     },
@@ -364,6 +375,9 @@ test('a matching quick-add asks the shared prompt and retries with duplicateConf
   assert.equal(posts.length, 2);
   assert.equal(JSON.parse(String(posts[0].options.body)).duplicateConfirmed, undefined);
   assert.equal(JSON.parse(String(posts[1].options.body)).duplicateConfirmed, true);
+  const eventList = harness.elements.get('events-list')!;
+  assert.match(eventList.lastQuerySelector, /\.lw-attend-toggle\[data-event-id="e1"\]/);
+  assert.equal(eventList.lastQueryTarget?.focused, true);
 });
 
 test('a failed quick-add keeps the panel open and reports the error', async () => {

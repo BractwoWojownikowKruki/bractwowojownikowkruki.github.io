@@ -30,6 +30,7 @@ class Element {
   href = '';
   disabled = false;
   checked = false;
+  focused = false;
   dataset: Record<string, string> = {};
   private attributes = new Map<string, string>();
   private listeners = new Map<string, Array<(event: any) => unknown>>();
@@ -53,6 +54,7 @@ class Element {
   setAttribute(name: string, value: string) { this.attributes.set(name, value); }
   getAttribute(name: string) { return this.attributes.get(name) ?? null; }
   removeAttribute(name: string) { this.attributes.delete(name); }
+  focus() { this.focused = true; }
   querySelectorAll() { return []; }
   scrollIntoView() {}
 }
@@ -73,6 +75,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   const canManageSkladki = options.canManageSkladki ?? true;
   const canManagePeople = options.canManagePeople ?? false;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
+  const focusTargets: Array<{ selector: string; focused: boolean }> = [];
   // Mirrors index.html's default: "Zgłoszeni + ja" starts checked, "Niezgłoszeni" unchecked.
   elements.get('roster-filter-zgloszeni')!.checked = true;
   const apiCalls: Array<{ url: string; options: Record<string, unknown> }> = [];
@@ -112,6 +115,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     Array,
     JSON,
     Date: FixedDate,
+    CSS: { escape: (value: string) => value },
     encodeURIComponent,
     window: {
       location: { search: '?eventId=e1' },
@@ -127,7 +131,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
           : '',
       },
       MutationFeedback: {
-        confirmed: async ({ execute, apply, rollback, skipApplyWhen }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown; skipApplyWhen?: (result: unknown) => boolean }) => {
+        confirmed: async ({ execute, apply, rollback, skipApplyWhen, focusAfterApply }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => { focus(): void } | null }) => {
           let result: unknown;
           try {
             result = await execute();
@@ -137,12 +141,14 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
           }
           if (skipApplyWhen?.(result)) return result;
           apply(result);
+          focusAfterApply?.(result)?.focus();
           return result;
         },
       },
     },
     document: {
       getElementById: (id: string) => elements.get(id) ?? null,
+      querySelector: (selector: string) => { const target = { selector, focused: false, focus() { this.focused = true; } }; focusTargets.push(target); return target; },
       querySelectorAll: () => [],
       addEventListener: () => {},
     },
@@ -194,6 +200,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     setMutationResult(result: unknown) { mutationResult = result; mutationError = null; },
     setMutationError(error: Error) { mutationError = error; },
     cancelNextDuplicatePrompt() { cancelDuplicatePrompt = true; },
+    focusTargets,
   };
 }
 
@@ -760,6 +767,8 @@ test('adding a new person posts quick-add with ksywka+lastName+firstName+categor
   assert.match(roster.innerHTML, /data-person-id="new-uuid-1"/);
   assert.match(roster.innerHTML, /person-pill-icon/);
   assert.doesNotMatch(roster.innerHTML, /class="lw-inline-form"/);
+  assert.match(harness.focusTargets[0]?.selector ?? '', /data-person-id="new-uuid-1"/);
+  assert.equal(harness.focusTargets[0]?.focused, true);
 });
 
 test('a failed quick-add changes nothing and reports the error', async () => {

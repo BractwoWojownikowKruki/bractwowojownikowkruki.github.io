@@ -61,7 +61,7 @@ function load(action: 'confirm' | 'cancel' | 'escape') {
 const matches = [{ firstName: 'Iga', lastName: 'Kruk', nickname: '<Wilk>', section: 'Sekcja A', owner: 'Właściciel' }];
 
 test('a match opens an informational prompt and retries only after explicit confirmation', async () => {
-  const { prompt, dialogs } = load('confirm');
+  const { prompt, dialogs, trigger } = load('confirm');
   const calls: boolean[] = [];
   const result = await prompt.run(async (confirmed: boolean) => {
     calls.push(confirmed);
@@ -75,10 +75,11 @@ test('a match opens an informational prompt and retries only after explicit conf
   assert.match(dialogs[0].innerHTML, /Właściciel: Właściciel/);
   assert.match(dialogs[0].innerHTML, /&lt;Wilk&gt;/);
   assert.doesNotMatch(dialogs[0].innerHTML, /<button[^>]*>Iga Kruk/);
+  assert.equal(trigger.focusCount, 1);
 });
 
 test('cancelling a duplicate prompt does not retry registration', async () => {
-  const { prompt } = load('cancel');
+  const { prompt, trigger } = load('cancel');
   let calls = 0;
   const result = await prompt.run(async () => {
     calls += 1;
@@ -86,6 +87,7 @@ test('cancelling a duplicate prompt does not retry registration', async () => {
   });
   assert.equal(calls, 1);
   assert.equal(prompt.wasCancelled(result), true);
+  assert.equal(trigger.focusCount, 1);
 });
 
 test('Escape cancels the prompt and does not retry registration', async () => {
