@@ -5,11 +5,11 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/shared/person-registration-prompt.js', import.meta.url), 'utf8');
 const registrationRoutes = [
-  ['../public/lista-wyjazdowa/index.html', '../public/lista-wyjazdowa/lista-wyjazdowa.js', '../shared/person-registration-prompt.js'],
-  ['../public/lista-wyjazdowa/wyjazd/index.html', '../public/lista-wyjazdowa/wyjazd/wyjazd.js', '../../shared/person-registration-prompt.js'],
-  ['../public/app/index.html', '../public/app/app.js', '../shared/person-registration-prompt.js'],
-  ['../public/profil/index.html', '../public/profil/profil.js', '../shared/person-registration-prompt.js'],
-  ['../public/admin/zarzadzanie-ludzmi/index.html', '../public/admin/zarzadzanie-ludzmi/zarzadzanie-ludzmi.js', '../../shared/person-registration-prompt.js'],
+  ['../public/lista-wyjazdowa/index.html', '../public/lista-wyjazdowa/lista-wyjazdowa.js', '../shared/person-registration-prompt.js', 'eventRowAnchor(body.eventId)'],
+  ['../public/lista-wyjazdowa/wyjazd/index.html', '../public/lista-wyjazdowa/wyjazd/wyjazd.js', '../../shared/person-registration-prompt.js', '.lw-attend-toggle[data-person-id='],
+  ['../public/app/index.html', '../public/app/app.js', '../shared/person-registration-prompt.js', 'dashEventAnchor(body.eventId)'],
+  ['../public/profil/index.html', '../public/profil/profil.js', '../shared/person-registration-prompt.js', '.person-row[data-person-id='],
+  ['../public/admin/zarzadzanie-ludzmi/index.html', '../public/admin/zarzadzanie-ludzmi/zarzadzanie-ludzmi.js', '../../shared/person-registration-prompt.js', 'accountless-add-toggle'],
 ] as const;
 
 class FakeElement {
@@ -120,13 +120,15 @@ test('ordinary registration errors pass through without showing a prompt', async
 });
 
 test('every person registration page loads the shared prompt and invokes it from its create flow', () => {
-  for (const [pagePath, scriptPath, promptPath] of registrationRoutes) {
+  for (const [pagePath, scriptPath, promptPath, focusMarker] of registrationRoutes) {
     const page = readFileSync(new URL(pagePath, import.meta.url), 'utf8');
     const pageScript = readFileSync(new URL(scriptPath, import.meta.url), 'utf8');
     assert.ok(page.includes(`src="${promptPath}"`), `${pagePath} must load the shared prompt`);
     assert.match(pageScript, /PersonRegistrationPrompt\.run\(/, `${scriptPath} must invoke the shared prompt`);
     assert.match(pageScript, /duplicateConfirmed: true/, `${scriptPath} must confirm the retry to the server`);
     assert.match(pageScript, /skipApplyWhen:/, `${scriptPath} must leave the view unchanged when the prompt is cancelled`);
+    assert.match(pageScript, /focusAfterApply:/, `${scriptPath} must restore focus after the new view is rendered`);
+    assert.ok(pageScript.includes(focusMarker), `${scriptPath} must target its correct post-registration control`);
     if (scriptPath.includes('/profil/') || scriptPath.includes('/zarzadzanie-ludzmi/')) {
       assert.match(pageScript, /CompanionAdd\.categoryOptionsHtml\(/, `${scriptPath} must use the shared category option renderer`);
     }
