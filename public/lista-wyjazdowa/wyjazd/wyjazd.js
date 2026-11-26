@@ -1082,17 +1082,18 @@ async function toggleEventEquipment(equipmentId, nextGoing, control) {
 async function quickAddCompanion(body, control) {
   clearError();
   try {
-    await window.MutationFeedback.confirmed({
+    await window.PersonRegistrationPrompt.confirmed({
       control,
       fallbackAnchor: 'toast',
-      execute: () => window.PersonRegistrationPrompt.run((duplicateConfirmed) => apiFetch(
+      busyMessage: body.mode === 'new' ? undefined : null,
+      fallbackFocus: () => document.getElementById(body.mode === 'new' ? 'lw-inline-new-name' : 'lw-inline-existing-select'),
+      execute: (duplicateConfirmed) => apiFetch(
       '/lista-wyjazdowa/signups/quick-add',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
       showReauth,
       hideReauth,
-      ), { fallbackFocus: () => document.getElementById(body.mode === 'new' ? 'lw-inline-new-name' : 'lw-inline-existing-select') }),
+      ),
       apply: (result) => applyQuickAdd(result),
-      skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
       focusAfterApply: (result) => {
         const personId = result?.person?.personId ?? result?.signup?.memberEmail;
         return (personId ? document.querySelector(`#roster-content .lw-attend-toggle[data-person-id="${CSS.escape(String(personId))}"]`) : null)
@@ -1101,6 +1102,11 @@ async function quickAddCompanion(body, control) {
       },
       viewRoot: document.getElementById('main-content'),
       refreshFragment: loadAll,
+      successDetails: (result) => body.mode === 'new' ? {
+        person: result?.person,
+        statusLabel: categoryLabelById.get(result?.person?.categoryId),
+        sectionLabel: sectionLabelById.get(result?.person?.sectionId),
+      } : null,
     });
   } catch (err) {
     showError(`Nie udało się dodać osoby: ${err.message}`);

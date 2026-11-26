@@ -159,6 +159,11 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
           return execute(true);
         }
       },
+      confirmed: async (options: any) => windowObj.MutationFeedback.confirmed({
+        ...options,
+        execute: () => windowObj.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
+        skipApplyWhen: (result: unknown) => windowObj.PersonRegistrationPrompt.wasCancelled(result) || options.skipApplyWhen?.(result),
+      }),
       wasCancelled: (result: unknown) => result === cancelledDuplicate,
     },
     alert: () => {},

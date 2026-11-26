@@ -130,6 +130,11 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
             return execute(true);
           }
         },
+        confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
+          ...options,
+          execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
+          skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result) || options.skipApplyWhen?.(result),
+        }),
         wasCancelled: (result: unknown) => result === cancelledDuplicatePrompt,
       },
       confirm: () => true,

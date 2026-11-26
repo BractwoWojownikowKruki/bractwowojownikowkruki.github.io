@@ -948,25 +948,33 @@ async function loadPersons() {
 
 // Every person write goes through the shared confirmed-mutation helper: the list is only re-read
 // after the server confirms the write, and a failure leaves the form untouched and reports it.
-async function runPersonMutation(control, execute) {
+async function runPersonMutation(control, execute, registrationOptions = null) {
   if (control?.disabled) return;
   if (control) control.disabled = true;
   const panel = document.getElementById('persons-panel');
   try {
-    await window.MutationFeedback.confirmed({
+    const feedbackOptions = {
       control,
       fallbackAnchor: 'toast',
       viewRoot: panel,
       refreshFragment: loadPersons,
-      execute,
       apply: () => loadPersons(),
-      skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
       focusAfterApply: (result) => {
         const personId = result?.person?.personId;
         return (personId ? document.querySelector(`.person-row[data-person-id="${CSS.escape(String(personId))}"] .person-first-name`) : null)
           ?? document.getElementById('add-person-row');
       },
-    });
+    };
+    if (registrationOptions) {
+      await window.PersonRegistrationPrompt.confirmed({
+        ...feedbackOptions,
+        execute,
+        fallbackFocus: registrationOptions.fallbackFocus,
+        successDetails: registrationOptions.successDetails,
+      });
+    } else {
+      await window.MutationFeedback.confirmed({ ...feedbackOptions, execute });
+    }
   } finally {
     if (control) control.disabled = false;
   }
@@ -974,13 +982,18 @@ async function runPersonMutation(control, execute) {
 
 async function createPerson(fields, control) {
   try {
-    await runPersonMutation(control, () => window.PersonRegistrationPrompt.run((duplicateConfirmed) => apiFetch('/lista-wyjazdowa/persons', {
+    await runPersonMutation(control, (duplicateConfirmed) => apiFetch('/lista-wyjazdowa/persons', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...fields, ownerPersonId: viewerEmail.toLowerCase(), ...(duplicateConfirmed ? { duplicateConfirmed: true } : {}) }),
     }, showReauth, hideReauth), {
       fallbackFocus: () => control?.closest?.('.person-row')?.querySelector('.person-first-name') ?? null,
-    }));
+      successDetails: (result) => ({
+        person: result?.person,
+        statusLabel: personLookupLists.categories.find((category) => category.id === result?.person?.categoryId)?.label,
+        sectionLabel: personLookupLists.sections.find((section) => section.id === result?.person?.sectionId)?.label,
+      }),
+    });
   } catch (err) {
     showPersonsError(`Nie udało się dodać osoby: ${err.message}`);
   }

@@ -63,6 +63,7 @@ let viewerPersonId = null;
 let viewerHasAccount = false;
 let currentRoster = [];
 let categoryOptions = [];
+let sectionOptions = [];
 let panelSignups = [];
 let openAddPanelEventId = null;
 let companionDataPromise = null;
@@ -93,6 +94,7 @@ function ensureCompanionData() {
     ]).then(([rosterResult, lookup]) => {
       currentRoster = rosterResult.roster;
       categoryOptions = lookup.categories ?? [];
+      sectionOptions = lookup.sections ?? [];
     }).catch((err) => {
       // Reset so a failed first attempt can be retried by clicking "+" again.
       companionDataPromise = null;
@@ -257,20 +259,26 @@ async function quickAddCompanion(body, control) {
   const errorEl = document.getElementById('events-error');
   errorEl.hidden = true;
   try {
-    await window.MutationFeedback.confirmed({
+    await window.PersonRegistrationPrompt.confirmed({
       control,
       fallbackAnchor: eventRowAnchor(body.eventId),
-      execute: () => window.PersonRegistrationPrompt.run((duplicateConfirmed) => apiFetch(
+      busyMessage: body.mode === 'new' ? undefined : null,
+      fallbackFocus: () => document.getElementById(body.mode === 'new' ? 'lw-inline-new-name' : 'lw-inline-existing-select'),
+      execute: (duplicateConfirmed) => apiFetch(
         '/lista-wyjazdowa/signups/quick-add',
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
         showReauth,
         hideReauth,
-      ), { fallbackFocus: () => document.getElementById(body.mode === 'new' ? 'lw-inline-new-name' : 'lw-inline-existing-select') }),
+      ),
       apply: (result) => applyQuickAdd(result),
-      skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
       focusAfterApply: () => eventRowAnchor(body.eventId)(),
       viewRoot: document.getElementById('events-panel'),
       refreshFragment: loadEvents,
+      successDetails: (result) => body.mode === 'new' ? {
+        person: result?.person,
+        statusLabel: categoryOptions.find((category) => category.id === result?.person?.categoryId)?.label,
+        sectionLabel: sectionOptions.find((section) => section.id === result?.person?.sectionId)?.label,
+      } : null,
     });
   } catch (err) {
     errorEl.textContent = `Nie udało się dodać osoby: ${err.message}`;
@@ -710,6 +718,7 @@ initGoogleSignIn({
     viewerHasAccount = false;
     currentRoster = [];
     categoryOptions = [];
+    sectionOptions = [];
     panelSignups = [];
     openAddPanelEventId = null;
     companionDataPromise = null;

@@ -19,7 +19,13 @@ function loadProfil(apiFetch: () => Promise<unknown> = async () => { throw new E
       },
     },
     // MutationFeedback.confirmed rethrows the original error (public/mutation-feedback.js), so a plain pass-through is faithful here.
-    window: { MutationFeedback: { confirmed: async ({ execute }: { execute: () => Promise<unknown> }) => execute() } },
+    window: {
+      MutationFeedback: {
+        showBusy: () => () => {},
+        confirmed: async ({ execute }: { execute: () => Promise<unknown> }) => execute(),
+      },
+      PersonRegistrationPrompt: { run: async (execute: (confirmed: boolean) => Promise<unknown>) => execute(false), wasCancelled: () => false },
+    },
     apiFetch,
     initGoogleSignIn: () => {},
     Cropper: class {},
@@ -27,7 +33,18 @@ function loadProfil(apiFetch: () => Promise<unknown> = async () => { throw new E
     URLSearchParams, Map, Array, JSON, Date, encodeURIComponent,
   };
   vm.runInNewContext(profilSource, context, { filename: 'profil.js' });
+  attachConfirmedRegistration(context);
   return { context, elements };
+}
+
+function attachConfirmedRegistration(context: Record<string, any>): void {
+  const window = context.window;
+  const prompt = window.PersonRegistrationPrompt;
+  prompt.confirmed = (options: any) => window.MutationFeedback.confirmed({
+    ...options,
+    execute: () => prompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
+    skipApplyWhen: (result: unknown) => prompt.wasCancelled(result),
+  });
 }
 
 // KRKG-127: a member's photo upload died with the raw browser text "Błąd: Failed to fetch" when the
@@ -92,6 +109,7 @@ test('profile person registration retries with duplicateConfirmed after explicit
     },
     wasCancelled: () => false,
   };
+  attachConfirmedRegistration(context);
   vm.runInContext("viewerEmail = 'owner@example.test'", context);
   await (context.createPerson as (fields: Record<string, string>, control: unknown) => Promise<void>)(
     { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' },
@@ -119,6 +137,7 @@ test('profile duplicate cancellation restores focus to the companion form field'
     },
     wasCancelled: (result: unknown) => (result as { cancelled?: boolean })?.cancelled === true,
   };
+  attachConfirmedRegistration(context);
   const field = { focus: () => { focused += 1; } };
   const control = { closest: (selector: string) => selector === '.person-row' ? { querySelector: () => field } : null };
   vm.runInContext("viewerEmail = 'owner@example.test'", context);
@@ -142,6 +161,7 @@ test('profile person registration ignores a second submit while the first reques
     return {};
   });
   (context as any).window.PersonRegistrationPrompt = { run: (execute: (confirmed: boolean) => Promise<unknown>) => execute(false), wasCancelled: () => false };
+  attachConfirmedRegistration(context);
   vm.runInContext("viewerEmail = 'owner@example.test'", context);
   const control = { disabled: false };
   const fields = { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' };
@@ -177,6 +197,7 @@ test('profile person registration ignores a second submit while the confirmed re
     },
     wasCancelled: () => false,
   };
+  attachConfirmedRegistration(context);
   vm.runInContext("viewerEmail = 'owner@example.test'", context);
   const control = { disabled: false };
   const fields = { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' };

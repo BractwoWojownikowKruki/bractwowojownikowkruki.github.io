@@ -1237,6 +1237,64 @@
   background: color-mix(in srgb, var(--gold, #d7b75c) 20%, var(--surface-deep, #111613));
 }
 
+.person-registration-success-dialog {
+  width: min(92vw, 26rem);
+  padding: 0;
+  color-scheme: dark;
+  color: var(--text, #f4f0e6);
+  background: var(--surface, #1c211e);
+  border: 1px solid var(--border, #536057);
+  border-radius: 14px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+
+.person-registration-success-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(3px);
+}
+
+.person-registration-success-dialog__content {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.2rem;
+}
+
+.person-registration-success-dialog__content h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.person-registration-success-dialog__details {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--text-muted, #a89070);
+}
+
+.person-registration-success-dialog__details p {
+  margin: 0;
+}
+
+.person-registration-success-dialog__details strong {
+  color: var(--text, #f4f0e6);
+}
+
+.person-registration-success-dialog__done {
+  justify-self: end;
+  min-height: 2.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--gold, #d7b75c);
+  border-radius: 8px;
+  color: inherit;
+  background: color-mix(in srgb, var(--gold, #d7b75c) 20%, var(--surface-deep, #111613));
+  font: inherit;
+  cursor: pointer;
+}
+
+.person-registration-success-dialog__done:focus-visible {
+  outline: 2px solid var(--gold, #d7b75c);
+  outline-offset: 2px;
+}
+
 @media (max-width: 400px) {
   .person-registration-dialog__actions {
     align-items: stretch;

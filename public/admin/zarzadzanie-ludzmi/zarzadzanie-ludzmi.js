@@ -1088,18 +1088,30 @@ async function runAccountlessMutation(
   execute,
   refreshRecords = true,
   focusAfterApply = () => control?.isConnected ? control : document.getElementById('accountless-add-toggle'),
+  registrationOptions = null,
 ) {
   const refreshFragment = refreshRecords ? loadAccountless : async () => {};
-  return window.MutationFeedback.confirmed({
+  const feedbackOptions = {
     control,
     fallbackAnchor: 'toast',
     toast: !refreshRecords,
     viewRoot: document.getElementById('accountless-section'),
     refreshFragment,
-    execute,
     apply: () => refreshFragment(),
-    skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
     focusAfterApply,
+  };
+  if (registrationOptions) {
+    return window.PersonRegistrationPrompt.confirmed({
+      ...feedbackOptions,
+      execute,
+      fallbackFocus: registrationOptions.fallbackFocus,
+      successDetails: registrationOptions.successDetails,
+    });
+  }
+  return window.MutationFeedback.confirmed({
+    ...feedbackOptions,
+    execute,
+    skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
   });
 }
 
@@ -1128,25 +1140,37 @@ async function submitAccountlessForm() {
   saveButton.disabled = true;
   const editing = editingAccountlessPersonId;
   try {
-    const result = await runAccountlessMutation(saveButton, () => editing
-      ? apiFetch(
+    const focusAfterApply = () => document.getElementById('accountless-add-toggle');
+    const result = editing
+      ? await runAccountlessMutation(saveButton, () => apiFetch(
         '/lista-wyjazdowa/persons',
         { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personId: editing, ...fields }) },
         showReauth,
         hideReauth,
-      )
-      : window.PersonRegistrationPrompt.run((duplicateConfirmed) => apiFetch(
-      '/lista-wyjazdowa/persons',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...fields, ...(isAccountantOnlyCaller ? { ownerPersonId } : {}), ...(duplicateConfirmed ? { duplicateConfirmed: true } : {}) }),
-      },
-      showReauth,
-      hideReauth,
-    ), {
-      fallbackFocus: () => document.getElementById('accountless-ksywka'),
-    }), true, () => document.getElementById('accountless-add-toggle'));
+      ))
+      : await runAccountlessMutation(
+        saveButton,
+        (duplicateConfirmed) => apiFetch(
+          '/lista-wyjazdowa/persons',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...fields, ...(isAccountantOnlyCaller ? { ownerPersonId } : {}), ...(duplicateConfirmed ? { duplicateConfirmed: true } : {}) }),
+          },
+          showReauth,
+          hideReauth,
+        ),
+        true,
+        focusAfterApply,
+        {
+          fallbackFocus: () => document.getElementById('accountless-ksywka'),
+          successDetails: (created) => ({
+            person: created?.person,
+            statusLabel: accountlessCache.categories.find((category) => category.id === created?.person?.categoryId)?.label,
+            sectionLabel: accountlessCache.sections.find((section) => section.id === created?.person?.sectionId)?.label,
+          }),
+        },
+      );
     if (!editing && window.PersonRegistrationPrompt.wasCancelled(result)) return;
     document.getElementById('accountless-form-panel').hidden = true;
     resetAccountlessForm();

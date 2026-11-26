@@ -54,6 +54,11 @@ test('dashboard companion registration confirms a possible duplicate before retr
       }
     },
     wasCancelled: () => false,
+    confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
+      ...options,
+      execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
+      skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result),
+    }),
   };
   context.apiFetch = async (_url: string, init: Record<string, unknown>) => {
     requests.push(init);
@@ -92,6 +97,11 @@ test('dashboard companion duplicate cancellation keeps the panel and focuses its
       }
     },
     wasCancelled: (result: unknown) => result === cancelled,
+    confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
+      ...options,
+      execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
+      skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result),
+    }),
   };
   context.apiFetch = async (_url: string, init: Record<string, unknown>) => {
     requests.push(init);

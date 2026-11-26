@@ -4,6 +4,8 @@
 (function () {
   const CANCELLED = Object.freeze({ cancelledDuplicateRegistration: true });
   let dialogSequence = 0;
+  const inFlightControls = new WeakSet();
+  const BUSY_MESSAGE = 'Rejestruję osobę w apce…';
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -85,5 +87,115 @@
     return result === CANCELLED;
   }
 
-  window.PersonRegistrationPrompt = { run, wasCancelled };
+  function showSuccess(details, fallbackFocus) {
+    const person = details?.person;
+    if (!person) return Promise.resolve();
+    const fullName = `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim();
+    const nickname = person.ksywka ?? person.nickname;
+    const status = details.statusLabel ?? person.categoryLabel ?? person.categoryId;
+    const section = details.sectionLabel ?? person.sectionLabel;
+    const rows = [
+      fullName ? `<p><strong>Imię i nazwisko:</strong> ${escapeHtml(fullName)}</p>` : '',
+      nickname ? `<p><strong>Ksywka:</strong> ${escapeHtml(nickname)}</p>` : '',
+      status ? `<p><strong>Status:</strong> ${escapeHtml(status)}</p>` : '',
+      section ? `<p><strong>Sekcja:</strong> ${escapeHtml(section)}</p>` : '',
+    ].filter(Boolean).join('');
+    const activeElement = document.activeElement;
+    const fallbackTarget = typeof fallbackFocus === 'function' ? fallbackFocus() : fallbackFocus;
+    const returnFocus = activeElement && activeElement !== document.body && activeElement.isConnected
+      ? activeElement
+      : fallbackTarget;
+    const dialog = document.createElement('dialog');
+    const sequence = ++dialogSequence;
+    dialog.className = 'person-registration-success-dialog';
+    dialog.setAttribute('aria-labelledby', `person-registration-success-title-${sequence}`);
+    dialog.setAttribute('aria-describedby', `person-registration-success-details-${sequence}`);
+    dialog.innerHTML = `<div class="person-registration-success-dialog__content">
+      <h2 id="person-registration-success-title-${sequence}">Osoba została zarejestrowana w apce</h2>
+      <div id="person-registration-success-details-${sequence}" class="person-registration-success-dialog__details">${rows}</div>
+      <button type="button" class="person-registration-success-dialog__done">Gotowe</button>
+    </div>`;
+    document.body.append(dialog);
+    return new Promise((resolve) => {
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        if (dialog.open) dialog.close();
+        dialog.remove();
+        if (returnFocus?.isConnected && !returnFocus.disabled) returnFocus.focus();
+        resolve();
+      };
+      dialog.querySelector('.person-registration-success-dialog__done').addEventListener('click', finish);
+      dialog.addEventListener('cancel', () => finish(), { once: true });
+      dialog.addEventListener('close', finish, { once: true });
+      dialog.showModal();
+      dialog.querySelector('.person-registration-success-dialog__done').focus();
+    });
+  }
+
+  /**
+   * Run an accountless-person mutation through the shared feedback lifecycle. Each request attempt
+   * owns a blocking busy overlay; duplicate matches suspend it while the informational prompt is
+   * open, and successful creation keeps it until the caller has refreshed its view.
+   */
+  async function confirmed({ execute, fallbackFocus, successDetails, busyMessage = BUSY_MESSAGE, apply, skipApplyWhen, ...feedbackOptions }) {
+    const control = feedbackOptions.control;
+    if (control && inFlightControls.has(control)) return undefined;
+    if (control) inFlightControls.add(control);
+    const originalDisabled = control?.disabled;
+    let hideBusy = null;
+    const releaseBusy = () => {
+      hideBusy?.();
+      hideBusy = null;
+    };
+    const unlockControl = () => {
+      if (control) control.disabled = originalDisabled;
+    };
+    const executeAttempt = async (duplicateConfirmed) => {
+      if (control) control.disabled = true;
+      hideBusy ??= busyMessage ? window.MutationFeedback.showBusy(busyMessage) : () => {};
+      try {
+        return await execute(duplicateConfirmed);
+      } catch (error) {
+        releaseBusy();
+        unlockControl();
+        throw error;
+      }
+    };
+    try {
+      return await window.MutationFeedback.confirmed({
+        ...feedbackOptions,
+        execute: async () => {
+          try {
+            const result = await run(executeAttempt, { fallbackFocus });
+            if (wasCancelled(result)) {
+              releaseBusy();
+              unlockControl();
+            }
+            return result;
+          } catch (error) {
+            releaseBusy();
+            unlockControl();
+            throw error;
+          }
+        },
+        apply: async (result) => {
+          await apply?.(result);
+          releaseBusy();
+          if (!wasCancelled(result) && successDetails) {
+            const successFocus = feedbackOptions.focusAfterApply?.(result) ?? fallbackFocus;
+            await showSuccess(await successDetails(result), successFocus);
+          }
+        },
+        skipApplyWhen: (result) => wasCancelled(result) || skipApplyWhen?.(result),
+      });
+    } finally {
+      releaseBusy();
+      unlockControl();
+      if (control) inFlightControls.delete(control);
+    }
+  }
+
+  window.PersonRegistrationPrompt = { run, confirmed, wasCancelled };
 }());
