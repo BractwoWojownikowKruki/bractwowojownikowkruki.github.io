@@ -68,7 +68,7 @@ function load(action: 'confirm' | 'cancel' | 'escape' | 'close') {
 
 const matches = [
   { firstName: 'Iga', lastName: 'Kruk', nickname: '<Wilk>', section: 'Sekcja A', owner: 'Właściciel' },
-  { firstName: 'Jan', lastName: 'Nowak', nickname: null, section: '—', owner: null },
+  { firstName: 'Jan', lastName: 'Nowak', nickname: null, section: null, owner: null },
 ];
 
 test('a match opens an informational prompt and retries only after explicit confirmation', async () => {
@@ -85,9 +85,10 @@ test('a match opens an informational prompt and retries only after explicit conf
   assert.match(dialogs[0].innerHTML, /Tak, zarejestruj, to zupełnie inna osoba\./);
   assert.match(dialogs[0].innerHTML, /Właściciel: Właściciel/);
   assert.match(dialogs[0].innerHTML, /&lt;Wilk&gt;/);
-  assert.match(dialogs[0].innerHTML, /Sekcja: —/);
-  assert.match(dialogs[0].innerHTML, /Właściciel: —/);
-  assert.equal((dialogs[0].innerHTML.match(/Ksywka:/g) ?? []).length, 1, 'a missing nickname is omitted');
+  const janCandidate = dialogs[0].innerHTML.match(/<li class="person-registration-match">\s*<strong>Jan Nowak<\/strong>[\s\S]*?<\/li>/)?.[0] ?? '';
+  assert.match(janCandidate, /<span>Sekcja: —<\/span>/);
+  assert.match(janCandidate, /<span>Właściciel: —<\/span>/);
+  assert.doesNotMatch(janCandidate, /Ksywka:/, 'a missing nickname is omitted for this person');
   assert.doesNotMatch(dialogs[0].innerHTML, /<button[^>]*>Iga Kruk/);
   assert.equal(trigger.focusCount, 1);
 });
