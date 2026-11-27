@@ -80,7 +80,7 @@ const elementIds = [
   'lw-page-title', 'add-event-form', 'add-event-error',
   // Rendered into #events-list's innerHTML in the real DOM; the stub can't parse that, so the
   // panel's controls are looked up directly by id.
-  'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category',
+  'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category', 'lw-inline-error',
 ];
 
 interface HarnessOptions {
