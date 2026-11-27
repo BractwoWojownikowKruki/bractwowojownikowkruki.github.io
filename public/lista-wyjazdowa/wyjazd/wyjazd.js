@@ -922,9 +922,10 @@ function renderRoster(roster, signups) {
       // so their pill opens the same drawer through the person-keyed endpoint (data-person-id).
       // KRKG-0091: a deactivated person is read-only here - the drawer and the write routes both
       // reject a tombstone, so their pill is plain text (no trigger) and the row has no controls.
-      const namePill = personPillHtml({ name: displayName(member), categoryId: member.categoryId, categoryLabel, accountless: member.accountless === true, subline: personSubline(member) });
+      const memberName = displayName(member);
+      const namePill = personPillHtml({ name: memberName, categoryId: member.categoryId, categoryLabel, accountless: member.accountless === true, subline: personSubline(member) });
       const nameCellHtml = member.deleted
-        ? namePill
+        ? `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}" aria-label="Profil ${escapeAttr(memberName)} (nieaktywne)">${namePill.replace(escapeHtml(memberName), `<s class="lw-inactive-person-name">${escapeHtml(memberName)}</s><small class="lw-inactive-person-label">(nieaktywne)</small>`)}</button>`
         : member.accountless
           ? `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}">
           ${namePill}

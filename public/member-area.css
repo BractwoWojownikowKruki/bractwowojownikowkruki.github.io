@@ -1596,6 +1596,17 @@ button.lw-skladka-icon:disabled {
   overflow-wrap: anywhere;
 }
 
+.lw-inactive-person-name {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.lw-inactive-person-label {
+  margin-left: 0.2rem;
+  font-size: 0.72em;
+  text-decoration: none;
+  white-space: nowrap;
+}
 
 .lw-inline-form-inner button {
   font: inherit;

@@ -7722,7 +7722,7 @@ test('GET /lista-wyjazdowa/roster omits tombstoned people', async () => {
 
 // KRKG-0087: the profile drawer is keyed by e-mail for a member; a person without an account has
 // none, so their drawer reads this person-keyed endpoint instead. Same public fields, read-only.
-test('GET /lista-wyjazdowa/person-profile returns an accountless person and 404s a tombstone', async () => {
+test('GET /lista-wyjazdowa/person-profile returns accountless people read-only, including tombstones', async () => {
   const firestore = makeListaWyjazdowaFirestore();
   firestore.seed('persons', 'person-uuid-1', {
     personId: 'person-uuid-1', ksywka: 'Wilk', firstName: 'Jan', lastName: 'Kowalski',
@@ -7759,7 +7759,11 @@ test('GET /lista-wyjazdowa/person-profile returns an accountless person and 404s
     assert.equal(profile.mainPhoto, null);
     assert.deepEqual(profile.photos, []);
 
-    assert.equal((await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=person-gone`)).status, 404);
+    const goneResponse = await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=person-gone`);
+    assert.equal(goneResponse.status, 200);
+    const { profile: goneProfile } = await goneResponse.json();
+    assert.equal(goneProfile.deleted, true);
+    assert.equal('editor' in goneProfile, false, 'a tombstone never exposes editing capabilities');
     assert.equal((await fetch(`${baseUrl}/lista-wyjazdowa/person-profile?personId=nope`)).status, 404);
   });
 });

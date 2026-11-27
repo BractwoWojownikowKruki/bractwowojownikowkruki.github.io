@@ -639,11 +639,11 @@ test('the event-scoped roster renders an accountless person with the marker and 
   assert.match(row, /data-person-id="gone-uuid-1"/, 'the row is keyed by the person UUID, not the null e-mail');
   assert.match(row, /person-pill-icon/, 'the accountless marker is rendered');
   assert.match(row, /aria-label="osoba bez konta"/);
-  // KRKG-0091: a deactivated person is read-only on the event list - no toggle (it would 404) and
-  // no profile drawer trigger (the drawer 404s a tombstone).
+  // A deactivated person keeps a static historical status, while the profile remains readable.
   assert.match(row, /lw-attend-static/, 'the status is shown read-only');
   assert.doesNotMatch(row, /lw-attend-toggle/, 'no attend toggle for a deactivated person');
-  assert.doesNotMatch(row, /profile-trigger/, 'no profile drawer trigger for a deactivated person');
+  assert.match(row, /profile-trigger/, 'the read-only profile drawer remains available');
+  assert.match(row, /<s class="lw-inactive-person-name">Cień Nowak<\/s><small class="lw-inactive-person-label">\(nieaktywne\)<\/small>/);
   assert.doesNotMatch(row, /data-email="null"/);
 
   // The two distinct accountless rows must not collapse onto a shared key.

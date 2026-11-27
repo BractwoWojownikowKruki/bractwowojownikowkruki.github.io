@@ -4455,7 +4455,7 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
   const personId = url.searchParams.get('personId');
   if (!personId) throw new AuthError('Brak identyfikatora osoby.', 400);
   const person = await getPerson(deps.firestore, personId);
-  if (!person || person.deletedAt) throw new AuthError('Nie znaleziono takiej osoby.', 404);
+  if (!person) throw new AuthError('Nie znaleziono takiej osoby.', 404);
   const year = new Date().getFullYear();
   const [lookupLists, profile, dues, ownerMember] = await Promise.all([
     getAllLookupLists(deps.firestore),
@@ -4474,9 +4474,11 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
     ? (ownerMember ? (ownerMember.nickname || [ownerMember.firstName, ownerMember.lastName].filter(Boolean).join(' ') || person.ownerPersonId) : person.ownerPersonId)
     : null;
   const isOwner = isSelfOwner;
-  const canEditIdentity = staff || isOwner;
-  const canEditWeapons = staff || isOwner;
-  const canEditDues = await canManageSkladki(req, res, deps, identity.email);
+  // Deactivated people can remain in historical event rosters, but their profile is strictly
+  // read-only for every viewer so opening it cannot enable a mutation against a tombstone.
+  const canEditIdentity = !person.deletedAt && (staff || isOwner);
+  const canEditWeapons = !person.deletedAt && (staff || isOwner);
+  const canEditDues = !person.deletedAt && await canManageSkladki(req, res, deps, identity.email);
   const editorCapabilities = canEditIdentity || canEditWeapons || canEditDues
     ? { editor: { canEditIdentity, canEditWeapons, canEditDues, lookupLists } }
     : {};
@@ -4484,6 +4486,7 @@ async function handleListaWyjazdowaGetPersonProfile(req: IncomingMessage, res: S
     profile: {
       personId: person.personId,
       accountless: true,
+      deleted: Boolean(person.deletedAt),
       canViewAccountAudit: staff,
       ownerPersonId,
       ownerName,
