@@ -211,7 +211,6 @@ function renderMySignupsWidget(events) {
     const meta = items[i].querySelector('.dashboard-mini-item-meta');
     meta.innerHTML = datePillHtml(e, `mine-${e.id}`, 'end');
     const attendance = document.createElement('span');
-    attendance.className = 'dashboard-mini-item-attendance';
     attendance.textContent = signupStatusText(e);
     meta.prepend(attendance);
     meta.append(attendeeBadge(e.attendingCount));
