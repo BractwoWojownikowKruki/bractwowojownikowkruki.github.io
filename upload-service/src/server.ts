@@ -3963,16 +3963,24 @@ function requireDateString(value: unknown, message: string): string {
 
 async function handleListaWyjazdowaGetEvents(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  const [events, allSignups, persons] = await Promise.all([
+  const [events, allSignups] = await Promise.all([
     listEvents(deps.firestore),
     listAllSignups(deps.firestore),
-    listPersons(deps.firestore),
   ]);
+  const companionIds = [...new Set(allSignups
+    .filter(({ data }) => data.attending && data.memberEmail.toLowerCase() !== identity.email.toLowerCase())
+    .map(({ data }) => data.memberEmail))];
+  const companionPeople = await Promise.all(companionIds.map(async personId => ({
+    personId,
+    person: await deps.firestore.getDoc<PersonDoc>('persons', personId),
+  })));
   const attendingCountByEvent = new Map<string, number>();
   const viewerAttendingByEvent = new Set<string>();
   const viewerSkladkaStatusByEvent = new Map<string, DuesStatus>();
   const viewerCompanionsByEvent = new Map<string, Array<{ firstName: string; nickname: string }>>();
-  const personById = new Map(persons.map(({ data }) => [data.personId.toLowerCase(), data]));
+  const personById = new Map(companionPeople
+    .filter(({ person }) => person !== null && !person.deletedAt)
+    .map(({ personId, person }) => [personId.toLowerCase(), person!]));
   const viewerEmail = identity.email.toLowerCase();
   for (const { data } of allSignups) {
     if (!data.attending) continue;

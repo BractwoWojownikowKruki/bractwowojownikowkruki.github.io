@@ -20,7 +20,7 @@
       <strong>${escapeHtml(fullName || '—')}</strong>
       ${person.nickname ? `<span>Ksywka: ${escapeHtml(person.nickname)}</span>` : ''}
       <span>Sekcja: ${escapeHtml(person.section || '—')}</span>
-      <span>Osoba towarzysząca od: ${escapeHtml(person.owner || '—')}</span>
+      ${person.owner ? `<span>Osoba towarzysząca od: ${escapeHtml(person.owner)}</span>` : ''}
     </li>`;
   }
 
