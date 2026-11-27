@@ -355,7 +355,7 @@ test('adding a new companion requires nazwisko, imię and kategoria but not ksyw
   await list.clickWith(clickTarget('.lw-inline-add-new'));
 
   assert.equal(harness.apiCalls.length, requestsBefore, 'a blank Nazwisko/Imię must not reach the server');
-  assert.match(harness.elements.get('events-error')!.textContent, /Podaj nazwisko, imię i kategorię/);
+  assert.match(harness.elements.get('lw-inline-error')!.textContent, /Podaj nazwisko, imię i kategorię/);
 });
 
 test('adding a new companion posts quick-add with ksywka+lastName+firstName+categoryId', async () => {

@@ -95,9 +95,10 @@ test('the inline add-companion panel posts quick-add and applies only after conf
   assert.match(script, /openAddPanelOwnerPersonId = null;/);
 });
 
-test('the add-companion panel puts each Dodaj on its own row and narrows the name fields', () => {
+test('the add-companion panel separates form fields and widens the existing-person choice', () => {
   // The existing-person Dodaj button is in its own row, right after the select's row closes.
   assert.match(companionAdd, /<\/select>\s*<\/div>\s*<div class="lw-inline-row">\s*<button type="button" class="lw-inline-add-existing"/);
-  // The ksywka input and the existing-person select are deliberately narrow (KRKG-0090).
-  assert.match(css, /\.lw-inline-form-inner \.lw-inline-existing-select,[\s\S]*?\.lw-inline-form-inner \.lw-inline-new-name\s*\{[^}]*max-width:\s*7\.5rem/);
+  // The existing-person choice is wide enough to show more of its option label.
+  assert.match(css, /\.lw-inline-form-inner \.lw-inline-existing-select\s*\{[^}]*max-width:\s*9rem/);
+  assert.match(companionAdd, /lw-inline-new-last-name[\s\S]*?<\/div>\s*<div class="lw-inline-row">\s*<input type="text" id="lw-inline-new-first-name/);
 });

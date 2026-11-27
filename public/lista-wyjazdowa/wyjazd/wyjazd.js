@@ -1080,6 +1080,7 @@ async function toggleEventEquipment(equipmentId, nextGoing, control) {
 // /lista-wyjazdowa/signups/quick-add and apply the confirmed response locally; a failed call
 // changes nothing (the panel stays open, the row is untouched) and reports via showError.
 async function quickAddCompanion(body, control) {
+  window.CompanionAdd.clearError();
   clearError();
   try {
     await window.PersonRegistrationPrompt.confirmed({
@@ -1109,7 +1110,7 @@ async function quickAddCompanion(body, control) {
       } : null,
     });
   } catch (err) {
-    showError(`Nie udało się dodać osoby: ${err.message}`);
+    window.CompanionAdd.showError(`Nie udało się dodać osoby: ${err.message}`);
   }
 }
 
@@ -1196,7 +1197,7 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
     const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
     const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
     if (!lastName || !firstName || !categoryId) {
-      showError('Podaj nazwisko, imię i kategorię nowej osoby.');
+      window.CompanionAdd.showError('Podaj nazwisko, imię i kategorię nowej osoby.');
       return;
     }
     addNewBtn.disabled = true;

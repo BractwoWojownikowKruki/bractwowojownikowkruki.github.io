@@ -97,11 +97,20 @@
       <div class="lw-inline-sep"></div>
       <div class="lw-inline-row">
         <label class="lw-inline-label" for="lw-inline-new-name">lub nowa:</label>
+      </div>
+      <div class="lw-inline-row">
         <input type="text" id="lw-inline-new-name" class="lw-inline-new-name" placeholder="Ksywka (opcjonalnie)" />
+      </div>
+      <div class="lw-inline-row">
         <input type="text" id="lw-inline-new-last-name" class="lw-inline-new-last-name" placeholder="Nazwisko" required />
+      </div>
+      <div class="lw-inline-row">
         <input type="text" id="lw-inline-new-first-name" class="lw-inline-new-first-name" placeholder="Imię" required />
+      </div>
+      <div class="lw-inline-row">
         <select id="lw-inline-new-category" class="lw-inline-new-category" aria-label="Kategoria nowej osoby">${categorySelectOptions}</select>
       </div>
+      <p class="add-album-error lw-inline-error" id="lw-inline-error" role="alert" hidden></p>
       <div class="lw-inline-row">
         <button type="button" class="lw-inline-add-new">Dodaj</button>
         <button type="button" class="lw-inline-cancel">Anuluj</button>
@@ -121,5 +130,29 @@
     return `<button type="button" class="lw-add-companion" data-owner-person-id="${escapeHtml(ownerPersonId)}"${eventAttr} aria-expanded="${expanded ? 'true' : 'false'}" aria-label="Dodaj osobę towarzyszącą" title="Dodaj osobę towarzyszącą"><span class="lw-add-companion-plus" aria-hidden="true">+</span><svg class="lw-add-companion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5.5" r="2.6"/><path d="M12 8.5v6.5"/><path d="M8.2 11h7.6"/><path d="M9.2 22l2.8-7 2.8 7"/></svg><span class="lw-add-companion-label">osoba towarzysząca</span></button>`;
   }
 
-  window.CompanionAdd = { candidates, orderedCategories, categoryOptionsHtml, panelHtml, buttonHtml };
+  function signupNamesHtml(people) {
+    const names = (people ?? [])
+      .map((person) => person.firstName?.trim() || person.nickname?.trim() || '')
+      .filter(Boolean)
+      .sort((left, right) => left.localeCompare(right, 'pl', { sensitivity: 'base' }));
+    return names.length ? `<span class="lw-companion-names">${names.map(escapeHtml).join(', ')}</span>` : '';
+  }
+
+  function showError(message) {
+    const error = document.getElementById('lw-inline-error');
+    if (!error) return false;
+    error.textContent = message;
+    error.hidden = false;
+    return true;
+  }
+
+  function clearError() {
+    const error = document.getElementById('lw-inline-error');
+    if (error) {
+      error.textContent = '';
+      error.hidden = true;
+    }
+  }
+
+  window.CompanionAdd = { candidates, orderedCategories, categoryOptionsHtml, panelHtml, buttonHtml, signupNamesHtml, showError, clearError };
 }());

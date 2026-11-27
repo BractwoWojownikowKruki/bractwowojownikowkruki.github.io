@@ -762,7 +762,7 @@ test('a blank Nazwisko/Imię on the new-person form is rejected before posting',
   await roster.clickWith(clickTarget('.lw-inline-add-new'));
 
   assert.equal(harness.apiCalls.length, requestsBefore, 'a blank Nazwisko/Imię must not reach the server');
-  assert.match(harness.elements.get('lw-error')!.textContent, /Podaj nazwisko, imię i kategorię/);
+  assert.match(harness.elements.get('lw-inline-error')!.textContent, /Podaj nazwisko, imię i kategorię/);
 });
 
 test('adding a new person posts quick-add with ksywka+lastName+firstName+categoryId and appends the created row', async () => {
