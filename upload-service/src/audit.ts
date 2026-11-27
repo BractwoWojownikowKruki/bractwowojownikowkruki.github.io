@@ -1188,6 +1188,7 @@ interface AccountAuditStream {
 
 interface AccountAuditReadBudget {
   reads: number;
+  // Reserves capacity while the two initial stream reads run concurrently.
   reserved: number;
   limit: number;
 }
@@ -1283,6 +1284,7 @@ export async function queryAccountAuditEvents(
     docs: [], index: 0, readCursor: cursor.memberCursor, consumedCursor: cursor.memberCursor, done: cursor.memberDone,
   };
   const relatedStream: AccountAuditStream = {
+    // With no searchable email token, `done` is true and this empty filter is never queried.
     filter: { field: 'searchTokens', op: 'array-contains', value: token?.slice(0, MAX_SEARCH_TOKEN_LENGTH) ?? '' },
     docs: [], index: 0, readCursor: cursor.relatedCursor, consumedCursor: cursor.relatedCursor, done: cursor.relatedDone || !token,
   };
@@ -1300,10 +1302,10 @@ export async function queryAccountAuditEvents(
   while (true) {
     if (readBudgetState.reads >= readBudgetState.limit &&
         ((memberStream.index >= memberStream.docs.length && !memberStream.done) || (relatedStream.index >= relatedStream.docs.length && !relatedStream.done))) break;
-    if (readBudgetState.reads + readBudgetState.reserved < readBudgetState.limit && memberStream.index >= memberStream.docs.length && !memberStream.done) {
+    if (memberStream.index >= memberStream.docs.length && !memberStream.done) {
       await refillAccountAuditStream(firestore, memberStream, readBudgetState, chunkSize);
     }
-    if (readBudgetState.reads + readBudgetState.reserved < readBudgetState.limit && relatedStream.index >= relatedStream.docs.length && !relatedStream.done) {
+    if (relatedStream.index >= relatedStream.docs.length && !relatedStream.done) {
       await refillAccountAuditStream(firestore, relatedStream, readBudgetState, chunkSize);
     }
     const member = memberStream.docs[memberStream.index];
