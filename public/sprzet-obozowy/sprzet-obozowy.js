@@ -175,7 +175,8 @@ function equipmentRowHtml(item, { includeOwner }) {
 
 function sortItems(items, sortState) {
   return [...items].sort((a, b) => {
-    const comparison = compareValues(sortState.key === 'ownerName' ? a.ownerSurnameSort : a[sortState.key], sortState.key === 'ownerName' ? b.ownerSurnameSort : b[sortState.key], sortState.dir);
+    const comparisonKey = sortState.key === 'ownerName' ? 'ownerSurnameSort' : sortState.key;
+    const comparison = compareValues(a[comparisonKey], b[comparisonKey], sortState.dir);
     return comparison || (sortState.key === 'ownerName' ? compareValues(a.ownerName, b.ownerName, 'asc') : 0);
   });
 }

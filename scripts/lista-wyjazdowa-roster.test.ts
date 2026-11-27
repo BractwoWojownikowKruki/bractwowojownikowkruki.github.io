@@ -14,6 +14,11 @@ const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.me
 const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
 const summaryFilterSource = readFileSync(new URL('../public/shared/summary-filter.js', import.meta.url), 'utf8');
 const listPreferencesSource = readFileSync(new URL('../public/shared/list-preferences.js', import.meta.url), 'utf8');
+const displayNameSource = readFileSync(new URL('../public/shared/display-name.js', import.meta.url), 'utf8');
+const displayNameContext: Record<string, unknown> = {};
+vm.runInNewContext(displayNameSource, displayNameContext);
+const displayName = displayNameContext.displayName as (person: Record<string, string | null>) => string;
+const surnameSortValue = displayNameContext.surnameSortValue as (person: Record<string, string | null>) => string;
 
 /** Keeps the fixture trip upcoming regardless of when the VM-based page tests run. */
 class FixedDate extends Date {
@@ -89,7 +94,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   const rosterSortState = { key: 'section', dir: 'asc' };
   let onRosterSortChange = () => {};
   const roster = [
-    { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, lastName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
+    { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, firstName: 'Zulu', lastName: 'Aardvark', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
     { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, lastName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
     { personId: 'other@example.com', email: 'other@example.com', accountless: false, lastName: 'Other', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
   ].map((member) => ({
@@ -99,7 +104,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   }));
   // KRKG-0087: an accountless person already attached to the viewer but not signed up for this
   // trip - the roster's inline add panel offers them in its "istniejąca" dropdown.
-  const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: options.attachedOwnerPersonId ?? (options.withAttachedToSignedPerson ? 'signed@example.com' : 'viewer@example.com'), lastName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'paid' };
+  const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: options.attachedOwnerPersonId ?? (options.withAttachedToSignedPerson ? 'signed@example.com' : 'viewer@example.com'), firstName: 'Ala', lastName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'paid' };
   const nestedAttachedPerson = { personId: 'nested-uuid-2', email: null, accountless: true, ownerPersonId: 'attached-uuid-1', lastName: 'Zagnieżdżony', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'paid' };
   const currentRoster = options.withAttachedPerson
     ? [...roster, attachedPerson, ...(options.withCompanionOfCompanion ? [nestedAttachedPerson] : [])]
@@ -195,8 +200,8 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     },
     compareValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     compareDateValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
-    displayName: (member: { lastName: string }) => member.lastName,
-    surnameSortValue: (member: { lastName?: string }) => member.lastName ?? '',
+    displayName,
+    surnameSortValue,
     personSubline: () => null,
     initGoogleSignIn: (config: { onSignedIn: (identity: { email: string }) => Promise<void> }) => { signIn = config.onSignedIn; },
     apiFetch: async (url: string, options: Record<string, unknown>) => {
@@ -355,7 +360,7 @@ test('visible accountless companions nest under their account owner only when so
 
   harness.setRosterSort('name');
   assert.doesNotMatch(roster.innerHTML, /lw-roster-row--companion/);
-  assert.ok(roster.innerHTML.indexOf('data-person-id="attached-uuid-1"') < roster.innerHTML.indexOf('data-person-id="signed@example.com"'));
+  assert.ok(roster.innerHTML.indexOf('data-person-id="signed@example.com"') < roster.innerHTML.indexOf('data-person-id="attached-uuid-1"'), 'name sort uses surnames (Aardvark before Młody), despite first-name order');
   harness.setRosterSort('status');
   assert.doesNotMatch(roster.innerHTML, /lw-roster-row--companion/);
   assert.ok(roster.innerHTML.indexOf('data-person-id="attached-uuid-1"') < roster.innerHTML.indexOf('data-person-id="signed@example.com"'));

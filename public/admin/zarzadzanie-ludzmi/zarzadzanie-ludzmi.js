@@ -492,7 +492,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
     const cmp = compareValues(sortValue(a), sortValue(b), membershipSortState.dir);
     if (cmp !== 0) return cmp;
     // Tie-break alphabetically by Nazwisko, not the displayed ksywka/imię.
-    const surnameComparison = compareValues(a.lastName ?? '', b.lastName ?? '', 'asc');
+    const surnameComparison = compareValues(surnameSortValue(a), surnameSortValue(b), 'asc');
     return surnameComparison || compareValues(displayName(a), displayName(b), 'asc');
   });
   const actions = MEMBERSHIP_ACTIONS_BY_STATUS[status] ?? [];

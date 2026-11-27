@@ -16,7 +16,7 @@ test('sorts people by surname and falls back to their display name when surname 
   assert.equal(surnameSortValue({ lastName: null, firstName: null, nickname: null, email: 'jan@example.com' }), 'jan');
 });
 
-test("every table that sorts a person's name uses the shared surname key", () => {
+test("wiring guard: every person table uses the shared surname key", () => {
   const files = [
     '../public/lista-wyjazdowa/skladki/skladki.js',
     '../public/lista-wyjazdowa/wyjazd/wyjazd.js',
@@ -28,9 +28,4 @@ test("every table that sorts a person's name uses the shared surname key", () =>
     const pageSource = readFileSync(new URL(file, import.meta.url), 'utf8');
     assert.match(pageSource, /surnameSortValue\(/, `${file} must use surnameSortValue for a person-name sort`);
   }
-});
-
-test('accountless owner surname remains covered by the existing owner visibility rule', () => {
-  const serverSource = readFileSync(new URL('../upload-service/src/server.ts', import.meta.url), 'utf8');
-  assert.match(serverSource, /ownerLastName: hideOwner \? null : owner\?\.lastName \?\? null/);
 });

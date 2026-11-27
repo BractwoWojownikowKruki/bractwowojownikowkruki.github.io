@@ -905,7 +905,7 @@ function renderRoster(roster, signups) {
     // Tie-break alphabetically by Nazwisko (not the displayed ksywka/imię), always ascending
     // regardless of the primary column's own direction - a stable, predictable order for ties
     // rather than one that flips with every direction toggle on an unrelated column.
-    const surnameComparison = compareValues(a.lastName ?? '', b.lastName ?? '', 'asc');
+    const surnameComparison = compareValues(surnameSortValue(a), surnameSortValue(b), 'asc');
     return surnameComparison || compareValues(displayName(a), displayName(b), 'asc');
   });
 
