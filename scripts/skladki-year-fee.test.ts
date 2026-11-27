@@ -8,6 +8,7 @@ const personPillSource = readFileSync(new URL('../public/shared/person-pill.js',
 const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
 const summaryFilterSource = readFileSync(new URL('../public/shared/summary-filter.js', import.meta.url), 'utf8');
 const listPreferencesSource = readFileSync(new URL('../public/shared/list-preferences.js', import.meta.url), 'utf8');
+const displayNameSource = readFileSync(new URL('../public/shared/display-name.js', import.meta.url), 'utf8');
 
 test('fee category summary adds a decorative Brokuł icon through the shared helper', () => {
   assert.match(source, /categoryPillBroccoliIconHtml\(categoryId, 'category-label'\)/);
@@ -133,8 +134,6 @@ function createHarness(yearFee: Record<string, unknown> | null, options: { roste
     initSortableTable: () => ({ key: 'section', dir: 'asc', reset() {}, refresh() {} }),
     compareValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     compareDateValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
-    displayName: (member: { lastName: string }) => member.lastName,
-    surnameSortValue: (member: { lastName?: string; firstName?: string; nickname?: string; email?: string }) => member.lastName?.trim() || member.firstName?.trim() || member.nickname?.trim() || member.email?.split('@')[0] || '',
     personSubline: () => null,
     initGoogleSignIn: (config: { onSignedIn: () => Promise<void> }) => { signIn = config.onSignedIn; },
     apiFetch: async (url: string, options: Record<string, unknown>) => {
@@ -162,6 +161,7 @@ function createHarness(yearFee: Record<string, unknown> | null, options: { roste
   vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
   vm.runInNewContext(summaryFilterSource, context, { filename: 'summary-filter.js' });
   vm.runInNewContext(listPreferencesSource, context, { filename: 'list-preferences.js' });
+  vm.runInNewContext(displayNameSource, context, { filename: 'display-name.js' });
   vm.runInNewContext(source, context, { filename: 'skladki.js' });
   return {
     elements,

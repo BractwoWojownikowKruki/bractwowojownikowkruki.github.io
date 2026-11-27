@@ -974,7 +974,7 @@ function renderAccountless(persons) {
           case 'status': return categoryLabel;
           case 'weapons': return weaponsLabel;
           case 'owner': return person.ownerPersonId
-            ? surnameSortValue({ lastName: person.ownerLastName, firstName: person.ownerName })
+            ? surnameSortValue({ lastName: person.ownerLastName, firstName: person.ownerName, email: person.ownerPersonId })
             : '—';
           case 'account': return person.deleted ? 'deaktywowana' : 'bez konta';
           default: return person.sectionId ? (sectionLabelById.get(person.sectionId) ?? person.sectionId) : '—';
@@ -982,6 +982,10 @@ function renderAccountless(persons) {
       };
       const cmp = compareValues(sortValue(a), sortValue(b), accountlessSortState.dir);
       if (cmp !== 0) return cmp;
+      if (accountlessSortState.key === 'owner') {
+        const ownerNameCmp = compareValues(a.ownerName ?? a.ownerPersonId ?? '', b.ownerName ?? b.ownerPersonId ?? '', 'asc');
+        if (ownerNameCmp !== 0) return ownerNameCmp;
+      }
       const nameCmp = compareValues(surnameSortValue({ ...a, nickname: a.ksywka }), surnameSortValue({ ...b, nickname: b.ksywka }), 'asc')
         || compareValues(accountlessDisplayName(a), accountlessDisplayName(b), 'asc');
       return nameCmp || compareValues(a.personId, b.personId, 'asc');

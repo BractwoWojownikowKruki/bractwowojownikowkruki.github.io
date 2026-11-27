@@ -8316,7 +8316,7 @@ test('GET /lista-wyjazdowa/persons lets accountants read accountless people with
   const selfFirestore = makeListaWyjazdowaFirestore();
   selfFirestore.seed('userRoles', 'self@example.com', { roles: ['accountant'] });
   selfFirestore.seed('members', 'self@example.com', {
-    email: 'self@example.com', status: 'active', hidden: true, lastName: '', firstName: '', nickname: 'Sama',
+    email: 'self@example.com', status: 'active', hidden: true, lastName: 'Sama-Właścicielka', firstName: 'Anna', nickname: 'Sama',
     sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
   });
   seedPerson(selfFirestore, 'self-owned-person', 'self@example.com');
@@ -8331,6 +8331,7 @@ test('GET /lista-wyjazdowa/persons lets accountants read accountless people with
     const own = persons.find((person: { personId: string }) => person.personId === 'self-owned-person');
     assert.equal(own.ownerPersonId, 'self@example.com');
     assert.equal(own.ownerName, 'Sama');
+    assert.equal(own.ownerLastName, 'Sama-Właścicielka', 'a hidden accountant can still see their own surname');
   });
 });
 

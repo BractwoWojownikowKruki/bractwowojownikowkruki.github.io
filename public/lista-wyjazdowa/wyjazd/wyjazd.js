@@ -761,7 +761,11 @@ function equipmentSectionId(item) {
 function eventEquipmentSortValue(item) {
   switch (eventEquipmentSortState.key) {
     case 'category': return equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
-    case 'owner': return item.belongsToPersonId ? surnameSortValue(personById.get(item.belongsToPersonId) ?? {}) : 'Kruki';
+    case 'owner': {
+      if (!item.belongsToPersonId) return 'Kruki';
+      const owner = personById.get(item.belongsToPersonId);
+      return owner ? surnameSortValue(owner) : item.belongsToPersonId;
+    }
     case 'going': return item.going;
     default: return sectionLabelById.get(equipmentSectionId(item)) ?? equipmentSectionId(item);
   }

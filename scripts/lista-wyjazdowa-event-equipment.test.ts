@@ -11,6 +11,7 @@ const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.me
 const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
 const summaryFilterSource = readFileSync(new URL('../public/shared/summary-filter.js', import.meta.url), 'utf8');
 const listPreferencesSource = readFileSync(new URL('../public/shared/list-preferences.js', import.meta.url), 'utf8');
+const displayNameSource = readFileSync(new URL('../public/shared/display-name.js', import.meta.url), 'utf8');
 
 class Element {
   hidden = false;
@@ -71,7 +72,6 @@ function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Re
     initSortableTable: () => ({ key: 'section', dir: 'asc' }),
     compareValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     compareDateValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
-    displayName: (person: { lastName?: string; email?: string }) => person.lastName ?? person.email ?? '',
     personSubline: () => null,
     profileFolderAttr: () => '',
     personPillHtml: ({ name }: { name: string }) => `<span>${name}</span>`,
@@ -94,6 +94,7 @@ function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Re
   vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
   vm.runInNewContext(summaryFilterSource, context, { filename: 'summary-filter.js' });
   vm.runInNewContext(listPreferencesSource, context, { filename: 'list-preferences.js' });
+  vm.runInNewContext(displayNameSource, context, { filename: 'display-name.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   const setEquipmentFilter = (notGoing: boolean, going: boolean) => {
     elements.get('equipment-filter-niezgloszone')!.checked = notGoing;

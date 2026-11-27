@@ -148,7 +148,7 @@ function renderTable() {
     // order, so "grouped by section, A-Z by surname within it" is what both the default view and
     // an explicit click on the Sekcja header show.
     if (cmp === 0 && sortState.key === 'sectionLabel') {
-      return compareValues(a.lastName ?? '', b.lastName ?? '', sortState.dir)
+      return compareValues(surnameSortValue(a), surnameSortValue(b), sortState.dir)
         || compareValues(displayName(a), displayName(b), 'asc');
     }
     if (cmp === 0 && sortState.key === 'displayName') {

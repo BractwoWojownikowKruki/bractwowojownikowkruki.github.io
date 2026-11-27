@@ -1688,6 +1688,7 @@ button.lw-skladka-icon:disabled {
   min-height: 2.25rem;
   margin: -0.45rem 0 0.75rem;
   padding: 0.4rem 0.65rem;
+  font-size: 14px;
   border-radius: 0.45rem;
   background: color-mix(in srgb, var(--gold) 7%, var(--surface));
 }

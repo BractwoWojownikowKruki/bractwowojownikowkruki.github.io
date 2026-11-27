@@ -333,6 +333,27 @@ test('accountless table sorts every value column by its value and uses surname a
   }
 });
 
+test('accountless owner sort groups equal surnames by owner name and falls back to owner id', async () => {
+  const harness = createZarzadzanieHarness({
+    apiFetch: async (url) => {
+      if (url === '/lista-wyjazdowa/persons') {
+        return { persons: [
+          { personId: 'companion-a', firstName: 'Ada', lastName: 'Aardvark', sectionId: 'secA', categoryId: 'catA', weaponIds: [], ownerPersonId: 'zofia@example.test', ownerName: 'Zofia', ownerLastName: 'Kowalska', deleted: false },
+          { personId: 'companion-z', firstName: 'Zeta', lastName: 'Zulu', sectionId: 'secA', categoryId: 'catA', weaponIds: [], ownerPersonId: 'anna@example.test', ownerName: 'Anna', ownerLastName: 'Kowalska', deleted: false },
+          { personId: 'companion-id', firstName: 'Maja', lastName: 'Miedź', sectionId: 'secA', categoryId: 'catA', weaponIds: [], ownerPersonId: 'brak@example.test', ownerName: null, ownerLastName: null, deleted: false },
+        ] };
+      }
+      if (url === '/admin/lookup-lists') return { sections: [{ id: 'secA', label: 'Sekcja' }], categories: [{ id: 'catA', label: 'Kategoria' }], weapons: [] };
+      return {};
+    },
+  });
+  await harness.signIn({ email: 'admin@kruki.pl', isAccountant: false, isAdmin: true, isHovding: false });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  harness.sortTable('accountless-table', 'owner', 'asc');
+  const ids = [...harness.getEl('accountless-list').innerHTML.matchAll(/<tr data-person-id="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(ids, ['companion-id', 'companion-z', 'companion-a']);
+});
+
 test('accountants can load the accountless table without rendering its write actions', async () => {
   const apiCalls: Array<{ url: string; method: string; body?: string }> = [];
   const harness = createZarzadzanieHarness({
