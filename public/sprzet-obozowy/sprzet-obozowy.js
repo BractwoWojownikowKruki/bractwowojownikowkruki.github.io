@@ -174,7 +174,10 @@ function equipmentRowHtml(item, { includeOwner }) {
 }
 
 function sortItems(items, sortState) {
-  return [...items].sort((a, b) => compareValues(a[sortState.key], b[sortState.key], sortState.dir));
+  return [...items].sort((a, b) => {
+    const comparison = compareValues(sortState.key === 'ownerName' ? a.ownerSurnameSort : a[sortState.key], sortState.key === 'ownerName' ? b.ownerSurnameSort : b[sortState.key], sortState.dir);
+    return comparison || (sortState.key === 'ownerName' ? compareValues(a.ownerName, b.ownerName, 'asc') : 0);
+  });
 }
 
 // Two independent sortable-table instances (per the design's resolved ambiguity: two separate
@@ -227,6 +230,7 @@ function renderPrivateTable() {
       categoryLabel: categoryLabelById.get(item.categoryId) ?? item.categoryId,
       sectionLabel: sectionLabelById.get(sectionId) ?? sectionId,
       ownerName: owner ? displayName(owner) : item.belongsToPersonId,
+      ownerSurnameSort: owner ? surnameSortValue(owner) : item.belongsToPersonId,
     };
   });
   const sorted = sortItems(enriched, privateSortState);

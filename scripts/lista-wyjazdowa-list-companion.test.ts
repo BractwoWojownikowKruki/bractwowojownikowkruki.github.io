@@ -308,6 +308,16 @@ test('new companion categories put Niewiasta, Bobo and Inne first, then an hr se
   assert.doesNotMatch(options, /<option disabled/);
 });
 
+test('signed-up companion names are preceded by a visible plus marker', () => {
+  const context: any = { window: {}, escapeHtml: (value: string) => value };
+  vm.runInNewContext(companionAddSource, context);
+  const html = context.window.CompanionAdd.signupNamesHtml([
+    { firstName: 'Ala' },
+    { firstName: 'Ola' },
+  ]);
+  assert.match(html, /class="lw-companion-names-plus"[^>]*>\+<\/span><span class="lw-companion-names-list">Ala, Ola/);
+});
+
 test('the shared new-companion form marks its nickname as optional', () => {
   const context = { window: {}, displayName: (person: any) => person.nickname ?? 'Osoba' };
   vm.runInNewContext(companionAddSource, context);

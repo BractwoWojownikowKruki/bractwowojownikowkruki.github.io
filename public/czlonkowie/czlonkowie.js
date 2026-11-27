@@ -118,7 +118,7 @@ function cell(value) {
 function sortValue(member) {
   // KRKG-0087: an accountless person has no e-mail, so every non-name column is coalesced to ''
   // rather than leaving a null to stringify as "null" in a sort comparison.
-  return sortState.key === 'displayName' ? displayName(member) : (member[sortState.key] ?? '');
+  return sortState.key === 'displayName' ? surnameSortValue(member) : (member[sortState.key] ?? '');
 }
 
 // Default/Sekcja-column sort (KRKG-0051): grouped by section, alphabetical within each - see the
@@ -148,7 +148,11 @@ function renderTable() {
     // order, so "grouped by section, A-Z by surname within it" is what both the default view and
     // an explicit click on the Sekcja header show.
     if (cmp === 0 && sortState.key === 'sectionLabel') {
-      return compareValues(a.lastName ?? '', b.lastName ?? '', sortState.dir);
+      return compareValues(a.lastName ?? '', b.lastName ?? '', sortState.dir)
+        || compareValues(displayName(a), displayName(b), 'asc');
+    }
+    if (cmp === 0 && sortState.key === 'displayName') {
+      return compareValues(displayName(a), displayName(b), 'asc');
     }
     return cmp;
   });

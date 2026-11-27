@@ -11,8 +11,8 @@ test('Spis Ludności keeps only display name as the visible name column', () => 
   assert.doesNotMatch(page, /Imię i nazwisko/);
 });
 
-test('Spis Ludności renders and sorts the primary name with displayName', () => {
-  assert.match(script, /sortState\.key === 'displayName' \? displayName\(member\) : \(member\[sortState\.key\] \?\? ''\)/);
+test('Spis Ludności keeps the visible display name and sorts the name column by surname', () => {
+  assert.match(script, /sortState\.key === 'displayName' \? surnameSortValue\(member\) : \(member\[sortState\.key\] \?\? ''\)/);
   assert.match(script, /name: displayName\(m\)/);
   assert.doesNotMatch(script, /\$\{cell\(m\.fullName\)\}/);
   assert.match(script, /compareValues\(a\.lastName \?\? '', b\.lastName \?\? '', sortState\.dir\)/);

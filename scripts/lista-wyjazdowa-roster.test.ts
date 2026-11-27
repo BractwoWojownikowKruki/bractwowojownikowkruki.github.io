@@ -196,6 +196,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     compareValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     compareDateValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     displayName: (member: { lastName: string }) => member.lastName,
+    surnameSortValue: (member: { lastName?: string }) => member.lastName ?? '',
     personSubline: () => null,
     initGoogleSignIn: (config: { onSignedIn: (identity: { email: string }) => Promise<void> }) => { signIn = config.onSignedIn; },
     apiFetch: async (url: string, options: Record<string, unknown>) => {
@@ -321,7 +322,10 @@ test('companion nesting control restores and persists its local preference', asy
   const control = harness.elements.get('roster-filter-zagniezdz-os-tow')!;
   assert.match(page, /Umieść os\. tow\. pod opiekunów/);
   assert.match(page, /id="roster-filter-zagniezdz-os-tow"/);
+  assert.match(page, /class="lw-roster-nesting-control"[\s\S]*?id="roster-filter-zagniezdz-os-tow"/);
+  assert.doesNotMatch(page.slice(page.indexOf('class="lw-roster-controls"'), page.indexOf('</div>', page.indexOf('class="lw-roster-controls"'))), /zagniezdz-os-tow/);
   assert.match(memberAreaCss, /\.lw-roster-row--companion/);
+  assert.match(memberAreaCss, /\.lw-roster-row--companion \.lw-roster-name-cell::before/);
   assert.equal(control.checked, true);
 
   control.checked = false;

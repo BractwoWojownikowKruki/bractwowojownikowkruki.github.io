@@ -5290,6 +5290,7 @@ async function handleListaWyjazdowaGetPersons(req: IncomingMessage, res: ServerR
         weaponIds: person.weaponIds,
         ownerPersonId: hideOwner ? null : person.ownerPersonId,
         ownerName: hideOwner ? null : ownerName(person.ownerPersonId),
+        ownerLastName: hideOwner ? null : owner?.lastName ?? null,
         deletedAt: person.deletedAt,
         deleted: Boolean(person.deletedAt),
       };

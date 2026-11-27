@@ -134,6 +134,7 @@ function createHarness(yearFee: Record<string, unknown> | null, options: { roste
     compareValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     compareDateValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     displayName: (member: { lastName: string }) => member.lastName,
+    surnameSortValue: (member: { lastName?: string }) => member.lastName ?? '',
     personSubline: () => null,
     initGoogleSignIn: (config: { onSignedIn: () => Promise<void> }) => { signIn = config.onSignedIn; },
     apiFetch: async (url: string, options: Record<string, unknown>) => {

@@ -761,7 +761,7 @@ function equipmentSectionId(item) {
 function eventEquipmentSortValue(item) {
   switch (eventEquipmentSortState.key) {
     case 'category': return equipmentCategoryLabelById.get(item.categoryId) ?? item.categoryId;
-    case 'owner': return item.belongsToPersonId ? displayName(personById.get(item.belongsToPersonId) ?? {}) : 'Kruki';
+    case 'owner': return item.belongsToPersonId ? surnameSortValue(personById.get(item.belongsToPersonId) ?? {}) : 'Kruki';
     case 'going': return item.going;
     default: return sectionLabelById.get(equipmentSectionId(item)) ?? equipmentSectionId(item);
   }
@@ -788,7 +788,16 @@ function renderEventEquipment(allItems) {
   }
   const sorted = [...items].sort((a, b) => {
     const comparison = compareValues(eventEquipmentSortValue(a), eventEquipmentSortValue(b), eventEquipmentSortState.dir);
-    return comparison || compareValues(a.description, b.description, 'asc');
+    if (comparison !== 0) return comparison;
+    if (eventEquipmentSortState.key === 'owner' && a.belongsToPersonId && b.belongsToPersonId) {
+      const ownerNameComparison = compareValues(
+        displayName(personById.get(a.belongsToPersonId) ?? {}),
+        displayName(personById.get(b.belongsToPersonId) ?? {}),
+        'asc',
+      );
+      if (ownerNameComparison !== 0) return ownerNameComparison;
+    }
+    return compareValues(a.description, b.description, 'asc');
   });
   tbody.innerHTML = sorted.map((item) => {
     const going = item.going === true;
@@ -882,7 +891,7 @@ function renderRoster(roster, signups) {
   const sortValue = (member) => {
     switch (rosterSortState.key) {
       case 'weapon': return weaponSortLabel(member);
-      case 'name': return displayName(member);
+      case 'name': return surnameSortValue(member);
       case 'status': return signupByPersonId.get(member.personId)?.attending ?? false;
       case 'statusChangedAt': return signupByPersonId.get(member.personId)?.statusChangedAt ?? '';
       default: return sectionSortLabel(member);
@@ -896,7 +905,8 @@ function renderRoster(roster, signups) {
     // Tie-break alphabetically by Nazwisko (not the displayed ksywka/imię), always ascending
     // regardless of the primary column's own direction - a stable, predictable order for ties
     // rather than one that flips with every direction toggle on an unrelated column.
-    return compareValues(a.lastName ?? '', b.lastName ?? '', 'asc');
+    const surnameComparison = compareValues(a.lastName ?? '', b.lastName ?? '', 'asc');
+    return surnameComparison || compareValues(displayName(a), displayName(b), 'asc');
   });
 
   let ordered = sorted;
