@@ -85,7 +85,6 @@ test('Osoby bez konta writes go through the persons routes and the admin-only me
 });
 
 test('editing an accountless person keeps and labels its retired category in the form', async () => {
-  assert.doesNotMatch(script, /category\.value = person\.categoryId/, 'rendering the selected option already updates a native select value');
   const harness = createZarzadzanieHarness({
     apiFetch: async (url) => {
       if (url === '/lista-wyjazdowa/persons') return { persons: [] };
@@ -100,8 +99,34 @@ test('editing an accountless person keeps and labels its retired category in the
   (harness.context.openAccountlessForm as (person: Record<string, unknown> | null) => void)({ personId: 'p1', categoryId: 'retired' });
   assert.equal(harness.getEl('accountless-category').value, 'retired');
   assert.match(harness.getEl('accountless-category').innerHTML, /Gość \(wycofany status\)/);
-  harness.getEl('accountless-category').value = 'missing-category';
-  assert.equal(harness.getEl('accountless-category').value, '', 'a native select ignores assigned values absent from its options');
+  (harness.context.openAccountlessForm as (person: Record<string, unknown> | null) => void)({ personId: 'p2', categoryId: 'missing-category' });
+  assert.equal(harness.getEl('accountless-category').value, '', 'a stale category must not default to the first category when editing');
+});
+
+test('opening accountless forms for Niewiasta or Bobo hides and clears weapon selections', async () => {
+  const harness = createZarzadzanieHarness({
+    apiFetch: async (url) => {
+      if (url === '/lista-wyjazdowa/persons') return { persons: [] };
+      if (url === '/lista-wyjazdowa/lookup-lists') return {
+        sections: [{ id: 'sec1', label: 'Drużyna' }],
+        categories: [{ id: 'woj', label: 'Woj' }, { id: 'niewiasta', label: 'Niewiasta' }, { id: 'bobo', label: 'Bobo' }],
+        weapons: [{ id: 'sword', label: 'Miecz' }],
+      };
+      if (url === '/admin/person-owners') return { owners: [] };
+      return {};
+    },
+  });
+  await harness.signIn({ email: 'ksiegowy@kruki.pl', isAccountant: true, isAdmin: false, isHovding: false });
+  const weapon = { checked: true };
+  harness.getEl('accountless-weapons').querySelectorAll = () => [weapon];
+  const open = harness.context.openAccountlessForm as (person: Record<string, unknown> | null) => void;
+  for (const categoryId of ['niewiasta', 'bobo']) {
+    weapon.checked = true;
+    open({ personId: 'p1', categoryId, weaponIds: ['sword'] });
+    assert.equal(harness.getEl('accountless-category').value, categoryId);
+    assert.equal(harness.getEl('accountless-weapon-field').hidden, true);
+    assert.equal(weapon.checked, false);
+  }
 });
 
 interface ZarzadzanieHarnessOptions {

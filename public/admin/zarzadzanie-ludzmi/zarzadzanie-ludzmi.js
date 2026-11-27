@@ -919,6 +919,9 @@ function openAccountlessForm(person) {
     document.getElementById('accountless-ksywka').value = person.ksywka ?? person.nickname ?? '';
     document.getElementById('accountless-first-name').value = person.firstName ?? '';
     document.getElementById('accountless-last-name').value = person.lastName ?? '';
+    // Fail closed if stale lookup data omits this category; otherwise the browser defaults to
+    // the first option and saving could silently reclassify the person.
+    if (person.categoryId) document.getElementById('accountless-category').value = person.categoryId;
     if (person.sectionId) document.getElementById('accountless-section-select').value = person.sectionId;
     document.getElementById('accountless-weapons').innerHTML = accountlessWeaponCheckboxesHtml(accountlessCache.weapons, person.weaponIds ?? []);
     updateAccountlessWeaponState();

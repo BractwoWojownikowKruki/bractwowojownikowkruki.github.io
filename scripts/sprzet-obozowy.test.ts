@@ -668,6 +668,8 @@ test('the Opis cell is a pill; clicking it opens the shared drawer with photos, 
     assert.equal(view.categoryLabel, 'Namiot');
     assert.equal(view.groupLabel, 'Budowle');
     assert.equal(view.sectionId, 'warszawa');
+    assert.equal(view.auditPersonId, 'person-uuid-1');
+    assert.equal(view.auditIsAccountless, true);
     assert.match(view.ownerHtml, /data-profile-trigger/);
     assert.equal(typeof view.onEdit, 'function');
   } finally {

@@ -210,6 +210,19 @@ test('equipment drawer resolves accountless audit by person ID and hides it with
   assert.equal(harness.document.body.querySelector('[data-account-audit-toggle]'), null, 'the capability still controls visibility');
 });
 
+test('equipment drawer uses the accountless flag when a person ID contains an at sign', async () => {
+  const harness = createHarness({ apiFetch: async (url) => url.startsWith('/admin/members/account-audit?') ? { rows: [] } : {} });
+  harness.window.ProfilePanel.openEquipment({ description: 'Plecak', photos: [], auditPersonId: 'legacy@example.test', auditIsAccountless: true, canViewAccountAudit: true });
+  const toggle = harness.document.body.querySelector('[data-account-audit-toggle]') as FakeElement;
+  assert.ok(toggle);
+  await harness.document.dispatch('click', toggle);
+  await new Promise((resolve) => setImmediate(resolve));
+  const request = harness.apiCalls.find((call) => call.url.startsWith('/admin/members/account-audit?'));
+  const query = new URL(request?.url ?? '/', 'https://example.test').searchParams;
+  assert.equal(query.get('personId'), 'legacy@example.test');
+  assert.equal(query.has('email'), false);
+});
+
 test('identity-capable profile drawer submits the edited member identity through its target-specific PUT route', async () => {
   const harness = createHarness();
   await harness.window.ProfilePanel.open('jan@example.test');

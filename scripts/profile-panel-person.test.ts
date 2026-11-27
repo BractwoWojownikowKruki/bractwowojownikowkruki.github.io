@@ -4,10 +4,21 @@ import assert from 'node:assert/strict';
 
 const panel = readFileSync(new URL('../public/shared/profile-panel.js', import.meta.url), 'utf8');
 const profilePage = readFileSync(new URL('../public/profil/profil.js', import.meta.url), 'utf8');
+const equipmentViews = [
+  readFileSync(new URL('../public/sprzet-obozowy/sprzet-obozowy.js', import.meta.url), 'utf8'),
+  profilePage,
+  readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8'),
+];
 
 test('the profile page renders companion categories through the shared helper directly', () => {
   assert.doesNotMatch(profilePage, /function personCategoryOptionsHtml/);
   assert.match(profilePage, /window\.CompanionAdd\.categoryOptionsHtml\(personLookupLists\.categories, person\?\.categoryId \?\? null\)/);
+});
+
+test('all equipment drawer callers pass person ID and accountless state to the shared target resolver', () => {
+  for (const source of equipmentViews) {
+    assert.match(source, /auditPersonId: item\.belongsToPersonId,\s* auditIsAccountless: owner\?\.accountless === true/);
+  }
 });
 
 test('the profile drawer opens a person without an account through the person-keyed endpoint', () => {
