@@ -72,7 +72,7 @@ const elementIds = [
   'event-share-button', 'event-share-button-text',
 ];
 
-function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; withAttachedToSignedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]>; signupStatusByPersonId?: Record<string, string | undefined>; signupAttendingByPersonId?: Record<string, boolean>; initialStorage?: Record<string, string> } = {}) {
+function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; withAttachedToSignedPerson?: boolean; withCompanionOfCompanion?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]>; signupStatusByPersonId?: Record<string, string | undefined>; signupAttendingByPersonId?: Record<string, boolean>; initialStorage?: Record<string, string> } = {}) {
   const canManageSkladki = options.canManageSkladki ?? true;
   const canManagePeople = options.canManagePeople ?? false;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
@@ -96,7 +96,10 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   // KRKG-0087: an accountless person already attached to the viewer but not signed up for this
   // trip - the roster's inline add panel offers them in its "istniejąca" dropdown.
   const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: options.withAttachedToSignedPerson ? 'signed@example.com' : 'viewer@example.com', lastName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'paid' };
-  const currentRoster = options.withAttachedPerson ? [...roster, attachedPerson] : roster;
+  const nestedAttachedPerson = { personId: 'nested-uuid-2', email: null, accountless: true, ownerPersonId: 'attached-uuid-1', lastName: 'Zagnieżdżony', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'paid' };
+  const currentRoster = options.withAttachedPerson
+    ? [...roster, attachedPerson, ...(options.withCompanionOfCompanion ? [nestedAttachedPerson] : [])]
+    : roster;
   // KRKG-0087: the event-scoped (historical) roster additionally carries a person who has since been
   // removed but was signed up for this trip. A person row has `email: null` and a UUID personId, so
   // it only renders correctly if the page keys rows by personId (the bug this batch fixes).
@@ -304,7 +307,7 @@ test('roster checkboxes filter locally and preserve the signed-in viewer', async
   assert.equal(harness.apiCalls.length, requestsBeforeToggle);
 });
 
-test('companion nesting control follows roster filters and persists its local preference', async () => {
+test('companion nesting control restores and persists its local preference', async () => {
   const key = 'kruki_pref_wyjazd_companion_nesting';
   const harness = createHarness(event(null), {
     initialStorage: { [key]: JSON.stringify({ v: 1, value: { nested: true } }) },
@@ -322,7 +325,7 @@ test('companion nesting control follows roster filters and persists its local pr
   assert.deepEqual(JSON.parse(harness.storedPreference(key)!), { v: 1, value: { nested: false } });
 });
 
-test('visible companions nest under their owner only when roster sorting uses section', async () => {
+test('visible accountless companions nest under their account owner only when sorting by section', async () => {
   const harness = createHarness(event(null), {
     withAttachedPerson: true,
     withAttachedToSignedPerson: true,
@@ -347,6 +350,25 @@ test('visible companions nest under their owner only when roster sorting uses se
   harness.setRosterSort('status');
   assert.doesNotMatch(roster.innerHTML, /lw-roster-row--companion/);
   assert.ok(roster.innerHTML.indexOf('data-person-id="attached-uuid-1"') < roster.innerHTML.indexOf('data-person-id="signed@example.com"'));
+});
+
+test('a companion attached to an accountless person stays visible as a top-level row', async () => {
+  const harness = createHarness(event(null), {
+    withAttachedPerson: true,
+    withAttachedToSignedPerson: true,
+    withCompanionOfCompanion: true,
+    initialStorage: {
+      'kruki_pref_wyjazd_companion_nesting': JSON.stringify({ v: 1, value: { nested: true } }),
+    },
+  });
+  await harness.signIn();
+  const showNotSignedUp = harness.elements.get('roster-filter-niezgloszeni')!;
+  showNotSignedUp.checked = true;
+  await showNotSignedUp.change();
+
+  const roster = harness.elements.get('roster-content')!.innerHTML;
+  assert.match(roster, /<tr class="lw-roster-row--companion" data-person-id="attached-uuid-1"/);
+  assert.match(roster, /<tr data-person-id="nested-uuid-2"/);
 });
 
 test('a visible companion remains standalone when a roster filter hides the owner', async () => {

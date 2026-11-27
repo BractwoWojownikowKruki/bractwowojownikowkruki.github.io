@@ -905,7 +905,8 @@ function renderRoster(roster, signups) {
     const visibleByPersonId = new Map(visible.map((member) => [member.personId, member]));
     const companionsByOwnerId = new Map();
     for (const member of sorted) {
-      if (!member.ownerPersonId || !visibleByPersonId.has(member.ownerPersonId)) continue;
+      const owner = member.ownerPersonId ? visibleByPersonId.get(member.ownerPersonId) : null;
+      if (!owner || owner.accountless === true) continue;
       const companions = companionsByOwnerId.get(member.ownerPersonId) ?? [];
       companions.push(member);
       companionsByOwnerId.set(member.ownerPersonId, companions);
