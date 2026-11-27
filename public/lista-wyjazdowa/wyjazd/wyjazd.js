@@ -902,19 +902,22 @@ function renderRoster(roster, signups) {
   let ordered = sorted;
   const nestedCompanionIds = new Set();
   if (nestCompanions && rosterSortState.key === 'section') {
-    const visibleByPersonId = new Map(visible.map((member) => [member.personId, member]));
+    const personKey = (personId) => String(personId ?? '').toLowerCase();
+    const visibleByPersonId = new Map(visible.map((member) => [personKey(member.personId), member]));
     const companionsByOwnerId = new Map();
     for (const member of sorted) {
-      const owner = member.ownerPersonId ? visibleByPersonId.get(member.ownerPersonId) : null;
+      if (member.accountless !== true || !member.ownerPersonId) continue;
+      const ownerId = personKey(member.ownerPersonId);
+      const owner = visibleByPersonId.get(ownerId);
       if (!owner || owner.accountless === true) continue;
-      const companions = companionsByOwnerId.get(member.ownerPersonId) ?? [];
+      const companions = companionsByOwnerId.get(ownerId) ?? [];
       companions.push(member);
-      companionsByOwnerId.set(member.ownerPersonId, companions);
+      companionsByOwnerId.set(ownerId, companions);
       nestedCompanionIds.add(member.personId);
     }
     ordered = sorted
       .filter((member) => !nestedCompanionIds.has(member.personId))
-      .flatMap((member) => [member, ...(companionsByOwnerId.get(member.personId) ?? [])]);
+      .flatMap((member) => [member, ...(companionsByOwnerId.get(personKey(member.personId)) ?? [])]);
   }
 
   tbody.innerHTML = ordered

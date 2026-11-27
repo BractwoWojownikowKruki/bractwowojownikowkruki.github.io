@@ -72,7 +72,7 @@ const elementIds = [
   'event-share-button', 'event-share-button-text',
 ];
 
-function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; withAttachedToSignedPerson?: boolean; withCompanionOfCompanion?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]>; signupStatusByPersonId?: Record<string, string | undefined>; signupAttendingByPersonId?: Record<string, boolean>; initialStorage?: Record<string, string> } = {}) {
+function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; withAttachedToSignedPerson?: boolean; attachedOwnerPersonId?: string; withCompanionOfCompanion?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]>; memberCategories?: Record<string, string | null>; signupStatusByPersonId?: Record<string, string | undefined>; signupAttendingByPersonId?: Record<string, boolean>; initialStorage?: Record<string, string> } = {}) {
   const canManageSkladki = options.canManageSkladki ?? true;
   const canManagePeople = options.canManagePeople ?? false;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
@@ -92,10 +92,14 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, lastName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
     { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, lastName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
     { personId: 'other@example.com', email: 'other@example.com', accountless: false, lastName: 'Other', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
-  ].map((member) => (options.memberWeapons?.[member.personId] ? { ...member, weaponIds: options.memberWeapons[member.personId] } : member));
+  ].map((member) => ({
+    ...member,
+    ...(options.memberWeapons?.[member.personId] ? { weaponIds: options.memberWeapons[member.personId] } : {}),
+    ...(options.memberCategories?.[member.personId] !== undefined ? { categoryId: options.memberCategories[member.personId] } : {}),
+  }));
   // KRKG-0087: an accountless person already attached to the viewer but not signed up for this
   // trip - the roster's inline add panel offers them in its "istniejąca" dropdown.
-  const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: options.withAttachedToSignedPerson ? 'signed@example.com' : 'viewer@example.com', lastName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'paid' };
+  const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: options.attachedOwnerPersonId ?? (options.withAttachedToSignedPerson ? 'signed@example.com' : 'viewer@example.com'), lastName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'paid' };
   const nestedAttachedPerson = { personId: 'nested-uuid-2', email: null, accountless: true, ownerPersonId: 'attached-uuid-1', lastName: 'Zagnieżdżony', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'paid' };
   const currentRoster = options.withAttachedPerson
     ? [...roster, attachedPerson, ...(options.withCompanionOfCompanion ? [nestedAttachedPerson] : [])]
@@ -329,6 +333,7 @@ test('visible accountless companions nest under their account owner only when so
   const harness = createHarness(event(null), {
     withAttachedPerson: true,
     withAttachedToSignedPerson: true,
+    attachedOwnerPersonId: 'SIGNED@example.com',
     initialStorage: {
       'kruki_pref_wyjazd_companion_nesting': JSON.stringify({ v: 1, value: { nested: true } }),
     },
@@ -350,6 +355,14 @@ test('visible accountless companions nest under their account owner only when so
   harness.setRosterSort('status');
   assert.doesNotMatch(roster.innerHTML, /lw-roster-row--companion/);
   assert.ok(roster.innerHTML.indexOf('data-person-id="attached-uuid-1"') < roster.innerHTML.indexOf('data-person-id="signed@example.com"'));
+
+  harness.setRosterSort('section');
+  assert.equal(harness.elements.get('roster-filter-zagniezdz-os-tow')!.checked, true);
+  assert.match(roster.innerHTML, /<tr class="lw-roster-row--companion" data-person-id="attached-uuid-1"/);
+  const nestingControl = harness.elements.get('roster-filter-zagniezdz-os-tow')!;
+  nestingControl.checked = false;
+  await nestingControl.change();
+  assert.doesNotMatch(roster.innerHTML, /lw-roster-row--companion/);
 });
 
 test('a companion attached to an accountless person stays visible as a top-level row', async () => {
@@ -385,6 +398,32 @@ test('a visible companion remains standalone when a roster filter hides the owne
   showSignedUpAndMe.checked = false;
   showNotSignedUp.checked = true;
   await showNotSignedUp.change();
+
+  const roster = harness.elements.get('roster-content')!.innerHTML;
+  assert.doesNotMatch(roster, /data-person-id="signed@example.com"/);
+  assert.match(roster, /data-person-id="attached-uuid-1"/);
+  assert.doesNotMatch(roster, /lw-roster-row--companion/);
+});
+
+test('summary category filters independently hide a companion owner and preserve the matching companion', async () => {
+  const harness = createHarness(event(null), {
+    withAttachedPerson: true,
+    withAttachedToSignedPerson: true,
+    memberCategories: { 'signed@example.com': 'emeryt' },
+    signupStatusByPersonId: { 'attached-uuid-1': 'paid' },
+    initialStorage: {
+      'kruki_pref_wyjazd_companion_nesting': JSON.stringify({ v: 1, value: { nested: true } }),
+    },
+  });
+  await harness.signIn();
+  const showNotSignedUp = harness.elements.get('roster-filter-niezgloszeni')!;
+  showNotSignedUp.checked = true;
+  await showNotSignedUp.change();
+  await harness.elements.get('summary-panel')!.clickWith({
+    closest: (selector: string) => selector === '[data-filter-group]'
+      ? { dataset: { filterGroup: 'category', filterValue: 'kandydat' }, disabled: false, focus() {} }
+      : null,
+  });
 
   const roster = harness.elements.get('roster-content')!.innerHTML;
   assert.doesNotMatch(roster, /data-person-id="signed@example.com"/);
