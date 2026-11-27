@@ -210,11 +210,11 @@ test('a match opens an informational prompt and retries only after explicit conf
   assert.deepEqual(calls, [false, true]);
   assert.match(dialogs[0].innerHTML, /Czy ta osoba już istnieje\?/);
   assert.match(dialogs[0].innerHTML, /Tak, zarejestruj, to zupełnie inna osoba\./);
-  assert.match(dialogs[0].innerHTML, /Właściciel: Właściciel/);
+  assert.match(dialogs[0].innerHTML, /Osoba towarzysząca od: Właściciel/);
   assert.match(dialogs[0].innerHTML, /&lt;Wilk&gt;/);
   const janCandidate = dialogs[0].innerHTML.match(/<li class="person-registration-match">\s*<strong>Jan Nowak<\/strong>[\s\S]*?<\/li>/)?.[0] ?? '';
   assert.match(janCandidate, /<span>Sekcja: —<\/span>/);
-  assert.match(janCandidate, /<span>Właściciel: —<\/span>/);
+  assert.doesNotMatch(janCandidate, /Osoba towarzysząca od:/);
   assert.doesNotMatch(janCandidate, /Ksywka:/, 'a missing nickname is omitted for this person');
   const candidateList = dialogs[0].innerHTML.match(/<ul class="person-registration-dialog__matches"[^>]*>([\s\S]*?)<\/ul>/)?.[1];
   assert.ok(candidateList, 'matches are rendered in the informational list');

@@ -131,10 +131,12 @@ function normalizePersonComparison(value: string | null | undefined): string {
 export async function findDuplicateAccountlessPersons(
   client: FirestoreLikeClient,
   fields: Pick<PersonWritableFields, 'ksywka' | 'firstName' | 'lastName'>,
+  ownerPersonId: string | null = null,
 ): Promise<PersonDoc[]> {
   const nickname = normalizePersonComparison(fields.ksywka);
   const firstName = normalizePersonComparison(fields.firstName);
   const lastName = normalizePersonComparison(fields.lastName);
+  const owner = normalizePersonComparison(ownerPersonId);
   const people = await listPersons(client);
   return people
     .map(({ data }) => data)
@@ -144,7 +146,11 @@ export async function findDuplicateAccountlessPersons(
       const fullNameMatches = firstName !== '' && lastName !== ''
         && normalizePersonComparison(person.firstName) === firstName
         && normalizePersonComparison(person.lastName) === lastName;
-      return nicknameMatches || fullNameMatches;
+      const sameOwnerFirstNameMatches = owner !== ''
+        && normalizePersonComparison(person.ownerPersonId) === owner
+        && firstName !== ''
+        && normalizePersonComparison(person.firstName) === firstName;
+      return nicknameMatches || fullNameMatches || sameOwnerFirstNameMatches;
     })
     .sort((left, right) => {
       const leftFullName = normalizePersonComparison(`${left.firstName ?? ''} ${left.lastName ?? ''}`);

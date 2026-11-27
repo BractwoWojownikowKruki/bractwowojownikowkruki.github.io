@@ -210,9 +210,21 @@ function renderMySignupsWidget(events) {
     nameLink.textContent = e.name;
     const meta = items[i].querySelector('.dashboard-mini-item-meta');
     meta.innerHTML = datePillHtml(e, `mine-${e.id}`, 'end');
+    const attendance = document.createElement('span');
+    attendance.textContent = signupStatusText(e);
+    meta.prepend(attendance);
     meta.append(attendeeBadge(e.attendingCount));
   });
   return widget;
+}
+
+/** Builds the short attendance label for one dashboard signup card, using no companion surnames. */
+function signupStatusText(event) {
+  const names = (event.viewerCompanions ?? [])
+    .map((person) => person.firstName?.trim() || person.nickname?.trim() || '')
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right, 'pl', { sensitivity: 'base' }));
+  return names.length > 0 ? `Jadę + ${names.join(', ')}` : 'Jadę';
 }
 
 // Deliberate divergence from the approved mockup: the mockup renders this card as a plain,
@@ -467,14 +479,10 @@ async function quickAddDashCompanion(body, control) {
         showReauth,
         hideReauth,
       ),
-      apply: async (result) => {
-        const event = dash.events.find((item) => item.id === body.eventId);
-        if (event && result?.signup?.attending) event.attendingCount = (event.attendingCount ?? 0) + 1;
+      apply: async () => {
         // A brand-new companion must be offered as an existing person next time, so drop the cache.
         dash.companionPromise = null;
-        dash.openPanelEventId = null;
-        renderDashboardWidgets();
-        await refreshDuesPanel();
+        await reloadDashboardEvents();
       },
       focusAfterApply: () => dashEventAnchor(body.eventId)(),
       viewRoot: panels.panel,
@@ -558,8 +566,8 @@ function bindDashboardWidgetEvents() {
       const lastName = document.getElementById('lw-inline-new-last-name')?.value.trim() ?? '';
       const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
       const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
-      if (!ksywka || !lastName || !firstName || !categoryId) {
-        showDashboardError('Podaj ksywkę, nazwisko, imię i kategorię nowej osoby.');
+      if (!lastName || !firstName || !categoryId) {
+        showDashboardError('Podaj nazwisko, imię i kategorię nowej osoby.');
         return;
       }
       await quickAddDashCompanion(

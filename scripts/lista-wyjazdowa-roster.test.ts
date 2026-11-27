@@ -762,7 +762,7 @@ test('a blank Nazwisko/Imię on the new-person form is rejected before posting',
   await roster.clickWith(clickTarget('.lw-inline-add-new'));
 
   assert.equal(harness.apiCalls.length, requestsBefore, 'a blank Nazwisko/Imię must not reach the server');
-  assert.match(harness.elements.get('lw-error')!.textContent, /Podaj ksywkę, nazwisko, imię/);
+  assert.match(harness.elements.get('lw-error')!.textContent, /Podaj nazwisko, imię i kategorię/);
 });
 
 test('adding a new person posts quick-add with ksywka+lastName+firstName+categoryId and appends the created row', async () => {
@@ -790,6 +790,27 @@ test('adding a new person posts quick-add with ksywka+lastName+firstName+categor
   assert.doesNotMatch(roster.innerHTML, /class="lw-inline-form"/);
   assert.match(harness.focusTargets[0]?.selector ?? '', /data-person-id="new-uuid-1"/);
   assert.equal(harness.focusTargets[0]?.focused, true);
+});
+
+test('adding a new person in the trip detail accepts a blank nickname', async () => {
+  const harness = createHarness(event(null));
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = '';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Nowak';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Anna';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  harness.setMutationResult({
+    person: { personId: 'new-uuid-2', ksywka: '', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'bydgoszcz', weaponIds: [], ownerPersonId: 'viewer@example.com' },
+    signup: { memberEmail: 'new-uuid-2', attending: true, skladkaStatus: 'unpaid' },
+  });
+
+  await roster.clickWith(clickTarget('.lw-inline-add-new'));
+
+  const post = harness.apiCalls.find((call) => call.url === '/lista-wyjazdowa/signups/quick-add');
+  assert.ok(post, 'a blank nickname must not block the quick-add request');
+  assert.equal(JSON.parse(String(post.options.body)).ksywka, '');
 });
 
 test('a failed quick-add changes nothing and reports the error', async () => {

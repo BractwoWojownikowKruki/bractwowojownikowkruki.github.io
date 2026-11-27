@@ -1195,8 +1195,8 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
     const lastName = document.getElementById('lw-inline-new-last-name')?.value.trim() ?? '';
     const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
     const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
-    if (!ksywka || !lastName || !firstName || !categoryId) {
-      showError('Podaj ksywkę, nazwisko, imię i kategorię nowej osoby.');
+    if (!lastName || !firstName || !categoryId) {
+      showError('Podaj nazwisko, imię i kategorię nowej osoby.');
       return;
     }
     addNewBtn.disabled = true;

@@ -97,7 +97,7 @@
       <div class="lw-inline-sep"></div>
       <div class="lw-inline-row">
         <label class="lw-inline-label" for="lw-inline-new-name">lub nowa:</label>
-        <input type="text" id="lw-inline-new-name" class="lw-inline-new-name" placeholder="Ksywka" required />
+        <input type="text" id="lw-inline-new-name" class="lw-inline-new-name" placeholder="Ksywka (opcjonalnie)" />
         <input type="text" id="lw-inline-new-last-name" class="lw-inline-new-last-name" placeholder="Nazwisko" required />
         <input type="text" id="lw-inline-new-first-name" class="lw-inline-new-first-name" placeholder="Imię" required />
         <select id="lw-inline-new-category" class="lw-inline-new-category" aria-label="Kategoria nowej osoby">${categorySelectOptions}</select>

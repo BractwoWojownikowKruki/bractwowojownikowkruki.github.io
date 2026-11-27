@@ -36,14 +36,14 @@ function loadApp(): Record<string, unknown> {
   return context;
 }
 
-test('dashboard companion registration confirms a possible duplicate before retrying', async () => {
+test('dashboard companion registration confirms duplicates and refreshes the signup card', async () => {
   const context = loadApp() as any;
   const requests: Array<Record<string, unknown>> = [];
   let applied = 0;
   context.window.MutationFeedback = {
     confirmed: async ({ execute, apply, skipApplyWhen }: any) => {
       const result = await execute();
-      if (!skipApplyWhen(result)) apply(result);
+      if (!skipApplyWhen(result)) await apply(result);
     },
   };
   context.window.PersonRegistrationPrompt = {
@@ -61,6 +61,9 @@ test('dashboard companion registration confirms a possible duplicate before retr
     }),
   };
   context.apiFetch = async (_url: string, init: Record<string, unknown>) => {
+    if (_url === '/lista-wyjazdowa/events') {
+      return { events: [{ id: 'trip-1', attendingCount: 3, viewerCompanions: [{ firstName: 'Anna', nickname: 'Wilk' }] }] };
+    }
     requests.push(init);
     if (requests.length === 1) throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Iga' }] });
     return { signup: { attending: true } };
@@ -74,6 +77,7 @@ test('dashboard companion registration confirms a possible duplicate before retr
   assert.equal(requests.length, 2);
   assert.equal(JSON.parse(String(requests[1].body)).duplicateConfirmed, true);
   assert.equal(applied, 1);
+  assert.equal(vm.runInNewContext("signupStatusText(dash.events[0])", context), 'Jadę + Anna');
 });
 
 test('dashboard companion duplicate cancellation keeps the panel and focuses its form field', async () => {
@@ -148,6 +152,25 @@ test('each "Twoje zapisy" trip name is its own link to that trip', () => {
   assert.match(appSource, /function renderMySignupsWidget\(events\)[\s\S]*?document\.createElement\('div'\)/);
   assert.match(css, /\.dashboard-mini-item-name\s*\{[^}]*text-decoration:\s*none/);
   assert.match(css, /\.dashboard-mini-item-name:hover/);
+  assert.match(appSource, /attendance\.textContent = signupStatusText\(e\)/);
+});
+
+test('dashboard signup status lists a first name or nickname only, without surnames', () => {
+  const context = loadApp() as any;
+  assert.equal(context.signupStatusText({ viewerCompanions: [] }), 'Jadę');
+  assert.equal(context.signupStatusText({ viewerCompanions: [{ firstName: 'Anna', lastName: 'Nowak', nickname: 'Wilk' }] }), 'Jadę + Anna');
+  assert.equal(context.signupStatusText({ viewerCompanions: [{ firstName: '', lastName: 'Nowak', nickname: 'Wilk' }] }), 'Jadę + Wilk');
+  assert.equal(context.signupStatusText({ viewerCompanions: [{ firstName: 'Jan', lastName: 'Lis' }, { firstName: 'Anna', lastName: 'Nowak' }] }), 'Jadę + Anna, Jan');
+});
+
+test('dashboard signup card metadata wraps companion names instead of forcing one long row', () => {
+  assert.match(css, /\.dashboard-mini-item-meta\s*\{[^}]*white-space:\s*normal[^}]*flex-wrap:\s*wrap/);
+});
+
+test('dashboard companion form validation does not require the nickname', () => {
+  const addHandler = appSource.match(/const addNewBtn = e\.target\.closest\('\.lw-inline-add-new'\);[\s\S]*?\n    }/)?.[0] ?? '';
+  assert.match(addHandler, /if \(!lastName \|\| !firstName \|\| !categoryId\)/);
+  assert.match(addHandler, /Podaj nazwisko, imię i kategorię nowej osoby\./);
 });
 
 test('the new-galleries widget combines static and member-created galleries', () => {

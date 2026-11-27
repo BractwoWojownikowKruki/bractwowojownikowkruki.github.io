@@ -20,7 +20,7 @@
       <strong>${escapeHtml(fullName || '—')}</strong>
       ${person.nickname ? `<span>Ksywka: ${escapeHtml(person.nickname)}</span>` : ''}
       <span>Sekcja: ${escapeHtml(person.section || '—')}</span>
-      <span>Właściciel: ${escapeHtml(person.owner || '—')}</span>
+      ${person.owner ? `<span>Osoba towarzysząca od: ${escapeHtml(person.owner)}</span>` : ''}
     </li>`;
   }
 
@@ -39,7 +39,7 @@
     dialog.innerHTML = `
       <div class="person-registration-dialog__content">
         <h2 id="${titleId}">Czy ta osoba już istnieje?</h2>
-        <p id="${descriptionId}">Znaleźliśmy osoby bez konta o takim samym pseudonimie lub imieniu i nazwisku. Sprawdź poniższe dane. Jeśli to inna osoba, możesz kontynuować rejestrację w apce.</p>
+        <p id="${descriptionId}">Znaleźliśmy osoby bez konta o takim samym pseudonimie lub imieniu i nazwisku. Wśród osób towarzyszących przypisanych do tego samego konta sprawdzamy też samo imię. Sprawdź poniższe dane. Jeśli to inna osoba, możesz kontynuować rejestrację w apce.</p>
         <ul class="person-registration-dialog__matches" aria-labelledby="${titleId}" tabindex="0">${matches.map(candidateHtml).join('')}</ul>
         <div class="person-registration-dialog__actions">
           <button type="button" class="person-registration-dialog__confirm">Tak, zarejestruj, to zupełnie inna osoba.</button>
