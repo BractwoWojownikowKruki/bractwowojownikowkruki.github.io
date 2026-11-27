@@ -830,10 +830,6 @@ function personOptionsHtml(items, selectedId) {
     .join('');
 }
 
-function personCategoryOptionsHtml(items, selectedId) {
-  return window.CompanionAdd.categoryOptionsHtml(items, selectedId);
-}
-
 function personWeaponCheckboxesHtml(weapons, currentIds) {
   return selectableLookupItems(weapons, currentIds)
     .map((w) => `<label><input type="checkbox" name="personWeaponIds" value="${escapeAttr(w.id)}"${currentIds.includes(w.id) ? ' checked' : ''} /><span>${escapeHtml(w.label)}</span></label>`)
@@ -890,7 +886,7 @@ function addPersonRow(container, person = null) {
       <input type="text" class="person-ksywka" placeholder="Ksywka (opcjonalnie)" value="${escapeAttr(person?.nickname ?? '')}" aria-label="Ksywka (opcjonalnie)" />
       <input type="text" class="person-first-name" placeholder="Imię" value="${escapeAttr(person?.firstName ?? '')}" aria-label="Imię" />
       <input type="text" class="person-last-name" placeholder="Nazwisko" value="${escapeAttr(person?.lastName ?? '')}" aria-label="Nazwisko" />
-      <select class="person-category" aria-label="Kategoria">${personCategoryOptionsHtml(personLookupLists.categories, person?.categoryId ?? null)}</select>
+      <select class="person-category" aria-label="Kategoria">${window.CompanionAdd.categoryOptionsHtml(personLookupLists.categories, person?.categoryId ?? null)}</select>
       <select class="person-section" aria-label="Sekcja">${personOptionsHtml(personLookupLists.sections, person?.sectionId ?? ownerSectionId)}</select>
     </div>
     <div class="person-weapons lw-checkbox-grid">${personWeaponCheckboxesHtml(personLookupLists.weapons, person?.weaponIds ?? [])}</div>

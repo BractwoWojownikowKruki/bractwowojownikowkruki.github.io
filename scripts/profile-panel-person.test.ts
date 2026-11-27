@@ -3,6 +3,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const panel = readFileSync(new URL('../public/shared/profile-panel.js', import.meta.url), 'utf8');
+const profilePage = readFileSync(new URL('../public/profil/profil.js', import.meta.url), 'utf8');
+
+test('the profile page renders companion categories through the shared helper directly', () => {
+  assert.doesNotMatch(profilePage, /function personCategoryOptionsHtml/);
+  assert.match(profilePage, /window\.CompanionAdd\.categoryOptionsHtml\(personLookupLists\.categories, person\?\.categoryId \?\? null\)/);
+});
 
 test('the profile drawer opens a person without an account through the person-keyed endpoint', () => {
   assert.match(panel, /async function openPerson\(personId, name = '', folderId = ''\)/);

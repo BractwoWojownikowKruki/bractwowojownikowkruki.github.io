@@ -85,6 +85,12 @@ test('accountless and member weapon controls are hidden for non-combat categorie
   assert.equal(getAdminEl('accountless-weapon-field').hidden, true);
   assert.equal(weaponCb.checked, false);
 
+  weaponCb.checked = true;
+  getAdminEl('accountless-category').value = 'bobo';
+  adminCtx.updateAccountlessWeaponState();
+  assert.equal(getAdminEl('accountless-weapon-field').hidden, true);
+  assert.equal(weaponCb.checked, false);
+
   getAdminEl('accountless-category').value = 'woj';
   adminCtx.updateAccountlessWeaponState();
   assert.equal(getAdminEl('accountless-weapon-field').hidden, false);
