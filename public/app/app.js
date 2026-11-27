@@ -221,10 +221,7 @@ function renderMySignupsWidget(events) {
 
 /** Builds the short attendance label for one dashboard signup card, using no companion surnames. */
 function signupStatusText(event) {
-  const names = (event.viewerCompanions ?? [])
-    .map((person) => person.firstName?.trim() || person.nickname?.trim() || '')
-    .filter(Boolean)
-    .sort((left, right) => left.localeCompare(right, 'pl', { sensitivity: 'base' }));
+  const names = window.CompanionAdd.companionNames(event.viewerCompanions);
   return names.length > 0 ? `Jadę + ${names.join(', ')}` : 'Jadę';
 }
 

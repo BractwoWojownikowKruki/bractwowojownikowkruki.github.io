@@ -130,11 +130,15 @@
     return `<button type="button" class="lw-add-companion" data-owner-person-id="${escapeHtml(ownerPersonId)}"${eventAttr} aria-expanded="${expanded ? 'true' : 'false'}" aria-label="Dodaj osobę towarzyszącą" title="Dodaj osobę towarzyszącą"><span class="lw-add-companion-plus" aria-hidden="true">+</span><svg class="lw-add-companion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5.5" r="2.6"/><path d="M12 8.5v6.5"/><path d="M8.2 11h7.6"/><path d="M9.2 22l2.8-7 2.8 7"/></svg><span class="lw-add-companion-label">osoba towarzysząca</span></button>`;
   }
 
-  function signupNamesHtml(people) {
-    const names = (people ?? [])
+  function companionNames(people) {
+    return (people ?? [])
       .map((person) => person.firstName?.trim() || person.nickname?.trim() || '')
       .filter(Boolean)
       .sort((left, right) => left.localeCompare(right, 'pl', { sensitivity: 'base' }));
+  }
+
+  function signupNamesHtml(people) {
+    const names = companionNames(people);
     return names.length ? `<span class="lw-companion-names">${names.map(escapeHtml).join(', ')}</span>` : '';
   }
 
@@ -154,5 +158,5 @@
     }
   }
 
-  window.CompanionAdd = { candidates, orderedCategories, categoryOptionsHtml, panelHtml, buttonHtml, signupNamesHtml, showError, clearError };
+  window.CompanionAdd = { candidates, orderedCategories, categoryOptionsHtml, panelHtml, buttonHtml, companionNames, signupNamesHtml, showError, clearError };
 }());
