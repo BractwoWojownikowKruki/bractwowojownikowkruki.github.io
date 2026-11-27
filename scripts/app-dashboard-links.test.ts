@@ -148,6 +148,21 @@ test('each "Twoje zapisy" trip name is its own link to that trip', () => {
   assert.match(appSource, /function renderMySignupsWidget\(events\)[\s\S]*?document\.createElement\('div'\)/);
   assert.match(css, /\.dashboard-mini-item-name\s*\{[^}]*text-decoration:\s*none/);
   assert.match(css, /\.dashboard-mini-item-name:hover/);
+  assert.match(appSource, /attendance\.textContent = signupStatusText\(e\)/);
+});
+
+test('dashboard signup status lists a first name or nickname only, without surnames', () => {
+  const context = loadApp() as any;
+  assert.equal(context.signupStatusText({ viewerCompanions: [] }), 'Jadę');
+  assert.equal(context.signupStatusText({ viewerCompanions: [{ firstName: 'Anna', lastName: 'Nowak', nickname: 'Wilk' }] }), 'Jadę + Anna');
+  assert.equal(context.signupStatusText({ viewerCompanions: [{ firstName: '', lastName: 'Nowak', nickname: 'Wilk' }] }), 'Jadę + Wilk');
+  assert.equal(context.signupStatusText({ viewerCompanions: [{ firstName: 'Anna', lastName: 'Nowak' }, { firstName: 'Jan', lastName: 'Lis' }] }), 'Jadę + Anna, Jan');
+});
+
+test('dashboard companion form validation does not require the nickname', () => {
+  const addHandler = appSource.match(/const addNewBtn = e\.target\.closest\('\.lw-inline-add-new'\);[\s\S]*?\n    }/)?.[0] ?? '';
+  assert.match(addHandler, /if \(!lastName \|\| !firstName \|\| !categoryId\)/);
+  assert.match(addHandler, /Podaj nazwisko, imię i kategorię nowej osoby\./);
 });
 
 test('the new-galleries widget combines static and member-created galleries', () => {

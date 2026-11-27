@@ -308,6 +308,18 @@ test('new companion categories put Niewiasta, Bobo and Inne first, then an hr se
   assert.doesNotMatch(options, /<option disabled/);
 });
 
+test('the shared new-companion form marks its nickname as optional', () => {
+  const context = { window: {}, displayName: (person: any) => person.nickname ?? 'Osoba' };
+  vm.runInNewContext(companionAddSource, context);
+  const html = context.window.CompanionAdd.panelHtml(
+    { personId: 'owner', nickname: 'Opiekun' },
+    { roster: [], signups: [], categories: [] },
+  );
+
+  assert.match(html, /placeholder="Ksywka \(opcjonalnie\)"/);
+  assert.doesNotMatch(html, /id="lw-inline-new-name"[^>]*required/);
+});
+
 test('adding an existing companion posts quick-add, closes the panel and bumps the count', async () => {
   const harness = createHarness({ withAttachedPerson: true });
   await harness.signIn();
@@ -328,9 +340,8 @@ test('adding an existing companion posts quick-add, closes the panel and bumps t
   assert.match(list.innerHTML, /attendee-badge-count">3</);
 });
 
-// KRKG-0103: quick-add's "new person" path now requires Nazwisko/Imię alongside Ksywka - it used
-// to create a person with only a ksywka.
-test('adding a new companion requires ksywka, nazwisko, imię and kategoria before posting', async () => {
+// KRKG-0103: quick-add requires Nazwisko/Imię, while the nickname remains optional.
+test('adding a new companion requires nazwisko, imię and kategoria but not ksywka', async () => {
   const harness = createHarness();
   await harness.signIn();
   const list = harness.elements.get('events-list')!;
@@ -344,7 +355,7 @@ test('adding a new companion requires ksywka, nazwisko, imię and kategoria befo
   await list.clickWith(clickTarget('.lw-inline-add-new'));
 
   assert.equal(harness.apiCalls.length, requestsBefore, 'a blank Nazwisko/Imię must not reach the server');
-  assert.match(harness.elements.get('events-error')!.textContent, /Podaj ksywkę, nazwisko, imię/);
+  assert.match(harness.elements.get('events-error')!.textContent, /Podaj nazwisko, imię i kategorię/);
 });
 
 test('adding a new companion posts quick-add with ksywka+lastName+firstName+categoryId', async () => {
@@ -370,6 +381,27 @@ test('adding a new companion posts quick-add with ksywka+lastName+firstName+cate
   });
   assert.doesNotMatch(list.innerHTML, /lw-inline-form/);
   assert.match(list.innerHTML, /attendee-badge-count">3</);
+});
+
+test('adding a new companion posts when the nickname is blank', async () => {
+  const harness = createHarness();
+  await harness.signIn();
+  const list = harness.elements.get('events-list')!;
+  await list.clickWith(clickTarget('.lw-add-companion', { eventId: 'e1', ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-new-name')!.value = '';
+  harness.elements.get('lw-inline-new-last-name')!.value = 'Nowak';
+  harness.elements.get('lw-inline-new-first-name')!.value = 'Anna';
+  harness.elements.get('lw-inline-new-category')!.value = 'kandydat';
+  harness.setMutationResult({
+    person: { personId: 'new-uuid-2', ksywka: '', lastName: 'Nowak', firstName: 'Anna', categoryId: 'kandydat', sectionId: null, weaponIds: [], ownerPersonId: 'viewer@example.com' },
+    signup: { memberEmail: 'new-uuid-2', attending: true, skladkaStatus: 'unpaid' },
+  });
+
+  await list.clickWith(clickTarget('.lw-inline-add-new'));
+
+  const post = harness.apiCalls.find((call) => call.url === '/lista-wyjazdowa/signups/quick-add');
+  assert.ok(post, 'a blank nickname must not block the quick-add request');
+  assert.equal(JSON.parse(String(post.options.body)).ksywka, '');
 });
 
 test('a matching quick-add asks the shared prompt and retries with duplicateConfirmed', async () => {

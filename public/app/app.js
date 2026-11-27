@@ -210,9 +210,21 @@ function renderMySignupsWidget(events) {
     nameLink.textContent = e.name;
     const meta = items[i].querySelector('.dashboard-mini-item-meta');
     meta.innerHTML = datePillHtml(e, `mine-${e.id}`, 'end');
+    const attendance = document.createElement('span');
+    attendance.className = 'dashboard-mini-item-attendance';
+    attendance.textContent = signupStatusText(e);
+    meta.prepend(attendance);
     meta.append(attendeeBadge(e.attendingCount));
   });
   return widget;
+}
+
+/** Builds the short attendance label for one dashboard signup card, using no companion surnames. */
+function signupStatusText(event) {
+  const names = (event.viewerCompanions ?? [])
+    .map((person) => person.firstName?.trim() || person.nickname?.trim() || '')
+    .filter(Boolean);
+  return names.length > 0 ? `Jadę + ${names.join(', ')}` : 'Jadę';
 }
 
 // Deliberate divergence from the approved mockup: the mockup renders this card as a plain,
@@ -558,8 +570,8 @@ function bindDashboardWidgetEvents() {
       const lastName = document.getElementById('lw-inline-new-last-name')?.value.trim() ?? '';
       const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
       const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
-      if (!ksywka || !lastName || !firstName || !categoryId) {
-        showDashboardError('Podaj ksywkę, nazwisko, imię i kategorię nowej osoby.');
+      if (!lastName || !firstName || !categoryId) {
+        showDashboardError('Podaj nazwisko, imię i kategorię nowej osoby.');
         return;
       }
       await quickAddDashCompanion(
