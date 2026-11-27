@@ -93,11 +93,16 @@ export function createPersonRegistrationPromptMock(
       try {
         let focusAfterApplyTarget: any;
         let focusAfterApplyResolved = false;
+        let skippedByCaller = false;
         const { successDetails, focusAfterApply, ...feedbackOptions } = options;
         const result = await mutationFeedback.confirmed({
           ...feedbackOptions,
           execute: () => run(executeAttempt, { fallbackFocus: options.fallbackFocus }),
-          skipApplyWhen: (result: unknown) => wasCancelled(result) || options.skipApplyWhen?.(result),
+          skipApplyWhen: (result: unknown) => {
+            if (wasCancelled(result)) return true;
+            skippedByCaller = Boolean(options.skipApplyWhen?.(result));
+            return skippedByCaller;
+          },
           focusAfterApply: successDetails ? async (value: unknown) => {
             try {
               focusAfterApplyTarget = await focusAfterApply?.(value);
@@ -120,7 +125,7 @@ export function createPersonRegistrationPromptMock(
           releaseBusy();
           unlockControl();
         }
-        if (!wasCancelled(result) && successDetails) {
+        if (!wasCancelled(result) && !skippedByCaller && successDetails) {
           await successDetails(result);
           let preferredTarget = focusAfterApplyTarget;
           if (!focusAfterApplyResolved) {

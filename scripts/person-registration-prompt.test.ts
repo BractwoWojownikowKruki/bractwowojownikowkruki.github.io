@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
+import { createMutationFeedbackMock, createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const source = readFileSync(new URL('../public/shared/person-registration-prompt.js', import.meta.url), 'utf8');
 const registrationRoutes = [
@@ -367,6 +368,19 @@ test('a custom skipApplyWhen does not show the registration success dialog', asy
   });
   assert.equal(successDetailsCalls, 0);
   assert.equal(dialogs.length, 0);
+});
+
+test('the shared registration test double skips success details when its caller skips apply', async () => {
+  const mutationFeedback = createMutationFeedbackMock();
+  const prompt = createPersonRegistrationPromptMock(mutationFeedback);
+  let successDetailsCalls = 0;
+  await prompt.confirmed({
+    execute: async () => ({ person: { firstName: 'Ewa', lastName: 'Kruk' } }),
+    apply: async () => {},
+    skipApplyWhen: () => true,
+    successDetails: () => { successDetailsCalls += 1; return { person: { firstName: 'Ewa', lastName: 'Kruk' } }; },
+  });
+  assert.equal(successDetailsCalls, 0);
 });
 
 test('a match opens an informational prompt and retries only after explicit confirmation', async () => {

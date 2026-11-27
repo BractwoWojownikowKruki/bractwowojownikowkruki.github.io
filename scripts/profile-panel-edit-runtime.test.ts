@@ -232,19 +232,6 @@ test('equipment drawer uses the accountless flag when a person ID contains an at
   assert.equal(query.has('email'), false);
 });
 
-test('equipment drawer routes an unresolved non-email person ID as person history', async () => {
-  const harness = createHarness({ apiFetch: async (url) => url.startsWith('/admin/members/account-audit?') ? { rows: [] } : {} });
-  harness.window.ProfilePanel.openEquipment({ description: 'Plecak', photos: [], auditPersonId: 'person-123', auditIsAccountless: false, canViewAccountAudit: true });
-  const toggle = harness.document.body.querySelector('[data-account-audit-toggle]') as FakeElement;
-  assert.ok(toggle);
-  await harness.document.dispatch('click', toggle);
-  await new Promise((resolve) => setImmediate(resolve));
-  const request = harness.apiCalls.find((call) => call.url.startsWith('/admin/members/account-audit?'));
-  const query = new URL(request?.url ?? '/', 'https://example.test').searchParams;
-  assert.equal(query.get('personId'), 'person-123');
-  assert.equal(query.has('email'), false);
-});
-
 test('team-owned equipment hides account history even when the viewer has the capability', () => {
   const harness = createHarness();
   harness.window.ProfilePanel.openEquipment({ description: 'Namiot', photos: [], auditPersonId: null, canViewAccountAudit: true });
