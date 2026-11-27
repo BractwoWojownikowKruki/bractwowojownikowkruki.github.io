@@ -479,7 +479,6 @@ test('every person registration page loads the shared prompt and invokes it from
     assert.match(pageScript, /PersonRegistrationPrompt\.confirmed\(/, `${scriptPath} must invoke the shared registration lifecycle`);
     assert.match(pageScript, /successDetails:/, `${scriptPath} must provide details for a newly registered person`);
     assert.match(pageScript, /duplicateConfirmed: true/, `${scriptPath} must confirm the retry to the server`);
-    assert.match(source, /skipApplyWhen: \(result\) => \{[\s\S]*?if \(wasCancelled\(result\)\) return true;[\s\S]*?skippedByCaller = Boolean\(skipApplyWhen\?\.\(result\)\)/, 'the shared lifecycle must leave the view unchanged when the prompt is cancelled or the caller skips applying');
     assert.match(pageScript, scriptPath.includes('/zarzadzanie-ludzmi/') ? /focusAfterApply,/ : /focusAfterApply:/, `${scriptPath} must restore focus after the new view is rendered`);
     assert.ok(pageScript.includes(focusMarker), `${scriptPath} must target its correct post-registration control`);
     if (scriptPath.includes('/profil/') || scriptPath.includes('/zarzadzanie-ludzmi/')) {

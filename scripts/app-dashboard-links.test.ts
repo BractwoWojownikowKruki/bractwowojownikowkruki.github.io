@@ -100,8 +100,8 @@ test('dashboard adding an existing person uses mutation feedback and locks its c
   context.window.MutationFeedback = createMutationFeedbackMock();
   const confirmed = context.window.MutationFeedback.confirmed;
   context.window.MutationFeedback.confirmed = async (options: any) => {
-      feedbackOptions.push(options);
-      return confirmed(options);
+    feedbackOptions.push(options);
+    return confirmed(options);
   };
   context.window.PersonRegistrationPrompt = {
     confirmed: async () => { promptCalls += 1; },
