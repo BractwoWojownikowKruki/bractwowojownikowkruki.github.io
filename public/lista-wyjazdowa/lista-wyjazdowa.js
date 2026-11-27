@@ -187,6 +187,7 @@ function renderEvents() {
             <button type="button" class="lw-edit-toggle lw-edit-toggle--icon lw-event-share-button" data-event-id="${escapeAttr(e.id)}" aria-label="Udostępnij wyjazd" title="Udostępnij wyjazd">${SHARE_ICON}</button>
             ${editToggleHtml}
           </div>
+          ${e.viewerAttending ? window.CompanionAdd.signupNamesHtml(e.viewerCompanions) : ''}
           ${panelHtml}
           ${editPanelHtml}
         </div>
@@ -240,7 +241,17 @@ function applyQuickAdd(result) {
     else panelSignups.push(signup);
   }
   const event = cachedEvents.find((item) => item.id === openAddPanelEventId);
-  if (event && signup?.attending) event.attendingCount = (event.attendingCount ?? 0) + 1;
+  if (event && signup?.attending) {
+    event.attendingCount = (event.attendingCount ?? 0) + 1;
+    const person = result?.person;
+    if (person) {
+      event.viewerCompanions ??= [];
+      event.viewerCompanions.push({
+        firstName: person.firstName ?? '',
+        nickname: person.nickname ?? person.ksywka ?? '',
+      });
+    }
+  }
   // A brand-new companion has to be offered as an existing person the next time any panel opens,
   // so drop the cached roster/categories rather than leaving them stale; the next "+" re-fetches.
   companionDataPromise = null;
@@ -256,6 +267,7 @@ function eventRowAnchor(eventId) {
 }
 
 async function quickAddCompanion(body, control) {
+  window.CompanionAdd.clearError();
   const errorEl = document.getElementById('events-error');
   errorEl.hidden = true;
   try {
@@ -281,8 +293,7 @@ async function quickAddCompanion(body, control) {
       } : null,
     });
   } catch (err) {
-    errorEl.textContent = `Nie udało się dodać osoby: ${err.message}`;
-    errorEl.hidden = false;
+    window.CompanionAdd.showError(`Nie udało się dodać osoby: ${err.message}`);
   }
 }
 
@@ -517,8 +528,7 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
     const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
     const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
     if (!lastName || !firstName || !categoryId) {
-      errorEl.textContent = 'Podaj nazwisko, imię i kategorię nowej osoby.';
-      errorEl.hidden = false;
+      window.CompanionAdd.showError('Podaj nazwisko, imię i kategorię nowej osoby.');
       return;
     }
     addNewBtn.disabled = true;

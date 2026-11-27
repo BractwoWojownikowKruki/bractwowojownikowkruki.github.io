@@ -1563,14 +1563,49 @@ button.lw-skladka-icon:disabled {
   color: var(--text);
 }
 
-/* KRKG-0090: the ksywka field and the existing-person dropdown are deliberately narrow (about a
-   third of the row), so the category dropdown fits beside the name on one line instead of the row
-   stretching out. */
-.lw-inline-form-inner .lw-inline-existing-select,
-.lw-inline-form-inner .lw-inline-new-name {
-  flex: 0 1 7.5rem;
+.lw-inline-form-inner .lw-inline-existing-select {
+  flex: 0 1 9rem;
   min-width: 0;
-  max-width: 7.5rem;
+  max-width: 9rem;
+}
+
+.lw-inline-form-inner .lw-inline-new-name {
+  flex: 0 1 12rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.lw-inline-form-inner .lw-inline-row + .lw-inline-row {
+  margin-top: 0.35rem;
+}
+
+.lw-inline-form-inner .lw-inline-error {
+  margin: 0.45rem 0 0;
+  color: var(--danger, #b42318);
+  font-size: 0.8rem;
+}
+
+.lw-companion-names {
+  display: block;
+  flex: 1 1 100%;
+  min-width: 0;
+  margin: -0.15rem 0 0 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.lw-inactive-person-name {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.lw-inactive-person-label {
+  margin-left: 0.2rem;
+  font-size: 0.72em;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 .lw-inline-form-inner button {

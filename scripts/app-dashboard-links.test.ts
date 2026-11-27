@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 
 const appSource = readFileSync(new URL('../public/app/app.js', import.meta.url), 'utf8');
+const companionAddSource = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
+const displayNameSource = readFileSync(new URL('../public/shared/display-name.js', import.meta.url), 'utf8');
 const lwFriendlyUrlSource = readFileSync(new URL('../public/shared/lw-friendly-url.js', import.meta.url), 'utf8');
 const eventLinkActionsSource = readFileSync(new URL('../public/shared/event-link-actions.js', import.meta.url), 'utf8');
 const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-form.js', import.meta.url), 'utf8');
@@ -30,6 +32,8 @@ function loadApp(): Record<string, unknown> {
     initGoogleSignIn: () => {},
   };
   vm.runInNewContext(lwFriendlyUrlSource, context, { filename: 'lw-friendly-url.js' });
+  vm.runInNewContext(displayNameSource, context, { filename: 'display-name.js' });
+  vm.runInNewContext(companionAddSource, context, { filename: 'companion-add.js' });
   vm.runInNewContext(eventEditFormSource, context, { filename: 'event-edit-form.js' });
   vm.runInNewContext(eventLinkActionsSource, context, { filename: 'event-link-actions.js' });
   vm.runInNewContext(appSource, context, { filename: 'app.js' });

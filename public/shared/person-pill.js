@@ -47,7 +47,7 @@ function personPillSublineHtml(subline) {
 /**
  * Renders a person's name as the shared colored category pill.
  *
- * @param {{ name: string, categoryId?: string|null, categoryLabel?: string|null, accountless?: boolean, extraClass?: string, mode?: 'person'|'category-label', subline?: string|null }} person
+ * @param {{ name: string, categoryId?: string|null, categoryLabel?: string|null, accountless?: boolean, extraClass?: string, mode?: 'person'|'category-label', subline?: string|null, inactive?: boolean }} person
  *   `name` is the already-computed display name; `categoryLabel` is the resolved label (the caller
  *   owns the lookup-list map), defaulting to the raw id or "Brak statusu"; `extraClass` appends an
  *   extra class (e.g. a summary chip) without duplicating the class attribute. `subline`, when given
@@ -63,7 +63,10 @@ function personPillHtml(person) {
     : ` title="${personPillEscapeAttr(label)}"`;
   const accountlessIcon = person.accountless ? personPillIconHtml() : '';
   const broccoliIcon = categoryPillBroccoliIconHtml(categoryId, person.mode);
-  const pill = `<span class="${classes}"${categoryAttrs}>${accountlessIcon}${broccoliIcon}${personPillEscapeHtml(person.name)}</span>`;
+  const name = person.inactive
+    ? `<s class="lw-inactive-person-name">${personPillEscapeHtml(person.name)}</s><small class="lw-inactive-person-label">(nieaktywne)</small>`
+    : personPillEscapeHtml(person.name);
+  const pill = `<span class="${classes}"${categoryAttrs}>${accountlessIcon}${broccoliIcon}${name}</span>`;
   if (!person.subline) return pill;
   return `<span class="person-pill-cell">${pill}${personPillSublineHtml(person.subline)}</span>`;
 }

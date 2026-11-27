@@ -80,7 +80,7 @@ const elementIds = [
   'lw-page-title', 'add-event-form', 'add-event-error',
   // Rendered into #events-list's innerHTML in the real DOM; the stub can't parse that, so the
   // panel's controls are looked up directly by id.
-  'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category',
+  'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category', 'lw-inline-error',
 ];
 
 interface HarnessOptions {
@@ -355,7 +355,7 @@ test('adding a new companion requires nazwisko, imię and kategoria but not ksyw
   await list.clickWith(clickTarget('.lw-inline-add-new'));
 
   assert.equal(harness.apiCalls.length, requestsBefore, 'a blank Nazwisko/Imię must not reach the server');
-  assert.match(harness.elements.get('events-error')!.textContent, /Podaj nazwisko, imię i kategorię/);
+  assert.match(harness.elements.get('lw-inline-error')!.textContent, /Podaj nazwisko, imię i kategorię/);
 });
 
 test('adding a new companion posts quick-add with ksywka+lastName+firstName+categoryId', async () => {
@@ -463,7 +463,7 @@ test('a failed quick-add keeps the panel open and reports the error', async () =
   await list.clickWith(clickTarget('.lw-inline-add-existing'));
 
   assert.equal(list.innerHTML, panelBefore);
-  assert.match(harness.elements.get('events-error')!.textContent, /Nie udało się dodać osoby/);
+  assert.match(harness.elements.get('lw-inline-error')!.textContent, /Nie udało się dodać osoby/);
 });
 
 test('toggling to "Jadę" reveals the + and keeps the toggle track', async () => {

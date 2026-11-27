@@ -141,6 +141,7 @@ function renderNearestEventWidget(events) {
     </div>
     <p class="dashboard-event-countdown"></p>
     ${toggleHtml}
+    ${event.viewerAttending ? window.CompanionAdd.signupNamesHtml(event.viewerCompanions) : ''}
     <div class="dashboard-event-panel"></div>
     <p class="add-album-error dashboard-widget-error" role="alert" hidden></p>
   `;
@@ -220,10 +221,7 @@ function renderMySignupsWidget(events) {
 
 /** Builds the short attendance label for one dashboard signup card, using no companion surnames. */
 function signupStatusText(event) {
-  const names = (event.viewerCompanions ?? [])
-    .map((person) => person.firstName?.trim() || person.nickname?.trim() || '')
-    .filter(Boolean)
-    .sort((left, right) => left.localeCompare(right, 'pl', { sensitivity: 'base' }));
+  const names = window.CompanionAdd.companionNames(event.viewerCompanions);
   return names.length > 0 ? `Jadę + ${names.join(', ')}` : 'Jadę';
 }
 
@@ -465,6 +463,7 @@ async function setDashAttending(eventId, nextAttending, control) {
 }
 
 async function quickAddDashCompanion(body, control) {
+  window.CompanionAdd.clearError();
   showDashboardError('');
   control.disabled = true;
   try {
@@ -494,7 +493,7 @@ async function quickAddDashCompanion(body, control) {
       } : null,
     });
   } catch (err) {
-    showDashboardError(`Nie udało się dodać osoby: ${err.message}`);
+    window.CompanionAdd.showError(`Nie udało się dodać osoby: ${err.message}`);
   } finally {
     control.disabled = false;
   }
@@ -567,7 +566,7 @@ function bindDashboardWidgetEvents() {
       const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
       const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
       if (!lastName || !firstName || !categoryId) {
-        showDashboardError('Podaj nazwisko, imię i kategorię nowej osoby.');
+        window.CompanionAdd.showError('Podaj nazwisko, imię i kategorię nowej osoby.');
         return;
       }
       await quickAddDashCompanion(

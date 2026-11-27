@@ -920,11 +920,12 @@ function renderRoster(roster, signups) {
       // KRKG-0087: one shared pill renderer, with the "osoba bez konta" marker for an accountless
       // person. A member's name opens the shared profile drawer by e-mail; a person has no e-mail,
       // so their pill opens the same drawer through the person-keyed endpoint (data-person-id).
-      // KRKG-0091: a deactivated person is read-only here - the drawer and the write routes both
-      // reject a tombstone, so their pill is plain text (no trigger) and the row has no controls.
-      const namePill = personPillHtml({ name: displayName(member), categoryId: member.categoryId, categoryLabel, accountless: member.accountless === true, subline: personSubline(member) });
+      // A deactivated person keeps a static historical status and opens a read-only drawer; no
+      // status or profile-edit controls are offered for this tombstone.
+      const memberName = displayName(member);
+      const namePill = personPillHtml({ name: memberName, categoryId: member.categoryId, categoryLabel, accountless: member.accountless === true, subline: personSubline(member), inactive: member.deleted === true });
       const nameCellHtml = member.deleted
-        ? namePill
+        ? `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}" aria-label="Profil ${escapeAttr(memberName)} (nieaktywne)">${namePill}</button>`
         : member.accountless
           ? `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}">
           ${namePill}
@@ -1080,6 +1081,7 @@ async function toggleEventEquipment(equipmentId, nextGoing, control) {
 // /lista-wyjazdowa/signups/quick-add and apply the confirmed response locally; a failed call
 // changes nothing (the panel stays open, the row is untouched) and reports via showError.
 async function quickAddCompanion(body, control) {
+  window.CompanionAdd.clearError();
   clearError();
   try {
     await window.PersonRegistrationPrompt.confirmed({
@@ -1109,7 +1111,7 @@ async function quickAddCompanion(body, control) {
       } : null,
     });
   } catch (err) {
-    showError(`Nie udało się dodać osoby: ${err.message}`);
+    window.CompanionAdd.showError(`Nie udało się dodać osoby: ${err.message}`);
   }
 }
 
@@ -1196,7 +1198,7 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
     const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
     const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
     if (!lastName || !firstName || !categoryId) {
-      showError('Podaj nazwisko, imię i kategorię nowej osoby.');
+      window.CompanionAdd.showError('Podaj nazwisko, imię i kategorię nowej osoby.');
       return;
     }
     addNewBtn.disabled = true;

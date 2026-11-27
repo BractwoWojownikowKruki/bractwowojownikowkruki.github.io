@@ -66,7 +66,7 @@ const elementIds = [
   'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni',
   'event-title', 'event-meta', 'event-description',
   'event-edit-toggle', 'event-edit-panel', 'event-history-link', 'skladka-fee-history-link',
-  'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category',
+  'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category', 'lw-inline-error',
   'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note', 'event-equipment-summary', 'equipment-controls', 'equipment-filter-niezgloszone', 'equipment-filter-zgloszone', 'event-date-pill', 'event-time-pill', 'event-date-wrap', 'event-calendar-popover', 'skladka-fee-duedate-pill', 'event-description-panel', 'event-equipment-content', 'lw-nav-container',
   'event-share-button', 'event-share-button-text',
 ];
@@ -639,11 +639,11 @@ test('the event-scoped roster renders an accountless person with the marker and 
   assert.match(row, /data-person-id="gone-uuid-1"/, 'the row is keyed by the person UUID, not the null e-mail');
   assert.match(row, /person-pill-icon/, 'the accountless marker is rendered');
   assert.match(row, /aria-label="osoba bez konta"/);
-  // KRKG-0091: a deactivated person is read-only on the event list - no toggle (it would 404) and
-  // no profile drawer trigger (the drawer 404s a tombstone).
+  // A deactivated person keeps a static historical status, while the profile remains readable.
   assert.match(row, /lw-attend-static/, 'the status is shown read-only');
   assert.doesNotMatch(row, /lw-attend-toggle/, 'no attend toggle for a deactivated person');
-  assert.doesNotMatch(row, /profile-trigger/, 'no profile drawer trigger for a deactivated person');
+  assert.match(row, /profile-trigger/, 'the read-only profile drawer remains available');
+  assert.match(row, /<s class="lw-inactive-person-name">Cień Nowak<\/s><small class="lw-inactive-person-label">\(nieaktywne\)<\/small>/);
   assert.doesNotMatch(row, /data-email="null"/);
 
   // The two distinct accountless rows must not collapse onto a shared key.
@@ -762,7 +762,7 @@ test('a blank Nazwisko/Imię on the new-person form is rejected before posting',
   await roster.clickWith(clickTarget('.lw-inline-add-new'));
 
   assert.equal(harness.apiCalls.length, requestsBefore, 'a blank Nazwisko/Imię must not reach the server');
-  assert.match(harness.elements.get('lw-error')!.textContent, /Podaj nazwisko, imię i kategorię/);
+  assert.match(harness.elements.get('lw-inline-error')!.textContent, /Podaj nazwisko, imię i kategorię/);
 });
 
 test('adding a new person posts quick-add with ksywka+lastName+firstName+categoryId and appends the created row', async () => {
@@ -825,7 +825,7 @@ test('a failed quick-add changes nothing and reports the error', async () => {
   await roster.clickWith(clickTarget('.lw-inline-add-existing'));
 
   assert.equal(roster.innerHTML, before);
-  assert.match(harness.elements.get('lw-error')!.textContent, /Nie udało się dodać osoby/);
+  assert.match(harness.elements.get('lw-inline-error')!.textContent, /Nie udało się dodać osoby/);
 });
 
 test('cancelling the duplicate prompt on the event detail page leaves the companion form unchanged', async () => {
