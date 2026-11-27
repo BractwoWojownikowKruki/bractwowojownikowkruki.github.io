@@ -24,8 +24,31 @@
     </li>`;
   }
 
+  function isUsableFocusTarget(target) {
+    if (!target || target.isConnected === false || target.disabled || target.hidden || target.type === 'hidden') return false;
+    return !target.closest?.('[hidden], [inert], [aria-hidden="true"]');
+  }
+
+  function resolveFocusTarget(...candidates) {
+    for (const candidate of candidates) {
+      let target;
+      try {
+        target = typeof candidate === 'function' ? candidate() : candidate;
+      } catch (_) {
+        continue;
+      }
+      if (isUsableFocusTarget(target)) return target;
+    }
+    return null;
+  }
+
   function restoreFocus(target) {
-    if (target?.isConnected && !target.disabled) target.focus();
+    if (!isUsableFocusTarget(target)) return;
+    try {
+      target.focus({ preventScroll: true });
+    } catch (_) {
+      // Focus is best-effort after the view has changed.
+    }
   }
 
   function manageDialog(dialog, returnFocus, closeValue, onFinish, configure, afterOpen) {
@@ -58,10 +81,7 @@
 
   function show(matches, fallbackFocus) {
     const activeElement = document.activeElement;
-    const fallbackTarget = typeof fallbackFocus === 'function' ? fallbackFocus() : fallbackFocus;
-    const returnFocus = activeElement && activeElement !== document.body && activeElement.isConnected && !activeElement.disabled
-      ? activeElement
-      : fallbackTarget;
+    const returnFocus = resolveFocusTarget(activeElement !== document.body ? activeElement : null, fallbackFocus);
     const dialog = document.createElement('dialog');
     const titleId = `person-registration-title-${++dialogSequence}`;
     const descriptionId = `person-registration-description-${dialogSequence}`;
@@ -78,16 +98,14 @@
           <button type="button" class="person-registration-dialog__cancel">Anuluj</button>
         </div>
       </div>`;
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       try {
         manageDialog(dialog, returnFocus, false, resolve, (finish) => {
           dialog.querySelector('.person-registration-dialog__confirm').addEventListener('click', () => finish(true));
           dialog.querySelector('.person-registration-dialog__cancel').addEventListener('click', () => finish(false));
         }, () => dialog.querySelector('.person-registration-dialog__cancel').focus());
-      } catch (_) {
-        restoreFocus(returnFocus);
-        resolve(false);
-        return;
+      } catch (error) {
+        reject(error);
       }
     });
   }
@@ -111,7 +129,7 @@
     return result === CANCELLED || result === IN_FLIGHT;
   }
 
-  function showSuccess(details, preferredFocus) {
+  function showSuccess(details, preferredFocus, fallbackFocus) {
     const person = details?.person;
     if (!person) return Promise.resolve();
     const fullName = `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim();
@@ -125,11 +143,11 @@
       section ? `<p><strong>Sekcja:</strong> ${escapeHtml(section)}</p>` : '',
     ].filter(Boolean).join('');
     const activeElement = document.activeElement;
-    const returnFocus = preferredFocus?.isConnected && !preferredFocus.disabled
-      ? preferredFocus
-      : activeElement && activeElement !== document.body && activeElement.isConnected && !activeElement.disabled
-        ? activeElement
-        : null;
+    const returnFocus = resolveFocusTarget(
+      preferredFocus,
+      fallbackFocus,
+      activeElement !== document.body ? activeElement : null,
+    );
     const dialog = document.createElement('dialog');
     const sequence = ++dialogSequence;
     dialog.className = 'person-registration-success-dialog';
@@ -171,8 +189,7 @@
       if (control) control.disabled = originalDisabled;
     };
     const focusFallback = () => {
-      const target = typeof fallbackFocus === 'function' ? fallbackFocus() : fallbackFocus;
-      if (target?.isConnected && !target.disabled) target.focus();
+      restoreFocus(resolveFocusTarget(fallbackFocus));
     };
     const executeAttempt = async (duplicateConfirmed) => {
       if (control) control.disabled = true;
@@ -227,15 +244,22 @@
         skipApplyWhen: (result) => wasCancelled(result) || skipApplyWhen?.(result),
       });
       if (!wasCancelled(result) && successDetails) {
-        const successFocus = focusAfterApplyResolved ? focusAfterApplyTarget : await originalFocusAfterApply?.(result);
-        const returnFocus = successFocus ?? (typeof fallbackFocus === 'function' ? fallbackFocus() : fallbackFocus);
+        let successFocus = focusAfterApplyTarget;
+        if (!focusAfterApplyResolved) {
+          try {
+            successFocus = await originalFocusAfterApply?.(result);
+          } catch (_) {
+            successFocus = null;
+          }
+        }
+        const returnFocus = resolveFocusTarget(successFocus, fallbackFocus);
         try {
           const details = await successDetails(result);
-          if (details?.person) await showSuccess(details, returnFocus);
+          if (details?.person) await showSuccess(details, returnFocus, fallbackFocus);
           else restoreFocus(returnFocus);
         } catch (_) {
           window.MutationFeedback.showToast('Osoba została zarejestrowana w apce');
-          restoreFocus(returnFocus);
+          restoreFocus(resolveFocusTarget(returnFocus, fallbackFocus));
         }
       }
       return result;

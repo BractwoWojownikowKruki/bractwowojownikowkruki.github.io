@@ -22,6 +22,7 @@ class FakeElement {
   isConnected = true;
   focusCount = 0;
   disabled = false;
+  hidden = false;
   open = false;
   setAttribute(name: string, value: string) { this.attributes[name] = value; }
   addEventListener(type: string, listener: (event?: any) => void) { (this.listeners[type] ??= []).push(listener); }
@@ -280,6 +281,55 @@ test('success dialog prefers the computed focus target and computes it only once
   assert.equal(trigger.focusCount, 0, 'the success dialog must not restore focus to the stale active element');
 });
 
+test('success dialog skips a hidden refreshed target and restores focus to the enabled fallback', async () => {
+  const { prompt, dialogs } = load('done');
+  const hiddenTarget = new FakeElement();
+  hiddenTarget.hidden = true;
+  const fallback = new FakeElement();
+  await prompt.confirmed({
+    fallbackFocus: () => fallback,
+    focusAfterApply: () => hiddenTarget,
+    execute: async () => ({ person: { firstName: 'Ewa', lastName: 'Kruk' } }),
+    apply: async () => {},
+    successDetails: (result: any) => ({ person: result.person }),
+  });
+  assert.equal(dialogs.length, 1);
+  assert.equal(hiddenTarget.focusCount, 0);
+  assert.equal(fallback.focusCount, 1);
+});
+
+test('a duplicate dialog setup failure is surfaced and releases the control and busy state', async () => {
+  const { prompt, trigger, getBusyCount } = load('show-modal-error');
+  const control = new FakeElement();
+  await assert.rejects(prompt.confirmed({
+    control,
+    fallbackFocus: () => trigger,
+    execute: async () => { throw Object.assign(new Error('duplicate'), { duplicateMatches: matches }); },
+  }), /showModal unavailable/);
+  assert.equal(control.disabled, false);
+  assert.equal(getBusyCount(), 0);
+  assert.equal(trigger.focusCount, 1);
+});
+
+test('a failed confirmed duplicate retry releases busy state and the control', async () => {
+  const { prompt, trigger, getBusyCount } = load('confirm');
+  const control = new FakeElement();
+  let calls = 0;
+  await assert.rejects(prompt.confirmed({
+    control,
+    fallbackFocus: () => trigger,
+    execute: async (duplicateConfirmed: boolean) => {
+      calls += 1;
+      if (!duplicateConfirmed) throw Object.assign(new Error('duplicate'), { duplicateMatches: matches });
+      throw new Error('retry failed');
+    },
+  }), /retry failed/);
+  assert.equal(calls, 2);
+  assert.equal(control.disabled, false);
+  assert.equal(getBusyCount(), 0);
+  assert.ok(trigger.focusCount >= 1);
+});
+
 test('failed success dialog setup removes the orphan and restores focus through the toast fallback', async () => {
   const { prompt, dialogs, getToastCount } = load('show-modal-error');
   const focusTarget = new FakeElement();
@@ -415,9 +465,12 @@ test('every person registration page loads the shared prompt and invokes it from
       assert.match(pageScript, /window\.MutationFeedback\.confirmed\(\{[\s\S]*?execute: \(\) => mutationOptions\.execute\(false\)/);
       assert.match(pageScript, /categoryLabelById\.get\([\s\S]*sectionLabelById\.get\(/);
     } else if (scriptPath.includes('/app/')) {
-      assert.match(pageScript, /if \(body\.mode === 'new'\)[\s\S]*?window\.PersonRegistrationPrompt\.confirmed\([\s\S]*?\} else \{[\s\S]*?window\.MutationFeedback\.confirmed\([\s\S]*?execute: \(\) => mutationOptions\.execute\(false\)/);
-      assert.match(pageScript, /if \(body\.mode === 'existing'\) control\.disabled = true/);
-      assert.match(pageScript, /if \(body\.mode === 'existing'\) control\.disabled = false/);
+      const quickAddStart = pageScript.indexOf('async function quickAddDashCompanion');
+      const quickAddEnd = pageScript.indexOf('\nlet dashboardWidgetEventsBound', quickAddStart);
+      const quickAddSource = pageScript.slice(quickAddStart, quickAddEnd);
+      assert.match(quickAddSource, /if \(body\.mode === 'new'\)[\s\S]*?window\.PersonRegistrationPrompt\.confirmed\([\s\S]*?\} else \{[\s\S]*?window\.MutationFeedback\.confirmed\([\s\S]*?execute: \(\) => mutationOptions\.execute\(false\)/);
+      assert.match(quickAddSource, /if \(body\.mode === 'existing'\) control\.disabled = true/);
+      assert.match(quickAddSource, /if \(body\.mode === 'existing'\) control\.disabled = false/);
       assert.match(pageScript, /dash\.categories\.find\([\s\S]*dash\.sections\.find\(/);
     } else if (scriptPath.includes('/profil/')) {
       assert.match(pageScript, /personLookupLists\.categories\.find\([\s\S]*personLookupLists\.sections\.find\(/);
