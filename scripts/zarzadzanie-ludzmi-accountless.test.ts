@@ -151,11 +151,10 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
     alert: () => {},
     location: { search: '' },
     addEventListener: () => {},
-    MutationFeedback: { confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply, successDetails }: { execute: () => Promise<any>; apply?: (result: any) => Promise<unknown>; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => unknown; successDetails?: (result: unknown) => unknown }) => {
+    MutationFeedback: { confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply }: { execute: () => Promise<any>; apply?: (result: any) => Promise<unknown>; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => unknown }) => {
       const result = await execute();
       if (skipApplyWhen?.(result)) return result;
       await apply?.(result);
-      await successDetails?.(result);
       (await focusAfterApply?.(result))?.focus?.();
       return result;
     } },
@@ -190,7 +189,6 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
     escapeAttr: (s: unknown) => String(s ?? ''),
     formatDateTime: (s: unknown) => String(s ?? ''),
     sheetSyncStatusMessage: () => '',
-    MutationFeedback: { confirmed: async ({ execute }: { execute: () => Promise<unknown> }) => execute() },
     wireSummaryFilter: (_el: unknown, _filter: unknown, onChange: () => void) => {
       summaryFilterCallbacks.push(onChange);
     },

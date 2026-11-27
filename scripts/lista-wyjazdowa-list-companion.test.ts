@@ -336,6 +336,31 @@ test('adding an existing companion posts quick-add, closes the panel and bumps t
   assert.match(list.innerHTML, /attendee-badge-count">3</);
 });
 
+test('events list locks the add-existing control while its direct mutation is pending', async () => {
+  const harness = createHarness({ withAttachedPerson: true });
+  await harness.signIn();
+  const list = harness.elements.get('events-list')!;
+  await list.clickWith(clickTarget('.lw-add-companion', { eventId: 'e1', ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-existing-select')!.value = 'attached-uuid-1';
+  harness.setMutationResult({ signup: { memberEmail: 'attached-uuid-1', attending: true } });
+  const release = harness.holdMutations();
+  let promptCalls = 0;
+  const prompt = harness.window.PersonRegistrationPrompt as any;
+  const confirmed = prompt.confirmed;
+  prompt.confirmed = (...args: any[]) => { promptCalls += 1; return confirmed(...args); };
+  const button = { disabled: false, dataset: { eventId: 'e1' } };
+  const target = { closest: (selector: string) => selector === '.lw-inline-add-existing' ? button : null };
+
+  const pending = list.clickWith(target);
+  await Promise.resolve();
+  assert.equal(button.disabled, true);
+  assert.equal(promptCalls, 0, 'existing-person additions bypass the registration prompt');
+  release();
+  await pending;
+  assert.equal(button.disabled, false);
+  assert.equal(promptCalls, 0);
+});
+
 // KRKG-0103: quick-add requires Nazwisko/Imię, while the nickname remains optional.
 test('adding a new companion requires nazwisko, imię and kategoria but not ksywka', async () => {
   const harness = createHarness();

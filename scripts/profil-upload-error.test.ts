@@ -18,15 +18,21 @@ function loadProfil(apiFetch: () => Promise<unknown> = async () => { throw new E
         if (!elements.has(id)) elements.set(id, { hidden: true, innerHTML: '', textContent: '', value: '', dataset: {}, addEventListener() {}, lastName: { value: 'Kowalski' }, firstName: { value: 'Jan' } });
         return elements.get(id)!;
       },
+      querySelector: () => null,
     },
-    // MutationFeedback.confirmed rethrows the original error (public/mutation-feedback.js), so a plain pass-through is faithful here.
     window: {
       MutationFeedback: {
         showBusy: () => () => {},
-        confirmed: async ({ execute }: { execute: () => Promise<unknown> }) => execute(),
+        confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply }: { execute: () => Promise<unknown>; apply?: (result: unknown) => Promise<unknown>; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => unknown }) => {
+          const result = await execute();
+          if (skipApplyWhen?.(result)) return result;
+          await apply?.(result);
+          (await focusAfterApply?.(result))?.focus?.();
+          return result;
+        },
       },
-      PersonRegistrationPrompt: { run: async (execute: (confirmed: boolean) => Promise<unknown>) => execute(false), wasCancelled: () => false },
     },
+    CSS: { escape: (value: string) => value },
     apiFetch,
     initGoogleSignIn: () => {},
     Cropper: class {},
@@ -84,14 +90,14 @@ test('uploadSelectedPhotos keeps the server message for HTTP errors', async () =
 
 test('profile person registration retries with duplicateConfirmed after explicit confirmation', async () => {
   const requests: Array<Record<string, unknown>> = [];
-  const { context } = loadProfil(async (_url?: string, init?: Record<string, unknown>) => {
+  const { context } = loadProfil(async (url?: string, init?: Record<string, unknown>) => {
+    if (url === '/lista-wyjazdowa/roster') return { roster: [] };
     requests.push(init ?? {});
     if (requests.length === 1) {
       throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Anna', lastName: 'Nowak' }] });
     }
     return { person: { personId: 'new-person' } };
   });
-  (context as any).window.PersonRegistrationPrompt = createPersonRegistrationPromptMock((context as any).window.MutationFeedback);
   vm.runInContext("viewerEmail = 'owner@example.test'", context);
   await (context.createPerson as (fields: Record<string, string>, control: unknown) => Promise<void>)(
     { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' },
@@ -99,7 +105,34 @@ test('profile person registration retries with duplicateConfirmed after explicit
   );
   assert.equal(requests.length, 2);
   assert.equal(JSON.parse(String(requests[1].body)).duplicateConfirmed, true);
-  assert.equal((context as any).document.getElementById('persons-error').hidden, true);
+  assert.equal((context as any).document.getElementById('persons-error').hidden, true, (context as any).document.getElementById('persons-error').textContent);
+});
+
+test('profile registration keeps selected category and section values and focuses the refreshed row', async () => {
+  let postedBody = '';
+  const { context } = loadProfil(async (url?: string, init?: Record<string, unknown>) => {
+    if (url === '/lista-wyjazdowa/roster') return { roster: [] };
+    postedBody = String(init?.body ?? '');
+    return { person: { personId: 'created-person', categoryId: 'kandydat', sectionId: 'krakow' } };
+  });
+  vm.runInContext("viewerEmail = 'owner@example.test'; personLookupLists = { categories: [{ id: 'kandydat', label: 'Kandydat' }], sections: [{ id: 'krakow', label: 'Kraków' }], weapons: [] }", context);
+  let selector = '';
+  let focused = 0;
+  (context as any).document.querySelector = (value: string) => {
+    selector = value;
+    return { isConnected: true, disabled: false, focus: () => { focused += 1; } };
+  };
+
+  await (context.createPerson as (fields: Record<string, string>, control: unknown) => Promise<void>)(
+    { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' },
+    { disabled: false },
+  );
+
+  assert.deepEqual(JSON.parse(postedBody), {
+    ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow', ownerPersonId: 'owner@example.test',
+  });
+  assert.equal(selector, '.person-row[data-person-id="created-person"] .person-first-name');
+  assert.equal(focused, 1);
 });
 
 test('profile duplicate cancellation restores focus to the companion form field', async () => {
@@ -134,7 +167,6 @@ test('profile person registration ignores a second submit while the first reques
     if (url === '/lista-wyjazdowa/roster') return { roster: [] };
     return {};
   });
-  (context as any).window.PersonRegistrationPrompt = createPersonRegistrationPromptMock((context as any).window.MutationFeedback);
   vm.runInContext("viewerEmail = 'owner@example.test'", context);
   const control = { disabled: false };
   const fields = { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' };
@@ -161,7 +193,6 @@ test('profile person registration ignores a second submit while the confirmed re
     if (_url === '/lista-wyjazdowa/roster') return { roster: [] };
     return {};
   };
-  (context as any).window.PersonRegistrationPrompt = createPersonRegistrationPromptMock((context as any).window.MutationFeedback);
   vm.runInContext("viewerEmail = 'owner@example.test'", context);
   const control = { disabled: false };
   const fields = { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' };
@@ -181,7 +212,6 @@ test('profile deactivation focuses the persistent add button after its row disap
   focusTarget.focusCount = 0;
   focusTarget.focus = () => { focusTarget.focusCount = (focusTarget.focusCount ?? 0) + 1; };
   (context as any).document.querySelector = () => null;
-  (context as any).window.PersonRegistrationPrompt = { wasCancelled: () => false };
   (context as any).window.MutationFeedback.confirmed = async ({ execute, apply, skipApplyWhen, focusAfterApply }: any) => {
     const result = await execute();
     if (skipApplyWhen?.(result)) return result;

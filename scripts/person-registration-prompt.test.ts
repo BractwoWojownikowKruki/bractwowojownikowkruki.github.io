@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
+import { createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const source = readFileSync(new URL('../public/shared/person-registration-prompt.js', import.meta.url), 'utf8');
 const registrationRoutes = [
@@ -35,6 +36,7 @@ class FakeElement {
     if (this.nextAction === 'show-modal-error') throw new Error('showModal unavailable');
     this.open = true;
     if (this.nextAction === 'close') { this.close(); return; }
+    if (this.nextAction === 'wait') return;
     if (this.nextAction === 'escape') {
       for (const listener of this.listeners.cancel ?? []) listener({ preventDefault() {} });
       return;
@@ -51,10 +53,10 @@ class FakeElement {
     for (const listener of this.listeners.close ?? []) listener();
   }
   remove() { this.removed = true; }
-  nextAction: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'show-modal-error' = 'confirm';
+  nextAction: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'wait' | 'show-modal-error' = 'confirm';
 }
 
-function load(action: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'show-modal-error' | Array<'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'show-modal-error'>) {
+function load(action: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'wait' | 'show-modal-error' | Array<'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'wait' | 'show-modal-error'>) {
   const dialogs: FakeElement[] = [];
   const trigger = new FakeElement();
   const actions = Array.isArray(action) ? action : [action];
@@ -88,7 +90,7 @@ function load(action: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'show
     showToast: () => { toastCount += 1; },
   };
   vm.runInNewContext(source, context);
-  return { prompt: context.window.PersonRegistrationPrompt, dialogs, trigger, getBusyCount: () => busyCount, getToastCount: () => toastCount };
+  return { prompt: context.window.PersonRegistrationPrompt, dialogs, trigger, clickDialog(dialog: FakeElement, selector: string) { for (const listener of dialog.childListeners[selector] ?? []) listener(); }, getBusyCount: () => busyCount, getToastCount: () => toastCount };
 }
 
 const matches = [
@@ -155,6 +157,31 @@ test('a second submission using the same control is ignored until registration f
   assert.equal(control.disabled, false);
 });
 
+test('success focus falls back when the refreshed preferred target is disabled', async () => {
+  let focusCalls = 0;
+  const preferred = { isConnected: true, disabled: true, focus: () => { focusCalls += 1; } };
+  const fallback = { isConnected: true, disabled: false, focus: () => { focusCalls += 10; } };
+  const mutationFeedback = {
+    confirmed: async (options: any) => {
+      const result = await options.execute();
+      if (!options.skipApplyWhen?.(result)) {
+        await options.apply?.(result);
+        await options.focusAfterApply?.(result);
+      }
+      return result;
+    },
+  };
+  const prompt = createPersonRegistrationPromptMock(mutationFeedback as any);
+  await prompt.confirmed({
+    execute: async () => ({ person: { personId: 'created' } }),
+    apply: async () => {},
+    successDetails: () => ({ person: { personId: 'created' } }),
+    focusAfterApply: () => preferred,
+    fallbackFocus: () => fallback,
+  });
+  assert.equal(focusCalls, 10, 'an unusable refreshed target yields focus to the enabled fallback');
+});
+
 test('a failed registration releases busy state, re-enables the control and restores focus', async () => {
   const { prompt, dialogs, trigger, getBusyCount } = load('confirm');
   const control = new FakeElement();
@@ -186,6 +213,32 @@ test('cancelling a duplicate prompt releases busy state and does not apply or sh
   assert.equal(control.disabled, false);
   assert.equal(trigger.focusCount, 1);
   assert.equal(dialogs.length, 1);
+});
+
+test('duplicate warning releases the control while open and blocks a second submission on that control', async () => {
+  const { prompt, dialogs, clickDialog } = load(['wait', 'done']);
+  const control = new FakeElement();
+  let calls = 0;
+  const first = prompt.confirmed({
+    control,
+    execute: async (duplicateConfirmed: boolean) => {
+      calls += 1;
+      assert.equal(control.disabled, true, 'each request attempt owns the control lock');
+      if (!duplicateConfirmed) throw Object.assign(new Error('duplicate'), { duplicateMatches: matches });
+      return { person: { firstName: 'Ewa', lastName: 'Kruk' } };
+    },
+    apply: async () => {},
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(dialogs.length, 1);
+  assert.equal(control.disabled, false, 'the user can interact while the duplicate warning is open');
+  const duplicate = await prompt.confirmed({ control, execute: async () => { calls += 1; return {}; } });
+  assert.equal(prompt.wasCancelled(duplicate), true);
+  assert.equal(calls, 1, 'a second submit is ignored while the first lifecycle remains active');
+  clickDialog(dialogs[0], '.person-registration-dialog__confirm');
+  await first;
+  assert.equal(calls, 2);
+  assert.equal(control.disabled, false);
 });
 
 test('a registration without success details restores the post-apply focus target', async () => {
@@ -359,8 +412,12 @@ test('every person registration page loads the shared prompt and invokes it from
       assert.match(pageScript, /categoryOptions\.find\([\s\S]*sectionOptions\.find\(/);
     } else if (scriptPath.includes('/lista-wyjazdowa/wyjazd/')) {
       assert.match(pageScript, /const addExistingBtn = e\.target\.closest\('\.lw-inline-add-existing'\)[\s\S]*?addExistingBtn\.disabled = true[\s\S]*?addExistingBtn\.disabled = false/);
+      assert.match(pageScript, /window\.MutationFeedback\.confirmed\(\{[\s\S]*?execute: \(\) => mutationOptions\.execute\(false\)/);
       assert.match(pageScript, /categoryLabelById\.get\([\s\S]*sectionLabelById\.get\(/);
     } else if (scriptPath.includes('/app/')) {
+      assert.match(pageScript, /if \(body\.mode === 'new'\)[\s\S]*?window\.PersonRegistrationPrompt\.confirmed\([\s\S]*?\} else \{[\s\S]*?window\.MutationFeedback\.confirmed\([\s\S]*?execute: \(\) => mutationOptions\.execute\(false\)/);
+      assert.match(pageScript, /if \(body\.mode === 'existing'\) control\.disabled = true/);
+      assert.match(pageScript, /if \(body\.mode === 'existing'\) control\.disabled = false/);
       assert.match(pageScript, /dash\.categories\.find\([\s\S]*dash\.sections\.find\(/);
     } else if (scriptPath.includes('/profil/')) {
       assert.match(pageScript, /personLookupLists\.categories\.find\([\s\S]*personLookupLists\.sections\.find\(/);

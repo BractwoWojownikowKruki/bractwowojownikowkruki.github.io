@@ -20,7 +20,7 @@ export function createPersonRegistrationPromptMock(
     try {
       return await execute(false);
     } catch (error) {
-      if (!Array.isArray((error as any)?.duplicateMatches)) throw error;
+      if (!Array.isArray((error as any)?.duplicateMatches) || (error as any).duplicateMatches.length === 0) throw error;
       if (shouldCancelDuplicate(error)) {
         options.fallbackFocus?.()?.focus();
         return cancelled;
@@ -42,20 +42,41 @@ export function createPersonRegistrationPromptMock(
       }
       try {
         let focusAfterApplyTarget: any;
+        let focusAfterApplyResolved = false;
         const { successDetails, focusAfterApply, ...feedbackOptions } = options;
         const result = await mutationFeedback.confirmed({
           ...feedbackOptions,
-          execute: () => run(options.execute, { fallbackFocus: options.fallbackFocus }),
+          execute: () => run(async (duplicateConfirmed) => {
+            if (control) control.disabled = true;
+            try {
+              return await options.execute(duplicateConfirmed);
+            } catch (error) {
+              if (control) control.disabled = wasDisabled;
+              throw error;
+            }
+          }, { fallbackFocus: options.fallbackFocus }),
           skipApplyWhen: (result: unknown) => wasCancelled(result) || options.skipApplyWhen?.(result),
           focusAfterApply: successDetails ? async (value: unknown) => {
-            focusAfterApplyTarget = await focusAfterApply?.(value);
+            try {
+              focusAfterApplyTarget = await focusAfterApply?.(value);
+            } catch {
+              focusAfterApplyTarget = null;
+            } finally {
+              focusAfterApplyResolved = true;
+            }
             return null;
           } : focusAfterApply,
         });
         if (!wasCancelled(result) && successDetails) {
           await successDetails(result);
-          const target = focusAfterApplyTarget ?? options.fallbackFocus?.();
-          if (target?.isConnected !== false) target?.focus?.({ preventScroll: true });
+          let preferredTarget = focusAfterApplyTarget;
+          if (!focusAfterApplyResolved) {
+            try { preferredTarget = await focusAfterApply?.(result); } catch { preferredTarget = null; }
+          }
+          const target = preferredTarget?.isConnected !== false && !preferredTarget?.disabled
+            ? preferredTarget
+            : options.fallbackFocus?.();
+          if (target?.isConnected !== false && !target?.disabled) target?.focus?.({ preventScroll: true });
         }
         return result;
       } finally {

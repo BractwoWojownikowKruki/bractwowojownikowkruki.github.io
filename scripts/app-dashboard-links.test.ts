@@ -108,6 +108,44 @@ test('dashboard companion duplicate cancellation keeps the panel and focuses its
   assert.equal(control.disabled, false);
 });
 
+test('dashboard adding an existing person uses mutation feedback and locks its control through the request', async () => {
+  const context = loadApp() as any;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const control = { disabled: false };
+  let promptCalls = 0;
+  const feedbackOptions: any[] = [];
+  context.window.MutationFeedback = {
+    confirmed: async (options: any) => {
+      feedbackOptions.push(options);
+      const result = await options.execute();
+      await options.apply?.(result);
+      await options.focusAfterApply?.(result);
+      return result;
+    },
+  };
+  context.window.PersonRegistrationPrompt = {
+    confirmed: async () => { promptCalls += 1; },
+  };
+  context.apiFetch = async (url: string) => {
+    if (url === '/lista-wyjazdowa/events') return { events: [{ id: 'trip-1', attendingCount: 3 }] };
+    await gate;
+    return { signup: { attending: true } };
+  };
+  context.renderDashboardWidgets = () => {};
+  context.refreshDuesPanel = () => {};
+  vm.runInNewContext("dash.events = [{ id: 'trip-1', attendingCount: 2 }]", context);
+
+  const pending = context.quickAddDashCompanion({ eventId: 'trip-1', ownerPersonId: 'owner', mode: 'existing', personId: 'person-1' }, control);
+  await Promise.resolve();
+  assert.equal(control.disabled, true);
+  assert.equal(promptCalls, 0);
+  assert.equal(feedbackOptions.length, 1);
+  release();
+  await pending;
+  assert.equal(control.disabled, false);
+});
+
 test('eventDetailHref builds the friendly ?do= trip detail URL', () => {
   const context = loadApp();
   const eventDetailHref = context.eventDetailHref as (event: { name: string; startDate: string }) => string;
