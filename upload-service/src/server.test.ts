@@ -7438,8 +7438,16 @@ test('GET /lista-wyjazdowa/events includes only the viewer\'s attending companio
   });
   companion('viewer-companion', 'wojownik@gmail.com', 'Anna', 'Wilk');
   companion('other-companion', 'other@example.test', 'Ola', 'Sowa');
+  companion('not-attending-companion', 'wojownik@gmail.com', 'Iga', 'Liska');
+  companion('deleted-companion', 'wojownik@gmail.com', 'Ewa', 'Sarna');
+  companion('merged-companion', 'wojownik@gmail.com', 'Maja', 'Kuna');
+  await firestore.setDoc('persons', 'deleted-companion', { deletedAt: '2026-01-01T00:00:00.000Z' });
+  await firestore.setDoc('persons', 'merged-companion', { mergedInto: 'active-account@example.test' });
   firestore.seed('signups', 'event-1_viewer-companion', { eventId: 'event-1', memberEmail: 'viewer-companion', attending: true });
   firestore.seed('signups', 'event-1_other-companion', { eventId: 'event-1', memberEmail: 'other-companion', attending: true });
+  firestore.seed('signups', 'event-1_not-attending-companion', { eventId: 'event-1', memberEmail: 'not-attending-companion', attending: false });
+  firestore.seed('signups', 'event-1_deleted-companion', { eventId: 'event-1', memberEmail: 'deleted-companion', attending: true });
+  firestore.seed('signups', 'event-1_merged-companion', { eventId: 'event-1', memberEmail: 'merged-companion', attending: true });
 
   await withServer(makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] }), async baseUrl => {
     const res = await fetch(`${baseUrl}/lista-wyjazdowa/events`);

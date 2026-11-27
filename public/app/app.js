@@ -222,7 +222,8 @@ function renderMySignupsWidget(events) {
 function signupStatusText(event) {
   const names = (event.viewerCompanions ?? [])
     .map((person) => person.firstName?.trim() || person.nickname?.trim() || '')
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right, 'pl', { sensitivity: 'base' }));
   return names.length > 0 ? `Jadę + ${names.join(', ')}` : 'Jadę';
 }
 
@@ -478,14 +479,10 @@ async function quickAddDashCompanion(body, control) {
         showReauth,
         hideReauth,
       ),
-      apply: async (result) => {
-        const event = dash.events.find((item) => item.id === body.eventId);
-        if (event && result?.signup?.attending) event.attendingCount = (event.attendingCount ?? 0) + 1;
+      apply: async () => {
         // A brand-new companion must be offered as an existing person next time, so drop the cache.
         dash.companionPromise = null;
-        dash.openPanelEventId = null;
-        renderDashboardWidgets();
-        await refreshDuesPanel();
+        await reloadDashboardEvents();
       },
       focusAfterApply: () => dashEventAnchor(body.eventId)(),
       viewRoot: panels.panel,
