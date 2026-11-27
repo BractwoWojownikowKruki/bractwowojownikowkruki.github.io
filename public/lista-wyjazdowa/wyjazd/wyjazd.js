@@ -794,9 +794,11 @@ function renderEventEquipment(allItems) {
     const comparison = compareValues(eventEquipmentSortValue(a), eventEquipmentSortValue(b), eventEquipmentSortState.dir);
     if (comparison !== 0) return comparison;
     if (eventEquipmentSortState.key === 'owner' && a.belongsToPersonId && b.belongsToPersonId) {
+      const ownerA = personById.get(a.belongsToPersonId);
+      const ownerB = personById.get(b.belongsToPersonId);
       const ownerNameComparison = compareValues(
-        displayName(personById.get(a.belongsToPersonId) ?? {}),
-        displayName(personById.get(b.belongsToPersonId) ?? {}),
+        ownerA ? displayName(ownerA) : a.belongsToPersonId,
+        ownerB ? displayName(ownerB) : b.belongsToPersonId,
         'asc',
       );
       if (ownerNameComparison !== 0) return ownerNameComparison;

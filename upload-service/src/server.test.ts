@@ -8264,7 +8264,7 @@ test('GET /lista-wyjazdowa/persons lets accountants read accountless people with
     sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
   });
   firestore.seed('members', 'visible@example.com', {
-    email: 'visible@example.com', status: 'active', hidden: false, lastName: 'Widoczny', firstName: 'Anna', nickname: 'Widoczny',
+    email: 'visible@example.com', status: 'active', hidden: false, lastName: 'Widoczny-Kowalski', firstName: 'Anna', nickname: 'Widoczny',
     sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
   });
   firestore.seed('members', 'hidden@example.com', {
@@ -8296,7 +8296,7 @@ test('GET /lista-wyjazdowa/persons lets accountants read accountless people with
     const deactivated = persons.find((person: { personId: string }) => person.personId === 'deactivated-person');
     assert.equal(visible.ownerPersonId, 'visible@example.com');
     assert.equal(visible.ownerName, 'Widoczny');
-    assert.equal(visible.ownerLastName, 'Widoczny');
+    assert.equal(visible.ownerLastName, 'Widoczny-Kowalski');
     assert.equal(hidden.ownerPersonId, null);
     assert.equal(hidden.ownerName, null);
     assert.equal(hidden.ownerLastName, null, 'accountants must not receive hidden owners\' surnames');
