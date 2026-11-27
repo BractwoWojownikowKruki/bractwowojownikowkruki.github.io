@@ -8264,11 +8264,11 @@ test('GET /lista-wyjazdowa/persons lets accountants read accountless people with
     sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
   });
   firestore.seed('members', 'visible@example.com', {
-    email: 'visible@example.com', status: 'active', hidden: false, lastName: '', firstName: '', nickname: 'Widoczny',
+    email: 'visible@example.com', status: 'active', hidden: false, lastName: 'Widoczny-Kowalski', firstName: 'Anna', nickname: 'Widoczny',
     sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
   });
   firestore.seed('members', 'hidden@example.com', {
-    email: 'hidden@example.com', status: 'active', hidden: true, lastName: '', firstName: '', nickname: 'Ukryty',
+    email: 'hidden@example.com', status: 'active', hidden: true, lastName: 'Tajny', firstName: 'Ewa', nickname: 'Ukryty',
     sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
   });
   seedPerson(firestore, 'visible-owner-person', 'visible@example.com');
@@ -8296,10 +8296,13 @@ test('GET /lista-wyjazdowa/persons lets accountants read accountless people with
     const deactivated = persons.find((person: { personId: string }) => person.personId === 'deactivated-person');
     assert.equal(visible.ownerPersonId, 'visible@example.com');
     assert.equal(visible.ownerName, 'Widoczny');
+    assert.equal(visible.ownerLastName, 'Widoczny-Kowalski');
     assert.equal(hidden.ownerPersonId, null);
     assert.equal(hidden.ownerName, null);
+    assert.equal(hidden.ownerLastName, null, 'accountants must not receive hidden owners\' surnames');
     assert.equal(unknown.ownerPersonId, null);
     assert.equal(unknown.ownerName, null);
+    assert.equal(unknown.ownerLastName, null, 'unresolved owner surnames are redacted too');
     assert.equal(deactivated.deleted, true);
     assert.ok(deactivated.deletedAt);
 
@@ -8313,7 +8316,7 @@ test('GET /lista-wyjazdowa/persons lets accountants read accountless people with
   const selfFirestore = makeListaWyjazdowaFirestore();
   selfFirestore.seed('userRoles', 'self@example.com', { roles: ['accountant'] });
   selfFirestore.seed('members', 'self@example.com', {
-    email: 'self@example.com', status: 'active', hidden: true, lastName: '', firstName: '', nickname: 'Sama',
+    email: 'self@example.com', status: 'active', hidden: true, lastName: 'Sama-Właścicielka', firstName: 'Anna', nickname: 'Sama',
     sectionId: 'krakow', categoryId: 'thing', driveFolderId: null, updatedAt: 'x', updatedBy: 'x',
   });
   seedPerson(selfFirestore, 'self-owned-person', 'self@example.com');
@@ -8328,6 +8331,7 @@ test('GET /lista-wyjazdowa/persons lets accountants read accountless people with
     const own = persons.find((person: { personId: string }) => person.personId === 'self-owned-person');
     assert.equal(own.ownerPersonId, 'self@example.com');
     assert.equal(own.ownerName, 'Sama');
+    assert.equal(own.ownerLastName, 'Sama-Właścicielka', 'a hidden accountant can still see their own surname');
   });
 });
 

@@ -1596,6 +1596,12 @@ button.lw-skladka-icon:disabled {
   overflow-wrap: anywhere;
 }
 
+.lw-companion-names-plus {
+  margin-right: 0.25rem;
+  color: var(--gold);
+  font-weight: 700;
+}
+
 .lw-inactive-person-name {
   text-decoration: line-through;
   text-decoration-thickness: 1px;
@@ -1676,6 +1682,17 @@ button.lw-skladka-icon:disabled {
   font-weight: 600;
 }
 
+.lw-roster-nesting-control {
+  display: flex;
+  align-items: center;
+  min-height: 2.25rem;
+  margin: -0.45rem 0 0.75rem;
+  padding: 0.4rem 0.65rem;
+  font-size: 14px;
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--gold) 7%, var(--surface));
+}
+
 .lw-filter-check {
   display: inline-flex;
   align-items: center;
@@ -1709,7 +1726,17 @@ button.lw-skladka-icon:disabled {
 
 .lw-roster-row--companion .lw-roster-name-cell {
   padding-left: 1.35rem;
-  border-left: 2px solid var(--gold);
+}
+
+.lw-roster-row--companion .lw-roster-name-cell::before {
+  content: "↳";
+  display: inline-block;
+  margin-right: 0.45rem;
+  color: var(--gold);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: -0.04em;
 }
 
 /* Breathing room between the page's major sections (fee panel, summary, roster, audit log) -

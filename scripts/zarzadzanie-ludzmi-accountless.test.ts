@@ -286,21 +286,21 @@ test('accountless table sorts names in both directions and breaks duplicate-name
   const rowPersonIds = () => [...harness.getEl('accountless-list').innerHTML.matchAll(/<tr data-person-id="([^"]+)"/g)].map((match) => match[1]);
 
   harness.sortTable('accountless-table', 'name', 'desc');
-  assert.deepEqual(rowPersonIds(), ['p3', 'p1', 'p2']);
+  assert.deepEqual(rowPersonIds(), ['p1', 'p2', 'p3']);
 
   harness.sortTable('accountless-table', 'name', 'asc');
-  assert.deepEqual(rowPersonIds(), ['p1', 'p2', 'p3']);
+  assert.deepEqual(rowPersonIds(), ['p3', 'p1', 'p2']);
 });
 
-test('accountless table sorts every value column by its displayed value', async () => {
+test('accountless table sorts every value column by its value and uses surname as the tie-breaker', async () => {
   const harness = createZarzadzanieHarness({
     apiFetch: async (url) => {
       if (url === '/lista-wyjazdowa/persons') {
         return {
           persons: [
-            { personId: 'p1', firstName: 'Zeta', lastName: 'North', sectionId: 'secA', categoryId: 'catB', weaponIds: ['wC'], ownerPersonId: 'owner-c', ownerName: 'Owner C', deleted: true },
-            { personId: 'p2', firstName: 'Beta', lastName: 'South', sectionId: 'secC', categoryId: 'catA', weaponIds: ['wA'], ownerPersonId: 'owner-a', ownerName: 'Owner A', deleted: false },
-            { personId: 'p3', firstName: 'Ada', lastName: 'West', sectionId: 'secB', categoryId: 'catC', weaponIds: ['wB'], ownerPersonId: 'owner-b', ownerName: 'Owner B', deleted: false },
+            { personId: 'p1', firstName: 'Zeta', lastName: 'North', sectionId: 'secA', categoryId: 'catB', weaponIds: ['wC'], ownerPersonId: 'owner-c', ownerName: 'Owner C', ownerLastName: 'Alpha', deleted: true },
+            { personId: 'p2', firstName: 'Beta', lastName: 'South', sectionId: 'secC', categoryId: 'catA', weaponIds: ['wA'], ownerPersonId: 'owner-a', ownerName: 'Owner A', ownerLastName: 'Zulu', deleted: false },
+            { personId: 'p3', firstName: 'Ada', lastName: 'West', sectionId: 'secB', categoryId: 'catC', weaponIds: ['wB'], ownerPersonId: 'owner-b', ownerName: 'Owner B', ownerLastName: 'Mike', deleted: false },
           ],
         };
       }
@@ -319,11 +319,11 @@ test('accountless table sorts every value column by its displayed value', async 
   await new Promise((resolve) => setTimeout(resolve, 0));
   const expectedByKey: Record<string, string[]> = {
     section: ['p1', 'p3', 'p2'],
-    name: ['p3', 'p2', 'p1'],
+    name: ['p1', 'p2', 'p3'],
     status: ['p2', 'p3', 'p1'],
     weapons: ['p2', 'p3', 'p1'],
-    owner: ['p2', 'p3', 'p1'],
-    account: ['p3', 'p2', 'p1'],
+    owner: ['p1', 'p3', 'p2'],
+    account: ['p2', 'p3', 'p1'],
   };
   const rowPersonIds = () => [...harness.getEl('accountless-list').innerHTML.matchAll(/<tr data-person-id="([^"]+)"/g)].map((match) => match[1]);
 
@@ -331,6 +331,27 @@ test('accountless table sorts every value column by its displayed value', async 
     harness.sortTable('accountless-table', key, 'asc');
     assert.deepEqual(rowPersonIds(), expected, `column ${key} should sort by its displayed value`);
   }
+});
+
+test('accountless owner sort groups equal surnames by owner name and falls back to owner id', async () => {
+  const harness = createZarzadzanieHarness({
+    apiFetch: async (url) => {
+      if (url === '/lista-wyjazdowa/persons') {
+        return { persons: [
+          { personId: 'companion-a', firstName: 'Ada', lastName: 'Aardvark', sectionId: 'secA', categoryId: 'catA', weaponIds: [], ownerPersonId: 'zofia@example.test', ownerName: 'Zofia', ownerLastName: 'Kowalska', deleted: false },
+          { personId: 'companion-z', firstName: 'Zeta', lastName: 'Zulu', sectionId: 'secA', categoryId: 'catA', weaponIds: [], ownerPersonId: 'anna@example.test', ownerName: 'Anna', ownerLastName: 'Kowalska', deleted: false },
+          { personId: 'companion-id', firstName: 'Maja', lastName: 'Miedź', sectionId: 'secA', categoryId: 'catA', weaponIds: [], ownerPersonId: 'brak@example.test', ownerName: null, ownerLastName: null, deleted: false },
+        ] };
+      }
+      if (url === '/admin/lookup-lists') return { sections: [{ id: 'secA', label: 'Sekcja' }], categories: [{ id: 'catA', label: 'Kategoria' }], weapons: [] };
+      return {};
+    },
+  });
+  await harness.signIn({ email: 'admin@kruki.pl', isAccountant: false, isAdmin: true, isHovding: false });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  harness.sortTable('accountless-table', 'owner', 'asc');
+  const ids = [...harness.getEl('accountless-list').innerHTML.matchAll(/<tr data-person-id="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(ids, ['companion-id', 'companion-z', 'companion-a']);
 });
 
 test('accountants can load the accountless table without rendering its write actions', async () => {

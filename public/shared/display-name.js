@@ -31,6 +31,14 @@ function displayName(member) {
   return stripEmailDomain(chosen);
 }
 
+// Stable primary key for every sortable table that shows a person's name. Keep the visible label
+// unchanged, but order by surname when available; older/incomplete records fall back to the same
+// readable name the table already showed.
+function surnameSortValue(person) {
+  const surname = (person.lastName || '').trim();
+  return surname || displayName(person);
+}
+
 // KRKG-0103: the small second line shown under a name pill - always the full "Nazwisko, Imię",
 // regardless of what displayName() chose to show as the primary label. null when there is nothing
 // worth showing (lastName blank - e.g. a member who has only ever filled in firstName by mistake,

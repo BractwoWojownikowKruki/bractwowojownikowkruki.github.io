@@ -139,7 +139,7 @@
 
   function signupNamesHtml(people) {
     const names = companionNames(people);
-    return names.length ? `<span class="lw-companion-names">${names.map(escapeHtml).join(', ')}</span>` : '';
+    return names.length ? `<span class="lw-companion-names"><span class="lw-companion-names-plus" aria-hidden="true">+</span><span class="lw-companion-names-list">${names.map(escapeHtml).join(', ')}</span></span>` : '';
   }
 
   function showError(message) {

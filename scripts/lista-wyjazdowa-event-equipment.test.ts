@@ -11,8 +11,10 @@ const lwNavSource = readFileSync(new URL('../public/shared/lw-nav.js', import.me
 const duesStatusSource = readFileSync(new URL('../public/shared/dues-status.js', import.meta.url), 'utf8');
 const summaryFilterSource = readFileSync(new URL('../public/shared/summary-filter.js', import.meta.url), 'utf8');
 const listPreferencesSource = readFileSync(new URL('../public/shared/list-preferences.js', import.meta.url), 'utf8');
+const displayNameSource = readFileSync(new URL('../public/shared/display-name.js', import.meta.url), 'utf8');
 
 class Element {
+  id = '';
   hidden = false;
   textContent = '';
   innerHTML = '';
@@ -48,11 +50,17 @@ const elementIds = [
   'event-equipment-content', 'lw-nav-container', 'event-share-button', 'event-share-button-text',
 ];
 
-function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Record<string, unknown> = {}, signupRows: Array<Record<string, unknown>> = []) {
-  const elements = new Map(elementIds.map(id => [id, new Element()]));
+function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Record<string, unknown> = {}, signupRows: Array<Record<string, unknown>> = [], rosterRows: Array<Record<string, unknown>> = [{ personId: 'owner@example.com', email: 'owner@example.com', lastName: 'Właściciel', firstName: '', accountless: false, sectionId: 'krakow', categoryId: 'kandydat', weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' }]) {
+  const elements = new Map(elementIds.map(id => {
+    const element = new Element();
+    element.id = id;
+    return [id, element] as const;
+  }));
   elements.get('roster-filter-zgloszeni')!.checked = true;
   const calls: Array<{ url: string; options: Record<string, unknown> }> = [];
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
+  const equipmentSortState = { key: 'section', dir: 'asc' };
+  let onEquipmentSortChange = () => {};
   const context: Record<string, unknown> = {
     URLSearchParams, Map, Set, Object, Array, JSON, Date, encodeURIComponent,
     window: {
@@ -68,10 +76,15 @@ function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Re
       addEventListener: () => {},
     },
     initGoogleSignIn: (config: { onSignedIn: (identity: { email: string }) => Promise<void> }) => { signIn = config.onSignedIn; },
-    initSortableTable: () => ({ key: 'section', dir: 'asc' }),
+    initSortableTable: (table: Element, options: { onChange: () => void }) => {
+      if (table.id === 'event-equipment-table') {
+        onEquipmentSortChange = options.onChange;
+        return equipmentSortState;
+      }
+      return { key: 'section', dir: 'asc' };
+    },
     compareValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     compareDateValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
-    displayName: (person: { lastName?: string; email?: string }) => person.lastName ?? person.email ?? '',
     personSubline: () => null,
     profileFolderAttr: () => '',
     personPillHtml: ({ name }: { name: string }) => `<span>${name}</span>`,
@@ -80,7 +93,7 @@ function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Re
       calls.push({ url, options });
       if (options.method === 'PUT') return { item: { eventId: 'e1', equipmentId: 'tent-1', going: true, lastChangedBy: 'viewer@example.com', lastChangedAt: '2026-09-20T20:00:00.000Z' } };
       if (url === '/lista-wyjazdowa/events') return { events: [{ id: 'e1', name: 'Wyjazd', startDate: '2026-10-10', status: 'active', ...eventOverrides }] };
-      if (url.startsWith('/lista-wyjazdowa/roster?')) return { roster: [{ personId: 'owner@example.com', email: 'owner@example.com', lastName: 'Właściciel', firstName: '', accountless: false, sectionId: 'krakow', categoryId: 'kandydat', weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' }] };
+      if (url.startsWith('/lista-wyjazdowa/roster?')) return { roster: rosterRows };
       if (url.startsWith('/lista-wyjazdowa/signups?')) return { signups: signupRows };
       if (url === '/lista-wyjazdowa/my-role') return { canManageSkladki: false, canManagePeople: false };
       if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [{ id: 'krakow', label: 'Kraków' }], categories: [{ id: 'kandydat', label: 'Kandydat' }], weapons: [], equipmentCategories: [{ id: 'tent', label: 'Namiot' }, { id: 'namiot', label: 'Namiot', groupId: 'budowle' }, { id: 'wiata', label: 'Wiata', groupId: 'budowle' }, { id: 'stol', label: 'Stół', groupId: 'meble' }, { id: 'garnek', label: 'Garnek', groupId: 'kuchnia' }], equipmentGroups: [{ id: 'budowle', label: 'Budowle' }, { id: 'meble', label: 'Meble' }, { id: 'kuchnia', label: 'Kuchnia' }] };
@@ -94,13 +107,20 @@ function createHarness(items: Array<Record<string, unknown>>, eventOverrides: Re
   vm.runInNewContext(duesStatusSource, context, { filename: 'dues-status.js' });
   vm.runInNewContext(summaryFilterSource, context, { filename: 'summary-filter.js' });
   vm.runInNewContext(listPreferencesSource, context, { filename: 'list-preferences.js' });
+  vm.runInNewContext(displayNameSource, context, { filename: 'display-name.js' });
   vm.runInNewContext(source, context, { filename: 'wyjazd.js' });
   const setEquipmentFilter = (notGoing: boolean, going: boolean) => {
     elements.get('equipment-filter-niezgloszone')!.checked = notGoing;
     elements.get('equipment-filter-zgloszone')!.checked = going;
     elements.get('equipment-filter-zgloszone')!.fire('change');
   };
-  return { elements, calls, setEquipmentFilter, signIn: async () => signIn?.({ email: 'viewer@example.com' }) };
+  return {
+    elements,
+    calls,
+    setEquipmentFilter,
+    setEquipmentSort: (key: string, dir: string) => { equipmentSortState.key = key; equipmentSortState.dir = dir; onEquipmentSortChange(); },
+    signIn: async () => signIn?.({ email: 'viewer@example.com' }),
+  };
 }
 
 test('Wyjazd page loads, renders and locally toggles event equipment', async () => {
@@ -142,6 +162,22 @@ test('Wyjazd page loads, renders and locally toggles event equipment', async () 
   assert.match(equipment.innerHTML, /Namiot/);
   assert.match(equipment.innerHTML, /Właściciel/);
   assert.match(equipment.innerHTML, /Duży namiot/);
+});
+
+test('Wyjazd event equipment owner sort uses surname and falls back for unresolved owners', async () => {
+  const harness = createHarness([
+    { id: 'item-z', categoryId: 'tent', sectionId: 'krakow', belongsToPersonId: 'z@example.com', description: 'Zulu item', going: true },
+    { id: 'item-a', categoryId: 'tent', sectionId: 'krakow', belongsToPersonId: 'missing@example.com', description: 'Missing owner item', going: true },
+    { id: 'item-m', categoryId: 'tent', sectionId: 'krakow', belongsToPersonId: 'a@example.com', description: 'Aardvark item', going: true },
+  ], {}, [], [
+    { personId: 'z@example.com', email: 'z@example.com', firstName: 'Ada', lastName: 'Zulu', accountless: false, sectionId: 'krakow', categoryId: 'kandydat', weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
+    { personId: 'a@example.com', email: 'a@example.com', firstName: 'Zeta', lastName: 'Aardvark', accountless: false, sectionId: 'krakow', categoryId: 'kandydat', weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
+  ]);
+  await harness.signIn();
+  harness.setEquipmentSort('owner', 'asc');
+  const rows = harness.elements.get('event-equipment-content')!.innerHTML;
+  assert.ok(rows.indexOf('Aardvark item') < rows.indexOf('Missing owner item'));
+  assert.ok(rows.indexOf('Missing owner item') < rows.indexOf('Zulu item'));
 });
 
 test('Wyjazd page shows an empty state when no equipment exists', async () => {

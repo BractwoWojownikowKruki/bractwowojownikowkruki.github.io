@@ -477,7 +477,7 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
   const categoryLabel = categoryId => (categoryId ? (categoryLabelById.get(categoryId) ?? categoryId) : '');
   const sortValue = (member) => {
     switch (membershipSortState.key) {
-      case 'name': return displayName(member);
+      case 'name': return surnameSortValue(member);
       case 'nickname': return member.nickname ?? '';
       case 'status': return categoryLabel(member.categoryId);
       case 'hidden': return member.hidden === true;
@@ -492,7 +492,8 @@ function renderMembershipMembers(members, status, driveFolderOptions, rolesByEma
     const cmp = compareValues(sortValue(a), sortValue(b), membershipSortState.dir);
     if (cmp !== 0) return cmp;
     // Tie-break alphabetically by Nazwisko, not the displayed ksywka/imię.
-    return compareValues(a.lastName ?? '', b.lastName ?? '', 'asc');
+    const surnameComparison = compareValues(surnameSortValue(a), surnameSortValue(b), 'asc');
+    return surnameComparison || compareValues(displayName(a), displayName(b), 'asc');
   });
   const actions = MEMBERSHIP_ACTIONS_BY_STATUS[status] ?? [];
   const labelByFolderId = new Map(driveFolderOptions.map(o => [o.folderId, o.label]));
@@ -969,17 +970,24 @@ function renderAccountless(persons) {
         const categoryLabel = person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : '—';
         const weaponsLabel = (person.weaponIds ?? []).map((id) => weaponLabelById.get(id) ?? id).join(', ') || '—';
         switch (accountlessSortState.key) {
-          case 'name': return accountlessDisplayName(person);
+          case 'name': return surnameSortValue({ ...person, nickname: person.ksywka }) || accountlessDisplayName(person);
           case 'status': return categoryLabel;
           case 'weapons': return weaponsLabel;
-          case 'owner': return person.ownerPersonId ? (person.ownerName ?? person.ownerPersonId) : '—';
+          case 'owner': return person.ownerPersonId
+            ? surnameSortValue({ lastName: person.ownerLastName, firstName: person.ownerName, email: person.ownerPersonId })
+            : '—';
           case 'account': return person.deleted ? 'deaktywowana' : 'bez konta';
           default: return person.sectionId ? (sectionLabelById.get(person.sectionId) ?? person.sectionId) : '—';
         }
       };
       const cmp = compareValues(sortValue(a), sortValue(b), accountlessSortState.dir);
       if (cmp !== 0) return cmp;
-      const nameCmp = compareValues(accountlessDisplayName(a), accountlessDisplayName(b), 'asc');
+      if (accountlessSortState.key === 'owner') {
+        const ownerNameCmp = compareValues(a.ownerName ?? a.ownerPersonId ?? '', b.ownerName ?? b.ownerPersonId ?? '', 'asc');
+        if (ownerNameCmp !== 0) return ownerNameCmp;
+      }
+      const nameCmp = compareValues(surnameSortValue({ ...a, nickname: a.ksywka }), surnameSortValue({ ...b, nickname: b.ksywka }), 'asc')
+        || compareValues(accountlessDisplayName(a), accountlessDisplayName(b), 'asc');
       return nameCmp || compareValues(a.personId, b.personId, 'asc');
     });
     rowsHtml = sorted.map((person) => {

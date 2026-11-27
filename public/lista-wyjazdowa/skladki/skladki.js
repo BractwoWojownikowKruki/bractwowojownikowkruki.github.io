@@ -563,7 +563,7 @@ function renderTable(roster, duesByPersonId) {
   const ROCZNA_SORT_RANK = { unpaid: 0, not_applicable: 1, paid: 2 };
   const sortValue = (member) => {
     switch (skladkiSortState.key) {
-      case 'name': return displayName(member);
+      case 'name': return surnameSortValue(member);
       case 'roczna': return ROCZNA_SORT_RANK[memberDuesStatus(member, duesByPersonId)];
       default: return sectionLabel(member.sectionId);
     }
@@ -571,7 +571,8 @@ function renderTable(roster, duesByPersonId) {
   const sorted = [...mainRoster].sort((a, b) => {
     const cmp = compareValues(sortValue(a), sortValue(b), skladkiSortState.dir);
     if (cmp !== 0) return cmp;
-    return compareValues(displayName(a), displayName(b), 'asc');
+    return compareValues(surnameSortValue(a), surnameSortValue(b), 'asc')
+      || compareValues(displayName(a), displayName(b), 'asc');
   });
 
   // The per-person Historia link points at the shared due:{personId} timeline (wpisowe + roczna),
@@ -607,7 +608,7 @@ function renderTable(roster, duesByPersonId) {
 
   const emeryciSortValue = (member) => {
     switch (emeryciSortState.key) {
-      case 'name': return displayName(member);
+      case 'name': return surnameSortValue(member);
       case 'roczna': return ROCZNA_SORT_RANK[memberDuesStatus(member, duesByPersonId)];
       default: return sectionLabel(member.sectionId);
     }
@@ -615,7 +616,8 @@ function renderTable(roster, duesByPersonId) {
   const emeryciSorted = [...emeryciRoster].sort((a, b) => {
     const cmp = compareValues(emeryciSortValue(a), emeryciSortValue(b), emeryciSortState.dir);
     if (cmp !== 0) return cmp;
-    return compareValues(displayName(a), displayName(b), 'asc');
+    return compareValues(surnameSortValue(a), surnameSortValue(b), 'asc')
+      || compareValues(displayName(a), displayName(b), 'asc');
   });
 
   const emeryciTable = document.getElementById('skladki-emeryci-table');
@@ -667,7 +669,7 @@ function renderWpisoweList(roster) {
   const sortedBy = (list, sortState) => {
     const sortValue = (member) => {
       switch (sortState.key) {
-        case 'name': return displayName(member);
+        case 'name': return surnameSortValue(member);
         case 'joined': return member.approvedAt ?? '';
         default: return sectionLabel(member.sectionId);
       }
@@ -680,7 +682,8 @@ function renderWpisoweList(roster) {
       }
       const cmp = compareValues(sortValue(a), sortValue(b), sortState.dir);
       if (cmp !== 0) return cmp;
-      return compareValues(displayName(a), displayName(b), 'asc');
+      return compareValues(surnameSortValue(a), surnameSortValue(b), 'asc')
+        || compareValues(displayName(a), displayName(b), 'asc');
     });
   };
 
