@@ -285,6 +285,7 @@ import {
   normalizeSearchTerm,
   projectAuditEvent,
   queryAuditEvents,
+  queryAccountAuditEvents,
   reconcileExternalOperation,
   startExternalOperation,
   type AuditViewer,
@@ -354,6 +355,25 @@ test('queryAuditEvents caps at 100 rows and paginates with a stable cursor', asy
   // a limit above the 100-row cap is silently clamped, never rejected
   const clamped = await queryAuditEvents(firestore, { selector: { kind: 'none' }, limit: 10_000 }, admin);
   assert.equal(clamped.rows.length, 5);
+});
+
+test('queryAccountAuditEvents accepts its dedicated reference contract and reads exact person history', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await executeAuditedFirestoreMutation(
+    firestore,
+    {
+      action: 'person.updated',
+      actor: { email: 'staff@example.test' },
+      resource: { kind: 'person', key: 'person:person-42', display: 'Antek' },
+      changes: [{ field: 'nickname', before: 'Antoś', after: 'Antek' }],
+    },
+    async () => {},
+    { createId: () => 'person-history', now: () => new Date('2026-01-02T00:00:00.000Z') },
+  );
+  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isHovding: false };
+  const page = await queryAccountAuditEvents(firestore, { reference: 'person-42', referenceKind: 'personId' }, admin);
+  assert.deepEqual(page.rows.map((row) => row.id), ['person-history']);
+  assert.equal(page.nextCursor, undefined);
 });
 
 /**
