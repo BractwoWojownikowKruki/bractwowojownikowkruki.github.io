@@ -7428,6 +7428,26 @@ test('GET /lista-wyjazdowa/events includes attendingCount and the caller\'s own 
   });
 });
 
+test('GET /lista-wyjazdowa/events includes only the viewer\'s attending companions with short display fields', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  seedEvent(firestore, 'event-1');
+  const companion = (personId: string, ownerPersonId: string, firstName: string, ksywka: string) => firestore.seed('persons', personId, {
+    personId, ksywka, firstName, lastName: 'Nazwisko', categoryId: 'thing', sectionId: 'krakow', weaponIds: [],
+    ownerPersonId, email: null, deletedAt: null, mergedInto: null, createdAt: '', createdBy: '',
+  });
+  companion('viewer-companion', 'wojownik@gmail.com', 'Anna', 'Wilk');
+  companion('other-companion', 'other@example.test', 'Ola', 'Sowa');
+  firestore.seed('signups', 'event-1_viewer-companion', { eventId: 'event-1', memberEmail: 'viewer-companion', attending: true });
+  firestore.seed('signups', 'event-1_other-companion', { eventId: 'event-1', memberEmail: 'other-companion', attending: true });
+
+  await withServer(makeDeps({ firestore, listMemberEmails: async () => ['wojownik@gmail.com'] }), async baseUrl => {
+    const res = await fetch(`${baseUrl}/lista-wyjazdowa/events`);
+    const body = await res.json();
+    assert.deepEqual(body.events[0].viewerCompanions, [{ firstName: 'Anna', nickname: 'Wilk' }]);
+  });
+});
+
 test('PUT /lista-wyjazdowa/events?eventId= updates only the given fields', async () => {
   const deps = makeDeps({ firestore: makeListaWyjazdowaFirestore() });
   await withServer(deps, async baseUrl => {
@@ -8024,6 +8044,31 @@ test('POST /lista-wyjazdowa/persons returns possible duplicates and creates only
     assert.equal(listedCollections.includes('persons'), false, 'a confirmed retry skips the full persons scan');
     assert.equal(listedCollections.includes('members'), false, 'a confirmed retry skips the full members scan');
     assert.equal((await firestore.listDocs('persons')).length, 2);
+  });
+});
+
+test('person registration matches the same first name only for the target owner account', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  seedEvent(firestore, 'event-1');
+  seedPerson(firestore, 'same-first-name', 'wojownik@gmail.com');
+  await firestore.setDoc('persons', 'same-first-name', { ksywka: 'Old nickname', firstName: 'Anna', lastName: 'Lis' });
+  seedPerson(firestore, 'other-owner-same-first-name', 'other@example.test');
+  await firestore.setDoc('persons', 'other-owner-same-first-name', { ksywka: 'Other nickname', firstName: 'Anna', lastName: 'Kot' });
+  const body = { ...personBody, ksywka: 'New nickname', firstName: 'Anna', lastName: 'Nowak', ownerPersonId: 'wojownik@gmail.com' };
+
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const warning = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/persons', body);
+    assert.equal(warning.status, 409);
+    const matches = (await warning.json()).duplicateMatches;
+    assert.deepEqual(matches.map((match: { firstName: string; lastName: string }) => `${match.firstName} ${match.lastName}`), ['Anna Lis']);
+
+    const quickAdd = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', {
+      eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'new',
+      ksywka: 'New nickname', firstName: 'Anna', lastName: 'Nowak', categoryId: 'thing',
+    });
+    assert.equal(quickAdd.status, 409);
+    assert.deepEqual((await quickAdd.json()).duplicateMatches.map((match: { firstName: string; lastName: string }) => `${match.firstName} ${match.lastName}`), ['Anna Lis']);
   });
 });
 
@@ -8730,6 +8775,21 @@ test('POST /lista-wyjazdowa/signups/quick-add returns 400/404 for the remaining 
     assert.equal((await post({ eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'new', categoryId: 'thing' })).status, 400, 'ksywka is required');
     assert.equal((await post({ eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'new', ksywka: 'Wilk' })).status, 400, 'category is required');
     assert.equal((await post({ eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'existing', personId: 'nie-ma' })).status, 404, 'unknown person');
+  });
+});
+
+test('POST /lista-wyjazdowa/signups/quick-add accepts a new companion without a nickname', async () => {
+  const firestore = makeListaWyjazdowaFirestore();
+  seedMember(firestore, 'wojownik@gmail.com');
+  seedEvent(firestore, 'event-1');
+  await withServer(memberDeps(firestore, 'wojownik@gmail.com'), async baseUrl => {
+    const response = await jsonRequest(baseUrl, 'POST', '/lista-wyjazdowa/signups/quick-add', {
+      eventId: 'event-1', ownerPersonId: 'wojownik@gmail.com', mode: 'new',
+      firstName: 'Anna', lastName: 'Nowak', categoryId: 'thing', duplicateConfirmed: true,
+    });
+    const responseBody = await response.text();
+    assert.equal(response.status, 201, responseBody);
+    assert.equal(JSON.parse(responseBody).person.ksywka, '');
   });
 });
 

@@ -3963,11 +3963,16 @@ function requireDateString(value: unknown, message: string): string {
 
 async function handleListaWyjazdowaGetEvents(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
   const identity = await deps.authenticateWojownicyUpload(req, res);
-  const events = await listEvents(deps.firestore);
-  const allSignups = await listAllSignups(deps.firestore);
+  const [events, allSignups, persons] = await Promise.all([
+    listEvents(deps.firestore),
+    listAllSignups(deps.firestore),
+    listPersons(deps.firestore),
+  ]);
   const attendingCountByEvent = new Map<string, number>();
   const viewerAttendingByEvent = new Set<string>();
   const viewerSkladkaStatusByEvent = new Map<string, DuesStatus>();
+  const viewerCompanionsByEvent = new Map<string, Array<{ firstName: string; nickname: string }>>();
+  const personById = new Map(persons.map(({ data }) => [data.personId.toLowerCase(), data]));
   const viewerEmail = identity.email.toLowerCase();
   for (const { data } of allSignups) {
     if (!data.attending) continue;
@@ -3976,12 +3981,19 @@ async function handleListaWyjazdowaGetEvents(req: IncomingMessage, res: ServerRe
       viewerAttendingByEvent.add(data.eventId);
       viewerSkladkaStatusByEvent.set(data.eventId, normalizeSkladkaStatus(data));
     }
+    const person = personById.get(data.memberEmail.toLowerCase());
+    if (person?.ownerPersonId?.toLowerCase() === viewerEmail && !person.email && !person.mergedInto) {
+      const companions = viewerCompanionsByEvent.get(data.eventId) ?? [];
+      companions.push({ firstName: person.firstName ?? '', nickname: person.ksywka ?? '' });
+      viewerCompanionsByEvent.set(data.eventId, companions);
+    }
   }
   const withSummary = events.map((e) => ({
     ...e,
     attendingCount: attendingCountByEvent.get(e.id) ?? 0,
     viewerAttending: viewerAttendingByEvent.has(e.id),
     viewerSkladkaStatus: viewerSkladkaStatusByEvent.get(e.id) ?? 'unpaid',
+    viewerCompanions: viewerCompanionsByEvent.get(e.id) ?? [],
   }));
   sendJson(res, 200, { events: withSummary });
 }
@@ -5082,8 +5094,9 @@ async function getPersonRegistrationDuplicateMatches(
   deps: ServerDeps,
   fields: Pick<PersonWritableFields, 'ksywka' | 'firstName' | 'lastName'>,
   viewerEmail: string,
+  targetOwnerPersonId: string | null,
 ): Promise<Array<{ firstName: string; lastName: string; nickname: string | null; section: string; owner: string | null }>> {
-  const duplicates = await findDuplicateAccountlessPersons(deps.firestore, fields);
+  const duplicates = await findDuplicateAccountlessPersons(deps.firestore, fields, targetOwnerPersonId);
   if (duplicates.length === 0) return [];
   const [members, sections] = await Promise.all([
     listAllMembers(deps.firestore),
@@ -5151,7 +5164,7 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
   validatePersonFields(fields);
   const duplicateMatches = body.duplicateConfirmed === true
     ? []
-    : await getPersonRegistrationDuplicateMatches(deps, fields, identity.email);
+    : await getPersonRegistrationDuplicateMatches(deps, fields, identity.email, ownerPersonId);
   if (sendPersonDuplicatePromptIfNeeded(res, body, duplicateMatches)) return;
   const personId = randomUUID();
   const { result: person } = await executeDeclaredAuditedMutation(
@@ -5455,7 +5468,7 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
     return;
   }
 
-  const ksywka = requireTrimmedString(body.ksywka, LW_MAX_NAME_LENGTH, 'Ksywka jest wymagana.');
+  const ksywka = optionalTrimmedString(body.ksywka, LW_MAX_NAME_LENGTH, 'Ksywka jest nieprawidłowa.') ?? '';
   const categoryId = requireTrimmedString(body.categoryId, LW_MAX_NAME_LENGTH, 'Kategoria jest wymagana.');
   // KRKG-0103: quick-add used to hardcode empty firstName/lastName - now that validatePersonFields
   // requires both, they have to come from the request body like every other person field.
@@ -5467,7 +5480,7 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
   const fields: PersonWritableFields = { ksywka, firstName, lastName, categoryId, sectionId, weaponIds: [] };
   const duplicateMatches = body.duplicateConfirmed === true
     ? []
-    : await getPersonRegistrationDuplicateMatches(deps, fields, identity.email);
+    : await getPersonRegistrationDuplicateMatches(deps, fields, identity.email, ownerKey);
   if (sendPersonDuplicatePromptIfNeeded(res, body, duplicateMatches)) return;
   const personId = randomUUID();
   const { result } = await executeDeclaredAuditedMutation(
@@ -5477,7 +5490,7 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
     [
       {
         actor: { email: identity.email },
-        resource: { kind: 'person' as const, key: `person:${personId}`, display: ksywka },
+        resource: { kind: 'person' as const, key: `person:${personId}`, display: ksywka || personDisplayName(fields) || personId },
         changes: [
           { field: 'nickname', after: ksywka },
           { field: 'categoryId', after: categoryId },
@@ -5488,7 +5501,7 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
       },
       {
         actor: { email: identity.email },
-        resource: { kind: 'signup' as const, key: `signup:${eventId}:${personId}`, display: ksywka },
+        resource: { kind: 'signup' as const, key: `signup:${eventId}:${personId}`, display: ksywka || personDisplayName(fields) || personId },
         changes: [{ field: 'attending', after: true }],
       },
     ],

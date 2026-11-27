@@ -154,6 +154,25 @@ test('findDuplicateAccountlessPersons matches nickname or full name case-insensi
   assert.equal(emptyNameMatches.length, 0, 'empty names must not match legacy records with empty names');
 });
 
+test('findDuplicateAccountlessPersons matches a first name only within the requested owner account', async () => {
+  const client = createInMemoryFirestoreClient();
+  const sameOwner = await createPerson(client, {
+    ...baseFields, ksywka: 'Inna ksywka', firstName: 'Kasia', lastName: 'Nowak',
+  }, 'opiekun@example.test', 'admin@example.test');
+  await createPerson(client, {
+    ...baseFields, ksywka: 'Jeszcze inna', firstName: 'Kasia', lastName: 'Lis',
+  }, 'inny@example.test', 'admin@example.test');
+  await createPerson(client, {
+    ...baseFields, ksywka: 'Bez opiekuna', firstName: 'Kasia', lastName: 'Kot',
+  }, null, 'admin@example.test');
+
+  const matches = await findDuplicateAccountlessPersons(client, {
+    ...baseFields, ksywka: 'Nowa', firstName: ' kasia ', lastName: 'Kowalska',
+  }, 'OPIEKUN@example.test');
+
+  assert.deepEqual(matches.map((person) => person.personId), [sameOwner.personId]);
+});
+
 test('findDuplicateAccountlessPersons sorts matches by Polish full name, then nickname', async () => {
   const client = createInMemoryFirestoreClient();
   await client.setDoc('persons', 'z-name', {
