@@ -923,9 +923,9 @@ function renderRoster(roster, signups) {
       // A deactivated person keeps a static historical status and opens a read-only drawer; no
       // status or profile-edit controls are offered for this tombstone.
       const memberName = displayName(member);
-      const namePill = personPillHtml({ name: memberName, categoryId: member.categoryId, categoryLabel, accountless: member.accountless === true, subline: personSubline(member) });
+      const namePill = personPillHtml({ name: memberName, categoryId: member.categoryId, categoryLabel, accountless: member.accountless === true, subline: personSubline(member), inactive: member.deleted === true });
       const nameCellHtml = member.deleted
-        ? `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}" aria-label="Profil ${escapeAttr(memberName)} (nieaktywne)">${namePill.replace(escapeHtml(memberName), () => `<s class="lw-inactive-person-name">${escapeHtml(memberName)}</s><small class="lw-inactive-person-label">(nieaktywne)</small>`)}</button>`
+        ? `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}" aria-label="Profil ${escapeAttr(memberName)} (nieaktywne)">${namePill}</button>`
         : member.accountless
           ? `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${personIdAttr}">
           ${namePill}

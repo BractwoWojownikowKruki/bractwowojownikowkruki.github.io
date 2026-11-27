@@ -463,7 +463,7 @@ test('a failed quick-add keeps the panel open and reports the error', async () =
   await list.clickWith(clickTarget('.lw-inline-add-existing'));
 
   assert.equal(list.innerHTML, panelBefore);
-  assert.match(harness.elements.get('events-error')!.textContent, /Nie udało się dodać osoby/);
+  assert.match(harness.elements.get('lw-inline-error')!.textContent, /Nie udało się dodać osoby/);
 });
 
 test('toggling to "Jadę" reveals the + and keeps the toggle track', async () => {

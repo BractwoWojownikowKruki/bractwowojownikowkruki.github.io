@@ -825,7 +825,7 @@ test('a failed quick-add changes nothing and reports the error', async () => {
   await roster.clickWith(clickTarget('.lw-inline-add-existing'));
 
   assert.equal(roster.innerHTML, before);
-  assert.match(harness.elements.get('lw-error')!.textContent, /Nie udało się dodać osoby/);
+  assert.match(harness.elements.get('lw-inline-error')!.textContent, /Nie udało się dodać osoby/);
 });
 
 test('cancelling the duplicate prompt on the event detail page leaves the companion form unchanged', async () => {

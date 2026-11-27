@@ -241,7 +241,17 @@ function applyQuickAdd(result) {
     else panelSignups.push(signup);
   }
   const event = cachedEvents.find((item) => item.id === openAddPanelEventId);
-  if (event && signup?.attending) event.attendingCount = (event.attendingCount ?? 0) + 1;
+  if (event && signup?.attending) {
+    event.attendingCount = (event.attendingCount ?? 0) + 1;
+    const person = result?.person;
+    if (person) {
+      event.viewerCompanions ??= [];
+      event.viewerCompanions.push({
+        firstName: person.firstName ?? '',
+        nickname: person.nickname ?? person.ksywka ?? '',
+      });
+    }
+  }
   // A brand-new companion has to be offered as an existing person the next time any panel opens,
   // so drop the cached roster/categories rather than leaving them stale; the next "+" re-fetches.
   companionDataPromise = null;

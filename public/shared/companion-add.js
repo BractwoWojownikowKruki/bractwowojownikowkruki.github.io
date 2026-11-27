@@ -143,7 +143,10 @@
   }
 
   function showError(message) {
-    const error = document.getElementById('lw-inline-error');
+    const error = document.getElementById('lw-inline-error')
+      ?? document.getElementById('events-error')
+      ?? document.getElementById('lw-error')
+      ?? document.querySelector('#app-widget-grid-slot .dashboard-widget-error');
     if (!error) return false;
     error.textContent = message;
     error.hidden = false;
