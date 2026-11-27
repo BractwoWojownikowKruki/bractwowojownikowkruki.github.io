@@ -300,6 +300,17 @@
     return `<div class="profile-account-audit"><div class="profile-editor-toggle-row">${button}</div><section aria-label="Historia konta"><h4>Historia konta</h4>${content}</section></div>`;
   }
 
+  /**
+   * Resolve account-history routing for an equipment owner from the minimal view contract.
+   * Person IDs remain person-keyed for accountless people, while member IDs use their email route.
+   * @param {{auditPersonId?: string|null, auditIsAccountless?: boolean}} view
+   */
+  function equipmentAuditTarget(view) {
+    const personId = view.auditPersonId;
+    if (!personId) return null;
+    return view.auditIsAccountless || !personId.includes('@') ? { personId } : { email: personId };
+  }
+
   async function loadAccountAuditHistory() {
     const target = accountAuditState.target;
     if (!target || accountAuditState.loading || (!accountAuditState.nextCursor && accountAuditState.rows.length)) return;
@@ -1107,7 +1118,7 @@
         ${view.categoryLabel ? `<dt>Kategoria</dt><dd>${escapeHtml(view.categoryLabel)}</dd>` : ''}
         ${view.sectionLabel ? `<dt>Sekcja</dt><dd><span class="section-pill" data-section="${escapeHtml(view.sectionId ?? '')}">${escapeHtml(view.sectionLabel)}</span></dd>` : ''}
       </dl>
-      ${accountAuditHtml(Boolean(view.canViewAccountAudit && (view.auditTarget || view.auditEmail)))}
+      ${accountAuditHtml(Boolean(view.canViewAccountAudit && equipmentAuditTarget(view)))}
       ${editHtml ? `<div class="profile-editor-toggle-row">${editHtml}</div>` : ''}
     `;
   }
@@ -1119,7 +1130,7 @@
     editorState.profile = null;
     editorState.target = null;
     currentEquipmentView = view;
-    resetAccountAuditTarget(view.auditTarget ?? (view.auditEmail ? { email: view.auditEmail } : null));
+    resetAccountAuditTarget(equipmentAuditTarget(view));
     currentPhotos = view.photos ?? [];
     equipmentEditHandler = view.onEdit ?? null;
     content.innerHTML = renderEquipment(view);

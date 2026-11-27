@@ -25,7 +25,9 @@ test('the profile drawer shows who an accountless person is a companion of', () 
 
 test('account history is rendered only when the backend supplies the staff capability', () => {
   assert.match(panel, /accountAuditHtml\(Boolean\(profile\.accountless \? profile\.canViewAccountAudit : profile\.editor\?\.canEditIdentity\)\)/);
-  assert.match(panel, /accountAuditHtml\(Boolean\(view\.canViewAccountAudit && \(view\.auditTarget \|\| view\.auditEmail\)\)\)/);
+  assert.match(panel, /accountAuditHtml\(Boolean\(view\.canViewAccountAudit && equipmentAuditTarget\(view\)\)\)/);
+  assert.match(panel, /resetAccountAuditTarget\(equipmentAuditTarget\(view\)\)/);
+  assert.doesNotMatch(panel, /view\.auditEmail/);
   assert.match(panel, /data-account-audit-toggle>Historia konta/);
   assert.match(panel, /data-account-audit-more>Pokaż starsze zdarzenia/);
   assert.match(panel, /\/admin\/members\/account-audit/);

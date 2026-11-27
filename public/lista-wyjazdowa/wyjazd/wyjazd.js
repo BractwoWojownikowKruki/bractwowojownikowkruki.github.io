@@ -1297,11 +1297,6 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
 function equipmentPanelView(item) {
   const sectionId = equipmentSectionId(item);
   const owner = personById.get(item.belongsToPersonId);
-  const auditTarget = item.belongsToPersonId
-    ? (owner?.accountless || !item.belongsToPersonId.includes('@')
-      ? { personId: item.belongsToPersonId }
-      : { email: item.belongsToPersonId })
-    : null;
   return {
     description: item.description,
     photos: item.photos ?? [],
@@ -1310,7 +1305,8 @@ function equipmentPanelView(item) {
     sectionId,
     sectionLabel: sectionLabelById.get(sectionId) ?? sectionId,
     ownerHtml: item.belongsToPersonId ? ownerCellHtml(item.belongsToPersonId) : null,
-    auditTarget,
+    auditPersonId: item.belongsToPersonId,
+    auditIsAccountless: owner?.accountless === true,
     canViewAccountAudit: item.canViewAccountAudit === true,
     editHref: `/sprzet-obozowy/?edit=${encodeURIComponent(item.id)}`,
   };

@@ -40,19 +40,6 @@
   }
 
   /**
-   * Order companion categories for registration forms while preserving the lookup order of the
-   * remaining categories; categoryOptionsHtml renders the native separator after the priority group.
-   * @param {Array<{id: string, label: string}>} categories
-   */
-  function orderedCategories(categories) {
-    const byId = new Map((categories ?? []).map((category) => [category.id, category]));
-    return [
-      ...PRIORITY_CATEGORY_IDS.map((id) => byId.get(id)).filter(Boolean),
-      ...(categories ?? []).filter((category) => !PRIORITY_CATEGORY_ID_SET.has(category.id)),
-    ];
-  }
-
-  /**
    * Render registration categories with retired choices retained only when already selected.
    * The lower-priority group stays in its existing lookup order.
    * @param {Array<{id: string, label: string, retired?: boolean}>} categories
@@ -60,10 +47,10 @@
    */
   function categoryOptionsHtml(categories, selectedId = null) {
     const available = (categories ?? []).filter((category) => !category.retired || category.id === selectedId);
-    const ordered = orderedCategories(available);
-    const priority = ordered.filter((category) => PRIORITY_CATEGORY_ID_SET.has(category.id));
+    const byId = new Map(available.map((category) => [category.id, category]));
+    const priority = PRIORITY_CATEGORY_IDS.map((id) => byId.get(id)).filter(Boolean);
     const option = (category) => `<option value="${escapeHtml(category.id)}"${category.id === selectedId ? ' selected' : ''}>${escapeHtml(category.label)}${category.retired ? ' (wycofany status)' : ''}</option>`;
-    const remaining = ordered.filter((category) => !PRIORITY_CATEGORY_ID_SET.has(category.id));
+    const remaining = available.filter((category) => !PRIORITY_CATEGORY_ID_SET.has(category.id));
     return `${priority.map(option).join('')}${priority.length && remaining.length ? `<hr>${remaining.map(option).join('')}` : remaining.map(option).join('')}`;
   }
 
@@ -161,5 +148,5 @@
     }
   }
 
-  window.CompanionAdd = { candidates, orderedCategories, categoryOptionsHtml, panelHtml, buttonHtml, companionNames, signupNamesHtml, showError, clearError };
+  window.CompanionAdd = { candidates, categoryOptionsHtml, panelHtml, buttonHtml, companionNames, signupNamesHtml, showError, clearError };
 }());

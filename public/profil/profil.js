@@ -772,11 +772,6 @@ async function deletePersonEquipmentItem(container, ownerId, itemId, control) {
 function equipmentPanelView(item) {
   const owner = equipmentOwnerById.get(item.belongsToPersonId);
   const sectionId = owner?.sectionId ?? item.sectionId;
-  const auditTarget = item.belongsToPersonId
-    ? (owner?.accountless || !item.belongsToPersonId.includes('@')
-      ? { personId: item.belongsToPersonId }
-      : { email: item.belongsToPersonId })
-    : null;
   return {
     description: item.description,
     photos: item.photos ?? [],
@@ -785,7 +780,8 @@ function equipmentPanelView(item) {
     sectionId,
     sectionLabel: equipmentSectionLabelById.get(sectionId) ?? sectionId,
     ownerHtml: escapeHtml(owner ? displayName(owner) : item.belongsToPersonId),
-    auditTarget,
+    auditPersonId: item.belongsToPersonId,
+    auditIsAccountless: owner?.accountless === true,
     canViewAccountAudit: item.canViewAccountAudit === true,
     editHref: `/sprzet-obozowy/?edit=${encodeURIComponent(item.id)}`,
   };

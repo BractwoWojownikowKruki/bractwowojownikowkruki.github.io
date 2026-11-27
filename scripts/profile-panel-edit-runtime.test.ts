@@ -177,9 +177,38 @@ function createHarness(harnessOptions: {
     apiCalls,
     get drawer() { return drawerWrapper?.firstElementChild ?? null; },
     document,
-    window: context.window as { ProfilePanel: { open(email: string): Promise<void> } },
+    window: context.window as { ProfilePanel: { open(email: string): Promise<void>; openEquipment(view: Record<string, unknown>): void } },
   };
 }
+
+test('equipment drawer resolves member account audit from its shared minimal target contract', async () => {
+  const harness = createHarness({ apiFetch: async (url) => url.startsWith('/admin/members/account-audit?') ? { rows: [] } : {} });
+  harness.window.ProfilePanel.openEquipment({ description: 'Plecak', photos: [], auditPersonId: 'jan@example.test', auditIsAccountless: false, canViewAccountAudit: true });
+  const toggle = harness.document.body.querySelector('[data-account-audit-toggle]') as FakeElement;
+  assert.ok(toggle, 'capable viewer sees the history control');
+  await harness.document.dispatch('click', toggle);
+  await new Promise((resolve) => setImmediate(resolve));
+  const auditRequest = harness.apiCalls.find((call) => call.url.startsWith('/admin/members/account-audit?'));
+  const query = new URL(auditRequest?.url ?? '/', 'https://example.test').searchParams;
+  assert.equal(query.get('email'), 'jan@example.test');
+  assert.equal(query.has('personId'), false);
+});
+
+test('equipment drawer resolves accountless audit by person ID and hides it without capability', async () => {
+  const harness = createHarness({ apiFetch: async (url) => url.startsWith('/admin/members/account-audit?') ? { rows: [] } : {} });
+  harness.window.ProfilePanel.openEquipment({ description: 'Plecak', photos: [], auditPersonId: 'person-123', auditIsAccountless: true, canViewAccountAudit: true });
+  const toggle = harness.document.body.querySelector('[data-account-audit-toggle]') as FakeElement;
+  assert.ok(toggle, 'capable viewer sees the history control');
+  await harness.document.dispatch('click', toggle);
+  await new Promise((resolve) => setImmediate(resolve));
+  const auditRequest = harness.apiCalls.find((call) => call.url.startsWith('/admin/members/account-audit?'));
+  const query = new URL(auditRequest?.url ?? '/', 'https://example.test').searchParams;
+  assert.equal(query.get('personId'), 'person-123');
+  assert.equal(query.has('email'), false);
+
+  harness.window.ProfilePanel.openEquipment({ description: 'Plecak', photos: [], auditPersonId: 'person-123', auditIsAccountless: true, canViewAccountAudit: false });
+  assert.equal(harness.document.body.querySelector('[data-account-audit-toggle]'), null, 'the capability still controls visibility');
+});
 
 test('identity-capable profile drawer submits the edited member identity through its target-specific PUT route', async () => {
   const harness = createHarness();

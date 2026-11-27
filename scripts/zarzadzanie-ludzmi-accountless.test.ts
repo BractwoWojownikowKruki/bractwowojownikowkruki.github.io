@@ -85,16 +85,19 @@ test('Osoby bez konta writes go through the persons routes and the admin-only me
 });
 
 test('editing an accountless person keeps and labels its retired category in the form', async () => {
+  assert.doesNotMatch(script, /category\.value = person\.categoryId/, 'rendering the selected option already updates a native select value');
   const harness = createZarzadzanieHarness({
     apiFetch: async (url) => {
       if (url === '/lista-wyjazdowa/persons') return { persons: [] };
-      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [{ id: 'retired', label: 'Gość', retired: true }], weapons: [] };
+      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [{ id: 'first', label: 'Pierwsza' }, { id: 'retired', label: 'Gość', retired: true }], weapons: [] };
       if (url === '/admin/person-owners') return { owners: [] };
       return {};
     },
   });
   await harness.signIn({ email: 'ksiegowy@kruki.pl', isAccountant: true, isAdmin: false, isHovding: false });
-  (harness.context.openAccountlessForm as (person: Record<string, unknown>) => void)({ personId: 'p1', categoryId: 'retired' });
+  (harness.context.openAccountlessForm as (person: Record<string, unknown> | null) => void)(null);
+  assert.equal(harness.getEl('accountless-category').value, 'first', 'a native select defaults to its first rendered option');
+  (harness.context.openAccountlessForm as (person: Record<string, unknown> | null) => void)({ personId: 'p1', categoryId: 'retired' });
   assert.equal(harness.getEl('accountless-category').value, 'retired');
   assert.match(harness.getEl('accountless-category').innerHTML, /Gość \(wycofany status\)/);
 });
@@ -113,13 +116,23 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
 
   function makeElement(id: string) {
     const listeners = new Map<string, Array<(e: any) => unknown>>();
+    let value = '';
+    let innerHTML = '';
     const el: any = {
       id,
       hidden: false,
       disabled: false,
       checked: false,
-      value: '',
-      innerHTML: '',
+      get value() { return value; },
+      set value(next: string) { value = next; },
+      get innerHTML() { return innerHTML; },
+      set innerHTML(next: string) {
+        innerHTML = next;
+        if (id === 'accountless-category' || id === 'accountless-section-select') {
+          const options = [...next.matchAll(/<option\b[^>]*value="([^"]*)"([^>]*)>/g)];
+          value = options.find((option) => /\bselected\b/.test(option[2]))?.[1] ?? options[0]?.[1] ?? '';
+        }
+      },
       textContent: '',
       focusCount: 0,
       dataset: {} as Record<string, string>,
