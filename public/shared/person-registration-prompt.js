@@ -71,11 +71,15 @@
     try {
       document.body.append(dialog);
       dialog.showModal();
+      afterOpen?.();
     } catch (error) {
+      finished = true;
+      if (dialog.open) {
+        try { dialog.close(); } catch (_) { /* Removing the dialog still clears the appended node. */ }
+      }
       dialog.remove();
       throw error;
     }
-    afterOpen?.();
     return finish;
   }
 
@@ -206,6 +210,7 @@
     let focusAfterApplyResolved = false;
     const originalFocusAfterApply = feedbackOptions.focusAfterApply;
     const deferFocusUntilSuccessCloses = typeof successDetails === 'function';
+    let skippedByCaller = false;
     try {
       const result = await window.MutationFeedback.confirmed({
         ...feedbackOptions,
@@ -241,9 +246,13 @@
             releaseBusy();
           }
         },
-        skipApplyWhen: (result) => wasCancelled(result) || skipApplyWhen?.(result),
+        skipApplyWhen: (result) => {
+          if (wasCancelled(result)) return true;
+          skippedByCaller = Boolean(skipApplyWhen?.(result));
+          return skippedByCaller;
+        },
       });
-      if (!wasCancelled(result) && successDetails) {
+      if (!wasCancelled(result) && !skippedByCaller && deferFocusUntilSuccessCloses) {
         let successFocus = focusAfterApplyTarget;
         if (!focusAfterApplyResolved) {
           try {

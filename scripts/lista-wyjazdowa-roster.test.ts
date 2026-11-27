@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
-import { createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
+import { createMutationFeedbackMock, createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const source = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/index.html', import.meta.url), 'utf8');
@@ -141,21 +141,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
           ? `<span class="lw-time-pill"><span class="sr-only">Godzina rozpoczęcia: </span>${value.startTime}</span>`
           : '',
       },
-      MutationFeedback: {
-        confirmed: async ({ execute, apply, rollback, skipApplyWhen, focusAfterApply }: { execute: () => Promise<unknown>; apply: (result: unknown) => unknown; rollback?: (error: unknown) => unknown; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => { focus(): void } | null }) => {
-          let result: unknown;
-          try {
-            result = await execute();
-          } catch (error) {
-            if (rollback) await rollback(error);
-            throw error;
-          }
-          if (skipApplyWhen?.(result)) return result;
-          await apply(result);
-          (await focusAfterApply?.(result))?.focus();
-          return result;
-        },
-      },
+      MutationFeedback: createMutationFeedbackMock(),
     },
     document: {
       getElementById: (id: string) => elements.get(id) ?? null,

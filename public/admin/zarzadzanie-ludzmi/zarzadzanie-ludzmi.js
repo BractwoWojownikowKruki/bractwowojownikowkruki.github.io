@@ -1147,14 +1147,17 @@ async function submitAccountlessForm() {
   if (editing) saveButton.disabled = true;
   try {
     const focusAfterApply = () => document.getElementById('accountless-add-toggle');
-    const result = editing
-      ? await runAccountlessMutation(saveButton, () => apiFetch(
+    if (editing) {
+      await runAccountlessMutation(saveButton, () => apiFetch(
         '/lista-wyjazdowa/persons',
         { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personId: editing, ...fields }) },
         showReauth,
         hideReauth,
-      ))
-      : await runAccountlessMutation(
+      ));
+      document.getElementById('accountless-form-panel').hidden = true;
+      resetAccountlessForm();
+    } else {
+      await runAccountlessMutation(
         saveButton,
         (duplicateConfirmed) => apiFetch(
           '/lista-wyjazdowa/persons',
@@ -1181,10 +1184,6 @@ async function submitAccountlessForm() {
           },
         },
       );
-    if (!editing && window.PersonRegistrationPrompt.wasCancelled(result)) return;
-    if (editing) {
-      document.getElementById('accountless-form-panel').hidden = true;
-      resetAccountlessForm();
     }
   } catch (err) {
     errorEl.textContent = `Nie udało się zapisać osoby: ${err.message}`;

@@ -59,10 +59,19 @@ class FakeElement {
       const section = this.addChild('.profile-identity-section', new FakeElement('.profile-identity-section'));
       const form = section.addChild('.profile-identity-form', new FakeElement('.profile-identity-form'));
       const inputValue = (name: string) => value.match(new RegExp(`name="${name}" value="([^"]*)"`))?.[1] ?? '';
-      const selectedValue = (name: string) => value.match(new RegExp(`name="${name}"[\\s\\S]*?<option value="([^"]*)" selected`))?.[1] ?? '';
+      const selectControl = (name: string) => {
+        const optionsHtml = value.match(new RegExp(`<select name="${name}"[^>]*>([\\s\\S]*?)</select>`))?.[1] ?? '';
+        const options = [...optionsHtml.matchAll(/<option value="([^"]*)"([^>]*)>/g)];
+        let selected = options.find((option) => /\bselected\b/.test(option[2]))?.[1] ?? options[0]?.[1] ?? '';
+        return Object.defineProperty({}, 'value', {
+          get: () => selected,
+          set: (next: string) => { selected = options.some((option) => option[1] === String(next)) ? String(next) : ''; },
+          enumerable: true,
+        });
+      };
       form.elements = {
         firstName: { value: inputValue('firstName') }, lastName: { value: inputValue('lastName') }, nickname: { value: inputValue('nickname') },
-        sectionId: { value: selectedValue('sectionId') }, categoryId: { value: selectedValue('categoryId') },
+        sectionId: selectControl('sectionId'), categoryId: selectControl('categoryId'),
       };
       form.addChild('.profile-identity-save', new FakeElement('.profile-identity-save'));
       if (value.includes('profile-identity-error')) form.addChild('.profile-identity-error', new FakeElement('.profile-identity-error'));
@@ -223,6 +232,36 @@ test('equipment drawer uses the accountless flag when a person ID contains an at
   assert.equal(query.has('email'), false);
 });
 
+test('equipment drawer routes an unresolved non-email person ID as person history', async () => {
+  const harness = createHarness({ apiFetch: async (url) => url.startsWith('/admin/members/account-audit?') ? { rows: [] } : {} });
+  harness.window.ProfilePanel.openEquipment({ description: 'Plecak', photos: [], auditPersonId: 'person-123', auditIsAccountless: false, canViewAccountAudit: true });
+  const toggle = harness.document.body.querySelector('[data-account-audit-toggle]') as FakeElement;
+  assert.ok(toggle);
+  await harness.document.dispatch('click', toggle);
+  await new Promise((resolve) => setImmediate(resolve));
+  const request = harness.apiCalls.find((call) => call.url.startsWith('/admin/members/account-audit?'));
+  const query = new URL(request?.url ?? '/', 'https://example.test').searchParams;
+  assert.equal(query.get('personId'), 'person-123');
+  assert.equal(query.has('email'), false);
+});
+
+test('team-owned equipment hides account history even when the viewer has the capability', () => {
+  const harness = createHarness();
+  harness.window.ProfilePanel.openEquipment({ description: 'Namiot', photos: [], auditPersonId: null, canViewAccountAudit: true });
+  assert.equal(harness.document.body.querySelector('[data-account-audit-toggle]'), null);
+});
+
+test('equipment drawer routes an unrecognized non-email owner ID as a person ID', async () => {
+  const harness = createHarness({ apiFetch: async (url) => url.startsWith('/admin/members/account-audit?') ? { rows: [] } : {} });
+  harness.window.ProfilePanel.openEquipment({ description: 'Namiot', photos: [], auditPersonId: 'legacy-person-id', auditIsAccountless: false, canViewAccountAudit: true });
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-account-audit-toggle]') as FakeElement);
+  await new Promise((resolve) => setImmediate(resolve));
+  const request = harness.apiCalls.find((call) => call.url.startsWith('/admin/members/account-audit?'));
+  const query = new URL(request?.url ?? '/', 'https://example.test').searchParams;
+  assert.equal(query.get('personId'), 'legacy-person-id');
+  assert.equal(query.has('email'), false);
+});
+
 test('identity-capable profile drawer submits the edited member identity through its target-specific PUT route', async () => {
   const harness = createHarness();
   await harness.window.ProfilePanel.open('jan@example.test');
@@ -245,6 +284,15 @@ test('identity-capable profile drawer submits the edited member identity through
     email: 'jan@example.test', firstName: 'Janusz', lastName: 'Kowalski', nickname: 'Janko', sectionId: 'kruki', categoryId: 'wojownik',
   });
   assert.equal(harness.apiCalls.filter((call) => call.url.startsWith('/member-profile?')).length, 2, 'a successful PUT refreshes the open drawer');
+});
+
+test('profile editor select fake rejects values that are not present in its rendered options', async () => {
+  const harness = createHarness();
+  await harness.window.ProfilePanel.open('jan@example.test');
+  await harness.document.dispatch('click', harness.document.body.querySelector('[data-profile-edit="editor"]')!);
+  const identity = harness.document.body.querySelector('.profile-identity-form')!;
+  identity.elements.categoryId.value = 'missing-category';
+  assert.equal(identity.elements.categoryId.value, '', 'a native single-select cannot retain an unavailable option value');
 });
 
 test('account audit drawer can collapse and reopen after a one-page history load', async () => {

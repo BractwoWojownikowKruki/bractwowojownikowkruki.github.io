@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
+import { createMutationFeedbackMock, createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const page = readFileSync(new URL('../public/admin/zarzadzanie-ludzmi/index.html', import.meta.url), 'utf8');
 const script = readFileSync(new URL('../public/admin/zarzadzanie-ludzmi/zarzadzanie-ludzmi.js', import.meta.url), 'utf8');
@@ -117,15 +117,14 @@ test('opening accountless forms for Niewiasta or Bobo hides and clears weapon se
     },
   });
   await harness.signIn({ email: 'ksiegowy@kruki.pl', isAccountant: true, isAdmin: false, isHovding: false });
-  const weapon = { checked: true };
-  harness.getEl('accountless-weapons').querySelectorAll = () => [weapon];
   const open = harness.context.openAccountlessForm as (person: Record<string, unknown> | null) => void;
   for (const categoryId of ['niewiasta', 'bobo']) {
-    weapon.checked = true;
     open({ personId: 'p1', categoryId, weaponIds: ['sword'] });
     assert.equal(harness.getEl('accountless-category').value, categoryId);
     assert.equal(harness.getEl('accountless-weapon-field').hidden, true);
-    assert.equal(weapon.checked, false);
+    const checkboxes = harness.getEl('accountless-weapons').querySelectorAll('.accountless-weapon-checkbox');
+    assert.equal(checkboxes.length, 1);
+    assert.equal(checkboxes[0].checked, false);
   }
 });
 
@@ -145,6 +144,7 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
     const listeners = new Map<string, Array<(e: any) => unknown>>();
     let value = '';
     let innerHTML = '';
+    let weaponCheckboxes: Array<{ value: string; checked: boolean }> = [];
     const el: any = {
       id,
       hidden: false,
@@ -162,6 +162,10 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
       get innerHTML() { return innerHTML; },
       set innerHTML(next: string) {
         innerHTML = next;
+        if (id === 'accountless-weapons') {
+          weaponCheckboxes = [...next.matchAll(/<input\b[^>]*class="accountless-weapon-checkbox"[^>]*value="([^"]*)"([^>]*)>/g)]
+            .map((match) => ({ value: match[1], checked: /\bchecked\b/.test(match[2]) }));
+        }
         if (id === 'accountless-category' || id === 'accountless-section-select') {
           const options = [...next.matchAll(/<option\b[^>]*value="([^"]*)"([^>]*)>/g)];
           value = options.find((option) => /\bselected\b/.test(option[2]))?.[1] ?? options[0]?.[1] ?? '';
@@ -173,7 +177,7 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
       classList: { add: () => {}, remove: () => {}, toggle: () => {} },
       closest: () => makeElement(`${id}__closest`),
       querySelector: () => null,
-      querySelectorAll: () => [],
+      querySelectorAll: (selector: string) => id === 'accountless-weapons' && selector === '.accountless-weapon-checkbox' ? weaponCheckboxes : [],
       addEventListener: (type: string, fn: (e: any) => unknown) => {
         listeners.set(type, [...(listeners.get(type) ?? []), fn]);
       },
@@ -198,13 +202,7 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
     alert: () => {},
     location: { search: '' },
     addEventListener: () => {},
-    MutationFeedback: { confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply }: { execute: () => Promise<any>; apply?: (result: any) => Promise<unknown>; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => unknown }) => {
-      const result = await execute();
-      if (skipApplyWhen?.(result)) return result;
-      await apply?.(result);
-      (await focusAfterApply?.(result))?.focus?.();
-      return result;
-    } },
+    MutationFeedback: createMutationFeedbackMock(),
   };
   windowObj.PersonRegistrationPrompt = createPersonRegistrationPromptMock(windowObj.MutationFeedback, {
     shouldCancelDuplicate: () => duplicatePromptMode === 'cancel',

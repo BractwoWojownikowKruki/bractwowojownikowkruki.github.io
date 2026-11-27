@@ -643,6 +643,9 @@ test('a member owner pill carries data-folder-id so the profile drawer can show 
   try {
     await harness.signIn();
     assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /data-email="ala@example.com" data-folder-id="folder-ala"/);
+    const view = (harness.context.equipmentPanelView as (item: Record<string, unknown>) => Record<string, unknown>)(privateItem);
+    assert.equal(view.auditPersonId, 'ala@example.com');
+    assert.equal(view.auditIsAccountless, false);
   } finally {
     privateItem.belongsToPersonId = 'person-uuid-1';
   }

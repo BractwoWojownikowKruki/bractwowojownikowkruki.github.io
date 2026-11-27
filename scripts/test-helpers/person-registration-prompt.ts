@@ -1,6 +1,36 @@
 type MutationFeedbackMock = {
   confirmed(options: Record<string, any>): Promise<unknown>;
+  showBusy?(message: string): (() => void) | void;
 };
+
+type MutationFeedbackMockOptions = {
+  showBusy?: (message: string) => (() => void) | void;
+};
+
+/**
+ * Shared MutationFeedback test double for page VM harnesses.
+ * Runs execute, optional rollback, apply, skip, and focus hooks in the same order as confirmed().
+ */
+export function createMutationFeedbackMock({ showBusy }: MutationFeedbackMockOptions = {}) {
+  return {
+    showBusy: showBusy ?? (() => () => {}),
+    showCheck: () => {},
+    showToast: () => {},
+    confirmed: async (options: Record<string, any>) => {
+      let result: unknown;
+      try {
+        result = await options.execute();
+      } catch (error) {
+        if (options.rollback) await options.rollback(error);
+        throw error;
+      }
+      if (options.skipApplyWhen?.(result)) return result;
+      await options.apply?.(result);
+      (await options.focusAfterApply?.(result))?.focus?.();
+      return result;
+    },
+  };
+}
 
 type PromptOptions = {
   shouldCancelDuplicate?: (error: unknown) => boolean;
@@ -16,6 +46,7 @@ export function createPersonRegistrationPromptMock(
   const inFlightControls = new WeakSet<object>();
 
   const wasCancelled = (result: unknown) => result === cancelled || result === alreadyInFlight;
+  const busyMessage = 'Rejestruję osobę w apce…';
   const run = async (execute: (duplicateConfirmed: boolean) => Promise<unknown>, options: { fallbackFocus?: () => { focus(): void } | null } = {}) => {
     try {
       return await execute(false);
@@ -40,21 +71,32 @@ export function createPersonRegistrationPromptMock(
         inFlightControls.add(control);
         control.disabled = true;
       }
+      let hideBusy: (() => void) | null = null;
+      const releaseBusy = () => {
+        hideBusy?.();
+        hideBusy = null;
+      };
+      const unlockControl = () => {
+        if (control) control.disabled = wasDisabled;
+      };
+      const executeAttempt = async (duplicateConfirmed: boolean) => {
+        if (control) control.disabled = true;
+        hideBusy ??= mutationFeedback.showBusy?.(busyMessage) ?? null;
+        try {
+          return await options.execute(duplicateConfirmed);
+        } catch (error) {
+          releaseBusy();
+          unlockControl();
+          throw error;
+        }
+      };
       try {
         let focusAfterApplyTarget: any;
         let focusAfterApplyResolved = false;
         const { successDetails, focusAfterApply, ...feedbackOptions } = options;
         const result = await mutationFeedback.confirmed({
           ...feedbackOptions,
-          execute: () => run(async (duplicateConfirmed) => {
-            if (control) control.disabled = true;
-            try {
-              return await options.execute(duplicateConfirmed);
-            } catch (error) {
-              if (control) control.disabled = wasDisabled;
-              throw error;
-            }
-          }, { fallbackFocus: options.fallbackFocus }),
+          execute: () => run(executeAttempt, { fallbackFocus: options.fallbackFocus }),
           skipApplyWhen: (result: unknown) => wasCancelled(result) || options.skipApplyWhen?.(result),
           focusAfterApply: successDetails ? async (value: unknown) => {
             try {
@@ -66,7 +108,18 @@ export function createPersonRegistrationPromptMock(
             }
             return null;
           } : focusAfterApply,
+          apply: async (value: unknown) => {
+            try {
+              await options.apply?.(value);
+            } finally {
+              releaseBusy();
+            }
+          },
         });
+        if (wasCancelled(result)) {
+          releaseBusy();
+          unlockControl();
+        }
         if (!wasCancelled(result) && successDetails) {
           await successDetails(result);
           let preferredTarget = focusAfterApplyTarget;
@@ -80,10 +133,9 @@ export function createPersonRegistrationPromptMock(
         }
         return result;
       } finally {
-        if (control) {
-          control.disabled = wasDisabled;
-          inFlightControls.delete(control);
-        }
+        releaseBusy();
+        unlockControl();
+        if (control) inFlightControls.delete(control);
       }
     },
   };

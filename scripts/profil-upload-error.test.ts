@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
+import { createMutationFeedbackMock, createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const profilSource = readFileSync(new URL('../public/profil/profil.js', import.meta.url), 'utf8');
 
@@ -21,16 +21,7 @@ function loadProfil(apiFetch: () => Promise<unknown> = async () => { throw new E
       querySelector: () => null,
     },
     window: {
-      MutationFeedback: {
-        showBusy: () => () => {},
-        confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply }: { execute: () => Promise<unknown>; apply?: (result: unknown) => Promise<unknown>; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => unknown }) => {
-          const result = await execute();
-          if (skipApplyWhen?.(result)) return result;
-          await apply?.(result);
-          (await focusAfterApply?.(result))?.focus?.();
-          return result;
-        },
-      },
+      MutationFeedback: createMutationFeedbackMock(),
     },
     CSS: { escape: (value: string) => value },
     apiFetch,

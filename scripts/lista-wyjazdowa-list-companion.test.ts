@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
-import { createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
+import { createMutationFeedbackMock, createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const source = readFileSync(new URL('../public/lista-wyjazdowa/lista-wyjazdowa.js', import.meta.url), 'utf8');
 const displayNameSource = readFileSync(new URL('../public/shared/display-name.js', import.meta.url), 'utf8');
@@ -127,26 +127,13 @@ function createHarness(options: HarnessOptions = {}) {
     encodeURIComponent,
     window: {
       location: { search: '' },
-      MutationFeedback: {
+      MutationFeedback: createMutationFeedbackMock({
         showBusy: (message: string) => {
           busy.shown.push(message);
           busy.active += 1;
           return () => { busy.active -= 1; };
         },
-        confirmed: async ({ execute, apply, rollback, skipApplyWhen, focusAfterApply }: { execute: () => Promise<unknown>; apply: (result: unknown) => unknown; rollback?: (error: unknown) => unknown; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => Element | null }) => {
-          let result: unknown;
-          try {
-            result = await execute();
-          } catch (error) {
-            if (rollback) await rollback(error);
-            throw error;
-          }
-          if (skipApplyWhen?.(result)) return result;
-          await apply(result);
-          (await focusAfterApply?.(result))?.focus();
-          return result;
-        },
-      },
+      }),
     },
     document: {
       addEventListener: () => {},
@@ -446,6 +433,8 @@ test('a matching quick-add asks the shared prompt and retries with duplicateConf
   assert.equal(posts.length, 2);
   assert.equal(JSON.parse(String(posts[0].options.body)).duplicateConfirmed, undefined);
   assert.equal(JSON.parse(String(posts[1].options.body)).duplicateConfirmed, true);
+  assert.deepEqual(harness.busy.shown, ['Rejestruję osobę w apce…', 'Rejestruję osobę w apce…']);
+  assert.equal(harness.busy.active, 0, 'each duplicate attempt releases its busy overlay before the prompt/retry completes');
   const eventList = harness.elements.get('events-list')!;
   assert.match(eventList.lastQuerySelector, /\.lw-attend-toggle\[data-event-id="e1"\]/);
   assert.equal(eventList.lastQueryTarget?.focused, true);
@@ -470,6 +459,8 @@ test('cancelling a duplicate quick-add on the events list keeps the panel open a
   assert.equal(list.innerHTML, formBefore);
   assert.equal(harness.elements.get('events-error')!.hidden, true);
   assert.equal(harness.elements.get('lw-inline-new-name')!.focused, true);
+  assert.deepEqual(harness.busy.shown, ['Rejestruję osobę w apce…']);
+  assert.equal(harness.busy.active, 0, 'cancelling the duplicate prompt releases the busy overlay');
 });
 
 test('a failed quick-add keeps the panel open and reports the error', async () => {

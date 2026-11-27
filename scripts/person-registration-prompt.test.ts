@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
-import { createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const source = readFileSync(new URL('../public/shared/person-registration-prompt.js', import.meta.url), 'utf8');
 const registrationRoutes = [
@@ -21,6 +20,7 @@ class FakeElement {
   busyAtOpen = 0;
   isConnected = true;
   focusCount = 0;
+  focusThrows = false;
   disabled = false;
   hidden = false;
   open = false;
@@ -32,7 +32,10 @@ class FakeElement {
     return element;
   }
   selector = '';
-  focus() { this.focusCount += 1; }
+  focus() {
+    if (this.focusThrows) throw new Error('focus unavailable');
+    this.focusCount += 1;
+  }
   showModal() {
     if (this.nextAction === 'show-modal-error') throw new Error('showModal unavailable');
     this.open = true;
@@ -54,10 +57,10 @@ class FakeElement {
     for (const listener of this.listeners.close ?? []) listener();
   }
   remove() { this.removed = true; }
-  nextAction: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'wait' | 'show-modal-error' = 'confirm';
+  nextAction: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'wait' | 'show-modal-error' | 'focus-error' = 'confirm';
 }
 
-function load(action: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'wait' | 'show-modal-error' | Array<'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'wait' | 'show-modal-error'>) {
+function load(action: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'wait' | 'show-modal-error' | 'focus-error' | Array<'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'wait' | 'show-modal-error' | 'focus-error'>) {
   const dialogs: FakeElement[] = [];
   const trigger = new FakeElement();
   const actions = Array.isArray(action) ? action : [action];
@@ -67,6 +70,7 @@ function load(action: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'wait
     window: {},
     document: { activeElement: trigger, body: { append: (dialog: FakeElement) => dialogs.push(dialog) }, createElement: () => { const dialog = new FakeElement(); dialog.nextAction = actions[dialogIndex++] ?? actions.at(-1)!; dialog.busyAtOpen = busyCount; dialog.querySelector = (selector: string) => {
       const button = new FakeElement();
+      if (dialog.nextAction === 'focus-error' && selector === '.person-registration-success-dialog__done') button.focusThrows = true;
       button.addEventListener = (type, listener) => { if (type === 'click') (dialog.childListeners[selector] ??= []).push(listener); };
       return button;
     }; return dialog; } },
@@ -158,29 +162,20 @@ test('a second submission using the same control is ignored until registration f
   assert.equal(control.disabled, false);
 });
 
-test('success focus falls back when the refreshed preferred target is disabled', async () => {
-  let focusCalls = 0;
-  const preferred = { isConnected: true, disabled: true, focus: () => { focusCalls += 1; } };
-  const fallback = { isConnected: true, disabled: false, focus: () => { focusCalls += 10; } };
-  const mutationFeedback = {
-    confirmed: async (options: any) => {
-      const result = await options.execute();
-      if (!options.skipApplyWhen?.(result)) {
-        await options.apply?.(result);
-        await options.focusAfterApply?.(result);
-      }
-      return result;
-    },
-  };
-  const prompt = createPersonRegistrationPromptMock(mutationFeedback as any);
+test('success dialog skips a disabled refreshed target and restores focus to the enabled fallback', async () => {
+  const { prompt } = load('done');
+  const disabledTarget = new FakeElement();
+  disabledTarget.disabled = true;
+  const fallback = new FakeElement();
   await prompt.confirmed({
-    execute: async () => ({ person: { personId: 'created' } }),
+    execute: async () => ({ person: { firstName: 'Ewa', lastName: 'Kruk' } }),
     apply: async () => {},
-    successDetails: () => ({ person: { personId: 'created' } }),
-    focusAfterApply: () => preferred,
+    successDetails: (result: any) => ({ person: result.person }),
+    focusAfterApply: () => disabledTarget,
     fallbackFocus: () => fallback,
   });
-  assert.equal(focusCalls, 10, 'an unusable refreshed target yields focus to the enabled fallback');
+  assert.equal(disabledTarget.focusCount, 0);
+  assert.equal(fallback.focusCount, 1, 'an unusable refreshed target yields focus to the enabled fallback');
 });
 
 test('a failed registration releases busy state, re-enables the control and restores focus', async () => {
@@ -345,6 +340,35 @@ test('failed success dialog setup removes the orphan and restores focus through 
   assert.equal(focusTarget.focusCount, 1);
 });
 
+test('a success dialog focus failure closes and removes the modal before the toast fallback', async () => {
+  const { prompt, dialogs, getToastCount } = load('focus-error');
+  const target = new FakeElement();
+  await prompt.confirmed({
+    focusAfterApply: () => target,
+    execute: async () => ({ person: { firstName: 'Ewa', lastName: 'Kruk' } }),
+    apply: async () => {},
+    successDetails: (result: any) => ({ person: result.person }),
+  });
+  assert.equal(dialogs.length, 1);
+  assert.equal(dialogs[0].open, false, 'the failed modal must not remain in the top layer');
+  assert.equal(dialogs[0].removed, true);
+  assert.equal(getToastCount(), 1);
+  assert.equal(target.focusCount, 1);
+});
+
+test('a custom skipApplyWhen does not show the registration success dialog', async () => {
+  const { prompt, dialogs } = load('done');
+  let successDetailsCalls = 0;
+  await prompt.confirmed({
+    execute: async () => ({ person: { firstName: 'Ewa', lastName: 'Kruk' } }),
+    apply: async () => {},
+    skipApplyWhen: () => true,
+    successDetails: (result: any) => { successDetailsCalls += 1; return { person: result.person }; },
+  });
+  assert.equal(successDetailsCalls, 0);
+  assert.equal(dialogs.length, 0);
+});
+
 test('a match opens an informational prompt and retries only after explicit confirmation', async () => {
   const { prompt, dialogs, trigger } = load('confirm');
   const calls: boolean[] = [];
@@ -441,7 +465,7 @@ test('every person registration page loads the shared prompt and invokes it from
     assert.match(pageScript, /PersonRegistrationPrompt\.confirmed\(/, `${scriptPath} must invoke the shared registration lifecycle`);
     assert.match(pageScript, /successDetails:/, `${scriptPath} must provide details for a newly registered person`);
     assert.match(pageScript, /duplicateConfirmed: true/, `${scriptPath} must confirm the retry to the server`);
-    assert.match(source, /skipApplyWhen: \(result\) => wasCancelled\(result\)/, 'the shared lifecycle must leave the view unchanged when the prompt is cancelled');
+    assert.match(source, /skipApplyWhen: \(result\) => \{[\s\S]*?if \(wasCancelled\(result\)\) return true;[\s\S]*?skippedByCaller = Boolean\(skipApplyWhen\?\.\(result\)\)/, 'the shared lifecycle must leave the view unchanged when the prompt is cancelled or the caller skips applying');
     assert.match(pageScript, scriptPath.includes('/zarzadzanie-ludzmi/') ? /focusAfterApply,/ : /focusAfterApply:/, `${scriptPath} must restore focus after the new view is rendered`);
     assert.ok(pageScript.includes(focusMarker), `${scriptPath} must target its correct post-registration control`);
     if (scriptPath.includes('/profil/') || scriptPath.includes('/zarzadzanie-ludzmi/')) {

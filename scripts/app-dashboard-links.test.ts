@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
-import { createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
+import { createMutationFeedbackMock, createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const appSource = readFileSync(new URL('../public/app/app.js', import.meta.url), 'utf8');
 const companionAddSource = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
@@ -45,16 +45,7 @@ test('dashboard companion registration confirms duplicates and refreshes the sig
   const context = loadApp() as any;
   const requests: Array<Record<string, unknown>> = [];
   let applied = 0;
-  context.window.MutationFeedback = {
-    confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply }: any) => {
-      const result = await execute();
-      if (!skipApplyWhen(result)) {
-        await apply(result);
-        (await focusAfterApply?.(result))?.focus?.();
-      }
-      return result;
-    },
-  };
+  context.window.MutationFeedback = createMutationFeedbackMock();
   context.window.PersonRegistrationPrompt = createPersonRegistrationPromptMock(context.window.MutationFeedback);
   context.apiFetch = async (_url: string, init: Record<string, unknown>) => {
     if (_url === '/lista-wyjazdowa/events') {
@@ -81,16 +72,7 @@ test('dashboard companion duplicate cancellation keeps the panel and focuses its
   const requests: Array<Record<string, unknown>> = [];
   const control = { disabled: false };
   let applied = 0;
-  context.window.MutationFeedback = {
-    confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply }: any) => {
-      const result = await execute();
-      if (!skipApplyWhen(result)) {
-        await apply(result);
-        (await focusAfterApply?.(result))?.focus?.();
-      }
-      return result;
-    },
-  };
+  context.window.MutationFeedback = createMutationFeedbackMock();
   context.window.PersonRegistrationPrompt = createPersonRegistrationPromptMock(context.window.MutationFeedback, { shouldCancelDuplicate: () => true });
   context.apiFetch = async (_url: string, init: Record<string, unknown>) => {
     requests.push(init);
@@ -115,14 +97,11 @@ test('dashboard adding an existing person uses mutation feedback and locks its c
   const control = { disabled: false };
   let promptCalls = 0;
   const feedbackOptions: any[] = [];
-  context.window.MutationFeedback = {
-    confirmed: async (options: any) => {
+  context.window.MutationFeedback = createMutationFeedbackMock();
+  const confirmed = context.window.MutationFeedback.confirmed;
+  context.window.MutationFeedback.confirmed = async (options: any) => {
       feedbackOptions.push(options);
-      const result = await options.execute();
-      await options.apply?.(result);
-      await options.focusAfterApply?.(result);
-      return result;
-    },
+      return confirmed(options);
   };
   context.window.PersonRegistrationPrompt = {
     confirmed: async () => { promptCalls += 1; },
