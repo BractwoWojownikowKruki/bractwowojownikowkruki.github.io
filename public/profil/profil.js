@@ -949,32 +949,31 @@ async function loadPersons() {
 // Every person write goes through the shared confirmed-mutation helper: the list is only re-read
 // after the server confirms the write, and a failure leaves the form untouched and reports it.
 async function runPersonMutation(control, execute, registrationOptions = null) {
+  const panel = document.getElementById('persons-panel');
+  const feedbackOptions = {
+    control,
+    fallbackAnchor: 'toast',
+    viewRoot: panel,
+    refreshFragment: loadPersons,
+    apply: () => loadPersons(),
+    focusAfterApply: (result) => {
+      const personId = result?.person?.personId;
+      return (personId ? document.querySelector(`.person-row[data-person-id="${CSS.escape(String(personId))}"] .person-first-name`) : null)
+        ?? document.getElementById('add-person-row');
+    },
+  };
+  if (registrationOptions) {
+    return window.PersonRegistrationPrompt.confirmed({
+      ...feedbackOptions,
+      execute,
+      fallbackFocus: registrationOptions.fallbackFocus,
+      successDetails: registrationOptions.successDetails,
+    });
+  }
   if (control?.disabled) return;
   if (control) control.disabled = true;
-  const panel = document.getElementById('persons-panel');
   try {
-    const feedbackOptions = {
-      control,
-      fallbackAnchor: 'toast',
-      viewRoot: panel,
-      refreshFragment: loadPersons,
-      apply: () => loadPersons(),
-      focusAfterApply: (result) => {
-        const personId = result?.person?.personId;
-        return (personId ? document.querySelector(`.person-row[data-person-id="${CSS.escape(String(personId))}"] .person-first-name`) : null)
-          ?? document.getElementById('add-person-row');
-      },
-    };
-    if (registrationOptions) {
-      await window.PersonRegistrationPrompt.confirmed({
-        ...feedbackOptions,
-        execute,
-        fallbackFocus: registrationOptions.fallbackFocus,
-        successDetails: registrationOptions.successDetails,
-      });
-    } else {
-      await window.MutationFeedback.confirmed({ ...feedbackOptions, execute });
-    }
+    await window.MutationFeedback.confirmed({ ...feedbackOptions, execute });
   } finally {
     if (control) control.disabled = false;
   }

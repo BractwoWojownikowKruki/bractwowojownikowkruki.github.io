@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
+import { createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const appSource = readFileSync(new URL('../public/app/app.js', import.meta.url), 'utf8');
 const companionAddSource = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
@@ -45,25 +46,16 @@ test('dashboard companion registration confirms duplicates and refreshes the sig
   const requests: Array<Record<string, unknown>> = [];
   let applied = 0;
   context.window.MutationFeedback = {
-    confirmed: async ({ execute, apply, skipApplyWhen }: any) => {
+    confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply }: any) => {
       const result = await execute();
-      if (!skipApplyWhen(result)) await apply(result);
-    },
-  };
-  context.window.PersonRegistrationPrompt = {
-    run: async (execute: (confirmed: boolean) => Promise<unknown>) => {
-      try { return await execute(false); } catch (error: any) {
-        if (!Array.isArray(error?.duplicateMatches)) throw error;
-        return execute(true);
+      if (!skipApplyWhen(result)) {
+        await apply(result);
+        (await focusAfterApply?.(result))?.focus?.();
       }
+      return result;
     },
-    wasCancelled: () => false,
-    confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
-      ...options,
-      execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
-      skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result),
-    }),
   };
+  context.window.PersonRegistrationPrompt = createPersonRegistrationPromptMock(context.window.MutationFeedback);
   context.apiFetch = async (_url: string, init: Record<string, unknown>) => {
     if (_url === '/lista-wyjazdowa/events') {
       return { events: [{ id: 'trip-1', attendingCount: 3, viewerCompanions: [{ firstName: 'Anna', nickname: 'Wilk' }] }] };
@@ -89,28 +81,17 @@ test('dashboard companion duplicate cancellation keeps the panel and focuses its
   const requests: Array<Record<string, unknown>> = [];
   const control = { disabled: false };
   let applied = 0;
-  const cancelled = Object.freeze({ cancelled: true });
   context.window.MutationFeedback = {
-    confirmed: async ({ execute, apply, skipApplyWhen }: any) => {
+    confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply }: any) => {
       const result = await execute();
-      if (!skipApplyWhen(result)) apply(result);
-    },
-  };
-  context.window.PersonRegistrationPrompt = {
-    run: async (execute: (confirmed: boolean) => Promise<unknown>, options: { fallbackFocus?: () => any } = {}) => {
-      try { return await execute(false); } catch (error: any) {
-        if (!Array.isArray(error?.duplicateMatches)) throw error;
-        options.fallbackFocus?.()?.focus();
-        return cancelled;
+      if (!skipApplyWhen(result)) {
+        await apply(result);
+        (await focusAfterApply?.(result))?.focus?.();
       }
+      return result;
     },
-    wasCancelled: (result: unknown) => result === cancelled,
-    confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
-      ...options,
-      execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
-      skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result),
-    }),
   };
+  context.window.PersonRegistrationPrompt = createPersonRegistrationPromptMock(context.window.MutationFeedback, { shouldCancelDuplicate: () => true });
   context.apiFetch = async (_url: string, init: Record<string, unknown>) => {
     requests.push(init);
     throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ nickname: 'Wilk' }] });

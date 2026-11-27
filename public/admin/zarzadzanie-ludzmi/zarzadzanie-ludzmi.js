@@ -1119,7 +1119,6 @@ async function runAccountlessMutation(
   return window.MutationFeedback.confirmed({
     ...feedbackOptions,
     execute,
-    skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
   });
 }
 
@@ -1145,8 +1144,8 @@ async function submitAccountlessForm() {
     errorEl.hidden = false;
     return;
   }
-  saveButton.disabled = true;
   const editing = editingAccountlessPersonId;
+  if (editing) saveButton.disabled = true;
   try {
     const focusAfterApply = () => document.getElementById('accountless-add-toggle');
     const result = editing
@@ -1192,7 +1191,7 @@ async function submitAccountlessForm() {
     errorEl.textContent = `Nie udało się zapisać osoby: ${err.message}`;
     errorEl.hidden = false;
   } finally {
-    saveButton.disabled = false;
+    if (editing) saveButton.disabled = false;
   }
 }
 

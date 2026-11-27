@@ -1122,11 +1122,9 @@ async function quickAddCompanion(body, control) {
   window.CompanionAdd.clearError();
   clearError();
   try {
-    await window.PersonRegistrationPrompt.confirmed({
+    const mutationOptions = {
       control,
       fallbackAnchor: 'toast',
-      busyMessage: body.mode === 'new' ? undefined : null,
-      fallbackFocus: () => document.getElementById(body.mode === 'new' ? 'lw-inline-new-name' : 'lw-inline-existing-select'),
       execute: (duplicateConfirmed) => apiFetch(
       '/lista-wyjazdowa/signups/quick-add',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
@@ -1142,12 +1140,23 @@ async function quickAddCompanion(body, control) {
       },
       viewRoot: document.getElementById('main-content'),
       refreshFragment: loadAll,
-      successDetails: (result) => body.mode === 'new' ? {
-        person: result?.person,
-        statusLabel: categoryLabelById.get(result?.person?.categoryId),
-        sectionLabel: sectionLabelById.get(result?.person?.sectionId),
-      } : null,
-    });
+    };
+    if (body.mode === 'new') {
+      await window.PersonRegistrationPrompt.confirmed({
+        ...mutationOptions,
+        fallbackFocus: () => document.getElementById('lw-inline-new-name'),
+        successDetails: (result) => ({
+          person: result?.person,
+          statusLabel: categoryLabelById.get(result?.person?.categoryId),
+          sectionLabel: sectionLabelById.get(result?.person?.sectionId),
+        }),
+      });
+    } else {
+      await window.MutationFeedback.confirmed({
+        ...mutationOptions,
+        execute: () => mutationOptions.execute(false),
+      });
+    }
   } catch (err) {
     window.CompanionAdd.showError(`Nie udało się dodać osoby: ${err.message}`);
   }
@@ -1254,8 +1263,7 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
       window.CompanionAdd.showError('Podaj nazwisko, imię i kategorię nowej osoby.');
       return;
     }
-    addNewBtn.disabled = true;
-    return quickAddNew(openAddPanelOwnerPersonId, ksywka, lastName, firstName, categoryId, addNewBtn).finally(() => { addNewBtn.disabled = false; });
+    return quickAddNew(openAddPanelOwnerPersonId, ksywka, lastName, firstName, categoryId, addNewBtn);
   }
 
   const attendBtn = e.target.closest('.lw-attend-toggle');

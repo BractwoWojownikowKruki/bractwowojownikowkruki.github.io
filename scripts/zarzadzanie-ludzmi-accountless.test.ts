@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const page = readFileSync(new URL('../public/admin/zarzadzanie-ludzmi/index.html', import.meta.url), 'utf8');
 const script = readFileSync(new URL('../public/admin/zarzadzanie-ludzmi/zarzadzanie-ludzmi.js', import.meta.url), 'utf8');
@@ -109,7 +110,6 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
   const sortableTableStates = new Map<string, { set: (key: string, dir: string) => void }>();
   let signedInCallback: ((payload: Record<string, unknown>) => Promise<void>) | null = null;
   let duplicatePromptMode: 'confirm' | 'cancel' = 'confirm';
-  const cancelledDuplicate = Object.freeze({ cancelled: true });
 
   function makeElement(id: string) {
     const listeners = new Map<string, Array<(e: any) => unknown>>();
@@ -148,24 +148,6 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
 
   const windowObj: any = {
     confirm: () => true,
-    PersonRegistrationPrompt: {
-      run: async (execute: (confirmed: boolean) => Promise<unknown>, promptOptions: { fallbackFocus?: () => any } = {}) => {
-        try { return await execute(false); } catch (error: any) {
-          if (!Array.isArray(error?.duplicateMatches)) throw error;
-          if (duplicatePromptMode === 'cancel') {
-            promptOptions.fallbackFocus?.()?.focus();
-            return cancelledDuplicate;
-          }
-          return execute(true);
-        }
-      },
-      confirmed: async (options: any) => windowObj.MutationFeedback.confirmed({
-        ...options,
-        execute: () => windowObj.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
-        skipApplyWhen: (result: unknown) => windowObj.PersonRegistrationPrompt.wasCancelled(result) || options.skipApplyWhen?.(result),
-      }),
-      wasCancelled: (result: unknown) => result === cancelledDuplicate,
-    },
     alert: () => {},
     location: { search: '' },
     addEventListener: () => {},
@@ -174,10 +156,13 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
       if (skipApplyWhen?.(result)) return result;
       await apply?.(result);
       await successDetails?.(result);
-      focusAfterApply?.(result)?.focus?.();
+      (await focusAfterApply?.(result))?.focus?.();
       return result;
     } },
   };
+  windowObj.PersonRegistrationPrompt = createPersonRegistrationPromptMock(windowObj.MutationFeedback, {
+    shouldCancelDuplicate: () => duplicatePromptMode === 'cancel',
+  });
   const documentObj: any = {
     body: { append: () => {} },
     getElementById: (id: string) => getEl(id),

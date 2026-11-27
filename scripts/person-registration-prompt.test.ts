@@ -32,6 +32,7 @@ class FakeElement {
   selector = '';
   focus() { this.focusCount += 1; }
   showModal() {
+    if (this.nextAction === 'show-modal-error') throw new Error('showModal unavailable');
     this.open = true;
     if (this.nextAction === 'close') { this.close(); return; }
     if (this.nextAction === 'escape') {
@@ -50,10 +51,10 @@ class FakeElement {
     for (const listener of this.listeners.close ?? []) listener();
   }
   remove() { this.removed = true; }
-  nextAction: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' = 'confirm';
+  nextAction: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'show-modal-error' = 'confirm';
 }
 
-function load(action: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | Array<'confirm' | 'cancel' | 'escape' | 'close' | 'done'>) {
+function load(action: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'show-modal-error' | Array<'confirm' | 'cancel' | 'escape' | 'close' | 'done' | 'show-modal-error'>) {
   const dialogs: FakeElement[] = [];
   const trigger = new FakeElement();
   const actions = Array.isArray(action) ? action : [action];
@@ -61,13 +62,14 @@ function load(action: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | Array
   let busyCount = 0;
   const context: Record<string, any> = {
     window: {},
-    document: { activeElement: trigger, body: {}, createElement: () => { const dialog = new FakeElement(); dialog.nextAction = actions[dialogIndex++] ?? actions.at(-1)!; dialog.busyAtOpen = busyCount; dialog.querySelector = (selector: string) => {
+    document: { activeElement: trigger, body: { append: (dialog: FakeElement) => dialogs.push(dialog) }, createElement: () => { const dialog = new FakeElement(); dialog.nextAction = actions[dialogIndex++] ?? actions.at(-1)!; dialog.busyAtOpen = busyCount; dialog.querySelector = (selector: string) => {
       const button = new FakeElement();
       button.addEventListener = (type, listener) => { if (type === 'click') (dialog.childListeners[selector] ??= []).push(listener); };
       return button;
-    }; dialogs.push(dialog); return dialog; }, body: { append: () => {} } },
+    }; return dialog; } },
     Promise, Object, String, Array,
   };
+  let toastCount = 0;
   context.window.MutationFeedback = {
     showBusy: () => {
       busyCount += 1;
@@ -76,12 +78,17 @@ function load(action: 'confirm' | 'cancel' | 'escape' | 'close' | 'done' | Array
     },
     confirmed: async (options: any) => {
       const result = await options.execute();
-      if (!options.skipApplyWhen?.(result)) await options.apply?.(result);
+      if (!options.skipApplyWhen?.(result)) {
+        await options.apply?.(result);
+        const focusTarget = await options.focusAfterApply?.(result);
+        focusTarget?.focus?.({ preventScroll: true });
+      }
       return result;
     },
+    showToast: () => { toastCount += 1; },
   };
   vm.runInNewContext(source, context);
-  return { prompt: context.window.PersonRegistrationPrompt, dialogs, trigger, getBusyCount: () => busyCount };
+  return { prompt: context.window.PersonRegistrationPrompt, dialogs, trigger, getBusyCount: () => busyCount, getToastCount: () => toastCount };
 }
 
 const matches = [
@@ -181,14 +188,17 @@ test('cancelling a duplicate prompt releases busy state and does not apply or sh
   assert.equal(dialogs.length, 1);
 });
 
-test('existing-person mutations can suppress the busy overlay and success dialog', async () => {
+test('a registration without success details restores the post-apply focus target', async () => {
   const { prompt, dialogs, getBusyCount } = load('done');
   const control = new FakeElement();
+  const focusTarget = new FakeElement();
+  let focusLookups = 0;
   let applied = false;
   const result = await prompt.confirmed({
     control,
-    busyMessage: null,
-    execute: async () => { assert.equal(getBusyCount(), 0); return { person: { personId: 'existing' } }; },
+    fallbackFocus: () => focusTarget,
+    focusAfterApply: () => { focusLookups += 1; return focusTarget; },
+    execute: async () => { assert.equal(getBusyCount(), 1); return { person: { personId: 'existing' } }; },
     apply: async () => { applied = true; },
     successDetails: () => null,
   });
@@ -196,6 +206,40 @@ test('existing-person mutations can suppress the busy overlay and success dialog
   assert.equal(applied, true);
   assert.equal(getBusyCount(), 0);
   assert.equal(dialogs.length, 0);
+  assert.equal(focusLookups, 1);
+  assert.equal(focusTarget.focusCount, 1);
+});
+
+test('success dialog prefers the computed focus target and computes it only once', async () => {
+  const { prompt, trigger, dialogs } = load('done');
+  const focusTarget = new FakeElement();
+  let focusLookups = 0;
+  await prompt.confirmed({
+    fallbackFocus: () => trigger,
+    focusAfterApply: () => { focusLookups += 1; return focusTarget; },
+    execute: async () => ({ person: { firstName: 'Ewa', lastName: 'Kruk' } }),
+    apply: async () => {},
+    successDetails: (result: any) => ({ person: result.person }),
+  });
+  assert.equal(dialogs.length, 1);
+  assert.equal(focusLookups, 1);
+  assert.equal(focusTarget.focusCount, 1);
+  assert.equal(trigger.focusCount, 0, 'the success dialog must not restore focus to the stale active element');
+});
+
+test('failed success dialog setup removes the orphan and restores focus through the toast fallback', async () => {
+  const { prompt, dialogs, getToastCount } = load('show-modal-error');
+  const focusTarget = new FakeElement();
+  await prompt.confirmed({
+    focusAfterApply: () => focusTarget,
+    execute: async () => ({ person: { firstName: 'Ewa', lastName: 'Kruk' } }),
+    apply: async () => {},
+    successDetails: (result: any) => ({ person: result.person }),
+  });
+  assert.equal(dialogs.length, 1);
+  assert.equal(dialogs[0].removed, true);
+  assert.equal(getToastCount(), 1);
+  assert.equal(focusTarget.focusCount, 1);
 });
 
 test('a match opens an informational prompt and retries only after explicit confirmation', async () => {
@@ -301,11 +345,20 @@ test('every person registration page loads the shared prompt and invokes it from
       assert.match(pageScript, /CompanionAdd\.categoryOptionsHtml\(/, `${scriptPath} must use the shared category option renderer`);
     }
     if (scriptPath.includes('/lista-wyjazdowa/')) {
-      assert.match(pageScript, /busyMessage: body\.mode === 'new' \? undefined : null/);
+      assert.doesNotMatch(pageScript, /busyMessage/);
+      assert.match(pageScript, /PersonRegistrationPrompt\.confirmed\(\{[\s\S]*?fallbackFocus: \(\) => document\.getElementById\('lw-inline-new-name'\)/);
+      assert.match(pageScript, /MutationFeedback\.confirmed\(\{[\s\S]*?execute: \(\) => mutationOptions\.execute\(false\)/);
     }
     if (scriptPath.includes('/lista-wyjazdowa/lista-wyjazdowa.js')) {
+      const addNewHandler = pageScript.match(/const addNewBtn = e\.target\.closest\('\.lw-inline-add-new'\);[\s\S]*?await quickAddNew\([\s\S]*?\n  \}/)?.[0] ?? '';
+      const addExistingHandler = pageScript.match(/const addExistingBtn = e\.target\.closest\('\.lw-inline-add-existing'\);[\s\S]*?\n  \}/)?.[0] ?? '';
+      assert.ok(addNewHandler, 'the quick-add-new handler must be present');
+      assert.doesNotMatch(addNewHandler, /addNewBtn\.disabled/);
+      assert.match(addExistingHandler, /addExistingBtn\.disabled = true/);
+      assert.match(addExistingHandler, /addExistingBtn\.disabled = false/);
       assert.match(pageScript, /categoryOptions\.find\([\s\S]*sectionOptions\.find\(/);
     } else if (scriptPath.includes('/lista-wyjazdowa/wyjazd/')) {
+      assert.match(pageScript, /const addExistingBtn = e\.target\.closest\('\.lw-inline-add-existing'\)[\s\S]*?addExistingBtn\.disabled = true[\s\S]*?addExistingBtn\.disabled = false/);
       assert.match(pageScript, /categoryLabelById\.get\([\s\S]*sectionLabelById\.get\(/);
     } else if (scriptPath.includes('/app/')) {
       assert.match(pageScript, /dash\.categories\.find\([\s\S]*dash\.sections\.find\(/);
@@ -315,7 +368,7 @@ test('every person registration page loads the shared prompt and invokes it from
       assert.match(pageScript, /accountlessCache\.categories\.find\([\s\S]*accountlessCache\.sections\.find\(/);
     }
   }
-  assert.match(source, /busyMessage = BUSY_MESSAGE/);
+  assert.doesNotMatch(source, /busyMessage/);
   const styles = readFileSync(new URL('../public/member-area.css', import.meta.url), 'utf8');
   assert.match(styles, /\.person-registration-success-dialog\s*\{/);
   assert.match(styles, /\.person-registration-success-dialog__done\s*\{/);
