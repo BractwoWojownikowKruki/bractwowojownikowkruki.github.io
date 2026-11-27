@@ -34,7 +34,7 @@ const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'not-found-panel', 'main-content', 'lw-error',
   'skladka-fee-display', 'skladka-fee-status-summary', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
   'skladka-fee-save', 'skladka-fee-remove', 'summary-content', 'summary-panel', 'roster-panel', 'roster-table',
-  'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni', 'event-title',
+  'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni', 'roster-filter-zagniezdz-os-tow', 'event-title',
   'event-meta', 'event-description', 'event-edit-toggle', 'event-edit-panel', 'event-history-link',
   'skladka-fee-history-link', 'lw-inline-existing-select', 'lw-inline-new-name',
   'lw-inline-new-category', 'event-equipment-panel', 'event-equipment-table', 'event-equipment-table-wrap', 'event-equipment-disabled-note', 'event-equipment-summary', 'equipment-controls', 'equipment-filter-niezgloszone', 'equipment-filter-zgloszone', 'event-date-pill', 'event-time-pill', 'event-date-wrap', 'event-calendar-popover', 'skladka-fee-duedate-pill', 'event-description-panel',

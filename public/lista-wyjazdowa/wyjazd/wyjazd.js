@@ -600,6 +600,7 @@ let showNotGoingEquipment = false;
 let showGoingEquipment = true;
 let showNotSignedUp = false;
 let showSignedUpAndMe = true;
+let nestCompanions = false;
 let cachedRoster = [];
 let cachedSignups = [];
 let cachedEventEquipment = [];
@@ -898,7 +899,28 @@ function renderRoster(roster, signups) {
     return compareValues(a.lastName ?? '', b.lastName ?? '', 'asc');
   });
 
-  tbody.innerHTML = sorted
+  let ordered = sorted;
+  const nestedCompanionIds = new Set();
+  if (nestCompanions && rosterSortState.key === 'section') {
+    const personKey = (personId) => String(personId ?? '').toLowerCase();
+    const visibleByPersonId = new Map(visible.map((member) => [personKey(member.personId), member]));
+    const companionsByOwnerId = new Map();
+    for (const member of sorted) {
+      if (member.accountless !== true || !member.ownerPersonId) continue;
+      const ownerId = personKey(member.ownerPersonId);
+      const owner = visibleByPersonId.get(ownerId);
+      if (!owner || owner.accountless === true) continue;
+      const companions = companionsByOwnerId.get(ownerId) ?? [];
+      companions.push(member);
+      companionsByOwnerId.set(ownerId, companions);
+      nestedCompanionIds.add(member.personId);
+    }
+    ordered = sorted
+      .filter((member) => !nestedCompanionIds.has(member.personId))
+      .flatMap((member) => [member, ...(companionsByOwnerId.get(personKey(member.personId)) ?? [])]);
+  }
+
+  tbody.innerHTML = ordered
     .map((member) => {
       const signup = signupByPersonId.get(member.personId);
       const attending = signup?.attending ?? false;
@@ -943,7 +965,7 @@ function renderRoster(roster, signups) {
         ? window.CompanionAdd.buttonHtml({ ownerPersonId: personIdAttr, expanded: member.personId === openAddPanelOwnerPersonId })
         : '';
       return `
-    <tr data-person-id="${personIdAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
+    <tr${nestedCompanionIds.has(member.personId) ? ' class="lw-roster-row--companion"' : ''} data-person-id="${personIdAttr}" data-section="${escapeAttr(member.sectionId ?? '')}">
       <td class="czl-section-cell" title="${escapeAttr(sectionSortLabel(member) || 'Brak sekcji')}">${member.sectionId ? escapeHtml(sectionAbbr(member.sectionId)) : EMPTY}</td>
       <td class="lw-roster-name-cell">
         ${nameCellHtml}
@@ -1128,11 +1150,18 @@ async function quickAddNew(ownerPersonId, ksywka, lastName, firstName, categoryI
 // fail or produce a network error banner.
 // The choice is global (KRKG-116): saved to localStorage on every change and restored below on load.
 const ROSTER_FILTER_PREFERENCE_FIELDS = ['niezgloszeni', 'zgloszeni'];
+const ROSTER_NESTING_PREFERENCE_FIELDS = ['nested'];
 
 function applyRosterFilter() {
   showNotSignedUp = document.getElementById('roster-filter-niezgloszeni').checked;
   showSignedUpAndMe = document.getElementById('roster-filter-zgloszeni').checked;
   writeBooleanPreference(LIST_PREFERENCE_KEYS.wyjazdRosterFilter, { niezgloszeni: showNotSignedUp, zgloszeni: showSignedUpAndMe });
+  renderRoster(cachedRoster, cachedSignups);
+}
+
+function applyRosterNestingPreference() {
+  nestCompanions = document.getElementById('roster-filter-zagniezdz-os-tow').checked;
+  writeBooleanPreference(LIST_PREFERENCE_KEYS.wyjazdCompanionNesting, { nested: nestCompanions });
   renderRoster(cachedRoster, cachedSignups);
 }
 
@@ -1145,6 +1174,12 @@ if (savedRosterFilter) {
   document.getElementById('roster-filter-zgloszeni').checked = savedRosterFilter.zgloszeni;
   showNotSignedUp = savedRosterFilter.niezgloszeni;
   showSignedUpAndMe = savedRosterFilter.zgloszeni;
+}
+
+const savedRosterNesting = readBooleanPreference(LIST_PREFERENCE_KEYS.wyjazdCompanionNesting, ROSTER_NESTING_PREFERENCE_FIELDS);
+if (savedRosterNesting) {
+  nestCompanions = savedRosterNesting.nested;
+  document.getElementById('roster-filter-zagniezdz-os-tow').checked = nestCompanions;
 }
 
 // Same two checkboxes for the equipment table: Zgłoszone (going) and Niezgłoszone (not going).
@@ -1161,6 +1196,8 @@ for (const id of ['equipment-filter-niezgloszone', 'equipment-filter-zgloszone']
 for (const id of ['roster-filter-niezgloszeni', 'roster-filter-zgloszeni']) {
   document.getElementById(id).addEventListener('change', applyRosterFilter);
 }
+
+document.getElementById('roster-filter-zagniezdz-os-tow').addEventListener('change', applyRosterNestingPreference);
 
 document.getElementById('roster-content').addEventListener('click', (e) => {
   // Tapping a row highlights it gold (KRKG-0052) - touch devices have no hover state, so this is

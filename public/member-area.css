@@ -1707,6 +1707,11 @@ button.lw-skladka-icon:disabled {
   font-size: 0.85em;
 }
 
+.lw-roster-row--companion .lw-roster-name-cell {
+  padding-left: 1.35rem;
+  border-left: 2px solid var(--gold);
+}
+
 /* Breathing room between the page's major sections (fee panel, summary, roster, audit log) -
    previously these all touched with no vertical rhythm at all. Kept tight (not the more generous
    rhythm a lone spacer would get) since #summary-content's own .lw-summary-columns already

@@ -1,7 +1,7 @@
-// Browser-local preferences for the Lista wyjazdowa and Spis Ludności pages (KRKG-116). Remembers the
-// choices that narrow a list - the Składki status checkboxes (skladki.js's skladkiStatusFilter), the
-// trip roster view (wyjazd.js's Niezgłoszeni / Zgłoszeni + ja) and the summary pill filters
-// (summary-filter.js, one key per page type) - so they survive a reload.
+// Browser-local preferences for the Lista wyjazdowa and Spis Ludności pages (KRKG-116). Remembers
+// list filters and roster presentation settings - the Składki status checkboxes (skladki.js's
+// skladkiStatusFilter), trip roster filters and companion nesting (wyjazd.js), and summary pill
+// filters (summary-filter.js, one key per page type) - so they survive a reload.
 //
 // Storage is this browser's localStorage only: never the profile, never the server. The values are
 // global per page type, not per trip, fee or page instance. Each key holds { v: LIST_PREFERENCES_VERSION,
@@ -15,6 +15,7 @@ const LIST_PREFERENCES_VERSION = 1;
 const LIST_PREFERENCE_KEYS = {
   skladkiStatusFilter: 'kruki_pref_skladki_status_filter',
   wyjazdRosterFilter: 'kruki_pref_wyjazd_roster_filter',
+  wyjazdCompanionNesting: 'kruki_pref_wyjazd_companion_nesting',
   spisSummaryFilter: 'kruki_pref_spis_summary_filter',
   wyjazdSummaryFilter: 'kruki_pref_wyjazd_summary_filter',
   skladkiSummaryFilter: 'kruki_pref_skladki_summary_filter',

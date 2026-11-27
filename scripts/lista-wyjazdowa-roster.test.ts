@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/index.html', import.meta.url), 'utf8');
+const memberAreaCss = readFileSync(new URL('../public/member-area.css', import.meta.url), 'utf8');
 const personPillSource = readFileSync(new URL('../public/shared/person-pill.js', import.meta.url), 'utf8');
 const companionAddSource = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
 const eventEditFormSource = readFileSync(new URL('../public/shared/event-edit-form.js', import.meta.url), 'utf8');
@@ -63,7 +64,7 @@ const elementIds = [
   'lw-checking', 'signed-out-panel', 'forbidden-panel', 'not-found-panel', 'main-content', 'lw-error',
   'skladka-fee-display', 'skladka-fee-status-summary', 'skladka-fee-edit-toggle', 'skladka-fee-edit', 'skladka-fee-input', 'skladka-fee-duedate-input',
   'skladka-fee-save', 'skladka-fee-remove', 'roster-panel', 'summary-content', 'summary-panel',
-  'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni',
+  'roster-table', 'roster-content', 'roster-filter-niezgloszeni', 'roster-filter-zgloszeni', 'roster-filter-zagniezdz-os-tow',
   'event-title', 'event-meta', 'event-description',
   'event-edit-toggle', 'event-edit-panel', 'event-history-link', 'skladka-fee-history-link',
   'lw-inline-existing-select', 'lw-inline-new-name', 'lw-inline-new-last-name', 'lw-inline-new-first-name', 'lw-inline-new-category', 'lw-inline-error',
@@ -71,7 +72,7 @@ const elementIds = [
   'event-share-button', 'event-share-button-text',
 ];
 
-function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]>; signupStatusByPersonId?: Record<string, string | undefined>; signupAttendingByPersonId?: Record<string, boolean>; initialStorage?: Record<string, string> } = {}) {
+function createHarness(event: Record<string, unknown>, options: { canManageSkladki?: boolean; canManagePeople?: boolean; withRemovedPerson?: boolean; withAttachedPerson?: boolean; withAttachedToSignedPerson?: boolean; attachedOwnerPersonId?: string; withCompanionOfCompanion?: boolean; attachedNotAttending?: boolean; memberWeapons?: Record<string, string[]>; memberCategories?: Record<string, string | null>; signupStatusByPersonId?: Record<string, string | undefined>; signupAttendingByPersonId?: Record<string, boolean>; initialStorage?: Record<string, string> } = {}) {
   const canManageSkladki = options.canManageSkladki ?? true;
   const canManagePeople = options.canManagePeople ?? false;
   const elements = new Map(elementIds.map((id) => [id, new Element(id)]));
@@ -85,15 +86,24 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   let cancelDuplicatePrompt = false;
   const cancelledDuplicatePrompt = Object.freeze({ cancelled: true });
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
+  const rosterSortState = { key: 'section', dir: 'asc' };
+  let onRosterSortChange = () => {};
   const roster = [
     { personId: 'signed@example.com', email: 'signed@example.com', accountless: false, lastName: 'Signed', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
     { personId: 'viewer@example.com', email: 'viewer@example.com', accountless: false, lastName: 'Viewer', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
     { personId: 'other@example.com', email: 'other@example.com', accountless: false, lastName: 'Other', sectionId: null, categoryId: null, weaponIds: [], duesStatus: 'paid', wpisoweStatus: 'paid' },
-  ].map((member) => (options.memberWeapons?.[member.personId] ? { ...member, weaponIds: options.memberWeapons[member.personId] } : member));
+  ].map((member) => ({
+    ...member,
+    ...(options.memberWeapons?.[member.personId] ? { weaponIds: options.memberWeapons[member.personId] } : {}),
+    ...(options.memberCategories?.[member.personId] !== undefined ? { categoryId: options.memberCategories[member.personId] } : {}),
+  }));
   // KRKG-0087: an accountless person already attached to the viewer but not signed up for this
   // trip - the roster's inline add panel offers them in its "istniejąca" dropdown.
-  const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: 'viewer@example.com', lastName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'paid' };
-  const currentRoster = options.withAttachedPerson ? [...roster, attachedPerson] : roster;
+  const attachedPerson = { personId: 'attached-uuid-1', email: null, accountless: true, ownerPersonId: options.attachedOwnerPersonId ?? (options.withAttachedToSignedPerson ? 'signed@example.com' : 'viewer@example.com'), lastName: 'Młody', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'paid' };
+  const nestedAttachedPerson = { personId: 'nested-uuid-2', email: null, accountless: true, ownerPersonId: 'attached-uuid-1', lastName: 'Zagnieżdżony', sectionId: null, categoryId: 'kandydat', weaponIds: [], duesStatus: 'unpaid', wpisoweStatus: 'paid' };
+  const currentRoster = options.withAttachedPerson
+    ? [...roster, attachedPerson, ...(options.withCompanionOfCompanion ? [nestedAttachedPerson] : [])]
+    : roster;
   // KRKG-0087: the event-scoped (historical) roster additionally carries a person who has since been
   // removed but was signed up for this trip. A person row has `email: null` and a UUID personId, so
   // it only renders correctly if the page keys rows by personId (the bug this batch fixes).
@@ -176,7 +186,13 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
       getItem: (key: string) => localStore.get(key) ?? null,
       setItem: (key: string, value: string) => { localStore.set(key, value); },
     },
-    initSortableTable: () => ({ key: 'section', dir: 'asc' }),
+    initSortableTable: (table: Element, options: { onChange: () => void }) => {
+      if (table.id === 'roster-table') {
+        onRosterSortChange = options.onChange;
+        return rosterSortState;
+      }
+      return { key: 'section', dir: 'asc' };
+    },
     compareValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     compareDateValues: (a: unknown, b: unknown) => String(a).localeCompare(String(b)),
     displayName: (member: { lastName: string }) => member.lastName,
@@ -220,6 +236,8 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     async signIn() { await signIn?.({ email: 'viewer@example.com' }); },
     setMutationResult(result: unknown) { mutationResult = result; mutationError = null; },
     setMutationError(error: Error) { mutationError = error; },
+    setRosterSort(key: string) { rosterSortState.key = key; onRosterSortChange(); },
+    storedPreference(key: string) { return localStore.get(key) ?? null; },
     cancelNextDuplicatePrompt() { cancelDuplicatePrompt = true; },
     focusTargets,
   };
@@ -291,6 +309,126 @@ test('roster checkboxes filter locally and preserve the signed-in viewer', async
   assert.doesNotMatch(roster.innerHTML, /other@example\.com/);
 
   assert.equal(harness.apiCalls.length, requestsBeforeToggle);
+});
+
+test('companion nesting control restores and persists its local preference', async () => {
+  const key = 'kruki_pref_wyjazd_companion_nesting';
+  const harness = createHarness(event(null), {
+    initialStorage: { [key]: JSON.stringify({ v: 1, value: { nested: true } }) },
+  });
+  await harness.signIn();
+
+  const control = harness.elements.get('roster-filter-zagniezdz-os-tow')!;
+  assert.match(page, /Umieść os\. tow\. pod opiekunów/);
+  assert.match(page, /id="roster-filter-zagniezdz-os-tow"/);
+  assert.match(memberAreaCss, /\.lw-roster-row--companion/);
+  assert.equal(control.checked, true);
+
+  control.checked = false;
+  await control.change();
+  assert.deepEqual(JSON.parse(harness.storedPreference(key)!), { v: 1, value: { nested: false } });
+});
+
+test('visible accountless companions nest under their account owner only when sorting by section', async () => {
+  const harness = createHarness(event(null), {
+    withAttachedPerson: true,
+    withAttachedToSignedPerson: true,
+    attachedOwnerPersonId: 'SIGNED@example.com',
+    initialStorage: {
+      'kruki_pref_wyjazd_companion_nesting': JSON.stringify({ v: 1, value: { nested: true } }),
+    },
+  });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  const showNotSignedUp = harness.elements.get('roster-filter-niezgloszeni')!;
+  showNotSignedUp.checked = true;
+  await showNotSignedUp.change();
+
+  const ownerIndex = roster.innerHTML.indexOf('data-person-id="signed@example.com"');
+  const companionIndex = roster.innerHTML.indexOf('data-person-id="attached-uuid-1"');
+  assert.ok(ownerIndex >= 0 && companionIndex > ownerIndex);
+  assert.match(roster.innerHTML, /<tr class="lw-roster-row--companion" data-person-id="attached-uuid-1"/);
+
+  harness.setRosterSort('name');
+  assert.doesNotMatch(roster.innerHTML, /lw-roster-row--companion/);
+  assert.ok(roster.innerHTML.indexOf('data-person-id="attached-uuid-1"') < roster.innerHTML.indexOf('data-person-id="signed@example.com"'));
+  harness.setRosterSort('status');
+  assert.doesNotMatch(roster.innerHTML, /lw-roster-row--companion/);
+  assert.ok(roster.innerHTML.indexOf('data-person-id="attached-uuid-1"') < roster.innerHTML.indexOf('data-person-id="signed@example.com"'));
+
+  harness.setRosterSort('section');
+  assert.equal(harness.elements.get('roster-filter-zagniezdz-os-tow')!.checked, true);
+  assert.match(roster.innerHTML, /<tr class="lw-roster-row--companion" data-person-id="attached-uuid-1"/);
+  const nestingControl = harness.elements.get('roster-filter-zagniezdz-os-tow')!;
+  nestingControl.checked = false;
+  await nestingControl.change();
+  assert.doesNotMatch(roster.innerHTML, /lw-roster-row--companion/);
+});
+
+test('a companion attached to an accountless person stays visible as a top-level row', async () => {
+  const harness = createHarness(event(null), {
+    withAttachedPerson: true,
+    withAttachedToSignedPerson: true,
+    withCompanionOfCompanion: true,
+    initialStorage: {
+      'kruki_pref_wyjazd_companion_nesting': JSON.stringify({ v: 1, value: { nested: true } }),
+    },
+  });
+  await harness.signIn();
+  const showNotSignedUp = harness.elements.get('roster-filter-niezgloszeni')!;
+  showNotSignedUp.checked = true;
+  await showNotSignedUp.change();
+
+  const roster = harness.elements.get('roster-content')!.innerHTML;
+  assert.match(roster, /<tr class="lw-roster-row--companion" data-person-id="attached-uuid-1"/);
+  assert.match(roster, /<tr data-person-id="nested-uuid-2"/);
+});
+
+test('a visible companion remains standalone when a roster filter hides the owner', async () => {
+  const harness = createHarness(event(null), {
+    withAttachedPerson: true,
+    withAttachedToSignedPerson: true,
+    initialStorage: {
+      'kruki_pref_wyjazd_companion_nesting': JSON.stringify({ v: 1, value: { nested: true } }),
+    },
+  });
+  await harness.signIn();
+  const showSignedUpAndMe = harness.elements.get('roster-filter-zgloszeni')!;
+  const showNotSignedUp = harness.elements.get('roster-filter-niezgloszeni')!;
+  showSignedUpAndMe.checked = false;
+  showNotSignedUp.checked = true;
+  await showNotSignedUp.change();
+
+  const roster = harness.elements.get('roster-content')!.innerHTML;
+  assert.doesNotMatch(roster, /data-person-id="signed@example.com"/);
+  assert.match(roster, /data-person-id="attached-uuid-1"/);
+  assert.doesNotMatch(roster, /lw-roster-row--companion/);
+});
+
+test('summary category filters independently hide a companion owner and preserve the matching companion', async () => {
+  const harness = createHarness(event(null), {
+    withAttachedPerson: true,
+    withAttachedToSignedPerson: true,
+    memberCategories: { 'signed@example.com': 'emeryt' },
+    signupStatusByPersonId: { 'attached-uuid-1': 'paid' },
+    initialStorage: {
+      'kruki_pref_wyjazd_companion_nesting': JSON.stringify({ v: 1, value: { nested: true } }),
+    },
+  });
+  await harness.signIn();
+  const showNotSignedUp = harness.elements.get('roster-filter-niezgloszeni')!;
+  showNotSignedUp.checked = true;
+  await showNotSignedUp.change();
+  await harness.elements.get('summary-panel')!.clickWith({
+    closest: (selector: string) => selector === '[data-filter-group]'
+      ? { dataset: { filterGroup: 'category', filterValue: 'kandydat' }, disabled: false, focus() {} }
+      : null,
+  });
+
+  const roster = harness.elements.get('roster-content')!.innerHTML;
+  assert.doesNotMatch(roster, /data-person-id="signed@example.com"/);
+  assert.match(roster, /data-person-id="attached-uuid-1"/);
+  assert.doesNotMatch(roster, /lw-roster-row--companion/);
 });
 
 test('the separate contribution filter supports multiple statuses and combines with roster visibility', async () => {
