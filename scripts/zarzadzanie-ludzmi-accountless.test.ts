@@ -665,3 +665,31 @@ test('accountless table load preserves in-progress form and creation-options ref
   assert.equal(harness.getEl('accountless-first-name').value, 'InProgressName');
   assert.match(harness.getEl('accountless-list').innerHTML, /Kowalski/);
 });
+
+test('accountless table sorts ksywka-only records and email-shaped owner names consistently', async () => {
+  const harness = createZarzadzanieHarness({
+    apiFetch: async (url) => {
+      if (url === '/lista-wyjazdowa/persons') {
+        return {
+          persons: [
+            { personId: 'p1', ksywka: 'Zebra', firstName: 'Aaron', lastName: '', ownerPersonId: 'zulu@example.test', ownerName: 'beta@example.test', ownerLastName: null, deleted: false },
+            { personId: 'p2', ksywka: 'Alfa', firstName: 'Zygmunt', lastName: '', ownerPersonId: 'alpha@example.test', ownerName: 'Alfa', ownerLastName: null, deleted: false },
+            { personId: 'p3', ksywka: 'Gama', firstName: 'Jan', lastName: 'Kowalski', ownerPersonId: 'owner@example.test', ownerName: 'Opiekun', ownerLastName: 'Adamczyk', deleted: false },
+          ],
+        };
+      }
+      if (url === '/admin/lookup-lists') return { sections: [], categories: [], weapons: [] };
+      return {};
+    },
+  });
+
+  await harness.signIn({ email: 'admin@kruki.pl', isAccountant: false, isAdmin: true, isHovding: false });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const rowPersonIds = () => [...harness.getEl('accountless-list').innerHTML.matchAll(/<tr data-person-id="([^"]+)"/g)].map((match) => match[1]);
+
+  harness.sortTable('accountless-table', 'name', 'asc');
+  assert.deepEqual(rowPersonIds(), ['p2', 'p3', 'p1']);
+
+  harness.sortTable('accountless-table', 'owner', 'asc');
+  assert.deepEqual(rowPersonIds(), ['p3', 'p2', 'p1']);
+});

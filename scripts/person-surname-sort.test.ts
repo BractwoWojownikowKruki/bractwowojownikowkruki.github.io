@@ -13,6 +13,7 @@ test('sorts people by surname and falls back to their display name when surname 
   if (!surnameSortValue) return;
   assert.equal(surnameSortValue({ lastName: '  Żuraw  ', firstName: 'Ala', nickname: 'A' }), 'Żuraw');
   assert.equal(surnameSortValue({ lastName: ' ', firstName: 'Ala', nickname: 'A' }), 'A');
+  assert.equal(surnameSortValue({ lastName: '', firstName: 'Jan', ksywka: 'Wilk' }), 'Wilk');
   assert.equal(surnameSortValue({ lastName: null, firstName: null, nickname: null, email: 'jan@example.com' }), 'jan');
 });
 
