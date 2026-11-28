@@ -674,7 +674,8 @@ test('accountless table sorts ksywka-only records and email-shaped owner names c
           persons: [
             { personId: 'p1', ksywka: 'Zebra', firstName: 'Aaron', lastName: '', ownerPersonId: 'zulu@example.test', ownerName: 'beta@example.test', ownerLastName: null, deleted: false },
             { personId: 'p2', ksywka: 'Alfa', firstName: 'Zygmunt', lastName: '', ownerPersonId: 'alpha@example.test', ownerName: 'Alfa', ownerLastName: null, deleted: false },
-            { personId: 'p3', ksywka: 'Gama', firstName: 'Jan', lastName: 'Kowalski', ownerPersonId: 'owner@example.test', ownerName: 'Opiekun', ownerLastName: 'Adamczyk', deleted: false },
+            // ksywka sorts before 'Alfa' so ['p2', 'p3', 'p1'] proves lastName ('Kowalski') still wins when present.
+            { personId: 'p3', ksywka: 'Aardvark', firstName: 'Jan', lastName: 'Kowalski', ownerPersonId: 'owner@example.test', ownerName: 'Opiekun', ownerLastName: 'Adamczyk', deleted: false },
           ],
         };
       }
