@@ -1119,8 +1119,8 @@ async function toggleEventEquipment(equipmentId, nextGoing, control) {
 // /lista-wyjazdowa/signups/quick-add and apply the confirmed response locally; a failed call
 // changes nothing (the panel stays open, the row is untouched) and reports via showError.
 async function quickAddCompanion(body, control) {
-  window.CompanionAdd.clearError();
-  clearError();
+  const pageErrorEl = document.getElementById('lw-error');
+  window.CompanionAdd.clearError(pageErrorEl);
   try {
     const mutationOptions = {
       control,
@@ -1158,7 +1158,7 @@ async function quickAddCompanion(body, control) {
       });
     }
   } catch (err) {
-    window.CompanionAdd.showError(`Nie udało się dodać osoby: ${err.message}`);
+    window.CompanionAdd.showError(`Nie udało się dodać osoby: ${err.message}`, pageErrorEl);
   }
 }
 
@@ -1260,7 +1260,7 @@ document.getElementById('roster-content').addEventListener('click', (e) => {
     const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
     const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
     if (!lastName || !firstName || !categoryId) {
-      window.CompanionAdd.showError('Podaj nazwisko, imię i kategorię nowej osoby.');
+      window.CompanionAdd.showError('Podaj nazwisko, imię i kategorię nowej osoby.', document.getElementById('lw-error'));
       return;
     }
     return quickAddNew(openAddPanelOwnerPersonId, ksywka, lastName, firstName, categoryId, addNewBtn);

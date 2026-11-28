@@ -946,6 +946,30 @@ test('a failed quick-add changes nothing and reports the error', async () => {
   assert.match(harness.elements.get('lw-inline-error')!.textContent, /Nie udało się dodać osoby/);
 });
 
+test('trip detail quick-add falls back to #lw-error when inline panel is absent and clears stale page errors', async () => {
+  const harness = createHarness(event(null), { withAttachedPerson: true });
+  await harness.signIn();
+  const roster = harness.elements.get('roster-content')!;
+  await roster.clickWith(clickTarget('.lw-add-companion', { ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-existing-select')!.value = 'attached-uuid-1';
+  harness.elements.delete('lw-inline-error');
+  harness.setMutationError(new Error('network'));
+
+  await roster.clickWith(clickTarget('.lw-inline-add-existing'));
+
+  const pageError = harness.elements.get('lw-error')!;
+  assert.match(pageError.textContent, /Nie udało się dodać osoby/);
+  assert.equal(pageError.hidden, false);
+
+  harness.setMutationResult({
+    person: { personId: 'attached-uuid-1', ksywka: 'Młody', firstName: '', lastName: '', categoryId: 'kandydat', sectionId: null, weaponIds: [], ownerPersonId: 'viewer@example.com' },
+    signup: { memberEmail: 'attached-uuid-1', attending: true, skladkaStatus: 'unpaid' },
+  });
+  await roster.clickWith(clickTarget('.lw-inline-add-existing'));
+  assert.equal(pageError.textContent, '');
+  assert.equal(pageError.hidden, true);
+});
+
 test('cancelling the duplicate prompt on the event detail page leaves the companion form unchanged', async () => {
   const harness = createHarness(event(null), { withAttachedPerson: true });
   await harness.signIn();

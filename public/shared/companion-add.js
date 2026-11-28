@@ -129,23 +129,25 @@
     return names.length ? `<span class="lw-companion-names"><span class="lw-companion-names-plus" aria-hidden="true">+</span><span class="lw-companion-names-list">${names.map(escapeHtml).join(', ')}</span></span>` : '';
   }
 
-  function showError(message) {
-    const error = document.getElementById('lw-inline-error')
-      ?? document.getElementById('events-error')
-      ?? document.getElementById('lw-error')
-      ?? document.querySelector('#app-widget-grid-slot .dashboard-widget-error');
-    if (!error) return false;
-    error.textContent = message;
-    error.hidden = false;
+  function resolveErrorTarget(fallback) {
+    return typeof fallback === 'function' ? fallback() : fallback;
+  }
+
+  function setErrorVisibility(target, message) {
+    if (!target) return false;
+    target.textContent = message;
+    target.hidden = !message;
     return true;
   }
 
-  function clearError() {
-    const error = document.getElementById('lw-inline-error');
-    if (error) {
-      error.textContent = '';
-      error.hidden = true;
-    }
+  function showError(message, fallback = null) {
+    const error = document.getElementById('lw-inline-error') ?? resolveErrorTarget(fallback);
+    return setErrorVisibility(error, message);
+  }
+
+  function clearError(fallback = null) {
+    setErrorVisibility(document.getElementById('lw-inline-error'), '');
+    setErrorVisibility(resolveErrorTarget(fallback), '');
   }
 
   window.CompanionAdd = { candidates, categoryOptionsHtml, panelHtml, buttonHtml, companionNames, signupNamesHtml, showError, clearError };
