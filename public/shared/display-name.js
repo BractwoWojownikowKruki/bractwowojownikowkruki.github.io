@@ -3,10 +3,10 @@
 // the other didn't). Any page that lists members by name should include this script and call
 // displayName(member) rather than keep its own copy.
 //
-// Priority (KRKG-0103): ksywka (nickname) wins when set, then imię (firstName), then nazwisko
-// (lastName), then the email's local part as a last resort for a member who has never opened "Mój
-// profil" (the roster/directory endpoints enumerate the whole club allowlist, not just documented
-// members).
+// Priority (KRKG-0103): ksywka (nickname on members, ksywka on accountless records) wins when set,
+// then imię (firstName), then nazwisko (lastName), then the email's local part as a last resort for
+// a member who has never opened "Mój profil" (the roster/directory endpoints enumerate the whole
+// club allowlist, not just documented members).
 //
 // Deliberately firstName ALONE (not "firstName lastName") once both are set: personSubline()
 // below always renders the full "Nazwisko, Imię" underneath any name pill, so showing the full
@@ -27,7 +27,7 @@ function stripEmailDomain(value) {
 }
 
 function displayName(member) {
-  const chosen = member.nickname || member.firstName || member.lastName || member.email;
+  const chosen = member.nickname || member.ksywka || member.firstName || member.lastName || member.email;
   return stripEmailDomain(chosen);
 }
 

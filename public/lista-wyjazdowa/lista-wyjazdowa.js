@@ -267,9 +267,8 @@ function eventRowAnchor(eventId) {
 }
 
 async function quickAddCompanion(body, control) {
-  window.CompanionAdd.clearError();
-  const errorEl = document.getElementById('events-error');
-  errorEl.hidden = true;
+  const pageErrorEl = document.getElementById('events-error');
+  window.CompanionAdd.clearError(pageErrorEl);
   try {
     const mutationOptions = {
       control,
@@ -302,7 +301,7 @@ async function quickAddCompanion(body, control) {
       });
     }
   } catch (err) {
-    window.CompanionAdd.showError(`Nie udało się dodać osoby: ${err.message}`);
+    window.CompanionAdd.showError(`Nie udało się dodać osoby: ${err.message}`, pageErrorEl);
   }
 }
 
@@ -537,7 +536,7 @@ document.getElementById('events-list').addEventListener('click', async (e) => {
     const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
     const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
     if (!lastName || !firstName || !categoryId) {
-      window.CompanionAdd.showError('Podaj nazwisko, imię i kategorię nowej osoby.');
+      window.CompanionAdd.showError('Podaj nazwisko, imię i kategorię nowej osoby.', document.getElementById('events-error'));
       return;
     }
     await quickAddNew(openAddPanelEventId, viewerPersonId, ksywka, lastName, firstName, categoryId, addNewBtn);

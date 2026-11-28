@@ -478,6 +478,68 @@ test('a failed quick-add keeps the panel open and reports the error', async () =
   assert.match(harness.elements.get('lw-inline-error')!.textContent, /Nie udało się dodać osoby/);
 });
 
+test('CompanionAdd.showError and clearError use an explicit fallback without hardcoded page selectors', () => {
+  const inlineError = new Element('lw-inline-error');
+  inlineError.hidden = true;
+  const customFallback = new Element('custom-page-error');
+  customFallback.hidden = true;
+  let hasInline = true;
+  const context: any = {
+    window: {},
+    document: {
+      getElementById: (id: string) => (id === 'lw-inline-error' && hasInline ? inlineError : null),
+      querySelector: () => { throw new Error('CompanionAdd must not query hardcoded page selectors'); },
+    },
+    displayName: (person: any) => person.nickname ?? 'Osoba',
+  };
+  vm.runInNewContext(companionAddSource, context);
+
+  // When inline error is present, showError writes to inline only, while clearError clears both.
+  customFallback.textContent = 'Stary błąd strony';
+  customFallback.hidden = false;
+  assert.equal(context.window.CompanionAdd.showError('Błąd formularza', () => customFallback), true);
+  assert.equal(inlineError.textContent, 'Błąd formularza');
+  assert.equal(inlineError.hidden, false);
+  assert.equal(customFallback.textContent, 'Stary błąd strony');
+
+  context.window.CompanionAdd.clearError(() => customFallback);
+  assert.equal(inlineError.textContent, '');
+  assert.equal(inlineError.hidden, true);
+  assert.equal(customFallback.textContent, '');
+  assert.equal(customFallback.hidden, true);
+
+  // When inline error is absent (panel closed), showError falls back and clearError clears the fallback.
+  hasInline = false;
+  assert.equal(context.window.CompanionAdd.showError('Błąd po zamknięciu', customFallback), true);
+  assert.equal(customFallback.textContent, 'Błąd po zamknięciu');
+  assert.equal(customFallback.hidden, false);
+
+  context.window.CompanionAdd.clearError(customFallback);
+  assert.equal(customFallback.textContent, '');
+  assert.equal(customFallback.hidden, true);
+});
+
+test('events list quick-add routes errors to #events-error when inline panel is absent and clears stale page errors', async () => {
+  const harness = createHarness({ withAttachedPerson: true });
+  await harness.signIn();
+  const list = harness.elements.get('events-list')!;
+  await list.clickWith(clickTarget('.lw-add-companion', { eventId: 'e1', ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-existing-select')!.value = 'attached-uuid-1';
+  harness.elements.delete('lw-inline-error');
+  harness.setMutationError(new Error('network'));
+
+  await list.clickWith(clickTarget('.lw-inline-add-existing'));
+
+  const pageError = harness.elements.get('events-error')!;
+  assert.match(pageError.textContent, /Nie udało się dodać osoby/);
+  assert.equal(pageError.hidden, false);
+
+  harness.setMutationResult({ signup: { memberEmail: 'attached-uuid-1', attending: true } });
+  await list.clickWith(clickTarget('.lw-inline-add-existing'));
+  assert.equal(pageError.textContent, '');
+  assert.equal(pageError.hidden, true);
+});
+
 test('toggling to "Jadę" reveals the + and keeps the toggle track', async () => {
   const harness = createHarness({ viewerAttending: false });
   await harness.signIn();

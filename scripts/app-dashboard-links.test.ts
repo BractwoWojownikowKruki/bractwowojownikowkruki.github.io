@@ -17,17 +17,19 @@ const css = readFileSync(new URL('../public/member-area.css', import.meta.url), 
 // evaluate the file and reach its top-level function declarations. lw-friendly-url.js is loaded
 // first (matching the real <script> order in app/index.html) since eventDetailHref() now calls
 // window.LwFriendlyUrl.eventUrl().
-function loadApp(): Record<string, unknown> {
-  const elements = new Map<string, { id: string; hidden: boolean; disabled?: boolean; focusCount: number; focus(): void; addEventListener?: () => void; querySelector?: () => null }>();
+function loadApp(options: { hasInlineError?: boolean; querySelector?: (selector: string) => unknown } = {}): Record<string, unknown> {
+  const elements = new Map<string, { id: string; hidden: boolean; textContent?: string; disabled?: boolean; focusCount: number; focus(): void; addEventListener?: () => void; querySelector?: () => null }>();
+  const hasInlineError = options.hasInlineError ?? true;
   const context: Record<string, unknown> = {
     window: {},
     sessionStorage: { getItem: () => null, removeItem: () => {} },
     document: {
       getElementById: (id: string) => {
-        if (!elements.has(id)) elements.set(id, { id, hidden: false, disabled: false, focusCount: 0, focus() { this.focusCount += 1; }, addEventListener: () => {}, querySelector: () => null });
+        if (id === 'lw-inline-error' && !hasInlineError) return null;
+        if (!elements.has(id)) elements.set(id, { id, hidden: false, textContent: '', disabled: false, focusCount: 0, focus() { this.focusCount += 1; }, addEventListener: () => {}, querySelector: () => null });
         return elements.get(id);
       },
-      querySelector: () => null,
+      querySelector: options.querySelector ?? (() => null),
     },
     CSS: { escape: (value: string) => value },
     initGoogleSignIn: () => {},
@@ -184,4 +186,37 @@ test('the new-galleries widget combines static and member-created galleries', ()
   assert.match(widgetSource, /date: gallery\.date\?\.slice\(0, 10\)/);
   assert.match(widgetSource, /cover: gallery\.coverThumbnailLink/);
   assert.match(widgetSource, /albums\.sort\(\(a, b\) => b\.date\.localeCompare\(a\.date\)\)\.slice\(0, 3\)/);
+});
+
+test('dashboard quick-add routes errors to the dynamic widget error element when inline panel is absent and clears it on retry', async () => {
+  let currentDashError = { textContent: 'Stary błąd widgetu', hidden: false };
+  const context = loadApp({
+    hasInlineError: false,
+    querySelector: (selector: string) => selector === '#app-widget-grid-slot .dashboard-widget-error' ? currentDashError : null,
+  }) as any;
+  let shouldFail = true;
+  context.window.MutationFeedback = createMutationFeedbackMock();
+  context.window.PersonRegistrationPrompt = createPersonRegistrationPromptMock(context.window.MutationFeedback);
+  context.apiFetch = async (url: string) => {
+    if (shouldFail) throw new Error('network');
+    if (url === '/lista-wyjazdowa/events') return { events: [{ id: 'trip-1', attendingCount: 3 }] };
+    return { signup: { attending: true } };
+  };
+  context.renderDashboardWidgets = () => {
+    currentDashError = { textContent: '', hidden: true };
+  };
+  context.refreshDuesPanel = () => {};
+  vm.runInNewContext("dash.events = [{ id: 'trip-1', attendingCount: 2 }]", context);
+
+  // First call clears pre-existing widget error, then fails and reports to the same widget error.
+  await context.quickAddDashCompanion({ eventId: 'trip-1', ownerPersonId: 'owner@example.test', mode: 'new', ksywka: 'Wilk' }, { disabled: false });
+  assert.match(currentDashError.textContent, /Nie udało się dodać osoby: network/);
+  assert.equal(currentDashError.hidden, false);
+
+  // Simulate widget re-render replacing the error element while keeping a stale error on the new node.
+  currentDashError = { textContent: 'Odświeżony błąd', hidden: false };
+  shouldFail = false;
+  await context.quickAddDashCompanion({ eventId: 'trip-1', ownerPersonId: 'owner@example.test', mode: 'existing', personId: 'p1' }, { disabled: false });
+  assert.equal(currentDashError.textContent, '');
+  assert.equal(currentDashError.hidden, true);
 });

@@ -964,47 +964,61 @@ function renderAccountless(persons) {
       ? '<tr><td colspan="7" class="czl-empty">Brak osób dla wybranych filtrów.</td></tr>'
       : '<tr><td colspan="7" class="czl-empty">Brak osób bez konta.</td></tr>';
   } else {
-    const sorted = [...shown].sort((a, b) => {
-      const sortValue = (person) => {
-        const categoryLabel = person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : '—';
-        const weaponsLabel = (person.weaponIds ?? []).map((id) => weaponLabelById.get(id) ?? id).join(', ') || '—';
-        switch (accountlessSortState.key) {
-          case 'name': return surnameSortValue({ ...person, nickname: person.ksywka }) || accountlessDisplayName(person);
-          case 'status': return categoryLabel;
-          case 'weapons': return weaponsLabel;
-          case 'owner': return person.ownerPersonId
-            ? surnameSortValue({ lastName: person.ownerLastName, firstName: person.ownerName, email: person.ownerPersonId })
-            : '—';
-          case 'account': return person.deleted ? 'deaktywowana' : 'bez konta';
-          default: return person.sectionId ? (sectionLabelById.get(person.sectionId) ?? person.sectionId) : '—';
-        }
+    const rows = shown.map((person) => {
+      const displayLabel = accountlessDisplayName(person);
+      const nameSort = surnameSortValue(person) || displayLabel;
+      const categoryLabel = person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : null;
+      const weaponLabel = (person.weaponIds ?? []).map((id) => weaponLabelById.get(id) ?? id).join(', ');
+      const sectionLabel = person.sectionId ? (sectionLabelById.get(person.sectionId) ?? person.sectionId) : null;
+      const ownerSort = person.ownerPersonId
+        ? ((person.ownerLastName || '').trim() || stripEmailDomain(person.ownerName || person.ownerPersonId))
+        : '—';
+      const ownerTie = person.ownerName ?? person.ownerPersonId ?? '';
+      const accountLabel = person.deleted ? 'deaktywowana' : 'bez konta';
+      const primarySort = {
+        name: nameSort,
+        status: categoryLabel ?? '—',
+        weapons: weaponLabel || '—',
+        owner: ownerSort,
+        account: accountLabel,
+      }[accountlessSortState.key] ?? (sectionLabel ?? '—');
+      return {
+        person,
+        displayLabel,
+        nameSort,
+        categoryLabel,
+        weaponLabel,
+        sectionLabel,
+        ownerTie,
+        accountLabel,
+        primarySort,
       };
-      const cmp = compareValues(sortValue(a), sortValue(b), accountlessSortState.dir);
+    });
+    const sorted = rows.sort((a, b) => {
+      const cmp = compareValues(a.primarySort, b.primarySort, accountlessSortState.dir);
       if (cmp !== 0) return cmp;
       if (accountlessSortState.key === 'owner') {
-        const ownerNameCmp = compareValues(a.ownerName ?? a.ownerPersonId ?? '', b.ownerName ?? b.ownerPersonId ?? '', 'asc');
+        const ownerNameCmp = compareValues(a.ownerTie, b.ownerTie, 'asc');
         if (ownerNameCmp !== 0) return ownerNameCmp;
       }
-      const nameCmp = compareValues(surnameSortValue({ ...a, nickname: a.ksywka }), surnameSortValue({ ...b, nickname: b.ksywka }), 'asc')
-        || compareValues(accountlessDisplayName(a), accountlessDisplayName(b), 'asc');
-      return nameCmp || compareValues(a.personId, b.personId, 'asc');
+      return compareValues(a.nameSort, b.nameSort, 'asc')
+        || compareValues(a.displayLabel, b.displayLabel, 'asc')
+        || compareValues(a.person.personId, b.person.personId, 'asc');
     });
-    rowsHtml = sorted.map((person) => {
-      const categoryLabel = person.categoryId ? (categoryLabelById.get(person.categoryId) ?? person.categoryId) : null;
-      const namePill = personPillHtml({ name: accountlessDisplayName(person), categoryId: person.categoryId, categoryLabel, accountless: true, subline: personSubline(person) });
+    rowsHtml = sorted.map(({ person, displayLabel, categoryLabel, weaponLabel, sectionLabel, accountLabel }) => {
+      const namePill = personPillHtml({ name: displayLabel, categoryId: person.categoryId, categoryLabel, accountless: true, subline: personSubline(person) });
       // A deactivated person's drawer 404s, so their pill is plain text; an active one opens it.
       const nameCell = person.deleted
         ? namePill
         : `<button type="button" class="profile-trigger" data-profile-trigger data-person-id="${escapeAttr(person.personId)}">${namePill}</button>`;
-      const weaponLabel = (person.weaponIds ?? []).map((id) => weaponLabelById.get(id) ?? id).join(', ');
       return `
     <tr data-person-id="${escapeAttr(person.personId)}" data-section="${escapeAttr(person.sectionId ?? '')}">
-      <td class="czl-section-cell" title="${escapeAttr(sectionLabelById.get(person.sectionId) ?? 'Brak sekcji')}">${person.sectionId ? escapeHtml(sectionAbbr(person.sectionId)) : '—'}</td>
+      <td class="czl-section-cell" title="${escapeAttr(sectionLabel ?? 'Brak sekcji')}">${person.sectionId ? escapeHtml(sectionAbbr(person.sectionId)) : '—'}</td>
       <td>${nameCell}</td>
       <td>${escapeHtml(categoryLabel ?? '—')}</td>
       <td>${weaponLabel ? escapeHtml(weaponLabel) : '—'}</td>
       <td>${person.ownerPersonId ? escapeHtml(person.ownerName ?? person.ownerPersonId) : '—'}</td>
-      <td>${person.deleted ? 'deaktywowana' : 'bez konta'}</td>
+      <td>${accountLabel}</td>
       <td>${accountlessActionsHtml(person)}</td>
     </tr>`;
     }).join('');

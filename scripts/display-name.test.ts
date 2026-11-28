@@ -26,6 +26,14 @@ test('displayName strips the domain off whichever field wins, including a name f
   assert.equal(displayName({ nickname: null, firstName: '', lastName: '', email: undefined }), '', 'must not throw when even email is missing');
 });
 
+test('displayName supports accountless ksywka after nickname and strips email domains from ksywka', () => {
+  const { displayName } = loadHelper();
+  assert.equal(displayName({ nickname: 'Wilk', ksywka: 'Lis', firstName: 'Jan', lastName: 'Kowalski', email: 'jan@x.pl' }), 'Wilk');
+  assert.equal(displayName({ nickname: null, ksywka: 'Lis', firstName: 'Jan', lastName: 'Kowalski' }), 'Lis');
+  assert.equal(displayName({ ksywka: 'lis@example.com', firstName: 'Jan', lastName: 'Kowalski' }), 'lis');
+  assert.equal(displayName({ ksywka: '', firstName: 'Jan', lastName: 'Kowalski' }), 'Jan');
+});
+
 test('personSubline renders "Nazwisko, Imię" when both are set, falls back to lastName alone, or null', () => {
   const { personSubline } = loadHelper();
   assert.equal(personSubline({ lastName: 'Kowalski', firstName: 'Jan' }), 'Kowalski, Jan');

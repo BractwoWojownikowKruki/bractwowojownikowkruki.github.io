@@ -389,8 +389,12 @@ async function refreshDuesPanel() {
   }
 }
 
+function dashboardErrorEl() {
+  return document.querySelector('#app-widget-grid-slot .dashboard-widget-error');
+}
+
 function showDashboardError(message) {
-  const el = document.querySelector('#app-widget-grid-slot .dashboard-widget-error');
+  const el = dashboardErrorEl();
   if (!el) return;
   el.textContent = message;
   el.hidden = !message;
@@ -463,8 +467,7 @@ async function setDashAttending(eventId, nextAttending, control) {
 }
 
 async function quickAddDashCompanion(body, control) {
-  window.CompanionAdd.clearError();
-  showDashboardError('');
+  window.CompanionAdd.clearError(dashboardErrorEl);
   if (body.mode === 'existing') control.disabled = true;
   try {
     const mutationOptions = {
@@ -502,7 +505,7 @@ async function quickAddDashCompanion(body, control) {
       });
     }
   } catch (err) {
-    window.CompanionAdd.showError(`Nie udało się dodać osoby: ${err.message}`);
+    window.CompanionAdd.showError(`Nie udało się dodać osoby: ${err.message}`, dashboardErrorEl);
   } finally {
     if (body.mode === 'existing') control.disabled = false;
   }
@@ -575,7 +578,7 @@ function bindDashboardWidgetEvents() {
       const firstName = document.getElementById('lw-inline-new-first-name')?.value.trim() ?? '';
       const categoryId = document.getElementById('lw-inline-new-category')?.value ?? '';
       if (!lastName || !firstName || !categoryId) {
-        window.CompanionAdd.showError('Podaj nazwisko, imię i kategorię nowej osoby.');
+        window.CompanionAdd.showError('Podaj nazwisko, imię i kategorię nowej osoby.', dashboardErrorEl);
         return;
       }
       await quickAddDashCompanion(
