@@ -465,13 +465,11 @@ async function setDashAttending(eventId, nextAttending, control) {
 async function quickAddDashCompanion(body, control) {
   window.CompanionAdd.clearError();
   showDashboardError('');
-  control.disabled = true;
+  if (body.mode === 'existing') control.disabled = true;
   try {
-    await window.PersonRegistrationPrompt.confirmed({
+    const mutationOptions = {
       control,
       fallbackAnchor: dashEventAnchor(body.eventId),
-      busyMessage: body.mode === 'new' ? undefined : null,
-      fallbackFocus: () => document.getElementById(body.mode === 'new' ? 'lw-inline-new-name' : 'lw-inline-existing-select'),
       execute: (duplicateConfirmed) => apiFetch(
         '/lista-wyjazdowa/signups/quick-add',
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(duplicateConfirmed ? { ...body, duplicateConfirmed: true } : body) },
@@ -486,16 +484,27 @@ async function quickAddDashCompanion(body, control) {
       focusAfterApply: () => dashEventAnchor(body.eventId)(),
       viewRoot: panels.panel,
       refreshFragment: reloadDashboardEvents,
-      successDetails: (result) => body.mode === 'new' ? {
-        person: result?.person,
-        statusLabel: dash.categories.find((category) => category.id === result?.person?.categoryId)?.label,
-        sectionLabel: dash.sections.find((section) => section.id === result?.person?.sectionId)?.label,
-      } : null,
-    });
+    };
+    if (body.mode === 'new') {
+      await window.PersonRegistrationPrompt.confirmed({
+        ...mutationOptions,
+        fallbackFocus: () => document.getElementById('lw-inline-new-name'),
+        successDetails: (result) => ({
+          person: result?.person,
+          statusLabel: dash.categories.find((category) => category.id === result?.person?.categoryId)?.label,
+          sectionLabel: dash.sections.find((section) => section.id === result?.person?.sectionId)?.label,
+        }),
+      });
+    } else {
+      await window.MutationFeedback.confirmed({
+        ...mutationOptions,
+        execute: () => mutationOptions.execute(false),
+      });
+    }
   } catch (err) {
     window.CompanionAdd.showError(`Nie udało się dodać osoby: ${err.message}`);
   } finally {
-    control.disabled = false;
+    if (body.mode === 'existing') control.disabled = false;
   }
 }
 

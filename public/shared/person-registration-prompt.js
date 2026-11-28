@@ -24,12 +24,68 @@
     </li>`;
   }
 
+  function isUsableFocusTarget(target) {
+    if (!target || target.isConnected === false || target.disabled || target.hidden || target.type === 'hidden') return false;
+    return !target.closest?.('[hidden], [inert], [aria-hidden="true"]');
+  }
+
+  function resolveFocusTarget(...candidates) {
+    for (const candidate of candidates) {
+      let target;
+      try {
+        target = typeof candidate === 'function' ? candidate() : candidate;
+      } catch (_) {
+        continue;
+      }
+      if (isUsableFocusTarget(target)) return target;
+    }
+    return null;
+  }
+
+  function restoreFocus(target) {
+    if (!isUsableFocusTarget(target)) return;
+    try {
+      target.focus({ preventScroll: true });
+    } catch (_) {
+      // Focus is best-effort after the view has changed.
+    }
+  }
+
+  function manageDialog(dialog, returnFocus, closeValue, onFinish, configure, afterOpen) {
+    let finished = false;
+    const finish = (value) => {
+      if (finished) return;
+      finished = true;
+      if (dialog.open) dialog.close();
+      dialog.remove();
+      restoreFocus(returnFocus);
+      onFinish?.(value);
+      return value;
+    };
+    dialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      finish(closeValue);
+    }, { once: true });
+    dialog.addEventListener('close', () => finish(closeValue), { once: true });
+    configure?.(finish);
+    try {
+      document.body.append(dialog);
+      dialog.showModal();
+      afterOpen?.();
+    } catch (error) {
+      finished = true;
+      if (dialog.open) {
+        try { dialog.close(); } catch (_) { /* Removing the dialog still clears the appended node. */ }
+      }
+      dialog.remove();
+      throw error;
+    }
+    return finish;
+  }
+
   function show(matches, fallbackFocus) {
     const activeElement = document.activeElement;
-    const fallbackTarget = typeof fallbackFocus === 'function' ? fallbackFocus() : fallbackFocus;
-    const returnFocus = activeElement && activeElement !== document.body && activeElement.isConnected && !activeElement.disabled
-      ? activeElement
-      : fallbackTarget;
+    const returnFocus = resolveFocusTarget(activeElement !== document.body ? activeElement : null, fallbackFocus);
     const dialog = document.createElement('dialog');
     const titleId = `person-registration-title-${++dialogSequence}`;
     const descriptionId = `person-registration-description-${dialogSequence}`;
@@ -46,26 +102,15 @@
           <button type="button" class="person-registration-dialog__cancel">Anuluj</button>
         </div>
       </div>`;
-    document.body.append(dialog);
-    return new Promise((resolve) => {
-      let finished = false;
-      const finish = (confirmed) => {
-        if (finished) return;
-        finished = true;
-        if (dialog.open) dialog.close();
-        dialog.remove();
-        if (returnFocus?.isConnected) returnFocus.focus();
-        resolve(confirmed);
-      };
-      dialog.querySelector('.person-registration-dialog__confirm').addEventListener('click', () => finish(true));
-      dialog.querySelector('.person-registration-dialog__cancel').addEventListener('click', () => finish(false));
-      dialog.addEventListener('cancel', (event) => {
-        event.preventDefault();
-        finish(false);
-      }, { once: true });
-      dialog.addEventListener('close', () => finish(false), { once: true });
-      dialog.showModal();
-      dialog.querySelector('.person-registration-dialog__cancel').focus();
+    return new Promise((resolve, reject) => {
+      try {
+        manageDialog(dialog, returnFocus, false, resolve, (finish) => {
+          dialog.querySelector('.person-registration-dialog__confirm').addEventListener('click', () => finish(true));
+          dialog.querySelector('.person-registration-dialog__cancel').addEventListener('click', () => finish(false));
+        }, () => dialog.querySelector('.person-registration-dialog__cancel').focus());
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 
@@ -88,7 +133,7 @@
     return result === CANCELLED || result === IN_FLIGHT;
   }
 
-  function showSuccess(details, fallbackFocus) {
+  function showSuccess(details, preferredFocus, fallbackFocus) {
     const person = details?.person;
     if (!person) return Promise.resolve();
     const fullName = `${person.firstName ?? ''} ${person.lastName ?? ''}`.trim();
@@ -102,10 +147,11 @@
       section ? `<p><strong>Sekcja:</strong> ${escapeHtml(section)}</p>` : '',
     ].filter(Boolean).join('');
     const activeElement = document.activeElement;
-    const fallbackTarget = typeof fallbackFocus === 'function' ? fallbackFocus() : fallbackFocus;
-    const returnFocus = activeElement && activeElement !== document.body && activeElement.isConnected
-      ? activeElement
-      : fallbackTarget;
+    const returnFocus = resolveFocusTarget(
+      preferredFocus,
+      fallbackFocus,
+      activeElement !== document.body ? activeElement : null,
+    );
     const dialog = document.createElement('dialog');
     const sequence = ++dialogSequence;
     dialog.className = 'person-registration-success-dialog';
@@ -116,22 +162,15 @@
       <div id="person-registration-success-details-${sequence}" class="person-registration-success-dialog__details">${rows}</div>
       <button type="button" class="person-registration-success-dialog__done">Gotowe</button>
     </div>`;
-    document.body.append(dialog);
-    return new Promise((resolve) => {
-      let finished = false;
-      const finish = () => {
-        if (finished) return;
-        finished = true;
-        if (dialog.open) dialog.close();
-        dialog.remove();
-        if (returnFocus?.isConnected && !returnFocus.disabled) returnFocus.focus();
-        resolve();
-      };
-      dialog.querySelector('.person-registration-success-dialog__done').addEventListener('click', finish);
-      dialog.addEventListener('cancel', () => finish(), { once: true });
-      dialog.addEventListener('close', finish, { once: true });
-      dialog.showModal();
-      dialog.querySelector('.person-registration-success-dialog__done').focus();
+    return new Promise((resolve, reject) => {
+      try {
+        manageDialog(dialog, returnFocus, undefined, resolve, (finish) => {
+          dialog.querySelector('.person-registration-success-dialog__done').addEventListener('click', () => finish(undefined));
+        }, () => dialog.querySelector('.person-registration-success-dialog__done').focus());
+      } catch (error) {
+        reject(error);
+        return;
+      }
     });
   }
 
@@ -140,7 +179,7 @@
    * owns a blocking busy overlay; duplicate matches suspend it while the informational prompt is
    * open, and successful creation keeps it until the caller has refreshed its view.
    */
-  async function confirmed({ execute, fallbackFocus, successDetails, busyMessage = BUSY_MESSAGE, apply, skipApplyWhen, ...feedbackOptions }) {
+  async function confirmed({ execute, fallbackFocus, successDetails, apply, skipApplyWhen, ...feedbackOptions }) {
     const control = feedbackOptions.control;
     if (control && inFlightControls.has(control)) return IN_FLIGHT;
     if (control) inFlightControls.add(control);
@@ -154,12 +193,11 @@
       if (control) control.disabled = originalDisabled;
     };
     const focusFallback = () => {
-      const target = typeof fallbackFocus === 'function' ? fallbackFocus() : fallbackFocus;
-      if (target?.isConnected && !target.disabled) target.focus();
+      restoreFocus(resolveFocusTarget(fallbackFocus));
     };
     const executeAttempt = async (duplicateConfirmed) => {
       if (control) control.disabled = true;
-      hideBusy ??= busyMessage ? window.MutationFeedback.showBusy(busyMessage) : () => {};
+      hideBusy ??= window.MutationFeedback.showBusy(BUSY_MESSAGE);
       try {
         return await execute(duplicateConfirmed);
       } catch (error) {
@@ -168,9 +206,24 @@
         throw error;
       }
     };
+    let focusAfterApplyTarget;
+    let focusAfterApplyResolved = false;
+    const originalFocusAfterApply = feedbackOptions.focusAfterApply;
+    const deferFocusUntilSuccessCloses = typeof successDetails === 'function';
+    let skippedByCaller = false;
     try {
       const result = await window.MutationFeedback.confirmed({
         ...feedbackOptions,
+        focusAfterApply: deferFocusUntilSuccessCloses ? async (value) => {
+          try {
+            focusAfterApplyTarget = await originalFocusAfterApply?.(value);
+          } catch (_) {
+            focusAfterApplyTarget = null;
+          } finally {
+            focusAfterApplyResolved = true;
+          }
+          return null;
+        } : originalFocusAfterApply,
         execute: async () => {
           try {
             const result = await run(executeAttempt, { fallbackFocus });
@@ -193,15 +246,29 @@
             releaseBusy();
           }
         },
-        skipApplyWhen: (result) => wasCancelled(result) || skipApplyWhen?.(result),
+        skipApplyWhen: (result) => {
+          if (wasCancelled(result)) return true;
+          skippedByCaller = Boolean(skipApplyWhen?.(result));
+          return skippedByCaller;
+        },
       });
-      if (!wasCancelled(result) && successDetails) {
-        const details = await successDetails(result);
-        const successFocus = feedbackOptions.focusAfterApply?.(result) ?? fallbackFocus;
+      if (!wasCancelled(result) && !skippedByCaller && deferFocusUntilSuccessCloses) {
+        let successFocus = focusAfterApplyTarget;
+        if (!focusAfterApplyResolved) {
+          try {
+            successFocus = await originalFocusAfterApply?.(result);
+          } catch (_) {
+            successFocus = null;
+          }
+        }
+        const returnFocus = resolveFocusTarget(successFocus, fallbackFocus);
         try {
-          await showSuccess(details, successFocus);
+          const details = await successDetails(result);
+          if (details?.person) await showSuccess(details, returnFocus, fallbackFocus);
+          else restoreFocus(returnFocus);
         } catch (_) {
           window.MutationFeedback.showToast('Osoba została zarejestrowana w apce');
+          restoreFocus(resolveFocusTarget(returnFocus, fallbackFocus));
         }
       }
       return result;

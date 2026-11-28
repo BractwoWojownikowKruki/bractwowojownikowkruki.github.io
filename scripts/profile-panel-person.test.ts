@@ -3,6 +3,24 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const panel = readFileSync(new URL('../public/shared/profile-panel.js', import.meta.url), 'utf8');
+const profilePage = readFileSync(new URL('../public/profil/profil.js', import.meta.url), 'utf8');
+const equipmentViews = [
+  { source: readFileSync(new URL('../public/sprzet-obozowy/sprzet-obozowy.js', import.meta.url), 'utf8'), ownerMap: 'personById' },
+  { source: profilePage, ownerMap: 'equipmentOwnerById' },
+  { source: readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8'), ownerMap: 'personById' },
+];
+
+test('the profile page renders companion categories through the shared helper directly', () => {
+  assert.doesNotMatch(profilePage, /function personCategoryOptionsHtml/);
+  assert.match(profilePage, /window\.CompanionAdd\.categoryOptionsHtml\(personLookupLists\.categories, person\?\.categoryId \?\? null\)/);
+});
+
+test('all equipment drawer callers pass person ID and accountless state to the shared target resolver', () => {
+  for (const { source, ownerMap } of equipmentViews) {
+    assert.match(source, new RegExp(`const owner = ${ownerMap}\\.get\\(item\\.belongsToPersonId\\)`));
+    assert.match(source, /auditPersonId: item\.belongsToPersonId,\s+auditIsAccountless: owner\?\.accountless === true/);
+  }
+});
 
 test('the profile drawer opens a person without an account through the person-keyed endpoint', () => {
   assert.match(panel, /async function openPerson\(personId, name = '', folderId = ''\)/);
@@ -25,7 +43,9 @@ test('the profile drawer shows who an accountless person is a companion of', () 
 
 test('account history is rendered only when the backend supplies the staff capability', () => {
   assert.match(panel, /accountAuditHtml\(Boolean\(profile\.accountless \? profile\.canViewAccountAudit : profile\.editor\?\.canEditIdentity\)\)/);
-  assert.match(panel, /accountAuditHtml\(Boolean\(view\.canViewAccountAudit && \(view\.auditTarget \|\| view\.auditEmail\)\)\)/);
+  assert.match(panel, /accountAuditHtml\(Boolean\(view\.canViewAccountAudit && equipmentAuditTarget\(view\)\)\)/);
+  assert.match(panel, /resetAccountAuditTarget\(equipmentAuditTarget\(view\)\)/);
+  assert.doesNotMatch(panel, /view\.auditEmail/);
   assert.match(panel, /data-account-audit-toggle>Historia konta/);
   assert.match(panel, /data-account-audit-more>Pokaż starsze zdarzenia/);
   assert.match(panel, /\/admin\/members\/account-audit/);

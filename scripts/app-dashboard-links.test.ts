@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
+import { createMutationFeedbackMock, createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const appSource = readFileSync(new URL('../public/app/app.js', import.meta.url), 'utf8');
 const companionAddSource = readFileSync(new URL('../public/shared/companion-add.js', import.meta.url), 'utf8');
@@ -44,26 +45,8 @@ test('dashboard companion registration confirms duplicates and refreshes the sig
   const context = loadApp() as any;
   const requests: Array<Record<string, unknown>> = [];
   let applied = 0;
-  context.window.MutationFeedback = {
-    confirmed: async ({ execute, apply, skipApplyWhen }: any) => {
-      const result = await execute();
-      if (!skipApplyWhen(result)) await apply(result);
-    },
-  };
-  context.window.PersonRegistrationPrompt = {
-    run: async (execute: (confirmed: boolean) => Promise<unknown>) => {
-      try { return await execute(false); } catch (error: any) {
-        if (!Array.isArray(error?.duplicateMatches)) throw error;
-        return execute(true);
-      }
-    },
-    wasCancelled: () => false,
-    confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
-      ...options,
-      execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
-      skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result),
-    }),
-  };
+  context.window.MutationFeedback = createMutationFeedbackMock();
+  context.window.PersonRegistrationPrompt = createPersonRegistrationPromptMock(context.window.MutationFeedback);
   context.apiFetch = async (_url: string, init: Record<string, unknown>) => {
     if (_url === '/lista-wyjazdowa/events') {
       return { events: [{ id: 'trip-1', attendingCount: 3, viewerCompanions: [{ firstName: 'Anna', nickname: 'Wilk' }] }] };
@@ -89,28 +72,8 @@ test('dashboard companion duplicate cancellation keeps the panel and focuses its
   const requests: Array<Record<string, unknown>> = [];
   const control = { disabled: false };
   let applied = 0;
-  const cancelled = Object.freeze({ cancelled: true });
-  context.window.MutationFeedback = {
-    confirmed: async ({ execute, apply, skipApplyWhen }: any) => {
-      const result = await execute();
-      if (!skipApplyWhen(result)) apply(result);
-    },
-  };
-  context.window.PersonRegistrationPrompt = {
-    run: async (execute: (confirmed: boolean) => Promise<unknown>, options: { fallbackFocus?: () => any } = {}) => {
-      try { return await execute(false); } catch (error: any) {
-        if (!Array.isArray(error?.duplicateMatches)) throw error;
-        options.fallbackFocus?.()?.focus();
-        return cancelled;
-      }
-    },
-    wasCancelled: (result: unknown) => result === cancelled,
-    confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
-      ...options,
-      execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
-      skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result),
-    }),
-  };
+  context.window.MutationFeedback = createMutationFeedbackMock();
+  context.window.PersonRegistrationPrompt = createPersonRegistrationPromptMock(context.window.MutationFeedback, { shouldCancelDuplicate: () => true });
   context.apiFetch = async (_url: string, init: Record<string, unknown>) => {
     requests.push(init);
     throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ nickname: 'Wilk' }] });
@@ -124,6 +87,41 @@ test('dashboard companion duplicate cancellation keeps the panel and focuses its
   assert.equal(requests.length, 1);
   assert.equal(applied, 0);
   assert.equal(context.document.getElementById('lw-inline-new-name').focusCount, 1);
+  assert.equal(control.disabled, false);
+});
+
+test('dashboard adding an existing person uses mutation feedback and locks its control through the request', async () => {
+  const context = loadApp() as any;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const control = { disabled: false };
+  let promptCalls = 0;
+  const feedbackOptions: any[] = [];
+  context.window.MutationFeedback = createMutationFeedbackMock();
+  const confirmed = context.window.MutationFeedback.confirmed;
+  context.window.MutationFeedback.confirmed = async (options: any) => {
+    feedbackOptions.push(options);
+    return confirmed(options);
+  };
+  context.window.PersonRegistrationPrompt = {
+    confirmed: async () => { promptCalls += 1; },
+  };
+  context.apiFetch = async (url: string) => {
+    if (url === '/lista-wyjazdowa/events') return { events: [{ id: 'trip-1', attendingCount: 3 }] };
+    await gate;
+    return { signup: { attending: true } };
+  };
+  context.renderDashboardWidgets = () => {};
+  context.refreshDuesPanel = () => {};
+  vm.runInNewContext("dash.events = [{ id: 'trip-1', attendingCount: 2 }]", context);
+
+  const pending = context.quickAddDashCompanion({ eventId: 'trip-1', ownerPersonId: 'owner', mode: 'existing', personId: 'person-1' }, control);
+  await Promise.resolve();
+  assert.equal(control.disabled, true);
+  assert.equal(promptCalls, 0);
+  assert.equal(feedbackOptions.length, 1);
+  release();
+  await pending;
   assert.equal(control.disabled, false);
 });
 

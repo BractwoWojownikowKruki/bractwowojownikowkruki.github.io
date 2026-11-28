@@ -643,6 +643,9 @@ test('a member owner pill carries data-folder-id so the profile drawer can show 
   try {
     await harness.signIn();
     assert.match(harness.elements.get('equipment-private-table-body')!.innerHTML, /data-email="ala@example.com" data-folder-id="folder-ala"/);
+    const view = (harness.context.equipmentPanelView as (item: Record<string, unknown>) => Record<string, unknown>)(privateItem);
+    assert.equal(view.auditPersonId, 'ala@example.com');
+    assert.equal(view.auditIsAccountless, false);
   } finally {
     privateItem.belongsToPersonId = 'person-uuid-1';
   }
@@ -668,6 +671,8 @@ test('the Opis cell is a pill; clicking it opens the shared drawer with photos, 
     assert.equal(view.categoryLabel, 'Namiot');
     assert.equal(view.groupLabel, 'Budowle');
     assert.equal(view.sectionId, 'warszawa');
+    assert.equal(view.auditPersonId, 'person-uuid-1');
+    assert.equal(view.auditIsAccountless, true);
     assert.match(view.ownerHtml, /data-profile-trigger/);
     assert.equal(typeof view.onEdit, 'function');
   } finally {

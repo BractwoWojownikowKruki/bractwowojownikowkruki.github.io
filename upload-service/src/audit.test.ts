@@ -285,10 +285,13 @@ import {
   normalizeSearchTerm,
   projectAuditEvent,
   queryAuditEvents,
+  queryAccountAuditEvents,
   reconcileExternalOperation,
   startExternalOperation,
+  type CanonicalAuditEvent,
   type AuditViewer,
 } from './audit.ts';
+import type { FirestoreLikeClient, FirestoreQuery } from './firestore.ts';
 
 test('normalizeSearchTerm folds Polish diacritics and rejects multi-word input', () => {
   assert.equal(normalizeSearchTerm('Wolin'), 'wolin');
@@ -354,6 +357,99 @@ test('queryAuditEvents caps at 100 rows and paginates with a stable cursor', asy
   // a limit above the 100-row cap is silently clamped, never rejected
   const clamped = await queryAuditEvents(firestore, { selector: { kind: 'none' }, limit: 10_000 }, admin);
   assert.equal(clamped.rows.length, 5);
+});
+
+test('queryAccountAuditEvents accepts its dedicated reference contract and reads exact person history', async () => {
+  const firestore = createInMemoryFirestoreClient();
+  await executeAuditedFirestoreMutation(
+    firestore,
+    {
+      action: 'person.updated',
+      actor: { email: 'staff@example.test' },
+      resource: { kind: 'person', key: 'person:person-42', display: 'Antek' },
+      changes: [{ field: 'nickname', before: 'Antoś', after: 'Antek' }],
+    },
+    async () => {},
+    { createId: () => 'person-history', now: () => new Date('2026-01-02T00:00:00.000Z') },
+  );
+  const admin: AuditViewer = { scope: 'admin', isAdmin: true, isAccountant: false, isHovding: false };
+  const page = await queryAccountAuditEvents(firestore, { reference: 'person-42', referenceKind: 'personId' }, admin);
+  assert.deepEqual(page.rows.map((row) => row.id), ['person-history']);
+  assert.equal(page.nextCursor, undefined);
+});
+
+test('queryAccountAuditEvents caps merged stream reads and resumes both cursors without skipping matches', async () => {
+  const reference = 'maja@example.test';
+  const target = { scope: 'admin', isAdmin: true, isAccountant: false, isHovding: false } satisfies AuditViewer;
+  const makeEvent = (id: string, timestamp: string, resource: CanonicalAuditEvent['resource'], action: string, actorEmail: string, changes: CanonicalAuditEvent['changes'], searchable = false): CanonicalAuditEvent => ({
+    id,
+    schemaVersion: 1,
+    timestamp,
+    actor: { email: actorEmail },
+    category: 'membership',
+    action: action as CanonicalAuditEvent['action'],
+    audience: 'adminOrHovding',
+    resource,
+    changes,
+    value: id,
+    searchTokens: searchable ? [reference.slice(0, 4)] : [],
+  });
+  const docs = [
+    ...Array.from({ length: 501 }, (_, index) => ({
+      id: `member-${String(index).padStart(3, '0')}`,
+      data: makeEvent(
+        `member-${String(index).padStart(3, '0')}`,
+        new Date(Date.UTC(2026, 0, 1, 0, 0, 0) - index * 1000).toISOString(),
+        { kind: 'member', key: `member:${reference}`, display: 'Maja' },
+        'session.created',
+        'staff@example.test',
+        [],
+      ),
+    })),
+    { id: 'member-match', data: makeEvent('member-match', '2025-12-31T23:51:39.000Z', { kind: 'member', key: `member:${reference}`, display: 'Maja' }, 'role.changed', 'staff@example.test', []) },
+    ...Array.from({ length: 501 }, (_, index) => ({
+      id: `related-${String(index).padStart(3, '0')}`,
+      data: makeEvent(
+        `related-${String(index).padStart(3, '0')}`,
+        new Date(Date.UTC(2026, 0, 1, 0, 0, 0) - (index + 0.5) * 1000).toISOString(),
+        { kind: 'person', key: `person:other-${index}`, display: `Maja powiązana ${index}` },
+        'person.created',
+        'staff@example.test',
+        [{ field: 'ownerPersonId', after: 'unrelated-person' } as CanonicalAuditEvent['changes'][number]],
+        true,
+      ),
+    })),
+    { id: 'related-match', data: makeEvent('related-match', '2025-12-31T23:51:38.500Z', { kind: 'person', key: 'person:related-match', display: 'Maja' }, 'person.created', 'staff@example.test', [{ field: 'accountEmail', after: reference } as CanonicalAuditEvent['changes'][number]], true) },
+  ];
+  let reads = 0;
+  const firestore = {
+    async queryDocs<T>(_collection: string, query: FirestoreQuery) {
+      const filtered = docs.filter(({ data }) => {
+        if (!query.filter) return true;
+        if (query.filter.field === 'resource.key') return data.resource.key === query.filter.value;
+        return data.searchTokens.includes(query.filter.value);
+      }).sort((a, b) => a.data.timestamp === b.data.timestamp
+        ? b.id.localeCompare(a.id)
+        : b.data.timestamp.localeCompare(a.data.timestamp));
+      const after = query.startAfter
+        ? filtered.filter(({ id, data }) => data.timestamp < query.startAfter!.timestamp || (data.timestamp === query.startAfter!.timestamp && id < query.startAfter!.id))
+        : filtered;
+      const page = after.slice(0, query.limit);
+      reads += page.length;
+      return page as Array<{ id: string; data: T }>;
+    },
+  } as unknown as FirestoreLikeClient;
+
+  const firstPage = await queryAccountAuditEvents(firestore, { reference, referenceKind: 'email', limit: 2 }, target);
+  assert.deepEqual(firstPage.rows, []);
+  assert.equal(reads, 1000, 'the two concurrent streams share the 1000-read cap');
+  assert.ok(firstPage.nextCursor);
+
+  reads = 0;
+  const secondPage = await queryAccountAuditEvents(firestore, { reference, referenceKind: 'email', limit: 2, cursor: firstPage.nextCursor }, target);
+  assert.deepEqual(secondPage.rows.map(({ id }) => id), ['member-match', 'related-match']);
+  assert.equal(secondPage.nextCursor, undefined);
+  assert.equal(reads, 5, 'the cursor resumes from consumed rows, rereading one prefetched but unconsumed candidate without skipping it');
 });
 
 /**

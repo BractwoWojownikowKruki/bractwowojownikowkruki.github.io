@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { createMutationFeedbackMock, createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const profilSource = readFileSync(new URL('../public/profil/profil.js', import.meta.url), 'utf8');
 
@@ -17,15 +18,12 @@ function loadProfil(apiFetch: () => Promise<unknown> = async () => { throw new E
         if (!elements.has(id)) elements.set(id, { hidden: true, innerHTML: '', textContent: '', value: '', dataset: {}, addEventListener() {}, lastName: { value: 'Kowalski' }, firstName: { value: 'Jan' } });
         return elements.get(id)!;
       },
+      querySelector: () => null,
     },
-    // MutationFeedback.confirmed rethrows the original error (public/mutation-feedback.js), so a plain pass-through is faithful here.
     window: {
-      MutationFeedback: {
-        showBusy: () => () => {},
-        confirmed: async ({ execute }: { execute: () => Promise<unknown> }) => execute(),
-      },
-      PersonRegistrationPrompt: { run: async (execute: (confirmed: boolean) => Promise<unknown>) => execute(false), wasCancelled: () => false },
+      MutationFeedback: createMutationFeedbackMock(),
     },
+    CSS: { escape: (value: string) => value },
     apiFetch,
     initGoogleSignIn: () => {},
     Cropper: class {},
@@ -33,18 +31,8 @@ function loadProfil(apiFetch: () => Promise<unknown> = async () => { throw new E
     URLSearchParams, Map, Array, JSON, Date, encodeURIComponent,
   };
   vm.runInNewContext(profilSource, context, { filename: 'profil.js' });
-  attachConfirmedRegistration(context);
+  (context.window as any).PersonRegistrationPrompt = createPersonRegistrationPromptMock((context.window as any).MutationFeedback);
   return { context, elements };
-}
-
-function attachConfirmedRegistration(context: Record<string, any>): void {
-  const window = context.window;
-  const prompt = window.PersonRegistrationPrompt;
-  prompt.confirmed = (options: any) => window.MutationFeedback.confirmed({
-    ...options,
-    execute: () => prompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
-    skipApplyWhen: (result: unknown) => prompt.wasCancelled(result),
-  });
 }
 
 // KRKG-127: a member's photo upload died with the raw browser text "Błąd: Failed to fetch" when the
@@ -93,23 +81,14 @@ test('uploadSelectedPhotos keeps the server message for HTTP errors', async () =
 
 test('profile person registration retries with duplicateConfirmed after explicit confirmation', async () => {
   const requests: Array<Record<string, unknown>> = [];
-  const { context } = loadProfil(async (_url?: string, init?: Record<string, unknown>) => {
+  const { context } = loadProfil(async (url?: string, init?: Record<string, unknown>) => {
+    if (url === '/lista-wyjazdowa/roster') return { roster: [] };
     requests.push(init ?? {});
     if (requests.length === 1) {
       throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Anna', lastName: 'Nowak' }] });
     }
     return { person: { personId: 'new-person' } };
   });
-  (context as any).window.PersonRegistrationPrompt = {
-    run: async (execute: (confirmed: boolean) => Promise<unknown>) => {
-      try { return await execute(false); } catch (error: any) {
-        if (!Array.isArray(error?.duplicateMatches)) throw error;
-        return execute(true);
-      }
-    },
-    wasCancelled: () => false,
-  };
-  attachConfirmedRegistration(context);
   vm.runInContext("viewerEmail = 'owner@example.test'", context);
   await (context.createPerson as (fields: Record<string, string>, control: unknown) => Promise<void>)(
     { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' },
@@ -117,7 +96,34 @@ test('profile person registration retries with duplicateConfirmed after explicit
   );
   assert.equal(requests.length, 2);
   assert.equal(JSON.parse(String(requests[1].body)).duplicateConfirmed, true);
-  assert.equal((context as any).document.getElementById('persons-error').hidden, true);
+  assert.equal((context as any).document.getElementById('persons-error').hidden, true, (context as any).document.getElementById('persons-error').textContent);
+});
+
+test('profile registration keeps selected category and section values and focuses the refreshed row', async () => {
+  let postedBody = '';
+  const { context } = loadProfil(async (url?: string, init?: Record<string, unknown>) => {
+    if (url === '/lista-wyjazdowa/roster') return { roster: [] };
+    postedBody = String(init?.body ?? '');
+    return { person: { personId: 'created-person', categoryId: 'kandydat', sectionId: 'krakow' } };
+  });
+  vm.runInContext("viewerEmail = 'owner@example.test'; personLookupLists = { categories: [{ id: 'kandydat', label: 'Kandydat' }], sections: [{ id: 'krakow', label: 'Kraków' }], weapons: [] }", context);
+  let selector = '';
+  let focused = 0;
+  (context as any).document.querySelector = (value: string) => {
+    selector = value;
+    return { isConnected: true, disabled: false, focus: () => { focused += 1; } };
+  };
+
+  await (context.createPerson as (fields: Record<string, string>, control: unknown) => Promise<void>)(
+    { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' },
+    { disabled: false },
+  );
+
+  assert.deepEqual(JSON.parse(postedBody), {
+    ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow', ownerPersonId: 'owner@example.test',
+  });
+  assert.equal(selector, '.person-row[data-person-id="created-person"] .person-first-name');
+  assert.equal(focused, 1);
 });
 
 test('profile duplicate cancellation restores focus to the companion form field', async () => {
@@ -127,17 +133,9 @@ test('profile duplicate cancellation restores focus to the companion form field'
     requestCount += 1;
     throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Anna', lastName: 'Nowak' }] });
   });
-  (context as any).window.PersonRegistrationPrompt = {
-    run: async (execute: (confirmed: boolean) => Promise<unknown>, options: { fallbackFocus?: () => { focus: () => void } | null }) => {
-      try { return await execute(false); } catch (error: any) {
-        if (!Array.isArray(error?.duplicateMatches)) throw error;
-        options.fallbackFocus?.()?.focus();
-        return Object.freeze({ cancelled: true });
-      }
-    },
-    wasCancelled: (result: unknown) => (result as { cancelled?: boolean })?.cancelled === true,
-  };
-  attachConfirmedRegistration(context);
+  (context as any).window.PersonRegistrationPrompt = createPersonRegistrationPromptMock((context as any).window.MutationFeedback, {
+    shouldCancelDuplicate: () => true,
+  });
   const field = { focus: () => { focused += 1; } };
   const control = { closest: (selector: string) => selector === '.person-row' ? { querySelector: () => field } : null };
   vm.runInContext("viewerEmail = 'owner@example.test'", context);
@@ -160,8 +158,6 @@ test('profile person registration ignores a second submit while the first reques
     if (url === '/lista-wyjazdowa/roster') return { roster: [] };
     return {};
   });
-  (context as any).window.PersonRegistrationPrompt = { run: (execute: (confirmed: boolean) => Promise<unknown>) => execute(false), wasCancelled: () => false };
-  attachConfirmedRegistration(context);
   vm.runInContext("viewerEmail = 'owner@example.test'", context);
   const control = { disabled: false };
   const fields = { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' };
@@ -188,16 +184,6 @@ test('profile person registration ignores a second submit while the confirmed re
     if (_url === '/lista-wyjazdowa/roster') return { roster: [] };
     return {};
   };
-  (context as any).window.PersonRegistrationPrompt = {
-    run: async (execute: (confirmed: boolean) => Promise<unknown>) => {
-      try { return await execute(false); } catch (error: any) {
-        if (!Array.isArray(error?.duplicateMatches)) throw error;
-        return execute(true);
-      }
-    },
-    wasCancelled: () => false,
-  };
-  attachConfirmedRegistration(context);
   vm.runInContext("viewerEmail = 'owner@example.test'", context);
   const control = { disabled: false };
   const fields = { ksywka: 'Wilk', firstName: 'Anna', lastName: 'Nowak', categoryId: 'kandydat', sectionId: 'krakow' };
@@ -217,7 +203,6 @@ test('profile deactivation focuses the persistent add button after its row disap
   focusTarget.focusCount = 0;
   focusTarget.focus = () => { focusTarget.focusCount = (focusTarget.focusCount ?? 0) + 1; };
   (context as any).document.querySelector = () => null;
-  (context as any).window.PersonRegistrationPrompt = { wasCancelled: () => false };
   (context as any).window.MutationFeedback.confirmed = async ({ execute, apply, skipApplyWhen, focusAfterApply }: any) => {
     const result = await execute();
     if (skipApplyWhen?.(result)) return result;

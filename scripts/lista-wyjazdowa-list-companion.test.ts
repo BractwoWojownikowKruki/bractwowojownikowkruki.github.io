@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
+import { createMutationFeedbackMock, createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const source = readFileSync(new URL('../public/lista-wyjazdowa/lista-wyjazdowa.js', import.meta.url), 'utf8');
 const displayNameSource = readFileSync(new URL('../public/shared/display-name.js', import.meta.url), 'utf8');
@@ -99,7 +100,6 @@ function createHarness(options: HarnessOptions = {}) {
   let mutationResult: unknown = null;
   let mutationError: Error | null = null;
   let cancelDuplicatePrompt = false;
-  const cancelledDuplicatePrompt = Object.freeze({ cancelled: true });
   let mutationGate: Promise<void> | null = null;
   const busy = { shown: [] as string[], active: 0 };
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
@@ -127,43 +127,13 @@ function createHarness(options: HarnessOptions = {}) {
     encodeURIComponent,
     window: {
       location: { search: '' },
-      PersonRegistrationPrompt: {
-        run: async (execute: (confirmed: boolean) => Promise<unknown>, promptOptions: { fallbackFocus?: () => { focus(): void } | null } = {}) => {
-          try { return await execute(false); } catch (error: any) {
-            if (!Array.isArray(error?.duplicateMatches)) throw error;
-            if (cancelDuplicatePrompt) {
-              promptOptions.fallbackFocus?.()?.focus();
-              return cancelledDuplicatePrompt;
-            }
-            return execute(true);
-          }
-        },
-        confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
-          ...options,
-          execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
-          skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result) || options.skipApplyWhen?.(result),
-        }),
-        wasCancelled: (result: unknown) => result === cancelledDuplicatePrompt,
-      },
-      MutationFeedback: {
+      MutationFeedback: createMutationFeedbackMock({
         showBusy: (message: string) => {
           busy.shown.push(message);
           busy.active += 1;
           return () => { busy.active -= 1; };
         },
-        confirmed: async ({ execute, apply, rollback, skipApplyWhen, focusAfterApply }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => Element | null }) => {
-          let result: unknown;
-          try {
-            result = await execute();
-          } catch (error) {
-            if (rollback) await rollback(error);
-            throw error;
-          }
-          if (skipApplyWhen?.(result)) return result;
-          apply(result);
-          focusAfterApply?.(result)?.focus();
-        },
-      },
+      }),
     },
     document: {
       addEventListener: () => {},
@@ -191,6 +161,9 @@ function createHarness(options: HarnessOptions = {}) {
       throw new Error(`unexpected request: ${url}`);
     },
   };
+  (context.window as any).PersonRegistrationPrompt = createPersonRegistrationPromptMock((context.window as any).MutationFeedback, {
+    shouldCancelDuplicate: () => cancelDuplicatePrompt,
+  });
 
   vm.runInNewContext(displayNameSource, context, { filename: 'display-name.js' });
   vm.runInNewContext(companionAddSource, context, { filename: 'companion-add.js' });
@@ -350,6 +323,31 @@ test('adding an existing companion posts quick-add, closes the panel and bumps t
   assert.match(list.innerHTML, /attendee-badge-count">3</);
 });
 
+test('events list locks the add-existing control while its direct mutation is pending', async () => {
+  const harness = createHarness({ withAttachedPerson: true });
+  await harness.signIn();
+  const list = harness.elements.get('events-list')!;
+  await list.clickWith(clickTarget('.lw-add-companion', { eventId: 'e1', ownerPersonId: 'viewer@example.com' }));
+  harness.elements.get('lw-inline-existing-select')!.value = 'attached-uuid-1';
+  harness.setMutationResult({ signup: { memberEmail: 'attached-uuid-1', attending: true } });
+  const release = harness.holdMutations();
+  let promptCalls = 0;
+  const prompt = harness.window.PersonRegistrationPrompt as any;
+  const confirmed = prompt.confirmed;
+  prompt.confirmed = (...args: any[]) => { promptCalls += 1; return confirmed(...args); };
+  const button = { disabled: false, dataset: { eventId: 'e1' } };
+  const target = { closest: (selector: string) => selector === '.lw-inline-add-existing' ? button : null };
+
+  const pending = list.clickWith(target);
+  await Promise.resolve();
+  assert.equal(button.disabled, true);
+  assert.equal(promptCalls, 0, 'existing-person additions bypass the registration prompt');
+  release();
+  await pending;
+  assert.equal(button.disabled, false);
+  assert.equal(promptCalls, 0);
+});
+
 // KRKG-0103: quick-add requires Nazwisko/Imię, while the nickname remains optional.
 test('adding a new companion requires nazwisko, imię and kategoria but not ksywka', async () => {
   const harness = createHarness();
@@ -435,6 +433,8 @@ test('a matching quick-add asks the shared prompt and retries with duplicateConf
   assert.equal(posts.length, 2);
   assert.equal(JSON.parse(String(posts[0].options.body)).duplicateConfirmed, undefined);
   assert.equal(JSON.parse(String(posts[1].options.body)).duplicateConfirmed, true);
+  assert.deepEqual(harness.busy.shown, ['Rejestruję osobę w apce…', 'Rejestruję osobę w apce…']);
+  assert.equal(harness.busy.active, 0, 'each duplicate attempt releases its busy overlay before the prompt/retry completes');
   const eventList = harness.elements.get('events-list')!;
   assert.match(eventList.lastQuerySelector, /\.lw-attend-toggle\[data-event-id="e1"\]/);
   assert.equal(eventList.lastQueryTarget?.focused, true);
@@ -459,6 +459,8 @@ test('cancelling a duplicate quick-add on the events list keeps the panel open a
   assert.equal(list.innerHTML, formBefore);
   assert.equal(harness.elements.get('events-error')!.hidden, true);
   assert.equal(harness.elements.get('lw-inline-new-name')!.focused, true);
+  assert.deepEqual(harness.busy.shown, ['Rejestruję osobę w apce…']);
+  assert.equal(harness.busy.active, 0, 'cancelling the duplicate prompt releases the busy overlay');
 });
 
 test('a failed quick-add keeps the panel open and reports the error', async () => {

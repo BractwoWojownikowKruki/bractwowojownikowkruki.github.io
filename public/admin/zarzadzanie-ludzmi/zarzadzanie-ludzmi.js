@@ -919,10 +919,9 @@ function openAccountlessForm(person) {
     document.getElementById('accountless-ksywka').value = person.ksywka ?? person.nickname ?? '';
     document.getElementById('accountless-first-name').value = person.firstName ?? '';
     document.getElementById('accountless-last-name').value = person.lastName ?? '';
-    if (person.categoryId) {
-      const category = document.getElementById('accountless-category');
-      category.value = person.categoryId;
-    }
+    // Fail closed if stale lookup data omits this category; otherwise the browser defaults to
+    // the first option and saving could silently reclassify the person.
+    if (person.categoryId) document.getElementById('accountless-category').value = person.categoryId;
     if (person.sectionId) document.getElementById('accountless-section-select').value = person.sectionId;
     document.getElementById('accountless-weapons').innerHTML = accountlessWeaponCheckboxesHtml(accountlessCache.weapons, person.weaponIds ?? []);
     updateAccountlessWeaponState();
@@ -1119,7 +1118,6 @@ async function runAccountlessMutation(
   return window.MutationFeedback.confirmed({
     ...feedbackOptions,
     execute,
-    skipApplyWhen: (result) => window.PersonRegistrationPrompt.wasCancelled(result),
   });
 }
 
@@ -1145,18 +1143,21 @@ async function submitAccountlessForm() {
     errorEl.hidden = false;
     return;
   }
-  saveButton.disabled = true;
   const editing = editingAccountlessPersonId;
+  if (editing) saveButton.disabled = true;
   try {
     const focusAfterApply = () => document.getElementById('accountless-add-toggle');
-    const result = editing
-      ? await runAccountlessMutation(saveButton, () => apiFetch(
+    if (editing) {
+      await runAccountlessMutation(saveButton, () => apiFetch(
         '/lista-wyjazdowa/persons',
         { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personId: editing, ...fields }) },
         showReauth,
         hideReauth,
-      ))
-      : await runAccountlessMutation(
+      ));
+      document.getElementById('accountless-form-panel').hidden = true;
+      resetAccountlessForm();
+    } else {
+      await runAccountlessMutation(
         saveButton,
         (duplicateConfirmed) => apiFetch(
           '/lista-wyjazdowa/persons',
@@ -1183,16 +1184,12 @@ async function submitAccountlessForm() {
           },
         },
       );
-    if (!editing && window.PersonRegistrationPrompt.wasCancelled(result)) return;
-    if (editing) {
-      document.getElementById('accountless-form-panel').hidden = true;
-      resetAccountlessForm();
     }
   } catch (err) {
     errorEl.textContent = `Nie udało się zapisać osoby: ${err.message}`;
     errorEl.hidden = false;
   } finally {
-    saveButton.disabled = false;
+    if (editing) saveButton.disabled = false;
   }
 }
 

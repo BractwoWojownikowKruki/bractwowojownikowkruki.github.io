@@ -954,8 +954,7 @@ export type AuditPrimarySelector =
   | { kind: 'actor'; email: string }
   | { kind: 'resourceKey'; key: string }
   | { kind: 'event'; eventId: string }
-  | { kind: 'search'; term: string }
-  | { kind: 'account'; reference: string; referenceKind: 'email' | 'personId' };
+  | { kind: 'search'; term: string };
 
 export interface AuditQueryOptions {
   selector: AuditPrimarySelector;
@@ -1011,8 +1010,6 @@ function buildFirestoreFilter(selector: AuditPrimarySelector): FirestoreQueryFil
       return { field: 'eventId', op: '==', value: selector.eventId };
     case 'search':
       return { field: 'searchTokens', op: 'array-contains', value: normalizeSearchTerm(selector.term) };
-    case 'account':
-      throw new AuditQueryError('Historia konta wymaga zapytania dedykowanego.');
     default: {
       const exhaustive: never = selector;
       throw new AuditQueryError(`Nieobsługiwany selektor: ${JSON.stringify(exhaustive)}`);
@@ -1094,6 +1091,14 @@ export interface AuditQueryPage {
   nextCursor?: string;
 }
 
+/** Supported filters for the dedicated administrator account-history query. */
+export interface AccountAuditQueryOptions {
+  reference: string;
+  referenceKind: 'email' | 'personId';
+  cursor?: string;
+  limit?: number;
+}
+
 /**
  * The one read path for both `/admin/audyt` and the protected member-zone contextual page - same
  * query module, different `viewer`. Enforces the zero-or-one primary selector rule, the 100-row
@@ -1107,9 +1112,6 @@ export async function queryAuditEvents(
   options: AuditQueryOptions,
   viewer: AuditViewer,
 ): Promise<AuditQueryPage> {
-  if (options.selector.kind === 'account') {
-    return queryAccountAuditEvents(firestore, { ...options, selector: options.selector }, viewer);
-  }
   if (options.from !== undefined && !isIsoTimestamp(options.from)) throw new AuditQueryError('Nieprawidłowa data początkowa.');
   if (options.to !== undefined && !isIsoTimestamp(options.to)) throw new AuditQueryError('Nieprawidłowa data końcowa.');
   const limit = Math.min(Math.max(options.limit ?? MAX_LIST_LIMIT, 1), MAX_LIST_LIMIT);
@@ -1175,6 +1177,54 @@ interface AccountAuditCursor {
   relatedDone: boolean;
 }
 
+interface AccountAuditStream {
+  filter: FirestoreQueryFilter;
+  docs: Array<{ id: string; data: CanonicalAuditEvent }>;
+  index: number;
+  readCursor?: FirestoreQueryCursor;
+  consumedCursor?: FirestoreQueryCursor;
+  done: boolean;
+}
+
+interface AccountAuditReadBudget {
+  reads: number;
+  // Reserves capacity while the two initial stream reads run concurrently.
+  reserved: number;
+  limit: number;
+}
+
+/** Fetches the next bounded chunk for either account-history stream and advances its read cursor. */
+async function refillAccountAuditStream(
+  firestore: FirestoreLikeClient,
+  stream: AccountAuditStream,
+  budget: AccountAuditReadBudget,
+  chunkSize: number,
+): Promise<void> {
+  if (stream.done || budget.reads + budget.reserved >= budget.limit) return;
+  const requestLimit = Math.min(chunkSize, budget.limit - budget.reads - budget.reserved);
+  budget.reserved += requestLimit;
+  let docs: Array<{ id: string; data: CanonicalAuditEvent }>;
+  try {
+    docs = await firestore.queryDocs<CanonicalAuditEvent>('auditEvents', {
+      filter: stream.filter,
+      timestampField: 'timestamp',
+      startAfter: stream.readCursor,
+      limit: requestLimit,
+    });
+  } finally {
+    budget.reserved -= requestLimit;
+  }
+  budget.reads += docs.length;
+  stream.docs = docs;
+  stream.index = 0;
+  if (docs.length === 0) stream.done = true;
+  else {
+    const last = docs.at(-1)!;
+    stream.readCursor = { timestamp: last.data.timestamp, id: last.id };
+    if (docs.length < requestLimit) stream.done = true;
+  }
+}
+
 function decodeAccountAuditCursor(value: string | undefined, relatedEnabled: boolean): AccountAuditCursor {
   if (!value) return { memberDone: false, relatedDone: !relatedEnabled };
   let parsed: unknown;
@@ -1212,14 +1262,14 @@ function accountAuditEventMatches(event: CanonicalAuditEvent, reference: string,
     [change.before, change.after].some(value => typeof value === 'string' && value.trim().toLowerCase() === email));
 }
 
-async function queryAccountAuditEvents(
+export async function queryAccountAuditEvents(
   firestore: FirestoreLikeClient,
-  options: AuditQueryOptions & { selector: Extract<AuditPrimarySelector, { kind: 'account' }> },
+  options: AccountAuditQueryOptions,
   viewer: AuditViewer,
 ): Promise<AuditQueryPage> {
-  const reference = options.selector.reference.trim();
+  const reference = options.reference.trim();
   if (!reference) throw new AuditQueryError('Brak identyfikatora konta.');
-  const email = options.selector.referenceKind === 'email';
+  const email = options.referenceKind === 'email';
   const normalizedReference = email ? reference.toLowerCase() : reference;
   const localPartWords = email ? foldedWords(normalizedReference.split('@', 1)[0]) : [];
   const token = email
@@ -1228,89 +1278,60 @@ async function queryAccountAuditEvents(
   const limit = Math.min(Math.max(options.limit ?? MAX_LIST_LIMIT, 1), MAX_LIST_LIMIT);
   const cursor = decodeAccountAuditCursor(options.cursor, Boolean(token));
   const chunkSize = 100;
-  const readBudget = 1000;
-  let reads = 0;
-  let memberDocs: Array<{ id: string; data: CanonicalAuditEvent }> = [];
-  let relatedDocs: Array<{ id: string; data: CanonicalAuditEvent }> = [];
-  let memberIndex = 0;
-  let relatedIndex = 0;
-  let memberReadCursor = cursor.memberCursor;
-  let relatedReadCursor = cursor.relatedCursor;
-  let memberReadDone = cursor.memberDone;
-  let relatedReadDone = cursor.relatedDone || !token;
-  let memberConsumedCursor = cursor.memberCursor;
-  let relatedConsumedCursor = cursor.relatedCursor;
+  const readBudgetState: AccountAuditReadBudget = { reads: 0, reserved: 0, limit: 1000 };
+  const memberStream: AccountAuditStream = {
+    filter: { field: 'resource.key', op: '==', value: `${email ? 'member' : 'person'}:${normalizedReference}` },
+    docs: [], index: 0, readCursor: cursor.memberCursor, consumedCursor: cursor.memberCursor, done: cursor.memberDone,
+  };
+  const relatedStream: AccountAuditStream = {
+    // With no searchable email token, `done` is true and this empty filter is never queried.
+    filter: { field: 'searchTokens', op: 'array-contains', value: token?.slice(0, MAX_SEARCH_TOKEN_LENGTH) ?? '' },
+    docs: [], index: 0, readCursor: cursor.relatedCursor, consumedCursor: cursor.relatedCursor, done: cursor.relatedDone || !token,
+  };
 
   const compareNewestFirst = (a: { timestamp: string; id: string }, b: { timestamp: string; id: string }) => {
     if (a.timestamp !== b.timestamp) return a.timestamp > b.timestamp ? -1 : 1;
     if (a.id !== b.id) return a.id > b.id ? -1 : 1;
     return 0;
   };
-  const refillMember = async () => {
-    if (memberReadDone || reads >= readBudget) return;
-    const requestLimit = Math.min(chunkSize, readBudget - reads);
-    memberDocs = await firestore.queryDocs<CanonicalAuditEvent>('auditEvents', {
-      filter: { field: 'resource.key', op: '==', value: `${email ? 'member' : 'person'}:${normalizedReference}` },
-      timestampField: 'timestamp', timestampGte: options.from, timestampLte: options.to,
-      startAfter: memberReadCursor, limit: requestLimit,
-    });
-    reads += memberDocs.length;
-    memberIndex = 0;
-    if (!memberDocs.length) memberReadDone = true;
-    else {
-      const last = memberDocs.at(-1)!;
-      memberReadCursor = { timestamp: last.data.timestamp, id: last.id };
-      if (memberDocs.length < requestLimit) memberReadDone = true;
-    }
-  };
-  const refillRelated = async () => {
-    if (relatedReadDone || reads >= readBudget) return;
-    const requestLimit = Math.min(chunkSize, readBudget - reads);
-    relatedDocs = await firestore.queryDocs<CanonicalAuditEvent>('auditEvents', {
-      filter: { field: 'searchTokens', op: 'array-contains', value: token!.slice(0, MAX_SEARCH_TOKEN_LENGTH) },
-      timestampField: 'timestamp', timestampGte: options.from, timestampLte: options.to,
-      startAfter: relatedReadCursor, limit: requestLimit,
-    });
-    reads += relatedDocs.length;
-    relatedIndex = 0;
-    if (!relatedDocs.length) relatedReadDone = true;
-    else {
-      const last = relatedDocs.at(-1)!;
-      relatedReadCursor = { timestamp: last.data.timestamp, id: last.id };
-      if (relatedDocs.length < requestLimit) relatedReadDone = true;
-    }
-  };
-  await Promise.all([refillMember(), refillRelated()]);
+  await Promise.all([
+    refillAccountAuditStream(firestore, memberStream, readBudgetState, chunkSize),
+    refillAccountAuditStream(firestore, relatedStream, readBudgetState, chunkSize),
+  ]);
   const rows: AuditEventRow[] = [];
   while (true) {
-    if (reads >= readBudget &&
-        ((memberIndex >= memberDocs.length && !memberReadDone) || (relatedIndex >= relatedDocs.length && !relatedReadDone))) break;
-    if (reads < readBudget && memberIndex >= memberDocs.length && !memberReadDone) await refillMember();
-    if (reads < readBudget && relatedIndex >= relatedDocs.length && !relatedReadDone) await refillRelated();
-    const member = memberDocs[memberIndex];
-    const related = relatedDocs[relatedIndex];
+    if (readBudgetState.reads >= readBudgetState.limit &&
+        ((memberStream.index >= memberStream.docs.length && !memberStream.done) || (relatedStream.index >= relatedStream.docs.length && !relatedStream.done))) break;
+    if (memberStream.index >= memberStream.docs.length && !memberStream.done) {
+      await refillAccountAuditStream(firestore, memberStream, readBudgetState, chunkSize);
+    }
+    if (relatedStream.index >= relatedStream.docs.length && !relatedStream.done) {
+      await refillAccountAuditStream(firestore, relatedStream, readBudgetState, chunkSize);
+    }
+    const member = memberStream.docs[memberStream.index];
+    const related = relatedStream.docs[relatedStream.index];
     if (!member && !related) break;
     const takeMember = member && (!related || compareNewestFirst(member.data, related.data) <= 0);
     const doc = takeMember ? member! : related!;
     const fromRelated = !takeMember;
     const isMemberResource = email && doc.data.resource.key.toLowerCase() === `member:${normalizedReference}`;
-    const isMatch = accountAuditEventMatches(doc.data, normalizedReference, options.selector.referenceKind) && !(fromRelated && isMemberResource);
+    const isMatch = accountAuditEventMatches(doc.data, normalizedReference, options.referenceKind) && !(fromRelated && isMemberResource);
     const projected = isMatch ? projectAuditEvent(doc.data, viewer) : null;
     if (rows.length >= limit && projected) break;
     if (takeMember) {
-      memberIndex += 1;
-      memberConsumedCursor = { timestamp: doc.data.timestamp, id: doc.id };
+      memberStream.index += 1;
+      memberStream.consumedCursor = { timestamp: doc.data.timestamp, id: doc.id };
     } else {
-      relatedIndex += 1;
-      relatedConsumedCursor = { timestamp: doc.data.timestamp, id: doc.id };
+      relatedStream.index += 1;
+      relatedStream.consumedCursor = { timestamp: doc.data.timestamp, id: doc.id };
     }
     if (projected) rows.push(projected);
   }
   const next: AccountAuditCursor = {
-    memberCursor: memberConsumedCursor,
-    relatedCursor: relatedConsumedCursor,
-    memberDone: memberReadDone && memberIndex >= memberDocs.length,
-    relatedDone: relatedReadDone && relatedIndex >= relatedDocs.length,
+    memberCursor: memberStream.consumedCursor,
+    relatedCursor: relatedStream.consumedCursor,
+    memberDone: memberStream.done && memberStream.index >= memberStream.docs.length,
+    relatedDone: relatedStream.done && relatedStream.index >= relatedStream.docs.length,
   };
   const hasMore = !next.memberDone || !next.relatedDone;
   return { rows, nextCursor: hasMore ? encodeAccountAuditCursor(next) : undefined };

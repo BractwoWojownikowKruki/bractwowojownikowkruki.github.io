@@ -41,6 +41,7 @@ import {
   listOpenOperationCorrelationIds,
   listAuditDiagnostics,
   queryAuditEvents,
+  queryAccountAuditEvents,
   getAuditEventDetail,
   AuditQueryError,
   type AuditAction,
@@ -5126,13 +5127,18 @@ async function getPersonRegistrationDuplicateMatches(
   });
 }
 
-/** Sends the candidate list without writing when explicit duplicate confirmation is still needed. */
-function sendPersonDuplicatePromptIfNeeded(
+/** Sends the duplicate warning once; only an explicitly confirmed retry skips the lookup. */
+async function maybePromptPersonDuplicate(
+  deps: ServerDeps,
   res: ServerResponse,
   body: Record<string, unknown>,
-  matches: Array<{ firstName: string; lastName: string; nickname: string | null; section: string; owner: string | null }>,
-): boolean {
-  if (body.duplicateConfirmed === true || matches.length === 0) return false;
+  fields: Pick<PersonWritableFields, 'ksywka' | 'firstName' | 'lastName'>,
+  viewerEmail: string,
+  targetOwnerPersonId: string | null,
+): Promise<boolean> {
+  if (body.duplicateConfirmed === true) return false;
+  const matches = await getPersonRegistrationDuplicateMatches(deps, fields, viewerEmail, targetOwnerPersonId);
+  if (matches.length === 0) return false;
   sendJson(res, 409, { error: 'Znaleziono możliwe dopasowania.', duplicateMatches: matches });
   return true;
 }
@@ -5165,10 +5171,7 @@ async function handleListaWyjazdowaPostPerson(req: IncomingMessage, res: ServerR
     ownerPersonId = canonicalOwner.toLowerCase();
   }
   validatePersonFields(fields);
-  const duplicateMatches = body.duplicateConfirmed === true
-    ? []
-    : await getPersonRegistrationDuplicateMatches(deps, fields, identity.email, ownerPersonId);
-  if (sendPersonDuplicatePromptIfNeeded(res, body, duplicateMatches)) return;
+  if (await maybePromptPersonDuplicate(deps, res, body, fields, identity.email, ownerPersonId)) return;
   const personId = randomUUID();
   const { result: person } = await executeDeclaredAuditedMutation(
     deps,
@@ -5482,10 +5485,7 @@ async function handleListaWyjazdowaPostQuickAdd(req: IncomingMessage, res: Serve
   const sectionId = ownerMember?.sectionId?.trim();
   if (!sectionId) throw new AuthError('Opiekun nie ma ustawionej sekcji.', 400);
   const fields: PersonWritableFields = { ksywka, firstName, lastName, categoryId, sectionId, weaponIds: [] };
-  const duplicateMatches = body.duplicateConfirmed === true
-    ? []
-    : await getPersonRegistrationDuplicateMatches(deps, fields, identity.email, ownerKey);
-  if (sendPersonDuplicatePromptIfNeeded(res, body, duplicateMatches)) return;
+  if (await maybePromptPersonDuplicate(deps, res, body, fields, identity.email, ownerKey)) return;
   const personId = randomUUID();
   const { result } = await executeDeclaredAuditedMutation(
     deps,
@@ -6214,8 +6214,9 @@ async function handleAdminMemberAccountAudit(req: IncomingMessage, res: ServerRe
   const limit = limitParam === null ? 100 : Number(limitParam);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new AuthError('Nieprawidłowy limit.', 400);
   const viewer: AuditViewer = { scope: 'admin', isAdmin: auth.isAdmin, isHovding: auth.isHovding, isAccountant: auth.isAccountant };
-  const page = await queryAuditEvents(deps.firestore, {
-    selector: { kind: 'account', reference, referenceKind: email ? 'email' : 'personId' },
+  const page = await queryAccountAuditEvents(deps.firestore, {
+    reference,
+    referenceKind: email ? 'email' : 'personId',
     cursor: url.searchParams.get('cursor') ?? undefined,
     limit,
   }, viewer);

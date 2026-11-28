@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { createMutationFeedbackMock, createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const page = readFileSync(new URL('../public/admin/zarzadzanie-ludzmi/index.html', import.meta.url), 'utf8');
 const script = readFileSync(new URL('../public/admin/zarzadzanie-ludzmi/zarzadzanie-ludzmi.js', import.meta.url), 'utf8');
@@ -87,15 +88,44 @@ test('editing an accountless person keeps and labels its retired category in the
   const harness = createZarzadzanieHarness({
     apiFetch: async (url) => {
       if (url === '/lista-wyjazdowa/persons') return { persons: [] };
-      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [{ id: 'retired', label: 'Gość', retired: true }], weapons: [] };
+      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [], categories: [{ id: 'first', label: 'Pierwsza' }, { id: 'retired', label: 'Gość', retired: true }], weapons: [] };
       if (url === '/admin/person-owners') return { owners: [] };
       return {};
     },
   });
   await harness.signIn({ email: 'ksiegowy@kruki.pl', isAccountant: true, isAdmin: false, isHovding: false });
-  (harness.context.openAccountlessForm as (person: Record<string, unknown>) => void)({ personId: 'p1', categoryId: 'retired' });
+  (harness.context.openAccountlessForm as (person: Record<string, unknown> | null) => void)(null);
+  assert.equal(harness.getEl('accountless-category').value, 'first', 'a native select defaults to its first rendered option');
+  (harness.context.openAccountlessForm as (person: Record<string, unknown> | null) => void)({ personId: 'p1', categoryId: 'retired' });
   assert.equal(harness.getEl('accountless-category').value, 'retired');
   assert.match(harness.getEl('accountless-category').innerHTML, /Gość \(wycofany status\)/);
+  (harness.context.openAccountlessForm as (person: Record<string, unknown> | null) => void)({ personId: 'p2', categoryId: 'missing-category' });
+  assert.equal(harness.getEl('accountless-category').value, '', 'a stale category must not default to the first category when editing');
+});
+
+test('opening accountless forms for Niewiasta or Bobo hides and clears weapon selections', async () => {
+  const harness = createZarzadzanieHarness({
+    apiFetch: async (url) => {
+      if (url === '/lista-wyjazdowa/persons') return { persons: [] };
+      if (url === '/lista-wyjazdowa/lookup-lists') return {
+        sections: [{ id: 'sec1', label: 'Drużyna' }],
+        categories: [{ id: 'woj', label: 'Woj' }, { id: 'niewiasta', label: 'Niewiasta' }, { id: 'bobo', label: 'Bobo' }],
+        weapons: [{ id: 'sword', label: 'Miecz' }],
+      };
+      if (url === '/admin/person-owners') return { owners: [] };
+      return {};
+    },
+  });
+  await harness.signIn({ email: 'ksiegowy@kruki.pl', isAccountant: true, isAdmin: false, isHovding: false });
+  const open = harness.context.openAccountlessForm as (person: Record<string, unknown> | null) => void;
+  for (const categoryId of ['niewiasta', 'bobo']) {
+    open({ personId: 'p1', categoryId, weaponIds: ['sword'] });
+    assert.equal(harness.getEl('accountless-category').value, categoryId);
+    assert.equal(harness.getEl('accountless-weapon-field').hidden, true);
+    const checkboxes = harness.getEl('accountless-weapons').querySelectorAll('.accountless-weapon-checkbox');
+    assert.equal(checkboxes.length, 1);
+    assert.equal(checkboxes[0].checked, false);
+  }
 });
 
 interface ZarzadzanieHarnessOptions {
@@ -109,24 +139,45 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
   const sortableTableStates = new Map<string, { set: (key: string, dir: string) => void }>();
   let signedInCallback: ((payload: Record<string, unknown>) => Promise<void>) | null = null;
   let duplicatePromptMode: 'confirm' | 'cancel' = 'confirm';
-  const cancelledDuplicate = Object.freeze({ cancelled: true });
 
   function makeElement(id: string) {
     const listeners = new Map<string, Array<(e: any) => unknown>>();
+    let value = '';
+    let innerHTML = '';
+    let weaponCheckboxes: Array<{ value: string; checked: boolean }> = [];
     const el: any = {
       id,
       hidden: false,
       disabled: false,
       checked: false,
-      value: '',
-      innerHTML: '',
+      get value() { return value; },
+      set value(next: string) {
+        if (id === 'accountless-category' || id === 'accountless-section-select') {
+          const options = [...innerHTML.matchAll(/<option\b[^>]*value="([^"]*)"([^>]*)>/g)];
+          value = options.some((option) => option[1] === next) ? next : '';
+        } else {
+          value = next;
+        }
+      },
+      get innerHTML() { return innerHTML; },
+      set innerHTML(next: string) {
+        innerHTML = next;
+        if (id === 'accountless-weapons') {
+          weaponCheckboxes = [...next.matchAll(/<input\b[^>]*class="accountless-weapon-checkbox"[^>]*value="([^"]*)"([^>]*)>/g)]
+            .map((match) => ({ value: match[1], checked: /\bchecked\b/.test(match[2]) }));
+        }
+        if (id === 'accountless-category' || id === 'accountless-section-select') {
+          const options = [...next.matchAll(/<option\b[^>]*value="([^"]*)"([^>]*)>/g)];
+          value = options.find((option) => /\bselected\b/.test(option[2]))?.[1] ?? options[0]?.[1] ?? '';
+        }
+      },
       textContent: '',
       focusCount: 0,
       dataset: {} as Record<string, string>,
       classList: { add: () => {}, remove: () => {}, toggle: () => {} },
       closest: () => makeElement(`${id}__closest`),
       querySelector: () => null,
-      querySelectorAll: () => [],
+      querySelectorAll: (selector: string) => id === 'accountless-weapons' && selector === '.accountless-weapon-checkbox' ? weaponCheckboxes : [],
       addEventListener: (type: string, fn: (e: any) => unknown) => {
         listeners.set(type, [...(listeners.get(type) ?? []), fn]);
       },
@@ -148,36 +199,14 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
 
   const windowObj: any = {
     confirm: () => true,
-    PersonRegistrationPrompt: {
-      run: async (execute: (confirmed: boolean) => Promise<unknown>, promptOptions: { fallbackFocus?: () => any } = {}) => {
-        try { return await execute(false); } catch (error: any) {
-          if (!Array.isArray(error?.duplicateMatches)) throw error;
-          if (duplicatePromptMode === 'cancel') {
-            promptOptions.fallbackFocus?.()?.focus();
-            return cancelledDuplicate;
-          }
-          return execute(true);
-        }
-      },
-      confirmed: async (options: any) => windowObj.MutationFeedback.confirmed({
-        ...options,
-        execute: () => windowObj.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
-        skipApplyWhen: (result: unknown) => windowObj.PersonRegistrationPrompt.wasCancelled(result) || options.skipApplyWhen?.(result),
-      }),
-      wasCancelled: (result: unknown) => result === cancelledDuplicate,
-    },
     alert: () => {},
     location: { search: '' },
     addEventListener: () => {},
-    MutationFeedback: { confirmed: async ({ execute, apply, skipApplyWhen, focusAfterApply, successDetails }: { execute: () => Promise<any>; apply?: (result: any) => Promise<unknown>; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => unknown; successDetails?: (result: unknown) => unknown }) => {
-      const result = await execute();
-      if (skipApplyWhen?.(result)) return result;
-      await apply?.(result);
-      await successDetails?.(result);
-      focusAfterApply?.(result)?.focus?.();
-      return result;
-    } },
+    MutationFeedback: createMutationFeedbackMock(),
   };
+  windowObj.PersonRegistrationPrompt = createPersonRegistrationPromptMock(windowObj.MutationFeedback, {
+    shouldCancelDuplicate: () => duplicatePromptMode === 'cancel',
+  });
   const documentObj: any = {
     body: { append: () => {} },
     getElementById: (id: string) => getEl(id),
@@ -205,7 +234,6 @@ function createZarzadzanieHarness(options: ZarzadzanieHarnessOptions) {
     escapeAttr: (s: unknown) => String(s ?? ''),
     formatDateTime: (s: unknown) => String(s ?? ''),
     sheetSyncStatusMessage: () => '',
-    MutationFeedback: { confirmed: async ({ execute }: { execute: () => Promise<unknown> }) => execute() },
     wireSummaryFilter: (_el: unknown, _filter: unknown, onChange: () => void) => {
       summaryFilterCallbacks.push(onChange);
     },
@@ -381,6 +409,7 @@ test('accountants can load the accountless table without rendering its write act
       if (url === '/lista-wyjazdowa/sections') return { sections: [{ id: 'sec1', label: 'Drużyna' }] };
       if (url === '/lista-wyjazdowa/categories') return { categories: [{ id: 'woj', label: 'Woj' }, { id: 'niewiasta', label: 'Niewiasta' }] };
       if (url === '/lista-wyjazdowa/weapons') return { weapons: [{ id: 'tarczownik', label: 'Tarcza' }] };
+      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [{ id: 'sec1', label: 'Drużyna' }], categories: [{ id: 'woj', label: 'Woj' }, { id: 'niewiasta', label: 'Niewiasta' }], weapons: [{ id: 'tarczownik', label: 'Tarcza' }] };
       if (url === '/lista-wyjazdowa/roster') return { roster: [{ personId: 'owner@kruki.pl', kind: 'account', name: 'Opiekun', email: 'owner@kruki.pl' }] };
       return {};
     },
@@ -421,20 +450,25 @@ test('admin accountless registration cancels without a second request or losing 
         throw Object.assign(new Error('duplicate'), { duplicateMatches: [{ firstName: 'Anna', lastName: 'Nowak' }] });
       }
       if (url === '/lista-wyjazdowa/persons') return { persons: [] };
+      if (url === '/admin/lookup-lists') return { sections: [{ id: 'sec1', label: 'Drużyna' }], categories: [{ id: 'woj', label: 'Woj' }], weapons: [] };
       if (url === '/lista-wyjazdowa/sections') return { sections: [{ id: 'sec1', label: 'Drużyna' }] };
       if (url === '/lista-wyjazdowa/categories') return { categories: [{ id: 'woj', label: 'Woj' }] };
       if (url === '/lista-wyjazdowa/weapons') return { weapons: [] };
       if (url === '/lista-wyjazdowa/roster') return { roster: [] };
+      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [{ id: 'sec1', label: 'Drużyna' }], categories: [{ id: 'woj', label: 'Woj' }], weapons: [] };
       return {};
     },
   });
   await harness.signIn({ email: 'admin@kruki.pl', isAccountant: true, isAdmin: true, isHovding: false });
+  await new Promise((resolve) => setTimeout(resolve, 0));
   await harness.getEl('accountless-add-toggle').dispatch('click');
   harness.cancelDuplicatePrompt();
   harness.getEl('accountless-first-name').value = 'Anna';
   harness.getEl('accountless-last-name').value = 'Nowak';
   harness.getEl('accountless-category').value = 'woj';
   harness.getEl('accountless-section-select').value = 'sec1';
+  assert.equal(harness.getEl('accountless-category').value, 'woj');
+  assert.equal(harness.getEl('accountless-section-select').value, 'sec1');
   await harness.getEl('accountless-save').dispatch('click');
   assert.equal(requests.filter((request) => request.method === 'POST').length, 1);
   assert.equal(harness.getEl('accountless-form-panel').hidden, false);
@@ -465,14 +499,17 @@ test('admin accountless registration retries with duplicateConfirmed after the p
         return { person: { personId: 'new-person' } };
       }
       if (url === '/lista-wyjazdowa/persons') return { persons: [] };
+      if (url === '/admin/lookup-lists') return { sections: [{ id: 'sec1', label: 'Drużyna' }], categories: [{ id: 'woj', label: 'Woj' }], weapons: [] };
       if (url === '/lista-wyjazdowa/sections') return { sections: [{ id: 'sec1', label: 'Drużyna' }] };
       if (url === '/lista-wyjazdowa/categories') return { categories: [{ id: 'woj', label: 'Woj' }] };
       if (url === '/lista-wyjazdowa/weapons') return { weapons: [] };
       if (url === '/lista-wyjazdowa/roster') return { roster: [] };
+      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [{ id: 'sec1', label: 'Drużyna' }], categories: [{ id: 'woj', label: 'Woj' }], weapons: [] };
       return {};
     },
   });
   await harness.signIn({ email: 'admin@kruki.pl', isAccountant: true, isAdmin: true, isHovding: false });
+  await new Promise((resolve) => setTimeout(resolve, 0));
   await harness.getEl('accountless-add-toggle').dispatch('click');
   harness.getEl('accountless-first-name').value = 'Anna';
   harness.getEl('accountless-last-name').value = 'Nowak';
@@ -496,13 +533,16 @@ test('admin accountless registration ignores a second submit while the first req
         return new Promise((resolve) => { finishPost = resolve; });
       }
       if (url === '/lista-wyjazdowa/persons') return { persons: [] };
+      if (url === '/admin/lookup-lists') return { sections: [{ id: 'sec1', label: 'Drużyna' }], categories: [{ id: 'woj', label: 'Woj' }], weapons: [] };
       if (url === '/lista-wyjazdowa/sections') return { sections: [{ id: 'sec1', label: 'Drużyna' }] };
       if (url === '/lista-wyjazdowa/categories') return { categories: [{ id: 'woj', label: 'Woj' }] };
       if (url === '/lista-wyjazdowa/weapons') return { weapons: [] };
+      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [{ id: 'sec1', label: 'Drużyna' }], categories: [{ id: 'woj', label: 'Woj' }], weapons: [] };
       return {};
     },
   });
   await harness.signIn({ email: 'admin@kruki.pl', isAccountant: true, isAdmin: true, isHovding: false });
+  await new Promise((resolve) => setTimeout(resolve, 0));
   await harness.getEl('accountless-add-toggle').dispatch('click');
   harness.getEl('accountless-first-name').value = 'Anna';
   harness.getEl('accountless-last-name').value = 'Nowak';
@@ -530,13 +570,16 @@ test('admin accountless registration ignores a second submit while the confirmed
         return new Promise((resolve) => { finishRetry = resolve; });
       }
       if (url === '/lista-wyjazdowa/persons') return { persons: [] };
+      if (url === '/admin/lookup-lists') return { sections: [{ id: 'sec1', label: 'Drużyna' }], categories: [{ id: 'woj', label: 'Woj' }], weapons: [] };
       if (url === '/lista-wyjazdowa/sections') return { sections: [{ id: 'sec1', label: 'Drużyna' }] };
       if (url === '/lista-wyjazdowa/categories') return { categories: [{ id: 'woj', label: 'Woj' }] };
       if (url === '/lista-wyjazdowa/weapons') return { weapons: [] };
+      if (url === '/lista-wyjazdowa/lookup-lists') return { sections: [{ id: 'sec1', label: 'Drużyna' }], categories: [{ id: 'woj', label: 'Woj' }], weapons: [] };
       return {};
     },
   });
   await harness.signIn({ email: 'admin@kruki.pl', isAccountant: true, isAdmin: true, isHovding: false });
+  await new Promise((resolve) => setTimeout(resolve, 0));
   await harness.getEl('accountless-add-toggle').dispatch('click');
   harness.getEl('accountless-first-name').value = 'Anna';
   harness.getEl('accountless-last-name').value = 'Nowak';

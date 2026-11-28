@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import vm from 'node:vm';
+import { createMutationFeedbackMock, createPersonRegistrationPromptMock } from './test-helpers/person-registration-prompt.js';
 
 const source = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/wyjazd.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../public/lista-wyjazdowa/wyjazd/index.html', import.meta.url), 'utf8');
@@ -89,7 +90,6 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
   let mutationResult: unknown = null;
   let mutationError: Error | null = null;
   let cancelDuplicatePrompt = false;
-  const cancelledDuplicatePrompt = Object.freeze({ cancelled: true });
   let signIn: ((identity: { email: string }) => Promise<void>) | undefined;
   const rosterSortState = { key: 'section', dir: 'asc' };
   let onRosterSortChange = () => {};
@@ -134,24 +134,6 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
     encodeURIComponent,
     window: {
       location: { search: '?eventId=e1' },
-      PersonRegistrationPrompt: {
-        run: async (execute: (confirmed: boolean) => Promise<unknown>, options: { fallbackFocus?: () => Element | null } = {}) => {
-          try { return await execute(false); } catch (error: any) {
-            if (!Array.isArray(error?.duplicateMatches)) throw error;
-            if (cancelDuplicatePrompt) {
-              options.fallbackFocus?.()?.focus();
-              return cancelledDuplicatePrompt;
-            }
-            return execute(true);
-          }
-        },
-        confirmed: async (options: any) => context.window.MutationFeedback.confirmed({
-          ...options,
-          execute: () => context.window.PersonRegistrationPrompt.run(options.execute, { fallbackFocus: options.fallbackFocus }),
-          skipApplyWhen: (result: unknown) => context.window.PersonRegistrationPrompt.wasCancelled(result) || options.skipApplyWhen?.(result),
-        }),
-        wasCancelled: (result: unknown) => result === cancelledDuplicatePrompt,
-      },
       confirm: () => true,
       LwCalendar: {
         mountDropdowns: () => ({ refresh() {} }),
@@ -159,21 +141,7 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
           ? `<span class="lw-time-pill"><span class="sr-only">Godzina rozpoczęcia: </span>${value.startTime}</span>`
           : '',
       },
-      MutationFeedback: {
-        confirmed: async ({ execute, apply, rollback, skipApplyWhen, focusAfterApply }: { execute: () => Promise<unknown>; apply: (result: unknown) => void; rollback?: (error: unknown) => unknown; skipApplyWhen?: (result: unknown) => boolean; focusAfterApply?: (result: unknown) => { focus(): void } | null }) => {
-          let result: unknown;
-          try {
-            result = await execute();
-          } catch (error) {
-            if (rollback) await rollback(error);
-            throw error;
-          }
-          if (skipApplyWhen?.(result)) return result;
-          apply(result);
-          focusAfterApply?.(result)?.focus();
-          return result;
-        },
-      },
+      MutationFeedback: createMutationFeedbackMock(),
     },
     document: {
       getElementById: (id: string) => elements.get(id) ?? null,
@@ -226,6 +194,9 @@ function createHarness(event: Record<string, unknown>, options: { canManageSklad
       throw new Error(`unexpected request: ${url}`);
     },
   };
+  (context.window as any).PersonRegistrationPrompt = createPersonRegistrationPromptMock(context.window.MutationFeedback as any, {
+    shouldCancelDuplicate: () => cancelDuplicatePrompt,
+  });
   vm.runInNewContext(personPillSource, context, { filename: 'person-pill.js' });
   vm.runInNewContext(companionAddSource, context, { filename: 'companion-add.js' });
   vm.runInNewContext(eventEditFormSource, context, { filename: 'event-edit-form.js' });
